@@ -96,14 +96,12 @@ class MinerUConverter(BaseConverter):
         )
 
     async def convert(self, raw_file: RawFileProperties) -> ConvertedFile:
-        # TEXT 文件（DataLoader 已读 content）→ 直接包装
         if raw_file.content:
             return ConvertedFile.from_raw(raw_file, raw_file.content)
 
         file_path = str(raw_file.path)
         logger.debug("convert 开始: %s (ext=%s)", raw_file.name, raw_file.ext)
 
-        # .md 文件 → 直接读 + caption
         if raw_file.ext in _IS_ALREADY_MARKDOWN:
             markdown = self._read_markdown_file(file_path)
             img_hint = ""

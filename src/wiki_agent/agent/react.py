@@ -284,7 +284,6 @@ class ReActAgent(BaseAgent):
 
         # ── hooks ─────────────────────────────────────────
         _raw = hooks or []
-        # 所有hook组织成一个统一的hook
         self._hooks: AgentHook = (
             CompositeHook(_raw) if len(_raw) > 1
             else _raw[0] if _raw
@@ -322,7 +321,6 @@ class ReActAgent(BaseAgent):
         run_ctx = RunContext(session_key=session_key)
 
         # restore
-        # 重新取出会话
         session:Session=self.session_manager.get_or_create(session_key=session_key)
         await self._hooks.on_run_start(run_ctx)
 
@@ -360,7 +358,6 @@ class ReActAgent(BaseAgent):
             s.set_attr("consolidated", consolidated)
             s.set_attr("last_consolidated", session.last_consolidated)
 
-        # 持久化压缩后的会话
         if consolidated:
             # 这里不需要锁，因为session之间在while下一定是串行的，后面改成消息队列的话再处理
             await asyncio.to_thread(self.session_manager.save_checkpoint,session=session)
