@@ -1,0 +1,43 @@
+[project]
+name = "wiki-agent"
+version = "0.1.0"
+description = "LLM Wiki — 用 LLM 作为知识编译器，管理、组装知识库。"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "watchdog>=6.0.0",
+    "pydantic>=2.13.4",
+    "openai>=1.0.0",
+    "tiktoken>=0.5.0",
+    "qdrant-client>=1.9.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "dashscope>=1.20.0",
+    "mcp>=1.0.0",
+    "pillow>=12.3.0",
+    "tesserocr>=2.11.0",
+    "pypdf>=6.15.0",
+    "pypdfium2>=5.12.1",
+    "fpdf2>=2.8.7",
+    "python-docx>=1.2.0",
+    "python-pptx>=1.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wiki_agent"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
