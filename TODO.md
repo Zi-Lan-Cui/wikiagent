@@ -86,7 +86,7 @@
 
 | 项             | 优先级 | 痒度     | 说明                                                                    |
 | -------------- | ------ | -------- | ----------------------------------------------------------------------- |
-| 代码块语法高亮 | 中     | ⭐⭐⭐⭐ | `python` / `bash` / `yaml` 代码块 Rich 高亮，现在只是纯文本怼脸上 |
+| ~~代码块语法高亮~~ | -      | -        | ✅ 已完成（2026-08-17）——fence 整块缓冲、闭合一次性 Markdown 渲染（Rich 高亮 + 代码块背景 + 标记隐藏）。注意：块闭合才显示（生成期不可见，<20 行不可感知） |
 | 表格自适应宽度 | 低     | ⭐⭐     | 列太宽时自动换行，别撑到屏幕外面去                                      |
 | 思考过程折叠   | 低     | ⭐⭐⭐   | LLM 的"让我查一下"之类的内心戏折叠成一行，想看再展开                    |
 | 进度条动画     | 中     | ⭐⭐⭐⭐ | compaction 时不是死文字，是一根小进度条在蠕动                           |
@@ -201,7 +201,7 @@
 | ~~配置来源分层~~              | ~~高~~ | -    | ✅ 已完成——构造参数 > 环境变量 > .env > 默认值                                      |
 | ~~硬编码收编~~                | ~~高~~ | -    | ✅ 已完成——react.py 的 generation_config dict 收编进 AgentConfig（AGENT_ 前缀）     |
 | ~~两阶段初始化~~              | ~~中~~ | -    | ✅ 已完成——LLMClient(cfg) 构造即完整                                                |
-| ~~MCP 独立配置~~              | ~~中~~ | -    | ✅ 已完成——env/mcp.json + 判别联合 transport，weather 已接入（远程端点暂不可达）    |
+| ~~MCP 独立配置~~              | ~~中~~ | -    | ✅ 已完成——env/mcp.json + 判别联合 transport；weather 真连上（2026-08-17 全链路修复后，见速查区） |
 | embedding/storage/chunker 收编 | 低      | ⭐⭐ | 三个 config 还在用 from_env 模式（RAG 路径半休眠），需要时再迁                        |
 
 ---
@@ -224,7 +224,7 @@
   - session 管理（--resume/--list，key 生成，旧会话存档不销毁）
   - 日志体系（统一命名空间 + 根 handler + --debug 写文件）
   - 结构化事件 + trace/span（events.jsonl，OTel 语义对齐）
-  - transient Live 流式渲染 + 工具行 flush 交错
+  - 追加式流式渲染 + 工具行 flush 交错（增量即最终，无预览/擦除/重渲染）
   - 压缩双阈值（trigger 0.8 / target 0.5）
   - agent 审计修复（2026-08-15，问答主攻前）：A1 governor snip 消息顺序反转（逆序收集未恢复——LLM 读到倒序对话，test_governor 6 项回归）；A3 consolidate 前置 guard（窗口内超预算跳过 replay 压缩，主策略循环仍推进）；Session.clear 删除 + add_messages 改 extend；ensure_dir 对文件占位返回 None + save_checkpoint 防 UnboundLocalError；test_session 重写 8 项
   - **记忆机制问答化 + build 扩展**（C1 审计结论落地）：纠错管道（RecordCorrection 工具 agent 主动调用 → append_correction 代码直写 corrections.md，不经 Dreamer 画像加工；自然语言原样落账——纠错是终态事实不再 LLM 重写）；ContextBuilder 五块组装（用户画像 memory.md + wiki 环境 purpose/schema/index 行截断 + 待处理纠错 corrections.md + 工具描述 + 对话摘要）；ReActAgent 显式 wiki_dir 参数（CLI 从配置传入，不偷 registry）；test_corrections 5 项 + test_context_builder 5 项。**注意 prompt cache 交互**：system prompt 每轮读文件——内容稳定则文本相同 cache 命中，index/纠错变化才 miss（设计内行为）
@@ -272,6 +272,9 @@
   - Prompt Cache 优化（2026-08-16）：静态前移/动态后移——编译管线 prompt 拆 system/user，usage 收 cache_hit/cache_miss，test_prompt_cache_separation 锁定契约
   - /refine CLI 命令壳（RefineCommand：CLI 内跑完整链 refine + surgery dry-run + scan 报告）
   - test/ 陈旧测试移植（E5）：test_memory/test_concurrency 删除（旧 API 签名），test_helpers 保留仍有效，总数 142→156 全绿
+  - 渲染层重写（2026-08-17）：transient Live 两步模型 → 追加式流式——长回答帧高超终端高度时擦除失效，残留帧 + 收尾重渲染 = 同一回答显示两遍；追加式无预览/擦除/重渲染，架构杜绝。代码块 fence 整块缓冲、闭合一次性 Markdown 渲染（语法高亮 + 背景 + 标记隐藏）；test_terminal_renderer 7 项
+  - LLM 鲁棒性（2026-08-17）：① timeout 配置化（LLMConfig.timeout 默认 300s——reasoning 思考段 chunk 间隔超硬编码 120s 触发 ReadTimeout 崩溃）② _invoke_with_retry 流式/非流式共用，RetryableError 指数退避（1s/2s/4s）+ 流式重试用户可见 ③ finish=length 截断可见（hook 提示 + warning + span truncated/reasoning_len 诊断）④ CLI 边界 RetryableError 不崩交互循环
+  - MCP 全链路修复（2026-08-17，weather 真连上）：① need_resources/need_prompts 收进 McpServerConfig（曾从 transport 读——SSE 连接必失败根因）② open_single_server 失败自清理（server_stack 泄漏 → 退出时 sse_client 生成器跨 task athrow 噪音）③ 连接失败 dead.set 替代 owner.cancel ④ asyncio.wait 3.13 禁止 coroutine（Event.wait 包 task）⑤ aclose 异常隔离（owner 已死不再传播）；pyproject 钉 mcp>=1.0.0,<2（2.0.0 sse 关闭上游 bug）
 
 💀 马上搞:
   0. **extract 来源保真校验**（污染事故暴露的治本缺口，E8）：extract 无任何"摘要与源内容相符性"校验——配置 JSON 能编出物理页。方向：命名实体重叠度检查 / prompt 强约束"摘要主体必须出现在文档中"（设计笔记 §13 防线缺口）
@@ -279,19 +282,18 @@
   2. **S2 尾部**（审查报告残留）：① llm.py 同步 invoke/stream 存留决策——真无消费者就删，剩一处调用点就迁 ② react.py/llm.py 尾部 __main__ 调试块清理（合并到 scripts/ 或删）
 
 🔜 随后:
-  3. 代码块语法高亮
-  4. /debug 面板
-  5. 孤岛检测 + 页面评分 + frontmatter 校验
-  6. 进度条动画
-  7. Update 保留原文（遗漏-6）
-  8. 实体-页面映射表
-  9. 手术剩余：create/trim 原子（拆分）+ 集成进 /refine 命令
-  10. schema.md 驱动路由（第三节高优项——目录白名单三处硬编码收敛）
+  3. /debug 面板
+  4. 孤岛检测 + 页面评分 + frontmatter 校验
+  5. 进度条动画
+  6. Update 保留原文（遗漏-6）
+  7. 实体-页面映射表
+  8. 手术剩余：create/trim 原子（拆分）+ 集成进 /refine 命令
+  9. schema.md 驱动路由（第三节高优项——目录白名单三处硬编码收敛）
 
 🍰 甜点:
-  11. mini dashboard
-  12. 引文脚注
-  13. 编译 diff 报告
-  14. Emoji 映射 + 思考折叠
-  15. ⭐ FastAPI gateway（重点，等 MessageBus 引入后）
+  10. mini dashboard
+  11. 引文脚注
+  12. 编译 diff 报告
+  13. Emoji 映射 + 思考折叠
+  14. ⭐ FastAPI gateway（重点，等 MessageBus 引入后）
 ```

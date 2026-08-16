@@ -31,6 +31,9 @@ class LLMConfig(BaseSettings):
     api_key: str = ""
     base_url: str = ""
     model_id: str = ""
+    # 单次请求超时（秒）——reasoning 模型思考段长，
+    # 120s 对 deepseek 思考链不够（两次 chunk 间隔超限即 ReadTimeout）
+    timeout: float = 300.0
 
 
 class VLMConfig(LLMConfig):
@@ -148,12 +151,19 @@ class StreamableHttpTransport(BaseModel):
 
 
 class McpServerConfig(BaseModel):
-    """单个 MCP server 配置。transport 按 type 判别。"""
+    """单个 MCP server 配置。transport 按 type 判别。
+
+    need_resources / need_prompts 是 server 级开关——transport
+    子配置上没有（adaptor 曾从 transport 读这两个字段，
+    AttributeError 导致 SSE server 连接必失败）。
+    """
 
     name: str = ""
     transport: StdioMcpTransport | SseMcpTransport | StreamableHttpTransport = Field(
         discriminator="type",
     )
+    need_resources: bool = False   # 是否暴露 resources（wrapper 未实现，见 adaptor）
+    need_prompts: bool = False     # 是否暴露 prompts（wrapper 未实现，见 adaptor）
 
 
 class McpConfig(BaseModel):

@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import httpx
 import re
+from typing import Any
 
 
 from wiki_agent.log import get_logger
@@ -47,7 +48,9 @@ class MCPConnection:
         """请求关闭连接并等待 owner 退出。
 
         shield 保证清理链接时 _owner 本身不被取消，
-        避免清理到一半中止。
+        避免清理到一半中止。owner 因自身异常已死亡时
+        （finally 已尽力清理）异常不传播——调用方（CLI 收尾）
+        不需要替 MCP 连接的旧伤买单。
         """
         self._close_requsted.set()
         try:
@@ -56,12 +59,15 @@ class MCPConnection:
         except asyncio.CancelledError:
             if not self._owner.cancelled():
                 raise
+        except Exception:
+            pass
 
 async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict[str,MCPConnection]:
     """连接配置中的所有 MCP server 并把工具注册进 registry。
 
     Args:
-        mcp_servers: server 名 → MCP 配置（判别联合类型）。
+        mcp_servers: server 名 → McpServerConfig（transport 在
+            cfg.transport，need_resources/need_prompts 是 server 级开关）。
         tool_registry: 工具注册表（工具注册进这里）。
 
     Returns:
@@ -70,82 +76,106 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
     """
 
     async def open_single_server(name,cfg):
+        # cfg 是 McpServerConfig——传输细节在 cfg.transport，
+        # need_resources/need_prompts 是 server 级开关
+        # （曾直接从 transport 读，AttributeError 导致 SSE 必失败）
+        transport = cfg.transport
         server_stack=AsyncExitStack()
         await server_stack.__aenter__()
 
-        if cfg.type=="stdio":
-            server_params=StdioServerParameters(
-                command=cfg.command,
-                args=cfg.args,
-                env=cfg.env
-            )
-            read,write=await server_stack.enter_async_context(stdio_client(server_params))
+        try:
+            if transport.type=="stdio":
+                server_params=StdioServerParameters(
+                    command=transport.command,
+                    args=transport.args,
+                    env=transport.env
+                )
+                read,write=await server_stack.enter_async_context(stdio_client(server_params))
 
-        elif cfg.type=="sse":
-            # 根据client的类型标识，工厂必须有以下参数，在流程中会自动往里面传入一些值，所以必须有
-            def httpx_client_factory(
-                    headers: dict[str,str]|None=None,
-                    timeout: httpx.Timeout|None=None,
-                    auth: httpx.Auth|None=None,
-            )-> httpx.AsyncClient:
-                merged_headers = {
-                    'Accept': "application/json,text/event-stream",
-                    **(headers or {}),
-                    **(cfg.headers or {})  # headers是client自己调用时注入，这个是自己配置输入
-                }
+            elif transport.type=="sse":
+                # mcp 1.x 的 sse_client 用 httpx + httpx-sse 的 aconnect_sse，
+                # 工厂返回普通 httpx.AsyncClient 即可。防御保留 httpx2
+                # 分支：pyproject 钉死 mcp<2（2.0.0 sse 关闭有上游 bug），
+                # 若手动升级 2.x，sse_client 会改用 httpx2 并调用 client.sse
+                try:
+                    import httpx2 as _sse_httpx
+                except ImportError:
+                    _sse_httpx = httpx
 
-                return httpx.AsyncClient(
-                    headers=merged_headers,
-                    timeout=timeout,
-                    auth=auth,
-                    trust_env=False,  # 不使用环境
+                # 根据client的类型标识，工厂必须有以下参数，在流程中会自动往里面传入一些值，所以必须有
+                def httpx_client_factory(
+                        headers: dict[str, str] | None = None,
+                        timeout: Any | None = None,
+                        auth: Any | None = None,
+                ) -> Any:
+                    merged_headers = {
+                        'Accept': "application/json,text/event-stream",
+                        **(headers or {}),
+                        **(transport.headers or {})  # headers是client自己调用时注入，这个是自己配置输入
+                    }
+
+                    return _sse_httpx.AsyncClient(
+                        headers=merged_headers,
+                        timeout=timeout,
+                        auth=auth,
+                        trust_env=False,  # 不使用环境
+                    )
+
+                read,write=await server_stack.enter_async_context(
+                    sse_client(
+                        url=transport.url,
+                        httpx_client_factory=httpx_client_factory
+                    )
                 )
 
-            read,write=await server_stack.enter_async_context(
-                sse_client(
-                    url=cfg.url,
-                    httpx_client_factory=httpx_client_factory
+            elif transport.type=="streamable":
+                # Streamable HTTP（MCP 2025-06 规范新传输，逐步取代 SSE）
+                read,write=await server_stack.enter_async_context(
+                    streamable_http_client(transport.url)
                 )
-            )
 
-        elif cfg.type=="streamable":
-            # Streamable HTTP（MCP 2025-06 规范新传输，逐步取代 SSE）
-            read,write=await server_stack.enter_async_context(
-                streamable_http_client(cfg.url)
-            )
+            else:
+                # 判别联合保证 type 合法，但配置可能被外部 JSON 直改——
+                # else 显式抛错，避免 read/write 未定义的 NameError 误导排查
+                raise ValueError(f"MCP server '{name}' 未知传输类型: {transport.type!r}")
 
-        else:
-            # 判别联合保证 type 合法，但配置可能被外部 JSON 直改——
-            # else 显式抛错，避免 read/write 未定义的 NameError 误导排查
-            raise ValueError(f"MCP server '{name}' 未知传输类型: {cfg.type!r}")
+            session = await server_stack.enter_async_context(ClientSession(read,write))
 
-        session = await server_stack.enter_async_context(ClientSession(read,write))
+            await session.initialize()
 
-        await session.initialize()
+            tools=await session.list_tools()
 
-        tools=await session.list_tools()
+            for tool in tools.tools:
+                wrappered_tool=MCPToolWrapper(session,name,tool)
+                tool_registry.register(wrappered_tool)
 
-        for tool in tools.tools:
-            wrappered_tool=MCPToolWrapper(session,name,tool)
-            tool_registry.register(wrappered_tool)
+            if cfg.need_resources:
+                # TODO（MCP Resources 支持）: wrapper 是空壳未实现——
+                # 注册空壳会在 get_all_schema_openai 读 name/description
+                # 属性时 AttributeError 必崩。实现前不注册，只留探测日志。
+                resources = await session.list_resources()
+                logger.warning(
+                    "MCP server '%s' 暴露 %d 个 resources——"
+                    "Resources 支持未实现，跳过注册", name, len(resources.resources))
 
-        if cfg.need_resources:
-            # TODO（MCP Resources 支持）: wrapper 是空壳未实现——
-            # 注册空壳会在 get_all_schema_openai 读 name/description
-            # 属性时 AttributeError 必崩。实现前不注册，只留探测日志。
-            resources = await session.list_resources()
-            logger.warning(
-                "MCP server '%s' 暴露 %d 个 resources——"
-                "Resources 支持未实现，跳过注册", name, len(resources.resources))
+            if cfg.need_prompts:
+                prompts = await session.list_prompts()
+                logger.warning(
+                    "MCP server '%s' 暴露 %d 个 prompts——"
+                    "Prompts 支持未实现，跳过注册", name, len(prompts.prompts))
 
-        if cfg.need_prompts:
-            prompts = await session.list_prompts()
-            logger.warning(
-                "MCP server '%s' 暴露 %d 个 prompts——"
-                "Prompts 支持未实现，跳过注册", name, len(prompts.prompts))
+            return name,session,server_stack
 
-        return name,session,server_stack
-
+        except BaseException:
+            # 连接阶段失败——当场清理全部 context。泄漏给 GC 的
+            # async generator 会在事件循环关闭时被跨 task athrow，
+            # anyio cancel scope 拒绝跨 task 退出，打印 RuntimeError
+            # 噪音（"generator didn't stop after athrow" 那类报错）
+            try:
+                await server_stack.aclose()
+            except Exception:
+                pass
+            raise
     async def connect_single_server(name,cfg):
         # get_running_loop——本函数在 async 上下文内，
         # get_event_loop 无当前 loop 时行为有坑（可能新建/报错）
@@ -177,12 +207,20 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
                             return
 
                 watcher=asyncio.create_task(health_watch())
+                # asyncio.wait 在 3.13 禁止传 coroutine
+                # （"Passing coroutines is forbidden"）——Event.wait()
+                # 必须先包成 task。否则连接成功走到这里立即 TypeError，
+                # owner 死亡且 coroutine 泄漏（"was never awaited" 警告）
+                close_task = asyncio.create_task(close_requested.wait())
+                dead_task = asyncio.create_task(dead.wait())
                 try:
                     await asyncio.wait(
-                        {close_requested.wait(), dead.wait()},
+                        {close_task, dead_task},
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                 finally:
+                    close_task.cancel()
+                    dead_task.cancel()
                     watcher.cancel()
 
                 if dead.is_set() and not close_requested.is_set():
@@ -208,8 +246,13 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
         try:
             connected = await ready
         except BaseException:
+            # 不 cancel owner——cancel 会打断 finally 里的
+            # stack.aclose()（CancelledError 是 BaseException，
+            # except Exception 接不住），sse_client 生成器泄漏给
+            # GC，事件循环关闭时跨 task athrow 打印 RuntimeError
+            # 噪音。dead.set() 让 owner 的 wait 自然返回走完整清理
             close_requested.set()
-            owner.cancel()
+            dead.set()
             with suppress(BaseException):
                 await asyncio.shield(owner)
             raise
