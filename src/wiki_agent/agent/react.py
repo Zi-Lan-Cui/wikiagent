@@ -10,11 +10,12 @@ from wiki_agent.command import create_command_router
 from wiki_agent.config import AgentConfig as AgentCfg
 from wiki_agent.consolidator import Consolidator
 from wiki_agent.context import ContextBuilder, ContextGovernor
+from wiki_agent.errors import RetryableError
 from wiki_agent.hook import AgentHook, CompositeHook, RunContext
 from wiki_agent.llm import LLMClient
 from wiki_agent.log import begin_trace, get_logger, span
 from wiki_agent.memory import Dreamer, MemoryStore
-from wiki_agent.message import Message
+from wiki_agent.message import LLMResponse, Message
 from wiki_agent.session import Session, SessionManager
 from wiki_agent.tools import RecordCorrection, ToolRegistry
 
@@ -118,6 +119,62 @@ class ReActRunner:
             ))
         return tool_msgs
 
+    # ── 内部：LLM 调用（带重试）───────────────────────
+
+    _MAX_RETRIES = 3  # 最多尝试次数（1 次原调 + 2 次重试）
+
+    async def _invoke_with_retry(
+            self, messages: list[Message], tools: list[dict],
+            *, max_tokens: int, run_ctx: RunContext,
+            on_delta: Callable | None = None,
+    ) -> LLMResponse:
+        """LLM 调用包装——RetryableError 指数退避重试。
+
+        流式/非流式共用。流式重试时 on_delta 回调会重复收到已
+        生成增量——流式本就向前滚动，多刷一段可接受；非流式无回调。
+
+        Args:
+            messages: 发送给 LLM 的消息。
+            tools: OpenAI 工具 schema 列表。
+            max_tokens: 生成 token 上限。
+            run_ctx: 回合上下文（重试提示经 hook 事件显示）。
+            on_delta: 流式增量回调（流式路径传入）。
+
+        Returns:
+            最后一次成功的 LLMResponse。
+
+        Raises:
+            RetryableError: 重试耗尽后原样抛给上层（本轮失败，
+                CLI 边界处理，不会崩掉交互循环）。
+        """
+        delay = 1.0
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                if on_delta is not None:
+                    return await self._agent.llm.async_stream(
+                        messages, tools=tools, max_tokens=max_tokens,
+                        on_delta=on_delta)
+                return await self._agent.llm.async_invoke(
+                    messages, tools=tools, max_tokens=max_tokens)
+            except RetryableError:
+                # 流式退避会让用户看到停顿——提示等待（非流式
+                # 屏幕无动态，静默退避即可）
+                if on_delta is not None:
+                    await self._agent._hooks.on_stream_delta(
+                        run_ctx,
+                        f"_(网络抖动——重试中 {attempt + 1}/{self._MAX_RETRIES - 1})_")
+                if attempt < self._MAX_RETRIES - 1:
+                    logger.warning(
+                        "LLM 调用失败 %d/%d（%s），%.1fs 后重试",
+                        attempt + 1, self._MAX_RETRIES,
+                        "流式" if on_delta is not None else "非流式",
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                else:
+                    raise
+
     # ── 内部：非流式调用 ─────────────────────────────
 
     async def _invoke(
@@ -136,10 +193,11 @@ class ReActRunner:
             True 表示存在工具调用需继续循环；False 表示已出最终回答。
         """
         async with span("llm_call", model=self._agent.llm.model_id, stream=False) as s:
-            response = await self._agent.llm.async_invoke(
+            response = await self._invoke_with_retry(
                 runner_messages,
-                tools=self._agent.tool_registery.get_all_schema_openai(),
+                self._agent.tool_registery.get_all_schema_openai(),
                 max_tokens=self._agent.agent_config.max_tokens,
+                run_ctx=run_ctx,
             )
             if response.usage:
                 s.set_attr("tokens", response.usage)
@@ -160,6 +218,13 @@ class ReActRunner:
         if not response.tool_calls:
             if response.content:
                 print(response.content)
+            if response.finish_reason == "length":
+                logger.warning(
+                    "回答被 max_tokens 截断（finish=length, usage=%s, reasoning=%d chars）",
+                    getattr(response, "usage", {}),
+                    len(response.reasoning_content or ""),
+                )
+                print("\n_(回答被 token 上限截断——调大 AGENT_MAX_TOKENS 或让我继续)_")
             return False
 
         tool_msgs = await self._execute_tools(response.tool_calls, run_ctx)
@@ -194,10 +259,11 @@ class ReActRunner:
             （空响应时经 hook 发送兜底提示）。
         """
         async with span("llm_call", model=self._agent.llm.model_id, stream=True) as s:
-            response = await self._agent.llm.async_stream(
+            response = await self._invoke_with_retry(
                 runner_messages,
-                tools=self._agent.tool_registery.get_all_schema_openai(),
+                self._agent.tool_registery.get_all_schema_openai(),
                 max_tokens=self._agent.agent_config.max_tokens,
+                run_ctx=run_ctx,
                 on_delta=lambda delta: self._agent._hooks.on_stream_delta(
                     run_ctx, delta),
             )
@@ -205,6 +271,11 @@ class ReActRunner:
                 s.set_attr("tokens", response.usage)
             if not (response.content and response.content.strip()) and not response.tool_calls:
                 s.set_attr("empty_response", True)
+            # finish=length = 生成被 max_tokens 截断（reasoning 模型思考段
+            # 吃预算后正文到一半断掉）——span 记录现场供诊断
+            if response.finish_reason == "length":
+                s.set_attr("truncated", True)
+                s.set_attr("reasoning_len", len(response.reasoning_content or ""))
 
         has_text = bool(response.content and response.content.strip())
         has_calls = bool(response.tool_calls)
@@ -236,6 +307,15 @@ class ReActRunner:
                 # 给个兜底提示（经 hook 事件——渲染层统一显示）
                 await self._agent._hooks.on_stream_delta(
                     run_ctx, "_(模型未生成回答，请重试)_")
+            elif response.finish_reason == "length":
+                # 截断必须对用户可见——半截回答会被当作完整回答落盘
+                logger.warning(
+                    "回答被 max_tokens 截断（finish=length, usage=%s, reasoning=%d chars）",
+                    getattr(response, "usage", {}),
+                    len(response.reasoning_content or ""),
+                )
+                await self._agent._hooks.on_stream_delta(
+                    run_ctx, "\n\n_(回答被 token 上限截断——调大 AGENT_MAX_TOKENS 或让我继续)_")
             return False
 
 

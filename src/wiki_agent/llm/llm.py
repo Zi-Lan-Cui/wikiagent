@@ -50,8 +50,8 @@ class LLMClient:
         self.base_url:str=config.base_url
         self.model_id:str=config.model_id
 
-        self.client=openai.Client(api_key=self.api_key,base_url=self.base_url,timeout=120)
-        self.async_client=openai.AsyncClient(api_key=self.api_key,base_url=self.base_url,timeout=120)
+        self.client=openai.Client(api_key=self.api_key,base_url=self.base_url,timeout=config.timeout)
+        self.async_client=openai.AsyncClient(api_key=self.api_key,base_url=self.base_url,timeout=config.timeout)
 
     def invoke(
             self,
