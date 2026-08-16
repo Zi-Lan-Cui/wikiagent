@@ -70,7 +70,6 @@ class Consolidator:
                 truncate_summery = self._maybe_truncate(last_summery,budget - text_cost)
 
             if truncate_text:
-                # 调用llm以及对应的提示词进行压缩
                 need_consolidate_messages=[
                     Message(
                         role="system",
@@ -85,7 +84,7 @@ class Consolidator:
                 summery=response.content
 
                 if response.finish_reason=="error":
-                    raise RuntimeError(f"LLM returned error: {response.content}")                
+                    raise RuntimeError(f"LLM returned error: {response.content}")
 
                 return summery
         except Exception as e:
@@ -105,7 +104,6 @@ class Consolidator:
         """
         判断并执行压缩,成功返回压缩的摘要str,失败返回None
         """
-        # self._MIN_ARCHIVE_COUNT 添加压缩最小长度，避免来一条压一条
         if len(messages)-last_consolidate<=replay_max_messages:
             return None
 
@@ -212,7 +210,6 @@ class Consolidator:
             replay_max_messages=replay_max_messages
         )
 
-        # 更新压缩结果
         if result:
             summery, end_idx = result
             if summery is not None:
@@ -264,7 +261,6 @@ class Consolidator:
                     last_summery=session.last_summery
                 )
 
-                # 更新压缩结果
                 if summery:
                     session.last_summery=summery
                 # archive 无论成败都推进 last_consolidated

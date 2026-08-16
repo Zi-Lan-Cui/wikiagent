@@ -84,7 +84,6 @@ class DataLoader:
 
     # ── 公开 API ──────────────────────────────────────────
 
-    # TODO 加载的时候首先检查是否是重复加载，这个需要一个数据库存储
     def load(
         self,
         files: list[str | Path],

@@ -33,8 +33,5 @@ class BaseAgent(ABC):
             user_input:str,
             stream=False,
     ):
-        """
-        子类实现逻辑
-        """
         pass
 

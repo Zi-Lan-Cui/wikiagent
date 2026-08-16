@@ -138,7 +138,6 @@ def extract_related(content: str, *, valid_slugs: set[str]) -> str:
             slugs.append(slug)
 
     new_related = f'related: ["[[' + ']]", "[['.join(slugs) + ']]"]' if slugs else "related: []"
-    # 覆盖或插入 related 行
     if re.search(r'(?m)^\s*related\s*:', frontmatter):
         fixed_fm = re.sub(
             r'(?m)^\s*related\s*:.*$',
@@ -180,12 +179,10 @@ def inject_metadata(
     fm = content[len("---\n"):end]
     rest = content[end:]
 
-    # 收集已有 key
     existing_sources = existing or {}
     old_created = existing_sources.get("created", today)
     old_sources = existing_sources.get("sources", "")
 
-    # 构建新 frontmatter
     new_fm = fm
     # created: 保留旧的（追加路径同样用 old_created——LLM 不写 created，
     # 追加才是常规路径，用 today 会把已有页面的 created 重置）
