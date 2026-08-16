@@ -1,106 +1,150 @@
-"""测试 Consolidator — 修复后验证。
+"""Consolidator 测试——双策略/游标推进/防死循环。
 
-验证: archive 失败时不再 break，而是跳过该段继续压缩。
+无 session 数据依赖（旧版读 workspace/key1.jsonl 的脆弱方式废弃）：
+全部用脚本化 LLM + 构造 session。
 
-用法:
-    VIRTUAL_ENV= .venv/bin/python test/test_consolidator.py
+直接运行:  .venv/bin/python test/test_consolidator.py
 """
 
-from __future__ import annotations
-
-import asyncio, json, sys
+import asyncio
+import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent / "env" / ".env")
-
 from wiki_agent.consolidator import Consolidator
 from wiki_agent.context import ContextBuilder
-from wiki_agent.message import Message, LLMResponse, ToolCall
+from wiki_agent.message import LLMResponse, Message
+from wiki_agent.memory import MemoryStore
 from wiki_agent.session import Session
 from wiki_agent.tools import ToolRegistry
-from wiki_agent.memory import MemoryStore
 
 
-async def main():
-    print("=" * 60)
-    print("测试: archive 失败不应导致 breaker 死循环")
-    print("=" * 60)
-
-    # 加载真实 session
-    session_file = Path(__file__).resolve().parent.parent / "workspace" / "sessions" / "key1.jsonl"
-    if not session_file.exists():
-        print("无 session 数据，跳过")
-        return
-
-    s = Session(key="test")
-    with open(session_file) as f:
-        for line in f:
-            if not (line := line.strip()):
-                continue
-            try:
-                d = json.loads(line)
-                if d.get("_type") == "metadata":
-                    continue
-                tool_calls = []
-                for tc in d.get("tool_calls", []):
-                    func = tc.get("function", {})
-                    args = func.get("arguments", {})
-                    if isinstance(args, str):
-                        try: args = json.loads(args)
-                        except: pass
-                    tool_calls.append(ToolCall(
-                        id=tc.get("id", ""), name=func.get("name", ""), arguments=args))
-                s.add_message(Message(
-                    role=d.get("role", "?"), content=d.get("content", ""),
-                    tool_calls=tool_calls, tool_call_id=d.get("tool_call_id", ""),
-                    tool_name=d.get("tool_name", "")))
-            except Exception:
-                pass
-
-    print(f"Session: {len(s.history)} 条消息")
-
-    workspace = Path("/tmp/wiki_consol_test4")
-    workspace.mkdir(parents=True, exist_ok=True)
-    context_builder = ContextBuilder(
+def _make_consolidator(tmp: Path, session: Session) -> tuple[Consolidator, ContextBuilder]:
+    builder = ContextBuilder(
         system_prompt="你是助手\n{tools_description}\n{summery}",
         tool_registery=ToolRegistry(),
-        memory_store=MemoryStore(workspace),
+        memory_store=MemoryStore(workspace=tmp),
     )
+    return Consolidator(), builder
 
-    # ── 模拟: 前两次 archive 失败，第三次成功 ──
-    consolidate = Consolidator()
-    fail_count = [0]
 
-    async def flaky_invoke(messages, **kwargs):
-        fail_count[0] += 1
-        if fail_count[0] <= 2:
-            raise RuntimeError(f"API 错误 #{fail_count[0]}")
-        return LLMResponse(content=f"压缩成功(第{fail_count[0]}次)", finish_reason="stop")
+def _long_session(n_rounds: int = 30) -> Session:
+    """构造长对话——每轮 user+assistant，内容足够长触发压缩。"""
+    s = Session(key="test")
+    for i in range(n_rounds):
+        s.add_messages([
+            Message(role="user", content=f"第{i}个问题 " + "内容" * 200),
+            Message(role="assistant", content=f"第{i}个回答 " + "内容" * 200),
+        ])
+    return s
 
-    mock_llm = MagicMock()
-    mock_llm.async_invoke = AsyncMock(side_effect=flaky_invoke)
 
-    print(f"\n运行 maybe_consolidate (前 2 次 LLM 调用会失败)...")
-    result = await consolidate.maybe_consolidate(
-        llm=mock_llm, session=s, context_builder=context_builder,
-        context_windows=128_000, max_tokens=4_096, replay_max_messages=200,
-    )
-    print(f"结果: {'压缩完成' if result else '无变化'}")
-    print(f"last_consolidated: {s.last_consolidated}/{len(s.history)}")
-    print(f"LLM 调用: {fail_count[0]} 次")
-    print(f"current_window_tokens: {s.current_window_tokens:,}")
-    est = consolidate._estimate_session_prompt_tokens(s, context_builder, 200)
-    print(f"重估: {est:,}")
+def test_archive_failure_advances_cursor_no_dead_loop():
+    """archive 失败仍推进游标——不死循环（原修复的回归锁定）。"""
+    async def run():
+        tmp = Path(tempfile.mkdtemp())
+        s = _long_session(40)
+        consolidator, builder = _make_consolidator(tmp, s)
 
-    if result:
-        print("\n✅ 修复有效: archive 失败也推进了 last_consolidated，不会死循环")
-    else:
-        print("\n⚠️ 仍不触发压缩（可能 estimate 未超目标）")
+        calls = [0]
+
+        async def flaky_invoke(messages, **kwargs):
+            calls[0] += 1
+            if calls[0] <= 2:
+                raise RuntimeError(f"API 错误 #{calls[0]}")
+            return LLMResponse(content="压缩成功", finish_reason="stop")
+
+        mock_llm = MagicMock()
+        mock_llm.async_invoke = AsyncMock(side_effect=flaky_invoke)
+
+        result = await consolidator.maybe_consolidate(
+            llm=mock_llm, session=s, context_builder=builder,
+            context_windows=128_000, max_tokens=4_096,
+            replay_max_messages=10,  # 窗口小——容易触发策略 1
+        )
+        # 失败也推进了游标（不死循环的核心断言）
+        assert s.last_consolidated > 0
+        # 有调用发生
+        assert calls[0] > 0
+        # 返回 True（发生了压缩推进）
+        assert result is True
+    asyncio.run(run())
+
+
+def test_empty_session_no_consolidation():
+    async def run():
+        tmp = Path(tempfile.mkdtemp())
+        s = Session(key="empty")
+        consolidator, builder = _make_consolidator(tmp, s)
+
+        mock_llm = MagicMock()
+        result = await consolidator.maybe_consolidate(
+            llm=mock_llm, session=s, context_builder=builder,
+            context_windows=128_000, max_tokens=4_096, replay_max_messages=10,
+        )
+        assert result is False
+        assert s.last_consolidated == 0
+        assert mock_llm.async_invoke.call_count == 0
+    asyncio.run(run())
+
+
+def test_strategy1_replay_overflow_compresses_invisible():
+    """策略 1: 窗口外消息（LLM 已不可见）被压缩，游标推进。"""
+    async def run():
+        tmp = Path(tempfile.mkdtemp())
+        s = _long_session(30)
+        consolidator, builder = _make_consolidator(tmp, s)
+
+        mock_llm = MagicMock()
+        mock_llm.async_invoke = AsyncMock(return_value=LLMResponse(
+            content="旧对话摘要", finish_reason="stop"))
+
+        result = await consolidator.maybe_consolidate(
+            llm=mock_llm, session=s, context_builder=builder,
+            context_windows=128_000, max_tokens=4_096,
+            replay_max_messages=5,  # 只保留最近 5 条——前面 55 条是窗口外
+        )
+        assert s.last_consolidated > 0
+        # 摘要更新了
+        assert s.last_summery == "旧对话摘要"
+        assert mock_llm.async_invoke.call_count >= 1
+    asyncio.run(run())
+
+
+def test_strategy2_water_level_triggers():
+    """策略 2: 窗口内超 trigger 水位触发压缩。"""
+    async def run():
+        tmp = Path(tempfile.mkdtemp())
+        s = _long_session(50)
+        consolidator, builder = _make_consolidator(tmp, s)
+
+        mock_llm = MagicMock()
+        mock_llm.async_invoke = AsyncMock(return_value=LLMResponse(
+            content="压缩摘要", finish_reason="stop"))
+
+        await consolidator.maybe_consolidate(
+            llm=mock_llm, session=s, context_builder=builder,
+            context_windows=8_000, max_tokens=1_000,  # 小窗口——窗口内超水位
+            replay_max_messages=5,
+        )
+        assert s.last_consolidated > 0
+        assert mock_llm.async_invoke.call_count >= 1
+        # 窗口 token 已更新
+        assert s.current_window_tokens > 0
+    asyncio.run(run())
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import traceback
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"  ✓ {t.__name__}")
+        except Exception:
+            failed += 1
+            print(f"  ✗ {t.__name__}")
+            traceback.print_exc()
+    print(f"\n{len(tests) - failed}/{len(tests)} 通过")
+    raise SystemExit(1 if failed else 0)
