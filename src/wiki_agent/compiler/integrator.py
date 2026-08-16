@@ -59,6 +59,18 @@ class Integrator:
         共享签名保持 current_page 参数（pipeline 无条件传），但
         模式知识在 Planner.needs_current_page——CuratorPlanner 永远
         收不到这个参数，接口不再被模式差异污染。
+
+        Args:
+            extract: 源文档抽取结果。
+            analysis: analyze 阶段的分析结果。
+            schema: 目录规范文本。
+            purpose: 知识库使命文本。
+            index_content: index.md 全文。
+            current_page: 当前页面 slug（仅 needs_current_page 的
+                planner 接收）。
+
+        Returns:
+            集成计划。
         """
         if self._planner.needs_current_page:
             return await self._planner.plan(
@@ -80,7 +92,15 @@ class Integrator:
 # ════════════════════════════════════════════════════════════
 
 def compile_integrator(llm: LLMClient, *, wiki_dir: str | Path) -> Integrator:
-    """compile 模式: 策展人决策（new/update 开放）。"""
+    """组装 compile 模式——策展人决策（new/update 开放）。
+
+    Args:
+        llm: LLM 客户端。
+        wiki_dir: wiki 根目录。
+
+    Returns:
+        策展人四阶段链。
+    """
     p = compile_prompts
     return Integrator(
         Searcher(llm, wiki_dir, p),
@@ -91,7 +111,15 @@ def compile_integrator(llm: LLMClient, *, wiki_dir: str | Path) -> Integrator:
 
 
 def refine_integrator(llm: LLMClient, *, wiki_dir: str | Path) -> Integrator:
-    """refine 模式: 润色师决策（只更新自己，读本页 goal/gaps 判断完成度）。"""
+    """组装 refine 模式——润色师决策（只更新自己，读本页 goal/gaps 判断完成度）。
+
+    Args:
+        llm: LLM 客户端。
+        wiki_dir: wiki 根目录。
+
+    Returns:
+        润色师四阶段链。
+    """
     p = refine_prompts
     return Integrator(
         Searcher(llm, wiki_dir, p),

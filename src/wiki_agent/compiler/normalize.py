@@ -35,6 +35,12 @@ def fix_markdown_fence(content: str) -> str:
     2. 结尾 stray fence: ```
     3. frontmatter 后 stray fence: ---\\n```
     4. LLM 在 frontmatter 前插入的说明文字
+
+    Args:
+        content: LLM 生成的原始内容。
+
+    Returns:
+        清理后的内容。
     """
     content = content.strip()
     # 4. 不以 --- / ``` / # 开头 → 切到第一个 frontmatter 或 fence
@@ -78,8 +84,11 @@ def fix_wikilinks(content: str, *, valid_slugs: set[str]) -> str:
     不是链接，修复它们会破坏 Python 代码。
 
     Args:
-        content: 页面内容
-        valid_slugs: 有效页面 slug 集合（如 {"entities/wraps", "concepts/lambda"}）
+        content: 页面内容。
+        valid_slugs: 有效页面 slug 集合（如 {"entities/wraps", "concepts/lambda"}）。
+
+    Returns:
+        修复后的内容。
     """
     if not valid_slugs:
         return content
@@ -117,6 +126,13 @@ def extract_related(content: str, *, valid_slugs: set[str]) -> str:
     - 只保留 valid_slugs 内的（死链已被 fix_wikilinks 转纯文本）
     - 写入 frontmatter 的 related 行（覆盖 LLM 写的任何值）
     - 无链接 → related: []
+
+    Args:
+        content: 页面内容。
+        valid_slugs: 有效页面 slug 集合。
+
+    Returns:
+        更新 related 后的内容。
     """
     if not content.startswith("---"):
         return content
@@ -164,6 +180,15 @@ def inject_metadata(
 
     防御: LLM 偶发输出空 frontmatter（``---\\n---``）或连续 frontmatter，
     先合并再注入——否则第二段会被误当正文，产生双重 frontmatter。
+
+    Args:
+        content: 页面内容。
+        source_identity: 源文档标识（追加进 sources）。
+        today: 当天日期（updated 用）。
+        existing: 已有页面 frontmatter（保留旧 created/sources）。
+
+    Returns:
+        注入元数据后的内容。
     """
     if not content.startswith("---"):
         return content
@@ -228,6 +253,14 @@ def normalize_page(
     1. fix_markdown_fence → fix_wikilinks
     2. inject_metadata → extract_related
     3. check_page_quality（quality 模块）
+
+    Args:
+        content: LLM 生成的页面内容。
+        path: 页面相对路径（质检定位）。
+        valid_slugs: 有效页面 slug 集合。
+        source_identity: 源文档标识。
+        today: 当天日期。
+        existing: 已有页面 frontmatter。
 
     Returns:
         (规范化后的 content, issues)。issues 含 error 时调用方拒绝落盘。

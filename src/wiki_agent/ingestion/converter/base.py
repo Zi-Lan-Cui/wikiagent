@@ -33,6 +33,15 @@ class ConvertedFile:
 
     @classmethod
     def from_raw(cls, raw_file: RawFileProperties, content: str) -> "ConvertedFile":
+        """从原始文件属性构造 ConvertedFile。
+
+        Args:
+            raw_file: 原始文件属性。
+            content: 转换后的文本。
+
+        Returns:
+            ConvertedFile 实例。
+        """
         return cls(
             content=content,
             name=raw_file.name,
@@ -56,10 +65,24 @@ class BaseConverter(ABC):
 
     @abstractmethod
     async def convert(self, raw_file: RawFileProperties) -> ConvertedFile:
-        """转换单个文件。"""
+        """转换单个文件。
+
+        Args:
+            raw_file: 原始文件属性。
+
+        Returns:
+            转换后的 ConvertedFile。
+        """
         ...
 
     @abstractmethod
     def accepts(self, raw_file: RawFileProperties) -> bool:
-        """是否支持该文件。"""
+        """是否支持该文件。
+
+        Args:
+            raw_file: 原始文件属性。
+
+        Returns:
+            True 表示支持处理。
+        """
         ...

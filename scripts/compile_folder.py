@@ -54,6 +54,10 @@ def log(msg: str, level: str = "INFO") -> None:
 
     （历史版本自己 append run.log——与 FileHandler 双写同一文件，
     两套机制并存。现在文件侧只有 logging 一条路。）
+
+    Args:
+        msg: 消息文本。
+        level: 级别名（INFO/WARN/ERROR/DEBUG）。
     """
     stamp = datetime.now().strftime("%H:%M:%S")
     print(f"[{stamp}] [{level}] {msg}")
@@ -65,6 +69,11 @@ def log(msg: str, level: str = "INFO") -> None:
 # ════════════════════════════════════════════════════════════
 
 async def main(source_dir: str):
+    """编译主流程——加载 → 逐文件流水线 → 汇总 → 质量扫描。
+
+    Args:
+        source_dir: 源文件夹路径。
+    """
     source_path = Path(source_dir).resolve()
     if not source_path.is_dir():
         log(f"源目录不存在: {source_dir}", "ERROR")
@@ -142,6 +151,11 @@ async def main(source_dir: str):
           机器通道不截断，截断是给人看的习惯；事件流是唯一机器事实源）
         - 统一队列: 待处理事项的人机接口（/queue 列出、处理后移除）
         - skip_errors: 内存列表，只服务汇总打印（人看），不落第二份文件
+
+        Args:
+            stage: 失败阶段。
+            source: 源文件名。
+            exc: 原始异常。
         """
         err = exc if isinstance(exc, IngestError) else IngestError(
             stage, f"未分类: {exc}", source=source, cause=exc)
@@ -160,6 +174,13 @@ async def main(source_dir: str):
         skip_errors.append(err)
 
     def _save_artifact(artifact_dir: Path, name: str, content: str) -> None:
+        """保存中间产物到 run 容器。
+
+        Args:
+            artifact_dir: 产物目录。
+            name: 文件名。
+            content: 内容。
+        """
         (artifact_dir / name).write_text(content, encoding="utf-8")
 
     for idx, raw_file in enumerate(summary.files):

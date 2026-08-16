@@ -77,6 +77,12 @@ class Extractor:
 
         自动选择均匀分配或滚动压缩策略。
         完成后自动保存源文档摘要页到 wiki/sources/。
+
+        Args:
+            source: 结构化源文档（chunks + 元信息）。
+
+        Returns:
+            ExtractResult；无 chunk 时返回空摘要结果。
         """
         chunks = source.chunks
         if not chunks:
@@ -154,7 +160,15 @@ class Extractor:
     async def _synthesize(
         self, source: SourceDocument, summaries: list[ChunkSummary],
     ) -> ExtractResult:
-        """chunk 摘要 → 纯文档级概述。"""
+        """chunk 摘要 → 纯文档级概述。
+
+        Args:
+            source: 源文档（元信息进 prompt）。
+            summaries: 各 chunk 摘要列表。
+
+        Returns:
+            汇总结果（并保存 source 页）。
+        """
         parts: list[str] = [
             f"# 源文件: {source.name}",
             f"路径: {source.path}",
@@ -191,6 +205,10 @@ class Extractor:
 
         由代码维护，不依赖 LLM plan 阶段。
         摘要为空时不写——避免 LLM 空响应生成空白 source 页。
+
+        Args:
+            source: 源文档。
+            result: 摘要结果。
         """
         if self._wiki_dir is None:
             return
@@ -236,6 +254,13 @@ class Extractor:
 
         prompt 包含 chunk 在源文件中的位置信息（序号、标题路径），
         帮助 LLM 理解上下文。
+
+        Args:
+            chunk: 待摘要 chunk。
+            max_tokens: 摘要生成上限。
+
+        Returns:
+            摘要文本。
         """
         response = await async_invoke_with_retry(
             self._llm,
@@ -252,7 +277,14 @@ class Extractor:
 
     @staticmethod
     def _slugify_source(filename: str) -> str:
-        """文件名 → kebab-case slug（去扩展名）。"""
+        """文件名 → kebab-case slug（去扩展名）。
+
+        Args:
+            filename: 源文件名。
+
+        Returns:
+            slug（空名兜底 "untitled"）。
+        """
         name = filename.rsplit(".", 1)[0] if "." in filename else filename
         slug = name.lower().strip()
         slug = re.sub(r"[^a-z0-9一-鿿]+", "-", slug)

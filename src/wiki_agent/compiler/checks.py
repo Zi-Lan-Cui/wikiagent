@@ -48,7 +48,12 @@ def _iter_code_runs(content: str):
     - 裸 ``` 且深度 > 0 = 右括号（深度 -1；块内的裸 ``` 是内容不翻转）
     - 块内的 ```python = 内容，不翻转
 
-    返回每行的 in_code 状态——检测闭合与提取非代码文本共用。
+    Args:
+        content: 页面内容。
+
+    Yields:
+        (行文本, 该行是否在代码块内) 二元组——检测闭合与提取
+        非代码文本共用。
     """
     depth = 0
     for line in content.split("\n"):
@@ -80,6 +85,12 @@ def iter_text_outside_code(content: str):
     语义: 未闭合 fence 时尾部按"在代码里"处理（保守——宁可漏检测，
     不误伤代码）。fence 闭合与否由 check 层独立检测（未闭合会
     retry/拒绝落盘），本工具不修复闭合，只保证不碰代码块内容。
+
+    Args:
+        content: 页面内容。
+
+    Yields:
+        非代码块内的文本行。
     """
     for line, in_code in _iter_code_runs(content):
         if not in_code:
@@ -91,6 +102,12 @@ def count_unclosed_fences(content: str) -> int:
 
     正常闭合的块深度回到 0；结束时深度 > 0 即未闭合。
     块内的 ```python 不算新开（内容），裸 ``` 在块外不算闭。
+
+    Args:
+        content: 页面内容。
+
+    Returns:
+        未闭合块数（0 表示全部闭合）。
     """
     depth = 0
     for line in content.split("\n"):
@@ -106,7 +123,14 @@ def count_unclosed_fences(content: str) -> int:
 
 
 def _extract_body(content: str) -> str:
-    """提取 frontmatter 之后的正文。无 frontmatter 返回空串。"""
+    """提取 frontmatter 之后的正文。
+
+    Args:
+        content: 页面内容。
+
+    Returns:
+        正文（strip 后）；无 frontmatter 或格式异常返回空串。
+    """
     if not content.startswith("---"):
         return ""
     try:
@@ -117,7 +141,14 @@ def _extract_body(content: str) -> str:
 
 
 def _body_without_title(content: str) -> str:
-    """正文去掉标题行后的剩余内容——'只有标题'与'正文过短'共用。"""
+    """正文去掉标题行后的剩余内容——'只有标题'与'正文过短'共用。
+
+    Args:
+        content: 页面内容。
+
+    Returns:
+        去掉 # 开头行后的正文（strip 后）。
+    """
     body = _extract_body(content)
     return "\n".join(
         line for line in body.split("\n")
@@ -142,11 +173,16 @@ def _check_analyze_json(
     提供时校验 relationships 的 from/to 归属——引用必须在
     {候选 slug ∪ "current-doc"} 内，否则是 LLM 幻觉（审计 C5:
     ``entities/current-doc`` 这类给固定标识乱加前缀的脏值）。
-    extra_refs: 额外的合法引用（当前文档真实 slug——LLM 用真实
-    路径自称比固定标识 current-doc 更自然，实测 refine 高频
-    违规，归一化后并入合法集）。
     空内容在此返回 False——空响应判定归 check（审计 C1: 调用点
     不再单独检测，retry 层统一处理重试 + check_ok 记录）。
+
+    Args:
+        content: LLM 原始输出。
+        candidates: search 阶段的候选页面路径列表。
+        extra_refs: 额外的合法引用（当前文档真实 slug）。
+
+    Returns:
+        (是否通过, 可执行的错误消息)。
     """
     if not content.strip():
         return False, "输出为空——请输出自由分析 + ```json {...}``` 尾巴。"
@@ -237,8 +273,14 @@ def _check_plan_json(
     让 LLM 在 retry 时知道自己错在哪。只校验'说得对不对'，
     不校验'引用存不存在'——那由 _parse_plan 后的 filter_plan_refs 做。
 
-    allowed_dispositions: 模式契约（prompt 模块的 ALLOWED_DISPOSITIONS）。
-    refine 只允许 update——LLM 输出 new 直接 retry 修正。
+    Args:
+        content: LLM 原始输出。
+        allowed_dispositions: 模式契约（prompt 模块的
+            ALLOWED_DISPOSITIONS）。refine 只允许 update——
+            LLM 输出 new 直接 retry 修正。
+
+    Returns:
+        (是否通过, 可执行的错误消息)。
     """
     allowed = allowed_dispositions or _VALID_DISPOSITIONS
     # fence/尾部缺括号是格式化噪声不是内容错误——与 _parse_plan 共享
@@ -316,7 +358,14 @@ def _check_plan_json(
     return True, ""
 
 def _check_json_array(content: str) -> tuple[bool, str]:
-    """校验 JSON 字符串数组输出。"""
+    """校验 JSON 字符串数组输出。
+
+    Args:
+        content: LLM 原始输出。
+
+    Returns:
+        (是否通过, 可执行的错误消息)。
+    """
     # fence 容错——与 _check_plan_json 共享 _strip_fence
     cleaned = _strip_fence(content)
     try:
@@ -335,6 +384,12 @@ def _check_page_body(content: str) -> tuple[bool, str]:
     """正文存在性——frontmatter 后有正文、去掉标题后仍有内容。
 
     quality.check_page_quality 复用本判定组装 Issue（判定只有这一份）。
+
+    Args:
+        content: 页面内容。
+
+    Returns:
+        (是否通过, 可执行的错误消息)。
     """
     body = _extract_body(content)
     if not body:
@@ -352,6 +407,12 @@ def _check_page_output(content: str) -> tuple[bool, str]:
     组合顺序: frontmatter 先查（结构性问题，错误消息更基础），
     正文存在次之，wikilink/fence 最后（正文格式）。三个 check
     独立保持可复用，组合只在这一处（页面生成的唯一 check 入口）。
+
+    Args:
+        content: LLM 生成的页面内容。
+
+    Returns:
+        (是否通过, 可执行的错误消息)。
     """
     ok, err = _check_page_frontmatter(content)
     if not ok:
@@ -368,7 +429,13 @@ def _check_page_frontmatter(
 ) -> tuple[bool, str]:
     """校验页面输出的 frontmatter 必填字段。
 
-    required: 必填字段集——goal 是页面使命锚，缺失时 LLM 重试补写。
+    Args:
+        content: 页面内容。
+        required: 必填字段集——goal 是页面使命锚，缺失时 LLM
+            重试补写。
+
+    Returns:
+        (是否通过, 可执行的错误消息)。
     """
     fm, _ = split_frontmatter(content)
     if not fm:
@@ -383,6 +450,12 @@ def _check_wikilink_has_text(content: str) -> tuple[bool, str]:
     """校验页面输出——wikilink 带说明文字 + 代码块闭合。
 
     跳过 frontmatter 区域（---...---）中的内容。
+
+    Args:
+        content: 页面内容。
+
+    Returns:
+        (是否通过, 可执行的错误消息)。
     """
     # 切掉 frontmatter——里面的 related/tags 不是 wikilink。
     # 无 frontmatter 时退化为全文（本 check 单独调用也要能工作）

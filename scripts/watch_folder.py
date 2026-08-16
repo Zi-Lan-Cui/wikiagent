@@ -30,6 +30,11 @@ WIKI_DIR = PROJECT_ROOT / "wiki"
 
 
 async def main(source_dir: str):
+    """watch 主流程——初始化 → 启动 reconcile → 常驻运行。
+
+    Args:
+        source_dir: 源文件夹路径。
+    """
     source_path = Path(source_dir).resolve()
     if not source_path.is_dir():
         print(f"源目录不存在: {source_dir}")

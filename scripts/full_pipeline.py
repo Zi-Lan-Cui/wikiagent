@@ -28,7 +28,11 @@ logger = get_logger("FULL_PIPELINE")
 
 
 async def stage_compile(source_dir: str) -> None:
-    """阶段 1: 全量生成。"""
+    """阶段 1: 全量生成。
+
+    Args:
+        source_dir: 源文件夹路径。
+    """
     from compile_folder import main as compile_main
     await compile_main(source_dir)
 
@@ -60,6 +64,7 @@ def clear_wiki() -> None:
 
 
 async def main():
+    """全链条主流程——清空 → compile → refine → surgery dry-run。"""
     if len(sys.argv) < 2 or sys.argv[1].startswith("--"):
         print(f"用法: {sys.argv[0]} <源目录路径> [--keep-wiki]")
         sys.exit(1)

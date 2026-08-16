@@ -21,18 +21,34 @@ class MCPConnection:
     给任务外部提供关闭连接的接口。因为stdio要求关闭任务的和连接的task要在一个task之内，所以需要使用这种方式包装owner
     """
     def __init__(self,owner:asyncio.Task[None],close_requsted:asyncio.Event,dead:asyncio.Event|None=None)->None:
+        """包装连接生命周期。
+
+        Args:
+            owner: 持有连接栈的后台任务。
+            close_requsted: 关闭请求信号。
+            dead: 健康检查失败信号（连接假死）。
+        """
         self._owner=owner
         self._close_requsted=close_requsted
         self._dead=dead or asyncio.Event()
 
     @property
     def is_alive(self)->bool:
-        """连接是否存活（未被请求关闭且健康检查未失败）。"""
+        """连接是否存活（未被请求关闭且健康检查未失败）。
+
+        Returns:
+            True 表示连接可用。
+        """
         return (not self._close_requsted.is_set()
                 and not self._dead.is_set()
                 and not self._owner.done())
 
     async def aclose(self):
+        """请求关闭连接并等待 owner 退出。
+
+        shield 保证清理链接时 _owner 本身不被取消，
+        避免清理到一半中止。
+        """
         self._close_requsted.set()
         try:
             # shield保证在清理链接的时候_owner本身不被取消，造成清理一半中止
@@ -42,6 +58,16 @@ class MCPConnection:
                 raise
 
 async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict[str,MCPConnection]:
+    """连接配置中的所有 MCP server 并把工具注册进 registry。
+
+    Args:
+        mcp_servers: server 名 → MCP 配置（判别联合类型）。
+        tool_registry: 工具注册表（工具注册进这里）。
+
+    Returns:
+        server 名 → MCPConnection 映射；单个 server 连接失败
+        记录日志后跳过（不影响其他 server）。
+    """
 
     async def open_single_server(name,cfg):
         server_stack=AsyncExitStack()
@@ -226,8 +252,15 @@ def _extract_nullable_branch(options:list[dict]):
     return None
 
 def normlize_schema_for_openai(raw_schema):
-    """
-    去除openai不支持的null,和anyOf,oneOf，以及多参数类型形式
+    """把 MCP schema 规范化为 OpenAI 兼容格式。
+
+    去除 OpenAI 不支持的 null / anyOf / oneOf 以及多参数类型形式。
+
+    Args:
+        raw_schema: MCP 工具 inputSchema。
+
+    Returns:
+        规范化后的 schema dict（非 dict 输入返回空 object 兜底）。
     """
     if not isinstance(raw_schema,dict):
         return {"type":"object","properties":{}}
@@ -322,6 +355,14 @@ class MCPToolWrapper:
         self.parameters = normlize_schema_for_openai(self.raw_schema)
 
     async def execute(self,**kwrags):
+        """调用 MCP 工具（必须传原名，不是 sanitize 后的名字）。
+
+        Args:
+            **kwrags: 工具参数。
+
+        Returns:
+            工具结果文本；超时/取消/异常转可读错误文本。
+        """
         try:
             result = await asyncio.wait_for(
                 #! 必须调用tool的原名,而不是sanitize之后的名字
@@ -352,7 +393,15 @@ class MCPToolWrapper:
                 return redered_result
 
     def _render_call_result(self,content,arguments):
-        """返回结果可能包含图片的情况，暂时只考虑文本"""
+        """渲染 MCP 调用结果——可能包含图片，暂时只提取文本。
+
+        Args:
+            content: MCP 返回的 content 块列表。
+            arguments: 调用参数（保留备用）。
+
+        Returns:
+            拼接的纯文本结果。
+        """
         from mcp import types
 
         text_part:list[str]=[]

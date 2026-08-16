@@ -90,12 +90,28 @@ class MinerUConverter(BaseConverter):
     # ── BaseConverter ─────────────────────────────────────
 
     def accepts(self, raw_file: RawFileProperties) -> bool:
+        """是否支持该文件（MinerU 可用且扩展名在支持表内）。
+
+        Args:
+            raw_file: 原始文件属性。
+
+        Returns:
+            True 表示支持处理。
+        """
         return _HAS_MINERU and (
             raw_file.ext in _NEEDS_PARSING or
             raw_file.ext in _IS_ALREADY_MARKDOWN
         )
 
     async def convert(self, raw_file: RawFileProperties) -> ConvertedFile:
+        """转换单个文件——已有内容直接用，否则按类型转换。
+
+        Args:
+            raw_file: 原始文件属性。
+
+        Returns:
+            转换后的 ConvertedFile。
+        """
         if raw_file.content:
             return ConvertedFile.from_raw(raw_file, raw_file.content)
 
@@ -129,7 +145,14 @@ class MinerUConverter(BaseConverter):
 
     @staticmethod
     def _read_markdown_file(file_path: str) -> str:
-        """读取 .md / .markdown 文件。"""
+        """读取 .md / .markdown 文件。
+
+        Args:
+            file_path: 文件路径。
+
+        Returns:
+            文件内容。
+        """
         with open(file_path, encoding="utf-8") as fh:
             return fh.read()
 
@@ -139,6 +162,12 @@ class MinerUConverter(BaseConverter):
         """MinerU 解析 → 同步 caption → 返回 Markdown。
 
         在子线程运行，确保 MinerU 的临时图片在 caption 完成前不被清理。
+
+        Args:
+            file_path: 文件路径。
+
+        Returns:
+            转换后的 Markdown。
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._mineru_parse_sync, file_path)
@@ -147,6 +176,12 @@ class MinerUConverter(BaseConverter):
         """MinerU 解析（同步，在子线程运行）。
 
         do_parse → 读结果 → caption（图片在 tmpdir 里）→ tmpdir 销毁。
+
+        Args:
+            file_path: 文件路径。
+
+        Returns:
+            转换后的 Markdown。
         """
         pdf_bytes = _mineru_read_fn(file_path)
         file_name = os.path.basename(file_path)
@@ -172,7 +207,15 @@ class MinerUConverter(BaseConverter):
 
     @staticmethod
     def _find_result_in_dir(tmpdir: str) -> tuple[str, str]:
-        """遍历 tmpdir，返回 (markdown_text, images_dir_path)。"""
+        """遍历 tmpdir，返回 (markdown_text, images_dir_path)。
+
+        Args:
+            tmpdir: MinerU 输出目录。
+
+        Returns:
+            (Markdown 文本, images 目录路径)。
+        """
+        markdown = ""
         markdown = ""
         images_dir = ""
         for root, _, filenames in os.walk(tmpdir):
@@ -192,13 +235,29 @@ class MinerUConverter(BaseConverter):
     # ── 异步入口（主 event loop） ─────────────────────────
 
     async def _caption_async(self, markdown: str, images_base_dir: str) -> str:
-        """从 ``images_base_dir`` 解析 ``![]()`` 中的路径，并发 caption。"""
+        """从 ``images_base_dir`` 解析 ``![]()`` 中的路径，并发 caption。
+
+        Args:
+            markdown: 原始 Markdown。
+            images_base_dir: 图片基准目录。
+
+        Returns:
+            回填 caption 后的 Markdown。
+        """
         return await self._apply_captions(markdown, images_base_dir)
 
     # ── 同步入口（子线程） ────────────────────────────────
 
     def _caption_sync(self, markdown: str, images_base_dir: str) -> str:
-        """在子线程中运行异步 caption（new_event_loop）。"""
+        """在子线程中运行异步 caption（new_event_loop）。
+
+        Args:
+            markdown: 原始 Markdown。
+            images_base_dir: 图片基准目录。
+
+        Returns:
+            回填 caption 后的 Markdown。
+        """
         loop = asyncio.new_event_loop()
         try:
             return loop.run_until_complete(
@@ -215,6 +274,13 @@ class MinerUConverter(BaseConverter):
         ``images_base_dir`` 是解析相对路径时的基准目录。
         - 对于 .md : 源文件所在目录
         - 对于 PDF : MinerU 临时 images/ 目录
+
+        Args:
+            markdown: 原始 Markdown。
+            images_base_dir: 图片基准目录。
+
+        Returns:
+            回填 caption 后的 Markdown。
         """
         matches = list(_RE_IMAGE.finditer(markdown))
         if not matches:
@@ -244,6 +310,13 @@ class MinerUConverter(BaseConverter):
 
         assets_dir 配置时: 图片复制到 wiki/assets/（内容 hash 命名去重），
         回填 assets 相对路径——wiki 页面自包含可渲染（TODO 图片路径修正）。
+
+        Args:
+            match: 单个 ``![]()`` 匹配。
+            images_base_dir: 图片基准目录。
+
+        Returns:
+            替换后的文本（VLM 失败/路径无法解析时原样保留）。
         """
         rel_path = match.group(1)
 
@@ -264,11 +337,18 @@ class MinerUConverter(BaseConverter):
         return f"![{description}]({final_path})"
 
     def _copy_to_assets(self, image_path: str) -> str:
-        """复制图片到 assets/，返回相对 wiki 的路径。内容 hash 命名——天然去重。
+        """复制图片到 assets/，返回相对 wiki 的路径。
 
-        复制失败返回原始相对路径（资产化失败 ≠ caption 失败——
-        页面仍可用原始引用，图片位置不变时能解析）。代价是页面
-        不再自包含（图片依赖源目录），scan 的 assets 检查会发现。
+        内容 hash 命名——天然去重。复制失败返回原始相对路径
+        （资产化失败 ≠ caption 失败——页面仍可用原始引用，图片
+        位置不变时能解析）。代价是页面不再自包含（图片依赖源目录），
+        scan 的 assets 检查会发现。
+
+        Args:
+            image_path: 源图片路径。
+
+        Returns:
+            wiki 相对路径（assets/<hash>.<ext>）。
         """
         self._assets_dir.mkdir(parents=True, exist_ok=True)
         try:
@@ -286,11 +366,21 @@ class MinerUConverter(BaseConverter):
 
     @staticmethod
     def _resolve_image_path(rel_path: str, base_dir: str) -> str | None:
-        """解析相对路径为绝对路径。"""
+        """解析相对路径为绝对路径。
+
+        回退: 只取文件名（MinerU 的 images/ 扁平结构）。
+
+        Args:
+            rel_path: 相对路径。
+            base_dir: 基准目录。
+
+        Returns:
+            存在的绝对路径；无法解析返回 None。
+        """
+        candidate = os.path.join(base_dir, rel_path)
         candidate = os.path.join(base_dir, rel_path)
         if os.path.exists(candidate):
             return candidate
-        # 回退: 只取文件名（MinerU 的 images/ 扁平结构）
         candidate = os.path.join(base_dir, os.path.basename(rel_path))
         if os.path.exists(candidate):
             return candidate
@@ -299,7 +389,14 @@ class MinerUConverter(BaseConverter):
     # ── VLM 调用 ──────────────────────────────────────────
 
     async def _vlm_describe_image(self, image_path: str) -> str:
-        """加载图片 → base64 → VLM → 返回描述文本。"""
+        """加载图片 → base64 → VLM → 返回描述文本。
+
+        Args:
+            image_path: 图片路径。
+
+        Returns:
+            描述文本（读图失败/VLM 失败返回空串）。
+        """
         try:
             with open(image_path, "rb") as fh:
                 image_b64 = base64.b64encode(fh.read()).decode("ascii")
