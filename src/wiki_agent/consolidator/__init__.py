@@ -1,0 +1,1 @@
+from wiki_agent.consolidator.consolidator import Consolidator

@@ -1,0 +1,295 @@
+# Road to a Juicy Wiki 🍋
+
+> 已完成的就不写了，以下都是还没搞的。目标——把这个东西做得**幽默又痒**。
+
+---
+
+## ⚠️ 全链条测试审计（2026-08-14，日志深度检验发现）——已验收归档
+
+**背景**：full_pipeline 全链条跑通（compile 57 文件/186 页 + refine 110/18/2 + surgery dry-run），对 run.log/events.jsonl 深度检验后发现一批问题。
+
+> ✅ **验收通过（2026-08-15）**：干净 wiki + 全修复代码的 mini 链（compile 类/6 文件 → refine 5/1/0 → surgery dry-run）全绿——index 正常、related 提取、fence 0 警告、生成校验拦截生效、唯一校验失败是 C5 拦幻觉 slug 后重试成功（带完整诊断）。**I7（fix_markdown_fence 误删合法闭合）在验收中发现并修复**——根因是旧正则全局替换 `\n```\n# 标题`，把代码块合法闭合当 stray fence 删了。已改锚定 frontmatter。以下条目保留作完整记录。
+
+### 根因（已修 ✅）
+
+| # | 问题 | 状态 |
+|---|------|------|
+| R1 | `_append_index` 后缀不匹配（slug 无 .md vs pages_written 有 .md）→ index.md 从未创建 | ✅ 已修（written_slugs 归一化） |
+| R2 | index 缺失的启动保证 | ✅ 已修（`_ensure_index` 显式建空 index；读路径严格化不再吞异常） |
+
+### R1 的连锁传染（✅ 代码已修——随 R1 修复自动解决，数据残留待重跑，见"数据残留"节）
+
+| # | 问题 | 证据 | 状态 |
+|---|------|------|------|
+| C1 | **valid_slugs 恒空 → fix_wikilinks 早退 no-op → 死链不清理** | 331 条死链（scan 报告最大类）；`[[syntax/star-operator]]`（LLM 发明的目录，I3 同源） | ✅ 代码已修（R1 连带） |
+| C2 | **extract_related 无 slug 可匹配 → related 全空** | 122 空 + 57 缺失 = 179 条 | ✅ 代码已修（R1 连带） |
+| C3 | **refine 输入是空 index 视图 → 0 候选 → 没达成补链目标** | 18 noop + 110 次"成功"中大部分实际没补到链 | ✅ 代码已修（R1 连带） |
+| C4 | **编译期 plan 引用过滤 88 次**（LLM 引用不存在页面） | run.log 计数 | ⚠️ 设计内行为，量级暴露问题——调参时观察 |
+
+### 独立问题（逐个修，按优先级）
+
+| # | 优先级 | 问题 | 证据 | 修法方向 |
+|---|--------|------|------|---------|
+| ~~I1~~ | - | ✅ **已修**——`_new_page` 合并进 `_generate_page`；`max_retries`→`_PAGE_GEN_RETRIES=2`（注意 retry 层语义：是总尝试次数，原 1 = 零重试）；穷尽后读 `response.check_ok` → raise IngestError(EXECUTE, raw 现场)。**连带重构**：① LLMResponse 加 check_ok/check_reason（retry 层填充，消除调用点二次 check 调用）② 四阶段统一读 check_ok：search 补上静默降级（坏 JSON→[] 伪装 0 候选）③ analyze 空判定并入 _check_analyze_json ④ 删 _try_parse_json（抢救分支不可达）⑤ _parse_plan/_parse_search_result 搬模块级（不访问 self 不当类成员） | 8 条校验失败全在生成阶段，每条后跟 ✓；fence 未闭合 45 页全是它的产物 | ~~max_retries→2 + 重试穷尽仍不过 → raise IngestError~~ |
+| ~~I2~~ | - | ✅ **已修**——quality.py 新增共享工具 `iter_text_outside_code`（fence 状态机，未闭合保守处理），四处应用：fix_wikilinks（逐行替换）、_check_wikilink_has_text、check_dead_links、**extract_related（审计时漏列的第四个消费点，一并修）**。5 项单测过 | dict.md 等页；死链统计 4 次。**潜伏雷**：之前被 valid_slugs 恒空意外保护，index 修好后激活——会破坏页面里的 Python 代码 | ~~三个函数统一跳过 fence 代码块~~ |
+| ~~I3~~ | - | ✅ **判定为 C1 实例，无需独立修复**——`syntax/star-operator` 不在 valid_slugs 必然被 fix_wikilinks 转纯文本（实测验证）；它存活是因为 R1 让 valid_slugs 恒空 → 早退旁路了过滤机制。R1 修复 + 重跑自动解决。**可选诊断改进**（低优先）：check_dead_links 区分两种死链消息——"页面不存在"（演化状态）vs"目录非法"（模型错误信号），分开报对诊断有用 | 死链统计 | ~~路由校验扩展~~ |
+| ~~I4~~ | - | ✅ **已修**——refine 的 plan_system 输出格式段补 references 对象数组说明 + 负例（`["concepts/xxx"]` 是错的）+ "无要改的 → 空数组" | refine 2 个失败全是这个 | ~~补 references 格式段~~ |
+| ~~I5~~ | - | ✅ **已实锤并修复（2026-08-15 全量 run）**——**不是截断，是深嵌套 JSON 缺尾部闭合括号**：`{"page_targets": [...refs 数组...]` 模型写完就停（finish=stop，completion_tokens 仅 312-788 远未达 8192 上限），但少写最后一个 `}`。重试两次位置几乎相同（890/891 chars）——重写仍犯同样错。**修**：`_try_repair_trailing_braces` 进 `_strip_fence`（parse.py 共享规约层）——仅当"补尾部 ]} 组合能 loads"才补全，check 判定与 parse 解析自动一致；真截断不掩盖。同类失败 12/13 个 refine 页面 | 全量 refine 13 失败中 12 个是 plan JSON 缺尾括号 | ~~repair 层 + 可执行错误消息~~ |
+| ~~I6~~ | - | ✅ 已修并验收——mini 链 scan 0 fence 警告（修复前 2 页）。括号配对检测（`count_unclosed_fences`）+ I7 fix_markdown_fence 锚定修复共同生效 | scan 报告 | ~~随 I1~~ |
+| I7 | - | ✅ 已修（验收中发现）——**fix_markdown_fence 误删合法闭合**：旧正则全局替换 `\n```\n# 标题`，把"代码块闭合+下一节标题"当 stray fence 删了（3 开 3 闭被修成 3 开 0 闭落盘）。改锚定 frontmatter 闭合处只处理紧随的一次。4 项单测过 | encapsulation/name-mangling 两页（3 开 0 闭） | ~~锚定 frontmatter~~ |
+
+### 数据残留（当前 wiki 是 6 文件的 mini 验收库——全量库重建时自然消失）
+
+- 全量跑 full_pipeline 时：index/related/死链 由修复后的链路正常生成
+- 违规页检测：scan 3c 能报告（归位靠手术/手动——自动归位被否决：静默修复掩盖 bug）
+
+---
+
+## ⚠️ 待清理（记得做）
+
+| 项 | 说明 |
+|----|------|
+| **run 目录清理策略** | 每次 compile/refine/surgery 的 runs/<ts>/ 含全量中间结果（artifacts 每文件 extract/search/analysis/plan/pages + backup 全页副本）——**是临时审计材料，长期要删**。需要：① 保留策略（最近 N 次？）② 清理命令或 watch 后台自动清理。~~③ 体检排除~~ ✅ 已完成——DataLoader.load_dir 默认排除 .logs/.venv/.git/.watch 等目录（对项目根实测：历史档案/虚拟环境全排除） |
+
+---
+
+## 〇、⭐ 重点 ⭐ — FastAPI Web 接入层
+
+| 项                        | 优先级 | 痒度     | 说明                                                                                                                                                                                                                                                                               |
+| ------------------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **FastAPI gateway** | 中     | ⭐⭐⭐⭐ | `POST /chat/{session_key}` SSE 流式回答——`agent.run(on_text=...)` 回调直接转发。`GET /sessions` 列表、命令加 HTTP 壳。参照 nanobot：transport 层（FastAPI/CLI/Slack 平行）→ bus → AgentLoop 核心无感知。前提是先引入 MessageBus 解耦多前端，当前单前端直接函数调用已够用。**前置就绪清单（设计笔记 §14）**：① 每 session asyncio.Lock（nanobot weakref 锁映射模式）② append_history 游标原子化（get_cursor()+1 并发碰撞）③ Consolidator 加锁 ④ 传输层 Semaphore 限 provider 速率（不是限 session 数） |
+| **Langfuse 接入**   | 低     | ⭐⭐⭐   | LLM 专用观测平台（trace 树/token 成本/prompt 版本），自托管开源。接入路径：OpenTelemetry SDK 替换自有 tracer（用法不变），或 Filebeat 抓 events.jsonl。事件格式已对齐 OTel 语义，接就是换 SDK 的事。需要时再上                                                                     |
+
+---
+
+## 一、CLI 命令路由
+
+| 项                           | 优先级 | 痒度     | 说明                                                                                          |
+| ---------------------------- | ------ | -------- | --------------------------------------------------------------------------------------------- |
+| `/compile <path>` 内联编译 | 中     | ⭐⭐⭐⭐ | 不用退出 CLI 跑脚本——直接在对话中塞新资料                                                   |
+| `/wiki` 跳转浏览           | 低     | ⭐⭐     | 直接打开 wiki 目录交互式浏览，不用退出 CLI                                                    |
+| `/theme` 切换配色          | 低     | ⭐       | monokai / nord / solarized，满足各种强迫症                                                    |
+| ~~`/refine` 触发精炼~~         | -     | - | ✅ 已完成——RefineCommand 内联 commands.py：CLI 内跑完整链（refine 全量 + surgery dry-run + scan 报告），复用 agent 的 llm/vlm（vlm 升为必须参数）。**连带重构**：dispatch 签名改为 (raw, session, agent)——CommandContext 由 dispatch 构造（key/args 不再由调用方写占位空串） |
+
+---
+
+## 一·五、MCP 扩展
+
+| 项                 | 优先级 | 痒度   | 说明                                                                                                                                                                                                |
+| ------------------ | ------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP Resources 支持 | 中     | ⭐⭐⭐ | 当前只实现了 Tools。按正确形态做：MCPListResources + MCPReadResource 两个原语工具（URI 寻址 + 动态发现），而不是把 resource 包装成 tool 注册。订阅变更通知留 TODO。和 wiki 的"外部资料摄入"是一条线 |
+| MCP Prompts 支持   | 低     | ⭐     | 协议三大原语之一但生态使用率低（模型能力提升后手写模板价值下降）。need_prompts 开关已留，需要时再补 MCPPromptWrapper                                                                                |
+
+---
+
+## 二、渲染优化
+
+| 项             | 优先级 | 痒度     | 说明                                                                    |
+| -------------- | ------ | -------- | ----------------------------------------------------------------------- |
+| 代码块语法高亮 | 中     | ⭐⭐⭐⭐ | `python` / `bash` / `yaml` 代码块 Rich 高亮，现在只是纯文本怼脸上 |
+| 表格自适应宽度 | 低     | ⭐⭐     | 列太宽时自动换行，别撑到屏幕外面去                                      |
+| 思考过程折叠   | 低     | ⭐⭐⭐   | LLM 的"让我查一下"之类的内心戏折叠成一行，想看再展开                    |
+| 进度条动画     | 中     | ⭐⭐⭐⭐ | compaction 时不是死文字，是一根小进度条在蠕动                           |
+| Emoji 映射     | 低     | ⭐⭐     | `ReadFile` → 📖, `Grep` → 🔍 已经有了，再补些细节映射             |
+
+---
+
+## 三、Ingestion 后处理
+
+| 项                                           | 优先级  | 痒度     | 说明                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **RAG 路径去留决策**                         | 待定     | ❓       | 半休眠的 RAG 代码（ingestion/pipeline.py TextPipeline、processor.py Processor、embedding/、storage/qdrant.py、tools/rag_tool.py）当前无消费者——编译链路走 CompilePipeline 完全绕过它们。**不确定是否保留 RAG**，暂不处理。复活时机需回答：① wiki 问答是否需要向量检索（还是纯 wikilink 导航够用）② 需要时 Processor/TextPipeline 按当时需求重写（现有语义未必匹配）③ chunk_overlap 到时在 embedding 消费端做（见 models.py 注释） |
+| ~~空白 source 页检测~~                      | ~~高~~ | -        | ✅ 已完成——Extractor 摘要为空跳过写入 + scan_wiki 兜底                                                                                                                                                                                                                                                                                     |
+| **超参数验证与配置化**                 | 中      | ⭐⭐⭐⭐ | 建立 ingest 时有一堆没验证过的超参：CHUNK_SIZE=8000、EXTRACT_CONCURRENCY=3、model_context=120_000（已收编 CompilePipeline 默认参数，但仍未验证取值），TextChunker 默认 max_chunk_size=1000 但实际传 8000。需要: ① 小实验验证取值（不同 chunk 大小对摘要质量/成本的权衡）② 收编进 config（INGEST_ 前缀）③ 验证不了的至少标注释说明取值理由 |
+| ~~watch 事件驱动化~~                   | - | - | ✅ **已实现（2026-08-16）**——FileWatcher 重写为 watchdog/inotify 事件驱动：事件 → 每路径去抖（settle 2s，新事件重置定时器——编辑器原子保存的 2-4 事件合并）→ 稳定性复读（隔 2s 内容不变才定案 = 轮询版两段确认的事件等价，防半写文件）→ 变更门（相似度阈值）→ 入队。**回退路径保留**：每 60s 全量扫描 _poll_once（inotify 队列溢出/丢事件的安全网 + 启动 reconcile）。删除检测双入口（事件 settle 检查 + 回退 state diff）都产出 ("delete", name)，consumer 契约不变。确认时间 10s → 4s。watchdog 依赖入 pyproject；test_watcher 4 项（事件变更/微调跳过/事件删除/回退删除） |
+| ~~watch 模式（生产消费）~~                  | -       | -        | ✅ 已完成——轮询版生产消费：FileWatcher（轮询扫描+两段确认去抖+相似度变更门）→ asyncio.Queue → WatchConsumer（单 worker 串行 ingest）。单文件流水线抽成 compiler/pipeline.py::CompilePipeline（compile_folder 与 watch 共用入口）；state.json 是持久层（重启 reconcile 数据源）                                                           |
+| ~~Extract 摘要重构（自由叙事 + 滚动重写）~~ | -       | -        | ✅ 已完成——① 两模式统一自由叙事 + 5 锚点（不做实体抽取）② rolling 每轮全量重写 + 不重复靠语义 ③ digest 防膨胀双保险（max_tokens 硬限 3000 + prompt 软限 1500）④ synthesis 章节结构线索（BUG-3）⑤ 矛盾标注锚点（遗漏-1）                                                                                                               |
+| ~~图片路径修正~~ | - | - | ✅ 已实现——**转换层资产化**（MinerUConverter 加 assets_dir 参数）：caption 时图片复制到 wiki/assets/（内容 hash 命名去重）+ 回填 `assets/<hash>.png` 相对路径——wiki 自包含可渲染。时机在 caption 是唯一正确点（MinerU 临时目录用完即清）。CompilePipeline 已透传 assets_dir。3 项单测过 |
+| ~~重复文件去重~~                            | -       | -        | ✅ 部分完成——watch 模式基于 SHA256 state 跳过未变文件；compile 全量模式仍需显式去重                                                                                                                                                                                                                                                        |
+| 大文件分片优化                               | 低      | ⭐⭐     | `.md` 超大文件直接当 RICH 走 Chunker 有时候不合理——加 `>100KB` 的判断                                                                                                                                                                                                                                                                  |
+| **schema.md 驱动路由（去硬编码）**           | 中      | ⭐⭐⭐   | 当前目录路由/提示词/校验全写死在代码里（prompts 的"路由规则"段、_check_plan_json 的目录白名单、_CONTENT_DIRS、_TYPE_TO_DIR 散落多处）。schema.md 已存在但只是当 prompt 文本喂给 LLM——应该是**单一权威**：① schema 缺失 → 报错（现在 `_read_optional("schema.md")` 缺失返回空串，LLM 无约束胡乱生成——languages/tools 事故的一部分）② 路由规则从 schema 解析出来，prompt/校验/扫描共用 ③ 提示词里的目录规范段不再写死，由 schema 生成                                                                                                                                                                                                                  |
+
+---
+
+## 四、Governor & 上下文治理
+
+### 记忆机制问答化（agent 审计 C1——主攻问答时的前置设计）
+
+**现状**：机制完整（cursor 增量 + 定期 dream + 原子写），但**内容定位是个人助理场景**——Dreamer prompt 提取"用户画像"（爱好/价值观），与 wiki 问答不搭。问答场景长期记忆该记的不是画像，是三类：
+
+| 记忆类型 | 内容 | 用途 |
+|---|---|---|
+| 知识主题偏好 | 用户常问的领域/页面（"最近在啃装饰器"） | 回答时主动关联相关页；提醒 refine 优先级 |
+| **wiki 纠错反馈** | 用户指出页面错误/缺口（"这页讲错了"） | **wiki 演化信号**——进 TODO 队列/refine 素材，问答反哺知识库（记忆与 wiki 的独特结合点） |
+| 讨论断点 | 上次讨论到哪、未完成的探索线 | 会话连续性 |
+
+机制本身（cursor/单文件/原子写）单用户串行下无问题，只换 Dreamer prompt 目标 + append_history 触发点（当前仅 consolidate 时记——短对话不进记忆，对"纠错反馈"不够：纠错应即时记录而非等压缩）。**实现时机：问答链路跑起来后**。
+
+
+
+| 项                          | 优先级       | 痒度       | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------- | ------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ~~工具结果智能截断~~        | - | - | ✅ **已实现（2026-08-16）**——窗口维度紧凑化 `_compact_inflight_overflow`：snip 后仍超预算时，可重取工具（TTL 表白名单）的超长结果硬截断换占位符（零 LLM 成本——nanobot 参考实现证实：可重取内容直接扔让模型重取，不花摘要钱；LLM 摘要是给不可再生对话用的）。与 TTL 驱逐互补：TTL=时间维度（旧了就扔）、inflight=空间维度（不够了就扔）。保留最新一条结果；500 字符以下不动；幂等。test_governor 18 项全绿 |
+| **回合级统计钩子（TurnContext 重建）** | 中 | ⭐⭐⭐ | 审计删除了死代码 TurnContext（字段全是存根无消费者）。用户已确认它**应该存在**——承载 turn 运行的全部配置（散参数收拢：session_key/user_input/stream/回调）。设计原则已讨论定稿：① 持久状态留在 Session，turn 级临时状态（messages 工作副本/iteration/计时/error）在 TurnContext ② 配置字段构造后不可变——command 分发在构造前（/retry 改写 user_input 不破坏不变性）③ 不发明无消费者的字段（旧版 response_content/stop_reason 是教训）。重建时机：需要 `/debug` 面板/statistic() 实现时 |
+| ~~窗口水位警戒线~~         | -            | -          | ✅ 已判定不需要——footer 变色已有；Governor 自动 snip + Consolidator 自动压缩已兜底。给模型的"主动提示"无意义：模型不能据此做任何事（控制不了裁剪/压缩），环境状态该由系统消化，不打扰对话                                                                                                                                                                                                                                                                                    |
+| ~~Prompt Cache 优化~~ | - | - | ✅ **已实施（2026-08-16）**——核心原则"静态前移/动态后移"：编译管线全部 prompt 拆 system（角色+规则+格式，跨文件字节相同）+user（动态数据，尾部变化零连带）。P0-A chunk/rolling、P0-B search/analyze/plan（compile+refine 两版）、P0-C new_page/update；P0-D QA system 块按变化频率排序（corrections 最尾）；P1 usage 收 cache_hit/cache_miss + retry 日志监控（命中率骤降=前缀被破坏的第一信号）。机制澄清：请求是一条 token 流从头匹配，位置 N 变化只失效 N 之后；摘要不需挪（consolidate 时 history 反正变）；test_prompt_cache_separation 锁定拆分契约。验证：下次编译看 run.log cache_hit 从 0 变非零 |
+| 多轮工具调用合并            | 低           | ⭐⭐       | 连续 3 个`ReadFile` 在一个 iteration 里完成——压缩成一条"已读 N 页"的摘要消息                                                                                                                                                                                                                                                                                                                                                                                               |
+
+---
+
+## 五、Log & Debug 完善
+
+| 项                      | 优先级 | 痒度     | 说明                                                                                                                                                                                                                                                                                   |
+| ----------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI 内置`/debug` 面板 | 中     | ⭐⭐⭐⭐ | 实时显示最近一次 LLM 调用的 raw prompt/tool calls/usage——像浏览器的 DevTools Network 面板                                                                                                                                                                                            |
+| ~~请求链路追踪~~       | -      | -        | ✅ 已完成——trace_id 全链路贯通：四个入口（cli/compile/watch/refine）begin_trace；retry 层 llm_attempt span + pipeline 层 ingest_file span 自动发射到 events.jsonl                                                                                                                    |
+| ~~错误上下文快照~~     | -      | -        | ✅ 部分完成——失败现场已由事件流承载：IngestError.raw（LLM 原始输出）全量进 compile_failure/refine_failure/watch_failure 事件 + run.log 有 exc_info 回溯。不再 dump 临时文件（散乱教训）。剩余：prompt 本身没存（事件里只有 raw 响应没有请求）——需要时给失败事件补 request 摘要字段 |
+
+---
+
+## 六、决策追踪（Plan Trace）
+
+| 项                         | 优先级       | 痒度       | 说明                                                                                                                                                                                                                                                                    |
+| -------------------------- | ------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 为什么决策是 new/update    | **高** | ⭐⭐⭐⭐⭐ | ✅ **基础版已实现**——`plan_decision` 事件：决策结果（targets+reason+references）与决策依据（analysis 的 from/to 关系摘要）在同一条记录，机器可回溯"每个决策基于什么关系判定"。注意：skip 已移除（不操作=空 targets + `plan_noop` 事件）。**剩余**（可后续增强）：LLM 自由分析文本中"为什么选这个 disposition"的推理摘录——现在 relation 是依据代理，推理链在 analysis_text 里未结构化 |
+| ~~移除 skip disposition~~ | -            | -          | ✅ 已完成——skip 混入 page_targets 导致执行层生成垃圾页（`wiki/.md`、review-json-placeholder）。现 page_targets 只含 new/update；不操作=空数组+`plan_noop` 事件；`_check_plan_json` 补字段级校验（非法 disposition/缺 reason/重复路径/坏 references 直接 retry） |
+| ~~Plan 输入补 index~~     | -            | -          | ✅ 已完成——_plan_system 加 index 段（按条目截断），references 有据可查                                                                                                                                                                                                |
+| ~~Analyze/Plan 职责分离~~ | -            | -          | ✅ 已完成——analyze 移除 new_page_suggestions/cross_references（决策活归 plan）；analyze 两段式（自由思考 + JSON 尾巴）；from/to 方向化关系；plan 角色改为自主决策者 + 关系→决策映射 + 引用自主派生；gaps 字段闭环（生成写/更新收敛/分析读）                          |
+| 实体-页面映射表            | 中           | ⭐⭐⭐⭐   | 编译完成后输出"本次新增了这些实体/概念，映射到了这些页面"的总结                                                                                                                                                                                                         |
+| **Update 保留原文**  | 中           | ⭐⭐⭐     | 审计发现的二次压缩损耗（遗漏-6）：update 的"新信息"只有文档摘要，原文在 chunk 阶段后丢弃。修法：ExtractResult 携带关键 chunk 原文（或原文路径），update 时给 LLM 更精确的素材                                                                                           |
+| 编译 diff 报告             | 低           | ⭐⭐⭐     | 对比两次编译之间 wiki/ 的变化——哪些页面改了、哪些是新的、哪些被 skip 了                                                                                                                                                                                               |
+
+---
+
+## 七、Wiki 精炼（`/refine` 命令 + 编译后自动跑）
+
+**核心设计（已实现主体）**：refine 走 watch_folder 同款路径——CompilePipeline 复用，**输入变成 wiki 页面自身**，index 排除自身后重编译一遍，实现关系刷新。与逐文件增量生成时的关键差异：当时很多目标页面还不存在（只能链接到已生成的部分），**全文 index 建立后重跑链接关系充分得多**。refine 与 compile 形成对照：compile 是源→wiki 的初次编译，refine 是对既有 wiki 的再加工。
+
+| 项                           | 优先级       | 痒度     | 说明                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------- | ------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~页面 goal 字段（目标自描述）~~ | - | - | ✅ **已实现**——四处落地：① new_page_system 加 goal 字段规范（可检验的主题范围，方向锚）② update_system 保守更新规则（默认不动，使命真变才改）③ refine 润色师带本页 goal/gaps/summary 判断**目标完成度**（从"只补链接"升级为"按目标精炼"）④ analyze 候选 meta 带 goal（goal 相同 = duplicate 强信号）。PolisherPlanner 自己从 wiki_dir 读本页 frontmatter（needs_current_page=True 接口） |
+| ~~/refine 自编译~~          | -            | -        | ✅ 已完成——scripts/refine_wiki.py +`CompilePipeline(mode="refine")`。**只拿不放**三层防护：prompt 独立（润色师角色，不继承策展人）→ 契约校验（ALLOWED_DISPOSITIONS={"update"} 拦 new）→ pipeline 兜底过滤（非 self-update 丢弃转 noop）。收益：全库 refine 任意顺序、断点续跑、天然幂等。prompts 模块组（compiler/prompts/：compile 全量 + refine 覆写 plan）；test/test_refine.py 11 项测试 |
+| **页面合并/拆分/删除** | **高** | ⭐⭐⭐⭐ | ~~主体已实现~~（compiler/surgery.py + scripts/surgery_wiki.py）——**两步 LLM 精选复判**：粗提（LLM 见全库 index、温度 0、提原子操作）→ 复判（每条带涉事页面全文+引用证据，确认/否决/定方向）→ 依赖消解（代码+LLM 复裁）→ 人确认 → 备份+原子执行（吸收拼接+三类引用处理+index 清理，顺序无关）。实测 130 页：粗提 12 条、复判确认 6 条。**剩余**：create/trim 原子（拆分）、集成进 `/refine` 命令 |
+| 源文件删除处理               | **高** | ⭐⭐⭐⭐ | ✅ **已实现**（内联在 watch/consumer.py——消费者职责：wiki 写操作归消费者，生产消费契约）。规则：sources 只含被删文件→删页+全库正文引用换别名；还含其他→保留仅移除条目。**watcher 只检测入队**（`("delete", name)`），consumer 执行清理 + `watch_source_deleted` 事件。端到端单测过 |
+| 死链扫描                     | 中           | ⭐⭐⭐   | 部分完成——scan_wiki 已扩展（根目录垃圾/index 幽灵/related 缺失）且 refine 收尾自动跑（scan_report.md）；缺 CLI 内`/refine` 命令壳                                                                                                                                                                                                                                                                    |
+| 孤岛检测                     | 中           | ⭐⭐⭐   | 没有任何页面链接到它的页面 → 建议升级为独立概念 or 合并                                                                                                                                                                                                                                                                                                                                                 |
+| 内容重复检测                 | 低           | ⭐⭐     | 两个页面讲几乎一样的东西 → 建议合并                                                                                                                                                                                                                                                                                                                                                                     |
+| 页面间矛盾原子               | 低           | ⭐⭐     | contradicts 关系无下游消费——surgery 原子只有 merge/delete，两页矛盾时走"高度重叠→merge"近似或无人管。候选: `flag_contradiction` 原子（粗提/复判后标记，不自动裁决）。同页矛盾已有闭环（Disputed 标注 → scan 报告 → 人裁决）。观察量级后定 |
+| 页面评分                     | 低           | ⭐       | 按完整性（有摘要？有代码示例？有交叉引用？）给每页打分                                                                                                                                                                                                                                                                                                                                                   |
+| frontmatter 校验             | 中           | ⭐⭐⭐   | type/title/summary 字段合法性检查——扩展 check 类处理器                                                                                                                                                                                                                                                                                                                                                 |
+
+---
+
+## 八、错误处理与异常策略
+
+| 项                            | 优先级  | 痒度 | 说明                                                                                                                                            |
+| ----------------------------- | ------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~统一异常处理链~~           | ~~高~~ | -    | ✅ 已完成——三分类体系 + 翻译函数 + 边界决策表，llm/retry/tool/compile 全接入                                                                  |
+| ~~错误分类模型~~             | ~~高~~ | -    | ✅ 已完成——WikiAgentError/RetryableError/HandleableError/FatalError + IngestError（编译链路统一信号，stage 枚举字段 + source/cause/raw）      |
+| ~~编译失败清单~~             | ~~中~~ | -    | ✅ 已完成——IngestError 按阶段分组汇总 + compile_failure 事件（全量 error/cause/raw 进 events.jsonl，唯一机器事实源）                          |
+| ~~吞错点清理~~               | ~~中~~ | -    | ✅ 已完成——qdrant 裸 except、consolidator 估算失败带类型日志                                                                                  |
+| HandleableError 实战应用      | 低      | ⭐⭐ | 类型已定义但还没有真实使用场景（FileNotFound→建默认文件这类）。遇到时再接入，不提前造场景                                                      |
+| retry_with_backoff 接入 IO 层 | 低      | ⭐⭐ | 通用重试壳已就绪，MinerU 转换/存储写入等 IO 点遇到偶发超时再接入                                                                                |
+| 重试失败文件功能              | 低      | ⭐⭐ | 失败数据已在 events.jsonl（compile_failure 全量 error/cause/raw）——重试工具直接过滤事件流，不落第二份清单（failed.json 已删除，避免双真相源） |
+| ~~统一决策队列~~              | - | - | ✅ **已实现（2026-08-16）**——workspace/queue.jsonl（QueueStore append/list/remove）+ `/queue` 命令（列出/done 移除/corrections 聚合视图）。接入：compile/refine 的 ingest_failure + surgery 冲突（原 pending_decisions.json 同时保留作 run 容器档案）；watch 不接（状态机制自然重试，接队列会重复堆积）。单真相源原则继承：events.jsonl 是"发生了什么"（永不删），queue 是"待用户处理"（处理完移除）。`/resolve` 裁决 QA 纠错三态（accept 确认待修 / reject 驳回 / keep 存疑）——MemoryStore.remove_correction/mark_correction 幂等标记。**剩余**：refine/surgery 消费 [已确认待修] 条目的编译侧闭环 |
+
+---
+
+## 九、Config 整治
+
+| 项                             | 优先级  | 痒度 | 说明                                                                                  |
+| ------------------------------ | ------- | ---- | ------------------------------------------------------------------------------------- |
+| ~~Config 统一入口~~           | ~~高~~ | -    | ✅ 已完成——`load_config()` + pydantic-settings，frozen + fail-fast + extra=ignore |
+| ~~配置来源分层~~              | ~~高~~ | -    | ✅ 已完成——构造参数 > 环境变量 > .env > 默认值                                      |
+| ~~硬编码收编~~                | ~~高~~ | -    | ✅ 已完成——react.py 的 generation_config dict 收编进 AgentConfig（AGENT_ 前缀）     |
+| ~~两阶段初始化~~              | ~~中~~ | -    | ✅ 已完成——LLMClient(cfg) 构造即完整                                                |
+| ~~MCP 独立配置~~              | ~~中~~ | -    | ✅ 已完成——env/mcp.json + 判别联合 transport，weather 已接入（远程端点暂不可达）    |
+| embedding/storage/chunker 收编 | 低      | ⭐⭐ | 三个 config 还在用 from_env 模式（RAG 路径半休眠），需要时再迁                        |
+
+---
+
+## 十、体验细节
+
+| 项                      | 优先级 | 痒度     | 说明                                                                   |
+| ----------------------- | ------ | -------- | ---------------------------------------------------------------------- |
+| 启动时的 mini dashboard | 中     | ⭐⭐⭐⭐ | 不只是一行 banner——一个小面板：wiki 大小、上次编译时间、session 状态 |
+| 回答引用脚注            | 中     | ⭐⭐⭐⭐ | 回答末尾的"信息来源"改成`[1]` `[2]` 脚注格式，正文中嵌入           |
+| 多 wiki 支持            | 低     | ⭐⭐     | 一个项目一个 wiki，命令切换                                            |
+
+---
+
+## 优先级速查
+
+```
+✅ 已完成:
+  - 命令路由框架（/help /session /retry，restore 后分发）
+  - session 管理（--resume/--list，key 生成，旧会话存档不销毁）
+  - 日志体系（统一命名空间 + 根 handler + --debug 写文件）
+  - 结构化事件 + trace/span（events.jsonl，OTel 语义对齐）
+  - transient Live 流式渲染 + 工具行 flush 交错
+  - 压缩双阈值（trigger 0.8 / target 0.5）
+  - agent 审计修复（2026-08-15，问答主攻前）：A1 governor snip 消息顺序反转（逆序收集未恢复——LLM 读到倒序对话，test_governor 6 项回归）；A3 consolidate 前置 guard（窗口内超预算跳过 replay 压缩，主策略循环仍推进）；Session.clear 删除 + add_messages 改 extend；ensure_dir 对文件占位返回 None + save_checkpoint 防 UnboundLocalError；test_session 重写 8 项
+  - **记忆机制问答化 + build 扩展**（C1 审计结论落地）：纠错管道（RecordCorrection 工具 agent 主动调用 → append_correction 代码直写 corrections.md，不经 Dreamer 画像加工；自然语言原样落账——纠错是终态事实不再 LLM 重写）；ContextBuilder 五块组装（用户画像 memory.md + wiki 环境 purpose/schema/index 行截断 + 待处理纠错 corrections.md + 工具描述 + 对话摘要）；ReActAgent 显式 wiki_dir 参数（CLI 从配置传入，不偷 registry）；test_corrections 5 项 + test_context_builder 5 项。**注意 prompt cache 交互**：system prompt 每轮读文件——内容稳定则文本相同 cache 命中，index/纠错变化才 miss（设计内行为）
+  - 状态 hook（on_status → CliHook 渲染）
+  - 路径安全（_safe_resolve 双防护，三个工具统一）
+  - 转存机制（相对路径指针 + 导航三件套豁免）
+  - 页面定稿链（normalize.py：fix→inject→check，normalize_page 唯一入口；quality.py：质检+全库扫描，两模块分离单向依赖）
+  - 页面质量拦截（写入前 ERROR 拒绝 + 编译后 scan_wiki 兜底 + 根目录垃圾/index 幽灵/related 缺失检测）
+  - 空白 source 页拦截（摘要为空跳过写入）
+  - Config 统一入口（load_config + pydantic-settings，frozen/fail-fast/分层优先级）
+  - Agent 硬编码收编（generation_config → AgentConfig，AGENT_ env 可调）
+  - 单阶段构造（LLMClient(cfg)，initialize 废除）
+  - MCP 独立配置（env/mcp.json + 判别联合 + 三传输 + 健康监督 + 工具名规范化）
+  - ListDir 分页（offset 翻页，静默截断消除）
+  - 异常体系全链路（三分类 + 翻译 + 边界决策 + IngestError 统一编译链路信号）
+  - compile_folder 不可达代码修复
+  - Analyze/Plan 职责分离（analyze 纯分析两段式 + from/to 方向化 + plan 自主决策 + gaps 闭环 + index 入 plan）
+  - search 修复（路径规范化兜底 + index 按条目截断 + 魔法数字宏化）
+  - reasoning 模型教训（编译全链路 thinking=disabled + reasoning_content 捕获诊断 + 空响应显式报错）
+  - watch 模式（轮询生产消费：两段确认去抖 + difflib 变更门 + 单 worker 串行 + state.json 持久层）
+  - 单文件流水线 CompilePipeline（compile/watch/refine 三模式共用，mode 参数一处声明）
+  - prompts 模块组（compiler/prompts/：compile 全量 + refine 独立覆写 plan + ALLOWED_DISPOSITIONS 契约常量）
+  - refine 自编译（只拿不放三层防护：润色师 prompt → 契约校验 → pipeline 兜底过滤；test/test_refine.py 11 项）
+  - 日志全面接管（三通道分层：终端 print / run.log logger / events.jsonl 全量不截断；双写与 /tmp 直写清除；四入口 begin_trace；ingest_file span）
+  - 全链条审计修复验收（R1/I1/I2/I4/I6/I7 全绿 mini 链：fence 括号配对 + check_ok 统一 + 代码块跳过 + fix_markdown_fence 锚定）
+  - 源文件删除处理（watch 生产消费契约：watcher 检测入队 → consumer 清理 sources 页 + 正文引用换别名）
+  - 图片路径修正（转换层资产化：caption 时复制 wiki/assets + hash 命名去重回填）
+  - 结构手术（两步 LLM 精选复判 + 依赖消解 + 备份原子执行；surgery_wiki.py 正式入口）
+  - chunker 标题路径（heading_path 源头记录 metadata，消费端取用不再重解析）
+  - README 重写（三模式 + 13 条设计决策由来 + 模块地图）
+  - 四阶段重构（stages.py：Searcher/Analyzer/Planner(Curator+Polisher)/Executor 独立类；integrator.py 组装器+工厂独立成文件与 executor 同层级；模式差异收敛为"组装哪个 Planner"；parse.py/checks.py 拆分集成层；Planner.needs_current_page 接口，PolisherPlanner 自读本页 frontmatter；test/test_refine.py 11 项全绿）
+  - goal 字段（页面使命自描述四处落地：new/update/refine 润色师/analyze 候选 meta+duplicate 信号）
+  - Integrator 独立成文件（integrator.py 与 executor 同层级：facade + 组装工厂；stages.py 只剩阶段执行者 + 编译领域工具；__init__ 导出改源）
+  - 页面输出总闸门（_check_page_output = frontmatter 必填 type/title/summary/goal + 正文存在（无正文/只有标题）+ wikilink/fence；_generate_page 挂载，LLM 漏写 goal 被 retry 拦截）
+  - 异常审计修复（B1：retry 空响应路径补填 check_ok=False——最后一次空响应曾绕过调用方检查静默降级；B2：Executor 失败 target 改返回 None 不再混入成功结果；test_retry.py 3 项回归）
+  - 检测分层收敛（页面判定唯一化：check_page_quality 直接调 _check_page_output 闸门，Issue 组装留在 quality；原子下沉 checks——fence 状态机/_extract_body/_body_without_title/_WIKILINK_RE 共享正则；分层 checks（原子+check 回调）← quality（scan/Issue 报告）← normalize（修复+定稿兜底），依赖单向无环。quality 独有：正文过短 warning——闸门二元判定不查长度。scan 缺 goal 现在报 error 与闸门一致，refine 一圈补齐）
+  - 全量重建三修（首次全量跑暴露：① I5 实锤——深嵌套 JSON 缺尾 }，repair 进 _strip_fence ② importance 枚举加"重要"（LLM 高频自然词）③ _check_analyze_json 加 extra_refs——LLM 用真实 slug 自称比 current-doc 自然，refine 高频违规。sources 档案页静态 goal+related:[]——scan 判定对全页面统一）
+
+💀 马上搞:
+  0. ~~**全量重建**~~ ✅ **已跑通（2026-08-15）**：compile 57 文件/92 知识页+57 sources → refine 73 成功/3 noop/13 失败 → surgery 1 确认 merge → **三修后 13/13 全部重试成功 + compile 失败页复跑成功**。goal 覆盖率 100%。I5 实锤修复（见审计区）。**污染事故已处置**：源目录混入旧 wiki 残留 first_wiki/.llm-wiki → 6 行配置 JSON 被 LLM 编造出 5 个物理幻觉页——源已删（用户）、load_dir 默认 recursive=False（调用者决定递归，设计笔记 §13）、幻觉页+index 已清、scan 0/0。剩余观察：fence error 拦 LLM 输出 retry 2 次修不好 → 失败隔离（iterator-protocol 页）下次 refine 自动补
+  0b. **extract 来源保真校验**（污染事故暴露的治本缺口）：extract 无任何"摘要与源内容相符性"校验——配置 JSON 能编出物理页。方向：命名实体重叠度检查 / prompt 强约束"摘要主体必须出现在文档中"（设计笔记 §13 防线缺口）
+  1. ~~Plan 决策追踪~~ ✅ 基础版（plan_decision 事件：结果+依据同记录）——推理链摘录留作增强
+  2. 工具结果智能截断
+  3. Prompt Cache 优化（system prompt 稳定化 + 历史前缀复用）
+  4. ~~/refine CLI 命令壳~~ ✅ 已完成（RefineCommand，CLI 内完整链）
+  5. /compile 命令
+  6. 超参数验证与配置化（INGEST_ 前缀）
+  7. **test/ 陈旧测试移植**（learnrag 时代遗留，60 项失败全为 API 漂移）：test_helpers/test_concurrency/test_memory/test_session/test_chunker/test_messages 六个文件对照现行 API 移植或删除（test_session 的 Session(user_id=) 已不存在、memory_strore→memory_store 等）。已做：learnrag→wiki_agent 导入 + memory_strore typo 修复；剩余全是对不上 API 的断言本体。注意 pytest 需 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`（ROS launch_testing 插件冲突）
+
+🔜 随后:
+  7. 代码块语法高亮
+  8. /debug 面板
+  9. 孤岛检测 + 页面评分 + frontmatter 校验
+  10. 进度条动画
+  11. Update 保留原文（遗漏-6）
+  12. 实体-页面映射表
+  13. 手术剩余：create/trim 原子（拆分）+ 集成进 /refine 命令
+  14. schema.md 驱动路由（第三节高优项——目录白名单三处硬编码收敛）
+
+🍰 甜点:
+  15. mini dashboard
+  16. 引文脚注
+  17. 编译 diff 报告
+  18. Emoji 映射 + 思考折叠
+  19. ⭐ FastAPI gateway（重点，等 MessageBus 引入后）
+```
