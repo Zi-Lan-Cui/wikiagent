@@ -14,7 +14,10 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
     "dashscope>=1.20.0",
-    "mcp>=1.0.0",
+    # mcp 2.0.0 的 sse_client 有上游 bug（关闭时 anyio cancel scope
+    # 跨 task 退出 → "generator didn't stop after athrow()" 噪音）。
+    # 钉在 1.x——SSE 独立实现无此问题；升级 2.x 需先验证关闭路径
+    "mcp>=1.0.0,<2",
     "pillow>=12.3.0",
     "tesserocr>=2.11.0",
     "pypdf>=6.15.0",

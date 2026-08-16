@@ -20,6 +20,7 @@ from rich.text import Text
 
 from wiki_agent.agent import ReActAgent
 from wiki_agent.config import load_config
+from wiki_agent.errors import RetryableError
 from wiki_agent.render import TerminalRenderer
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.log.logger import configure_logging
@@ -120,9 +121,17 @@ async def _interactive_loop(agent: ReActAgent, session_key: str, cli_hook: Termi
 
             # 渲染全部走 hook 事件（TerminalRenderer 直接订阅）——
             # cli 只管编排，流式增量/工具行交错/收尾展示都在渲染器侧
-            await agent.run(
-                user_input=user_input, session_key=session_key, stream=True,
-            )
+            try:
+                await agent.run(
+                    user_input=user_input, session_key=session_key, stream=True,
+                )
+            except RetryableError as exc:
+                # LLM 调用重试已耗尽（网络/限流）——提示后回到输入循环，
+                # 不崩交互。本轮消息不落盘，重试时重新输入即可
+                console.print(f"\n[red]调用失败（网络/限流）: {exc}[/]")
+                console.print("[bright_black]本轮未保存，可重试或换个问法[/]")
+            except Exception as exc:
+                console.print(f"\n[red]本轮出错: {type(exc).__name__}: {exc}[/]")
 
             elapsed = time.time() - t0
             s = agent.session_manager.get_or_create(session_key)
@@ -213,10 +222,10 @@ async def _run_cli(cfg, agent: ReActAgent, session_key: str, cli_hook: TerminalR
     mcp_connections = {}
     if cfg.mcp.servers:
         from wiki_agent.tools.mcp_tools.mcp_adaptor import connect_mcp_servers
-        # adaptor 吃 {name: transport}——transport 自带 .type/.url/.command 等
-        transports = {name: s.transport for name, s in cfg.mcp.servers.items()}
+        # adaptor 吃 {name: McpServerConfig}——transport 在
+        # cfg.transport 里，need_resources/need_prompts 是 server 级开关
         mcp_connections = await connect_mcp_servers(
-            mcp_servers=transports,
+            mcp_servers=cfg.mcp.servers,
             tool_registry=agent.tool_registery,
         )
         for name, conn in mcp_connections.items():
