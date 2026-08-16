@@ -37,6 +37,11 @@ class EventLog:
     """JSON lines 事件日志。"""
 
     def __init__(self, path: Path):
+        """初始化事件日志。
+
+        Args:
+            path: events.jsonl 文件路径（父目录自动创建）。
+        """
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self.dropped = 0
@@ -44,7 +49,15 @@ class EventLog:
         日志最后一行会打 WARNING 汇总，静默丢失变成可见信号）。"""
 
     def emit(self, event: str, **fields: Any) -> None:
-        """记录一条事件。trace_id 自动从 contextvars 取。"""
+        """记录一条事件。
+
+        trace_id 自动从 contextvars 取；写盘失败不抛异常，只计数
+        （日志永远不能让主流程崩）。
+
+        Args:
+            event: 事件名（如 "llm_call"）。
+            **fields: 附加字段（模型/耗时/token 等，随记录写入）。
+        """
         record: dict[str, Any] = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
             "trace_id": current_trace_id() or "-",
@@ -64,17 +77,30 @@ class EventLog:
 
 
 def setup_event_log(path: str | Path | None) -> None:
-    """启用结构化事件日志。path=None 关闭。"""
+    """启用结构化事件日志。
+
+    Args:
+        path: events.jsonl 路径；None 表示关闭事件记录。
+    """
     global _event_log
     _event_log = EventLog(Path(path)) if path else None
 
 
 def emit_event(event: str, **fields: Any) -> None:
-    """记录结构化事件（未 setup 时 no-op）。"""
+    """记录结构化事件（未 setup 时 no-op）。
+
+    Args:
+        event: 事件名。
+        **fields: 附加字段。
+    """
     if _event_log is not None:
         _event_log.emit(event, **fields)
 
 
 def dropped_events() -> int:
-    """事件丢弃计数——入口收尾检查（有丢失要显式报告）。"""
+    """返回事件丢弃计数——入口收尾检查（有丢失要显式报告）。
+
+    Returns:
+        累计写盘失败次数；事件日志未启用时返回 0。
+    """
     return _event_log.dropped if _event_log is not None else 0

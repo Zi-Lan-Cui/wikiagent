@@ -67,7 +67,11 @@ class MemoryStore:
 
     def get_cursor(self)->int:
         """
-        获取 history 的行数。
+        获取 history 游标（已处理的行数）。
+
+        Returns:
+            游标值；文件缺失/损坏时回退为按文件行数统计
+            （并回写校正游标文件）。
         """
         try:
             raw=self.cursor_file.read_text()
@@ -82,7 +86,10 @@ class MemoryStore:
 
     def get_dream_cursor(self)->int:
         """
-        获取 dream 游标，指针指向的值已被处理。
+        获取 dream 游标（指向的值已被处理）。
+
+        Returns:
+            dream 游标值；文件缺失/损坏返回 0。
         """
         try:
             raw=self.dream_cursor_file.read_text()
@@ -97,6 +104,11 @@ class MemoryStore:
 
         与 session.save_checkpoint 同模式: replace 保证读者
         要么旧要么新；fsync 防掉电丢已确认的写。
+
+        Args:
+            path: 目标文件路径。
+            content: 写入内容。
+            fsync: 是否强制刷盘（目录 fsync 一并做）。
         """
         tmp = path.with_suffix(".tmp")
         with open(tmp, "w") as f:
@@ -125,7 +137,14 @@ class MemoryStore:
             fsync:bool=False
     ):
         """
-        追加一条压缩记录。不区分 session，按 session.key 分组后再由 dreamer 处理。
+        追加一条压缩记录。
+
+        不区分 session，按 session.key 分组后再由 dreamer 处理。
+
+        Args:
+            session: 产生记录的会话。
+            summery: 压缩摘要文本。
+            fsync: 是否强制刷盘。
         """
         next_cursor=self.get_cursor()+1
         with open(self.history_file,"a") as f:
@@ -148,6 +167,9 @@ class MemoryStore:
     def get_unprocessed_history(self)->dict:
         """
         返回 dream 游标之后按 session 分组的历史记录。
+
+        Returns:
+            session.key → 记录列表的映射；文件缺失/损坏返回空 dict。
         """
         memory_cursor=self.get_dream_cursor()
         try:
@@ -164,6 +186,11 @@ class MemoryStore:
     # ── memory 读写 ──────────────────────────────────────────
 
     def get_memory_text(self)->str:
+        """读用户画像文本。
+
+        Returns:
+            memory.md 内容；文件缺失/损坏返回空串。
+        """
         try:
             return self.memory_file.read_text(encoding="utf-8")
         except (FileNotFoundError,ValueError):
@@ -182,6 +209,11 @@ class MemoryStore:
         text 是 LLM 用自然语言总结的纠错事实（"该页闭包示例有误"），
         不做结构化、不再 LLM 加工——corrections.md 就是待修清单。
         调用点: /fix 命令或 hook 捕获（即时落账，不等 dream 周期）。
+
+        Args:
+            text: 纠错内容（自然语言）。
+            session_key: 来源会话标识（可空）。
+            fsync: 是否强制刷盘。
         """
         line = (
             f"- [{datetime.now().isoformat()}]"
@@ -199,7 +231,11 @@ class MemoryStore:
             os.close(fd)
 
     def get_corrections(self)->list[str]:
-        """读取待修清单——每行一条自然语言纠错。"""
+        """读取待修清单。
+
+        Returns:
+            逐条纠错文本列表；文件缺失/损坏返回空列表。
+        """
         try:
             return [
                 line for line in
@@ -212,12 +248,23 @@ class MemoryStore:
     # ── 裁决操作（/resolve 用）──────────────────────────────
 
     def _rewrite_corrections(self, lines: list[str]) -> None:
-        """整写 corrections.md——条目量小，重写即事务。"""
+        """整写 corrections.md——条目量小，重写即事务。
+
+        Args:
+            lines: 要写入的行列表。
+        """
         with open(self.corrections_file, "w", encoding="utf-8") as f:
             f.write("".join(line + "\n" for line in lines))
 
     def remove_correction(self, index: int) -> bool:
-        """移除第 index 条（0-based）——驳回语义（wiki 对，用户观点弃）。"""
+        """移除第 index 条（0-based）——驳回语义（wiki 对，用户观点弃）。
+
+        Args:
+            index: 条目下标（0-based）。
+
+        Returns:
+            True 表示移除成功；下标越界返回 False。
+        """
         lines = self.get_corrections()
         if not (0 <= index < len(lines)):
             return False
@@ -229,7 +276,14 @@ class MemoryStore:
     def mark_correction(self, index: int, marker: str) -> bool:
         """给第 index 条加状态标记（行首）——accept/keep 语义。
 
-        marker: "[已确认待修]" / "[存疑]" 等。幂等（已带标记则替换）。
+        幂等（已带标记则替换）。
+
+        Args:
+            index: 条目下标（0-based）。
+            marker: "[已确认待修]" / "[存疑]" 等；空串清除标记。
+
+        Returns:
+            True 表示操作成功；下标越界返回 False。
         """
         lines = self.get_corrections()
         if not (0 <= index < len(lines)):
@@ -275,13 +329,26 @@ class Dreamer:
             history:str,
             memory:str
     )->str:
+        """组装 dream 提示词。
+
+        Args:
+            history: 待处理历史文本。
+            memory: 现有用户画像。
+
+        Returns:
+            格式化后的提示词文本。
+        """
         return self._DREAM_PROMPT.format(
             history=history,
             memory=memory
         )
 
     async def dream(self,llm:LLMClient):
-        """单用户 dream：获取所有未处理的历史，更新 memory。"""
+        """单用户 dream——获取所有未处理的历史，更新 memory。
+
+        Args:
+            llm: LLM 客户端（生成更新后的画像）。
+        """
         grouped_history=self.memory_store.get_unprocessed_history()
         memory=self.memory_store.get_memory_text()
         new_cursor=self.memory_store.get_cursor()
@@ -315,5 +382,11 @@ class Dreamer:
             update_content:str,
             fsync:bool=False
     ):
+        """写入更新后的用户画像（memory.md）。
+
+        Args:
+            update_content: 新画像文本。
+            fsync: 是否强制刷盘。
+        """
         self.memory_store._atomic_write(
             self.memory_store.memory_file, update_content, fsync=fsync)

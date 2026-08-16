@@ -22,7 +22,14 @@ OutputCheck = Callable[[str], tuple[bool, str]]
 
 
 async def _sleep_backoff(attempt: int, base_delay: float) -> None:
-    """指数退避睡眠——2^attempt * base_delay（三处重试共用）。"""
+    """指数退避睡眠。
+
+    延迟 = 2^attempt * base_delay（三处重试共用）。
+
+    Args:
+        attempt: 已失败的尝试次数（从 0 起）。
+        base_delay: 基础延迟（秒）。
+    """
     await asyncio.sleep(base_delay * (2 ** attempt))
 
 
@@ -51,8 +58,20 @@ async def async_invoke_with_retry(
     max_retries=2 = 最多 2 次尝试 = 1 次重试机会（调用点 stages.py
     按此理解传参）。
 
-    返回最后一次 LLMResponse（即使最终仍未通过校验）。
-    调用方根据 content 做后续处理。
+    Args:
+        client: LLM 客户端。
+        messages: 消息列表（校验失败时内部追加修正消息，不修改入参）。
+        check: 输出校验回调 ``(content) -> (ok, reason)``。
+        tools: OpenAI 工具 schema 列表。
+        max_tokens: 生成 token 上限。
+        temperature: 采样温度。
+        extra_body: 附加请求体参数。
+        max_retries: 总尝试次数（不是重试次数）。
+        base_delay: 退避基础延迟（秒）。
+
+    Returns:
+        最后一次 LLMResponse（即使最终仍未通过校验，check_ok
+        字段携带校验结果，调用方据此处理）。
     """
     msgs = list(messages)
     last_response: LLMResponse | None = None

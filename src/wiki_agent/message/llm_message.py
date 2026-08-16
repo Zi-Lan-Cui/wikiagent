@@ -38,10 +38,13 @@ class Message(BaseModel):
 
     @property
     def created_at(self) -> datetime | None:
-        """创建时刻——时间戳的查询接口（TTL 驱逐等系统消费者用）。
+        """返回创建时刻——时间戳的查询接口。
 
-        解析失败返回 None（消费者自行降级——时间是元数据，
-        不应因它崩溃）。
+        TTL 驱逐等系统消费者用。解析失败返回 None（消费者自行
+        降级——时间是元数据，不应因它崩溃）。
+
+        Returns:
+            消息创建时刻；元数据时间戳非法时返回 None。
         """
         try:
             return datetime.fromisoformat(self.metadata.time_stamp)
@@ -50,11 +53,15 @@ class Message(BaseModel):
 
     @property
     def text_schema(self):
-        """token 估计/压缩用的文本形态——与 openai_schema 内容对齐。
+        """返回 token 估计/压缩用的文本形态。
 
-        不含时间戳/图片等元数据——估计文本与真实发送内容同形，
-        否则 token 估计系统性偏差（时间戳每条消息都变，还会让
-        内容相同时间不同的消息产生不同估计）。
+        与 openai_schema 内容对齐，不含时间戳/图片等元数据——
+        估计文本与真实发送内容同形，否则 token 估计系统性偏差
+        （时间戳每条消息都变，还会让内容相同时间不同的消息产生
+        不同估计）。
+
+        Returns:
+            该消息的纯文本表示（按 role 拼接）。
         """
         text = ""
         if self.role == "user":
@@ -74,7 +81,12 @@ class Message(BaseModel):
     # ── openai_schema — 统一的消息序列化点 ────────────────
 
     def _build_content(self):
-        """根据 content + images 构造 OpenAI 格式的 content 字段。"""
+        """构造 OpenAI 格式的 content 字段。
+
+        Returns:
+            无图片时返回纯文本字符串；有图片时返回
+            [{"type": "text"...}, {"type": "image_url"...}] 数组。
+        """
         if not self.images:
             return self.content
         parts: list[dict[str, Any]] = [
@@ -115,6 +127,14 @@ class Message(BaseModel):
 
     @classmethod
     def create_from_openai(cls, data: dict) -> "Message":
+        """从 OpenAI 格式响应构造 Message。
+
+        Args:
+            data: OpenAI 格式消息字典（role/content/tool_calls/...）。
+
+        Returns:
+            转换后的 Message；多模态 content 数组会被还原为纯文本。
+        """
         tool_calls = []
         for tool_call in data.get("tool_calls", []):
             args = tool_call["function"]["arguments"]
@@ -160,6 +180,13 @@ def find_first_legal_idx(messages: list[Message], extend_to_user: bool = True):
       （截断不能从孤儿结果开始——API 会拒绝）
     - extend_to_user=True 时首个 user 消息即返回
       （对话窗口应以 user 提问开头）
+
+    Args:
+        messages: 消息列表（一般已被截取为窗口）。
+        extend_to_user: 为 True 时返回首个 user 消息的下标。
+
+    Returns:
+        合法的起始下标（可在该处截断）。
     """
     start = 0
     called = set()

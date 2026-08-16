@@ -26,7 +26,14 @@ _CONTENT_DIRS = ("concepts", "entities", "topics")
 
 
 def refine_pages(wiki_dir: str | Path) -> list[Path]:
-    """收集 refine 输入——wiki 下三目录的全部 .md 页面。"""
+    """收集 refine 输入——wiki 下三目录的全部 .md 页面。
+
+    Args:
+        wiki_dir: wiki 根目录。
+
+    Returns:
+        排序后的页面路径列表。
+    """
     wiki = Path(wiki_dir)
     pages: list[Path] = []
     for sub in _CONTENT_DIRS:
@@ -41,6 +48,12 @@ def build_index_excluding_self(wiki_dir: str | Path):
 
     排除方式: 去掉含 ``[[slug]]`` 的条目行。slug = 源路径相对 wiki 去 .md。
     条目行格式: ``- [[concepts/x]] — [concept] concepts/x.md — 标题``。
+
+    Args:
+        wiki_dir: wiki 根目录。
+
+    Returns:
+        reader 钩子（接收源路径，返回排除自身后的 index 文本）。
     """
     wiki = Path(wiki_dir)
 
@@ -70,8 +83,13 @@ async def refine_all(
 ) -> dict:
     """逐页 refine（串行——index 读写约束，与 compile/watch 一致）。
 
-    on_page(page, outcome|error) 回调——入口用它打印与存档。
-    返回 {stats}。
+    Args:
+        pipeline: 组装好的 refine 流水线。
+        pages: 待精炼页面列表。
+        on_page: (page, outcome|error) 回调——入口用它打印与存档。
+
+    Returns:
+        统计 dict: {"total", "ok", "noop", "failed"}。
     """
     stats = {"total": len(pages), "ok": 0, "noop": 0, "failed": 0}
     loader = DataLoader()

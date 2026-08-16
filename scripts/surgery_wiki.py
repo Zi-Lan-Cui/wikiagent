@@ -35,6 +35,12 @@ WIKI_DIR = PROJECT_ROOT / "wiki"
 
 
 async def main(dry_run: bool = False, yes: bool = False):
+    """手术主流程——粗提 → 复判 → 消解 → 确认 → 执行。
+
+    Args:
+        dry_run: 到消解为止，不动手。
+        yes: 跳过确认，直接执行。
+    """
     run_dir = WIKI_DIR / ".logs" / "runs" / f"surgery_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(file_path=str(run_dir / "run.log"))

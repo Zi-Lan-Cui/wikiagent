@@ -27,6 +27,11 @@ class FileState:
     last_ingested_at: str = ""
 
     def to_dict(self) -> dict:
+        """序列化为字典（持久化格式）。
+
+        Returns:
+            字段字典。
+        """
         return {
             "hash": self.hash,
             "text": self.text,
@@ -37,6 +42,14 @@ class FileState:
 
     @classmethod
     def from_dict(cls, d: dict) -> "FileState":
+        """从字典构造（读盘）。
+
+        Args:
+            d: 持久化字典。
+
+        Returns:
+            FileState 实例（缺省字段取默认）。
+        """
         return cls(
             hash=d.get("hash", ""),
             text=d.get("text"),
@@ -57,17 +70,40 @@ class WatchState:
     # ── 访问 ──────────────────────────────────────────────
 
     def get(self, abs_path: str) -> FileState:
-        """获取文件状态——不存在返回空 FileState（视为新文件）。"""
+        """获取文件状态——不存在返回空 FileState（视为新文件）。
+
+        Args:
+            abs_path: 文件绝对路径。
+
+        Returns:
+            状态对象。
+        """
         return self._entries.get(abs_path, FileState())
 
     def set(self, abs_path: str, state: FileState) -> None:
+        """写入/覆盖文件状态。
+
+        Args:
+            abs_path: 文件绝对路径。
+            state: 状态对象。
+        """
         self._entries[abs_path] = state
 
     def all_paths(self) -> list[str]:
+        """返回全部已记录路径。
+
+        Returns:
+            路径列表。
+        """
         return list(self._entries.keys())
 
     def drop(self, abs_path: str) -> None:
-        """移除条目（源文件被删除时清理）。"""
+        """移除条目（源文件被删除时清理）。
+
+        Args:
+            abs_path: 文件绝对路径。
+        """
+        self._entries.pop(abs_path, None)
         self._entries.pop(abs_path, None)
 
     # ── 持久化 ────────────────────────────────────────────

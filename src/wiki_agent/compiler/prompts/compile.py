@@ -31,6 +31,9 @@ def chunk_system() -> str:
 
     位置/标题/来源/原文是动态数据，在 chunk_user 里（prompt cache:
     固定段前移，动态段后移——同一文件所有 chunk 共享本段）。
+
+    Returns:
+        system prompt 文本。
     """
     return (
         "你是学术文献的精读助手。对给定片段做保真压缩摘要。\n\n"
@@ -51,7 +54,14 @@ def chunk_system() -> str:
 
 
 def chunk_user(chunk: SourceChunk) -> str:
-    """chunk 摘要的动态度——位置信息 + 片段原文。"""
+    """chunk 摘要的动态度——位置信息 + 片段原文。
+
+    Args:
+        chunk: 待摘要片段。
+
+    Returns:
+        user prompt 文本。
+    """
     pos = f"第 {chunk.index + 1}/{chunk.total} 个片段"
     head = f"，位于『{chunk.heading_path}』" if chunk.heading_path else ""
     return (
@@ -61,6 +71,11 @@ def chunk_user(chunk: SourceChunk) -> str:
 
 
 def synthesis_prompt() -> str:
+    """文档级概述的 system prompt——合成阶段固定段。
+
+    Returns:
+        system prompt 文本。
+    """
     return "\n".join([
         "基于一份文档的所有片段摘要，生成文档级概述。自然语言段落输出，不要求固定段数。",
         "",
@@ -94,7 +109,11 @@ def synthesis_prompt() -> str:
 
 
 def rolling_system() -> str:
-    """滚动压缩的固定段——合并指令（跨文档共享缓存前缀）。"""
+    """滚动压缩的固定段——合并指令（跨文档共享缓存前缀）。
+
+    Returns:
+        system prompt 文本。
+    """
     return (
         "## 合并指令\n"
         "把当前片段的信息融入全局摘要，**输出重写后的完整全局摘要**"
@@ -112,7 +131,16 @@ def rolling_system() -> str:
 def rolling_user(
     chunk: SourceChunk, previous_digest: str, total: int,
 ) -> str:
-    """滚动压缩的动态度——digest + 当前片段（每轮变化在尾部）。"""
+    """滚动压缩的动态度——digest + 当前片段（每轮变化在尾部）。
+
+    Args:
+        chunk: 当前片段。
+        previous_digest: 上一轮全局摘要。
+        total: 片段总数。
+
+    Returns:
+        user prompt 文本。
+    """
     pos = f"第 {chunk.index + 1}/{total} 个片段"
     head = f"（{chunk.heading_path}）" if chunk.heading_path else ""
     return "\n\n".join([
@@ -126,7 +154,11 @@ def rolling_user(
 # ════════════════════════════════════════════════════════════
 
 def search_system() -> str:
-    """search 固定段——角色 + 入选/排除规则（跨文件共享缓存前缀）。"""
+    """search 固定段——角色 + 入选/排除规则（跨文件共享缓存前缀）。
+
+    Returns:
+        system prompt 文本。
+    """
     return "\n\n".join([
         "你是 Wiki 相关度过滤器。基于文档摘要和已有 index，选出与新文档相关的已有页面。",
         "输出纯 JSON 字符串数组: [\"entities/redis.md\", \"concepts/cache.md\"]，不要其他内容。",
@@ -147,7 +179,15 @@ def search_system() -> str:
 
 
 def search_user(extract: ExtractResult, index: str) -> str:
-    """search 动态度——文档摘要 + index（每文件不同，放尾部）。"""
+    """search 动态度——文档摘要 + index（每文件不同，放尾部）。
+
+    Args:
+        extract: 文档摘要结果。
+        index: index.md 全文。
+
+    Returns:
+        user prompt 文本。
+    """
     return "\n\n".join([
         f"## 文档摘要 ({extract.source_identity})\n{extract.document_summary[:_SEARCH_SUMMARY_CHARS]}",
         f"## Wiki Index\n{_truncate_index_by_entries(index, _SEARCH_INDEX_CHARS)}",
@@ -155,7 +195,11 @@ def search_user(extract: ExtractResult, index: str) -> str:
 
 
 def analyze_system() -> str:
-    """analyze 固定段——角色 + 两段式输出结构 + 字段说明（跨文件共享）。"""
+    """analyze 固定段——角色 + 两段式输出结构 + 字段说明（跨文件共享）。
+
+    Returns:
+        system prompt 文本。
+    """
     return "\n\n".join([
         "你是知识库的关系分析师。你的职责是**分析**，不做决策、不做规划。",
         "新建页面、交叉引用这些'接下来怎么办'的问题由后续的策展人决定——"
@@ -222,7 +266,15 @@ def analyze_system() -> str:
 
 
 def analyze_user(extract: ExtractResult, candidates: str) -> str:
-    """analyze 动态度——文档摘要 + 候选页 meta（每文件不同，放尾部）。"""
+    """analyze 动态度——文档摘要 + 候选页 meta（每文件不同，放尾部）。
+
+    Args:
+        extract: 文档摘要结果。
+        candidates: 候选页面元信息文本。
+
+    Returns:
+        user prompt 文本。
+    """
     return "\n\n".join([
         f"## 文档摘要 ({extract.source_identity})\n{extract.document_summary[:_ANALYZE_SUMMARY_CHARS]}",
         f"## 候选页面\n{candidates}",
@@ -242,6 +294,13 @@ def plan_system(
     schema/purpose 是 wiki 级常量（一次 run 内逐文件相同）——留在
     system 跨文件共享。分析文本/文档摘要/index 逐文件变化，在
     plan_user。
+
+    Args:
+        schema: 目录规范文本。
+        purpose: 知识库使命文本。
+
+    Returns:
+        system prompt 文本。
     """
     parts: list[str] = [
         "你是知识库的策展人。基于关系分析的结论，做最终的自主决策。",
@@ -307,7 +366,16 @@ def plan_user(
     extract: ExtractResult, analysis_text: str, *,
     index_content: str = "",
 ) -> str:
-    """策展人决策的动态度——分析文本/文档摘要/index（逐文件变化）。"""
+    """策展人决策的动态度——分析文本/文档摘要/index（逐文件变化）。
+
+    Args:
+        extract: 文档摘要结果。
+        analysis_text: 关系分析文本。
+        index_content: index.md 全文。
+
+    Returns:
+        user prompt 文本。
+    """
     parts: list[str] = [
         f"## 关系分析文本\n{analysis_text[:_PLAN_ANALYSIS_CHARS]}",
         f"## 文档摘要 ({extract.source_identity})\n{extract.document_summary[:_PLAN_SUMMARY_CHARS]}",
@@ -317,7 +385,11 @@ def plan_user(
 
 
 def new_page_system() -> str:
-    """新页生成的固定段——编辑规则 + frontmatter 规范（跨页面共享）。"""
+    """新页生成的固定段——编辑规则 + frontmatter 规范（跨页面共享）。
+
+    Returns:
+        system prompt 文本。
+    """
     return "\n\n".join([
         "你是知识库的编辑。**直接输出页面内容，不要任何解释或前言。**",
         "首字符必须是 `-`（frontmatter 开头），不在此之前输出任何文字。",
@@ -353,7 +425,15 @@ def new_page_system() -> str:
 
 
 def new_page_user(target: PageTarget, extract: ExtractResult) -> str:
-    """新页生成的动态度——页面/原因/references/内容源（逐页面变化）。"""
+    """新页生成的动态度——页面/原因/references/内容源（逐页面变化）。
+
+    Args:
+        target: 页面目标（标题/路径/原因/references）。
+        extract: 文档摘要结果。
+
+    Returns:
+        user prompt 文本。
+    """
     return "\n\n".join([
         f"## 页面: {target.title} (路径: {target.wiki_path})",
         f"## 创建原因\n{target.reason}",
@@ -364,7 +444,11 @@ def new_page_user(target: PageTarget, extract: ExtractResult) -> str:
 
 
 def update_system() -> str:
-    """页面更新的固定段——融入规则 + goal/gaps 保守更新（跨页面共享）。"""
+    """页面更新的固定段——融入规则 + goal/gaps 保守更新（跨页面共享）。
+
+    Returns:
+        system prompt 文本。
+    """
     return "\n\n".join([
         "你是知识库的编辑。在已有页面基础上融入新信息。**直接输出页面，不要解释。**",
         "首字符必须是 `-`（frontmatter 开头）。",
@@ -385,7 +469,16 @@ def update_system() -> str:
 
 
 def update_user(target: PageTarget, existing: str, extract: ExtractResult) -> str:
-    """页面更新的动态度——原因/references/已有页/新信息（逐页面变化）。"""
+    """页面更新的动态度——原因/references/已有页/新信息（逐页面变化）。
+
+    Args:
+        target: 页面目标。
+        existing: 已有页面内容。
+        extract: 文档摘要结果。
+
+    Returns:
+        user prompt 文本。
+    """
     return "\n\n".join([
         f"## 更新原因\n{target.reason}",
         _format_references(target.references),
@@ -403,6 +496,13 @@ def _truncate_index_by_entries(index: str, max_chars: int) -> str:
     """按条目截断 index——保证不切断任何一行（LLM 不会看到半个 slug）。
 
     头部（标题行）始终保留；条目逐行累积直到接近 max_chars。
+
+    Args:
+        index: index.md 内容。
+        max_chars: 截断上限。
+
+    Returns:
+        截断后的文本（含省略提示）。
     """
     lines = index.split("\n")
     if len(index) <= max_chars:
@@ -438,7 +538,14 @@ def _truncate_index_by_entries(index: str, max_chars: int) -> str:
 
 
 def _format_references(refs: list[dict[str, str]]) -> str:
-    """格式化 references 列表为 prompt 可用片段。"""
+    """格式化 references 列表为 prompt 可用片段。
+
+    Args:
+        refs: 引用列表。
+
+    Returns:
+        prompt 片段文本；空列表返回空串。
+    """
     if not refs:
         return ""
     lines = ["## 引用建议 (来自策划阶段——以下 slug 已确认存在，可安全使用 [[wikilink]])"]

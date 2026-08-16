@@ -39,13 +39,28 @@ class LoadSummary(BaseModel):
 
     @property
     def loaded_count(self) -> int:
+        """返回已加载文件数。
+
+        Returns:
+            files 列表长度。
+        """
         return len(self.files)
 
     @property
     def skipped_count(self) -> int:
+        """返回被跳过文件数。
+
+        Returns:
+            skipped 列表长度。
+        """
         return len(self.skipped)
 
     def iter_text(self):
+        """迭代纯文本文件。
+
+        Yields:
+            modality == TEXT 的文件属性对象。
+        """
         for f in self.files:
             if f.modality == FileModality.TEXT:
                 yield f
@@ -89,7 +104,15 @@ class DataLoader:
         files: list[str | Path],
         base_path: str | Path = ".",
     ) -> LoadSummary:
-        """加载显式指定的文件列表，返回汇总（含已加载 & 跳过）。"""
+        """加载显式指定的文件列表。
+
+        Args:
+            files: 文件路径列表（相对 base_path）。
+            base_path: 基准目录。
+
+        Returns:
+            汇总（含已加载 & 跳过）。
+        """
         base = Path(base_path)
         paths = [base / Path(f) for f in files]
         return self._load_from_paths(paths)
@@ -111,6 +134,13 @@ class DataLoader:
         这一层。树扫描显式 opt-in（实测事故: 默认递归把源目录里的
         旧 wiki 构建 first_wiki/ 和工具配置 .llm-wiki/ 全部吃进去，
         6 行配置 JSON 被 LLM extract 编造出整条物理页幻觉链）。
+
+        Args:
+            directory: 扫描目录。
+            recursive: 是否递归扫描子目录（默认 False）。
+
+        Returns:
+            汇总（含已加载 & 跳过）。
         """
         dir_path = Path(directory)
         if not dir_path.is_dir():
@@ -147,7 +177,16 @@ class DataLoader:
         return summary
 
     def _get_file_properties(self, file: Path, summary: LoadSummary | None = None) -> RawFileProperties | None:
-        """单文件属性提取 + 文本内容读取。"""
+        """单文件属性提取 + 文本内容读取。
+
+        Args:
+            file: 文件路径。
+            summary: 汇总（跳过时记录原因）。
+
+        Returns:
+            RawFileProperties；文件不存在/非文件/不支持扩展名/
+            空内容时返回 None。
+        """
         if not file.exists():
             self._skip(file, "文件不存在", summary)
             return None
@@ -191,7 +230,14 @@ class DataLoader:
         )
 
     def _read_text(self, file: Path) -> tuple[str, str | None]:
-        """尝试多种编码读取文本。返回 (content, encoding)。"""
+        """尝试多种编码读取文本。
+
+        Args:
+            file: 文件路径。
+
+        Returns:
+            (content, encoding)；全失败时用 utf-8 replace 兜底。
+        """
         for enc in self._TEXT_ENCODINGS:
             try:
                 return file.read_text(encoding=enc), enc
@@ -212,6 +258,12 @@ class DataLoader:
         - 空串 / 纯空白
         - JSON 空容器: []、{}、[ ]、{ }（如 conversations.json = []）
         - 其他格式的空骨架（空列表/空字典）
+
+        Args:
+            content: 文本内容。
+
+        Returns:
+            True 表示语义为空。
         """
         stripped = content.strip()
         if not stripped:
@@ -230,7 +282,14 @@ class DataLoader:
 
 
     def _hash_file(self,file: Path) -> str | None:
-        """SHA256 用于去重追踪。"""
+        """计算文件 SHA256——去重追踪。
+
+        Args:
+            file: 文件路径。
+
+        Returns:
+            SHA256 摘要；读取失败返回 None。
+        """
         try:
             sha = hashlib.sha256()
             with open(file, "rb") as fh:

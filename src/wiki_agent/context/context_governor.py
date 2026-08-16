@@ -19,7 +19,17 @@ _INTERNAL_TRANSIENT_TOOLS = frozenset({"RecordCorrection"})
 
 
 def _age_label(age_seconds: float) -> str:
-    """新鲜度粗粒度分桶——逐分钟变化会破坏 prompt cache 前缀稳定。"""
+    """新鲜度粗粒度分桶。
+
+    逐分钟变化会破坏 prompt cache 前缀稳定——桶粒度保证占位
+    文本在会话内稳定。
+
+    Args:
+        age_seconds: 年龄（秒）。
+
+    Returns:
+        中文分桶标签（刚刚/几分钟前/半小时内/超过一小时）。
+    """
     if age_seconds < 60:
         return "刚刚"
     if age_seconds < 600:
@@ -36,8 +46,16 @@ class ContextGovernor:
 
     def __init__(self, workspace: Path, agent_config=None,
                  tool_ttl: dict[str, int] | None = None):
-        """治理参数从 agent_config 取（E3 收编）——tool_ttl 保留
-        为测试注入口（测试传 60 秒验证驱逐行为，生产用 config 默认）。"""
+        """初始化治理器。
+
+        治理参数从 agent_config 取（E3 收编）——tool_ttl 保留
+        为测试注入口（测试传 60 秒验证驱逐行为，生产用 config 默认）。
+
+        Args:
+            workspace: 工作区（tmp/ 转存目录的根）。
+            agent_config: AgentConfig（治理参数来源；None 用默认）。
+            tool_ttl: 工具名 → TTL 秒数覆盖表（测试注入用）。
+        """
         self.workspace = workspace
         self.tmp_dir = self.workspace / "tmp"
         cfg = agent_config
@@ -59,7 +77,16 @@ class ContextGovernor:
 
     def _merge_consecutive(self,messages:list[Message]):
         """
-        合并连续相同的role消息，但是不合并tool，或者有tool_call的assisstant消息，避免调用丢失
+        合并连续相同 role 的消息。
+
+        不合并 tool 消息或带 tool_call 的 assistant 消息——
+        避免调用配对丢失。
+
+        Args:
+            messages: 原始消息列表。
+
+        Returns:
+            合并后的消息列表。
         """
         merged:list[Message]=[]
         for m in messages:
@@ -81,6 +108,14 @@ class ContextGovernor:
         - 前置: 修复历史本身的断裂（上次崩溃留下的孤儿调用/结果）
         - 后置: snip 按窗口截断可能切断调用-结果配对、inflight
           紧凑化替换内容也可能产生新孤儿——发出请求前必须再修一次
+
+        Args:
+            session: 会话（转存/驱逐的归属）。
+            messages: 工作副本消息（内部会修改 tool 消息内容）。
+            agent_config: AgentConfig（预算参数）。
+
+        Returns:
+            治理后的消息列表（可安全发给 LLM）。
         """
         messages=self._merge_consecutive(messages)
         messages=self._repair_broken_history(messages=messages)
@@ -97,7 +132,17 @@ class ContextGovernor:
 
     def _snip_by_tokens(self,messages:list[Message],agent_config):
         """
-        按token压缩，失败则返回原始消息，让llm自然失败
+        按 token 预算截断对话部分（保留 system）。
+
+        逆序收集（从最近开始保留），再反转恢复时间顺序——避免
+        输出倒序对话。失败时返回原始消息，让 LLM 自然失败。
+
+        Args:
+            messages: 消息列表。
+            agent_config: AgentConfig（上下文窗口/生成上限）。
+
+        Returns:
+            截断后的消息列表（预算不够时原样返回）。
         """
         budget=self._get_budget(agent_config.context_windows,agent_config.max_tokens)
         if budget<=0:
@@ -161,6 +206,10 @@ class ContextGovernor:
         与 TTL 驱逐的互补: TTL 是时间维度（旧了就扔，窗口有空间也扔），
         本步是空间维度（窗口不够了就扔，还新鲜也扔）。同一白名单
         （self._tool_ttl 的 key = 可重取工具注册表）。
+
+        Args:
+            messages: 消息列表（就地修改 tool 消息内容）。
+            agent_config: AgentConfig（预算参数）。
         """
         budget = self._get_budget(agent_config.context_windows,
                                   agent_config.max_tokens)
@@ -205,7 +254,16 @@ class ContextGovernor:
 
     @staticmethod
     def _safe_session_dir(session_key: str) -> str:
-        """session key 可能来自 --resume 用户输入，净化后作目录名，防路径穿越。"""
+        """净化 session key 为安全目录名。
+
+        session key 可能来自 --resume 用户输入——防路径穿越。
+
+        Args:
+            session_key: 原始 session key。
+
+        Returns:
+            净化后的目录名（非法字符替换为 _，空值兜底 "default"）。
+        """
         return re.sub(r"[^\w\-]", "_", session_key) or "default"
 
     def _persist_tool_result(
@@ -213,8 +271,15 @@ class ContextGovernor:
             session:Session,
             message:Message
     ) -> str:
-        """完整结果写文件。返回相对指针路径（相对 workspace/），
-        不泄漏用户文件系统布局。"""
+        """完整结果写文件。
+
+        Args:
+            session: 会话（转存目录归属）。
+            message: 要转存的 tool 消息。
+
+        Returns:
+            相对指针路径（相对 workspace/）——不泄漏用户文件系统布局。
+        """
         safe_key = self._safe_session_dir(session.key)
         persist_path = self.tmp_dir / safe_key
         if ensure_dir(persist_path):
@@ -242,7 +307,11 @@ class ContextGovernor:
             )
     def _process_tool_results(self,session:Session,messages:list[Message],):
         """
-        处理工具结果，如果工具返回长度较长，选择将其持久化到文件中，将内容替换为对应的文件路径
+        处理工具结果——超长结果转存文件，内容替换为指针路径。
+
+        Args:
+            session: 会话（转存目录归属）。
+            messages: 消息列表（就地修改超长 tool 消息）。
         """
         for message in messages:
             if message.role!="tool":
@@ -252,14 +321,28 @@ class ContextGovernor:
     # ── 工具结果新鲜度 ─────────────────────────────────────
 
     def _tool_age_seconds(self, message: Message) -> float:
-        """工具结果年龄——经 Message.created_at 查询接口（时间戳是元数据）。"""
+        """计算工具结果年龄——经 Message.created_at 查询接口。
+
+        Args:
+            message: 工具消息。
+
+        Returns:
+            年龄（秒）；时间戳损坏返回 0（视为新鲜，保守不驱逐）。
+        """
         created = message.created_at
         if created is None:
             return 0.0  # 时间戳损坏视为新鲜——保守不驱逐
         return (datetime.now() - created).total_seconds()
 
     def _stale_result_reason(self, message: Message) -> str | None:
-        """可重复获得的工具结果过期判据——None 表示新鲜/豁免。"""
+        """判断可重取工具结果是否过期。
+
+        Args:
+            message: 消息。
+
+        Returns:
+            过期占位文本；新鲜/豁免/未登记工具返回 None。
+        """
         if message.role != "tool" or not message.content.strip():
             return None
         tool_name = message.tool_name or ""
@@ -283,6 +366,9 @@ class ContextGovernor:
         compile/refine 变化后，长对话跨轮携带的旧读取结果已失真。
         占位消息本身不设过期（防死循环——驱逐一次后模型若不理，
         下一轮重估年龄已重置，过期内容不再注入）。
+
+        Args:
+            messages: 消息列表（就地修改过期 tool 消息）。
         """
         for message in messages:
             reason = self._stale_result_reason(message)
@@ -296,7 +382,14 @@ class ContextGovernor:
             message.content = reason
 
     def _repair_broken_history(self,messages:list[Message]):
-        """修复断裂的历史——孤儿调用补占位 / 孤儿结果移除（委托模块级工具）。"""
+        """修复断裂的历史——孤儿调用补占位 / 孤儿结果移除。
+
+        Args:
+            messages: 消息列表。
+
+        Returns:
+            修复后的消息列表。
+        """
         messages=_repair_orphan_tool_call(messages=messages)
         messages=_remove_orphan_tool_result(messages=messages)
         return messages
@@ -308,7 +401,14 @@ class ContextGovernor:
 # ════════════════════════════════════════════════════════════
 
 def _get_orphan_tool_call_ids(messages: list[Message]) -> set[str]:
-    """提取有调用无结果的 tool id（意外终止/截断造成）。"""
+    """提取有调用无结果的 tool id（意外终止/截断造成）。
+
+    Args:
+        messages: 消息列表。
+
+    Returns:
+        孤儿调用 id 集合。
+    """
     called_no_result_id = set()
     for message in messages:
         if message.role == "assistant" and message.tool_calls:
@@ -321,7 +421,14 @@ def _get_orphan_tool_call_ids(messages: list[Message]) -> set[str]:
 
 
 def _get_orphan_tool_result_idx(messages: list[Message]) -> set[int]:
-    """提取无对应调用的工具结果下标（压缩/窗口截断造成）。"""
+    """提取无对应调用的工具结果下标（压缩/窗口截断造成）。
+
+    Args:
+        messages: 消息列表。
+
+    Returns:
+        孤儿结果的下标集合。
+    """
     tool_called = set()
     orphan_idx = set()
     for idx, message in enumerate(messages):
@@ -335,7 +442,14 @@ def _get_orphan_tool_result_idx(messages: list[Message]) -> set[int]:
 
 
 def _repair_orphan_tool_call(messages: list[Message]) -> list[Message]:
-    """为孤儿 tool_call 补占位 tool 消息——保证 API 请求合法。"""
+    """为孤儿 tool_call 补占位 tool 消息——保证 API 请求合法。
+
+    Args:
+        messages: 消息列表。
+
+    Returns:
+        修复后的消息列表（无孤儿时原样返回）。
+    """
     orphan_ids = _get_orphan_tool_call_ids(messages)
     if not orphan_ids:
         return messages
@@ -355,7 +469,14 @@ def _repair_orphan_tool_call(messages: list[Message]) -> list[Message]:
 
 
 def _remove_orphan_tool_result(messages: list[Message]) -> list[Message]:
-    """移除无对应调用的工具结果。"""
+    """移除无对应调用的工具结果。
+
+    Args:
+        messages: 消息列表。
+
+    Returns:
+        移除孤儿结果后的消息列表（无孤儿时原样返回）。
+    """
     orphan_idx = _get_orphan_tool_result_idx(messages)
     if orphan_idx:
         return [

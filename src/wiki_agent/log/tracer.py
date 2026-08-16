@@ -23,11 +23,23 @@ _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 
 
 def current_trace_id() -> str | None:
+    """返回当前 context 的 trace_id。
+
+    Returns:
+        当前 trace_id；未开启 trace 时返回 None。
+    """
     return _trace_id_var.get()
 
 
 def begin_trace(trace_id: str | None = None) -> str:
-    """开启新 trace（一次 agent.run 一个）。返回 trace_id。"""
+    """开启新 trace（一次 agent.run 一个）。
+
+    Args:
+        trace_id: 外部注入的 trace_id；None 时按时间戳生成。
+
+    Returns:
+        本次 trace 的 trace_id。
+    """
     tid = trace_id or f"trace_{int(time.time() * 1000)}"
     _trace_id_var.set(tid)
     return tid
@@ -49,6 +61,12 @@ class span:
     __slots__ = ("_event", "_attrs", "_started", "_status", "_error")
 
     def __init__(self, event: str, **attrs: Any):
+        """初始化 span。
+
+        Args:
+            event: 事件名（退出时以此名 emit）。
+            **attrs: 随事件记录的静态属性。
+        """
         self._event = event
         self._attrs = attrs
         self._started = 0.0
@@ -62,11 +80,20 @@ class span:
     # ── 观测属性写入接口（替代直接访问 _attrs 的跨模块耦合）──
 
     def set_attr(self, key: str, value: Any) -> None:
-        """补充观测属性——span 运行中收集上下文（成功数/游标等）。"""
+        """补充观测属性——span 运行中收集上下文（成功数/游标等）。
+
+        Args:
+            key: 属性名。
+            value: 属性值。
+        """
         self._attrs[key] = value
 
     def mark_failure(self, reason: str) -> None:
-        """标记失败——异常外的失败路径（空响应/校验失败）用。"""
+        """标记失败——异常外的失败路径（空响应/校验失败）用。
+
+        Args:
+            reason: 失败原因描述。
+        """
         self._attrs["failure"] = reason
 
     async def __aexit__(self, exc_type, exc, tb) -> None:

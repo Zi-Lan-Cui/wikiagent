@@ -53,6 +53,14 @@ class StructuredChunker(BaseChunker):
         return file.modality == "text" and file.ext in self._SUPPORTED
 
     def chunk(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
+        """按扩展名分派切分。
+
+        Args:
+            file: 转换后的文件。
+
+        Returns:
+            chunk 列表（不支持的类型返回 []）。
+        """
         if file.ext == "csv":
             return self._chunk_csv(file)
         if file.ext in ("json", "jsonl"):
@@ -62,6 +70,14 @@ class StructuredChunker(BaseChunker):
     # ── CSV ───────────────────────────────────────────────
 
     def _chunk_csv(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
+        """CSV → 按 batch_size 行分组的 chunk（保留表头）。
+
+        Args:
+            file: 转换后的文件。
+
+        Returns:
+            chunk 列表（解析失败返回 [] 降级纯文本）。
+        """
         try:
             reader = csv.DictReader(io.StringIO(file.content))
             headers = reader.fieldnames or []
@@ -94,6 +110,16 @@ class StructuredChunker(BaseChunker):
     # ── JSON ──────────────────────────────────────────────
 
     def _chunk_json(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
+        """JSON/JSONL → 结构化 chunk。
+
+        JSONL 每行一个 chunk；JSON 数组按元素、对象按顶级 key 拆分。
+
+        Args:
+            file: 转换后的文件。
+
+        Returns:
+            chunk 列表（解析失败返回 []）。
+        """
         is_jsonl = file.ext == "jsonl"
         chunks: list[ChunkedFileProperties] = []
         chunk_index = 0
@@ -150,6 +176,17 @@ class StructuredChunker(BaseChunker):
         headers: list[str],
         file: ConvertedFile,
     ) -> ChunkedFileProperties:
+        """构造单个 chunk（JSON 序列化 + 元数据）。
+
+        Args:
+            index: chunk 序号。
+            data: 行数据/元素/键值对。
+            headers: CSV 列名（metadata 用）。
+            file: 转换后的文件。
+
+        Returns:
+            ChunkedFileProperties。
+        """
         content = json.dumps(data, ensure_ascii=False, indent=2)
         return ChunkedFileProperties(
             content=content,

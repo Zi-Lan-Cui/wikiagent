@@ -29,7 +29,13 @@ def _safe_resolve(base: Path, rel: str, *, allow_root: bool = False) -> Path | N
        ``allow_root=True`` 时额外允许空串和 ``.``（表示根目录本身）。
     2. resolve + startswith（防御层）——兜底，绝对不可能出根。
 
-    返回 None 表示非法路径。
+    Args:
+        base: 允许访问的根目录。
+        rel: 相对路径。
+        allow_root: 允许空串/``.``（表示根目录本身）。
+
+    Returns:
+        解析后的绝对路径；非法路径返回 None。
     """
     p = Path(rel)
     if p.is_absolute():
@@ -75,7 +81,14 @@ class ReadFile(BaseTool):
         self._workspace = Path(workspace).resolve() if workspace else None
 
     def _resolve(self, file_path: str) -> Path | None:
-        """相对路径解析: tmp/ 开头 → workspace/，否则 → wiki root/。"""
+        """解析相对路径: tmp/ 开头 → workspace/，否则 → wiki root/。
+
+        Args:
+            file_path: 相对路径。
+
+        Returns:
+            解析后的绝对路径；非法路径返回 None。
+        """
         if self._workspace and file_path.startswith("tmp/"):
             return _safe_resolve(self._workspace, file_path)
         return _safe_resolve(self._root, file_path)
@@ -130,6 +143,15 @@ class ListDir(BaseTool):
         self._root = Path(root).resolve()
 
     async def _execute(self, dir_path: str, offset: int = 0) -> str:
+        """列出目录内容（分页）。
+
+        Args:
+            dir_path: wiki 内目录路径（空串/``.`` 表示根目录）。
+            offset: 起始项下标。
+
+        Returns:
+            格式化列表文本（含翻页提示）。
+        """
         target = _safe_resolve(self._root, dir_path, allow_root=True)
         if target is None:
             return (
@@ -191,6 +213,16 @@ class Grep(BaseTool):
         self._root = Path(root).resolve()
 
     async def _execute(self, pattern: str, in_dir: str = "", max_results: int = 15) -> str:
+        """在 wiki 中搜索匹配文本。
+
+        Args:
+            pattern: 搜索文本（支持正则，忽略大小写）。
+            in_dir: 限定目录（空串 = 全 wiki）。
+            max_results: 最多返回的匹配条数。
+
+        Returns:
+            格式化搜索结果（路径:行号:片段）。
+        """
         import re as _re
         search_dir = _safe_resolve(self._root, in_dir, allow_root=True)
         if search_dir is None:

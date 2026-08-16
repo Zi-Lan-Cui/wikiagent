@@ -36,7 +36,16 @@ class QueueStore:
         self._file = Path(workspace) / "queue.jsonl"
 
     def append(self, type_: str, **fields) -> str:
-        """追加一条待处理项，返回生成的 id。"""
+        """追加一条待处理项。
+
+        Args:
+            type_: 事项类型（ingest_failure / surgery_conflict / correction，
+                含义见模块 docstring）。
+            **fields: 随记录写入的附加字段（如 stage/source/error）。
+
+        Returns:
+            生成的记录 id。
+        """
         ts = datetime.now().isoformat()
         item_id = f"{type_}_{ts.replace(':', '').replace('-', '').replace('.', '')}"
         record = {"id": item_id, "type": type_, "ts": ts, **fields}
@@ -46,7 +55,11 @@ class QueueStore:
         return item_id
 
     def list(self) -> list[dict]:
-        """全部待处理项（按时间顺序）。"""
+        """返回全部待处理项（按时间顺序）。
+
+        Returns:
+            队列中所有记录的列表；队列为空或文件不存在时返回空列表。
+        """
         try:
             with open(self._file, encoding="utf-8") as f:
                 return [
@@ -58,13 +71,28 @@ class QueueStore:
             return []
 
     def get(self, item_id: str) -> dict | None:
+        """按 id 查找单条记录。
+
+        Args:
+            item_id: 记录 id（append 返回的值）。
+
+        Returns:
+            匹配的记录；不存在时返回 None。
+        """
         for item in self.list():
             if item.get("id") == item_id:
                 return item
         return None
 
     def remove(self, item_id: str) -> bool:
-        """移除一条（重写文件）——处理完成的语义。"""
+        """移除一条记录（重写文件）——处理完成的语义。
+
+        Args:
+            item_id: 记录 id（append 返回的值）。
+
+        Returns:
+            True 表示记录存在并已移除；False 表示记录不存在（无需操作）。
+        """
         items = self.list()
         kept = [i for i in items if i.get("id") != item_id]
         if len(kept) == len(items):
@@ -76,6 +104,11 @@ class QueueStore:
         return True
 
     def count_by_type(self) -> dict[str, int]:
+        """按类型统计待处理项数量。
+
+        Returns:
+            类型到数量的映射；类型未知的记录归入 "unknown"。
+        """
         counts: dict[str, int] = {}
         for item in self.list():
             t = item.get("type", "unknown")

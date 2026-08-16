@@ -65,7 +65,14 @@ _NO_THINKING = {"thinking": {"type": "disabled"}}
 
 
 def load_valid_slugs(wiki_dir: str | Path) -> set[str]:
-    """从 wiki/index.md 读取已有页面 slug 集合。"""
+    """从 wiki/index.md 读取已有页面 slug 集合。
+
+    Args:
+        wiki_dir: wiki 根目录。
+
+    Returns:
+        已有页面 slug 集合；index 缺失时返回空集。
+    """
     try:
         return extract_slugs_from_index(
             (Path(wiki_dir) / "index.md").read_text(encoding="utf-8"))
@@ -86,6 +93,18 @@ class Searcher:
         self._prompts = prompts
 
     async def search(self, extract: ExtractResult, index_content: str) -> SearchResult:
+        """执行 search——LLM 从 index 选出候选页面。
+
+        Args:
+            extract: 源文档抽取结果。
+            index_content: index.md 全文。
+
+        Returns:
+            候选页面列表的 SearchResult。
+
+        Raises:
+            IngestError: 校验穷尽后仍失败（不许静默降级 0 候选）。
+        """
         response = await async_invoke_with_retry(
             self._llm,
             [
@@ -123,6 +142,14 @@ class Analyzer:
         self._prompts = prompts
 
     async def _read_page(self, wiki_path: str) -> str:
+        """读 wiki 页面全文。
+
+        Args:
+            wiki_path: 页面相对路径。
+
+        Returns:
+            页面内容；页面不存在返回空串。
+        """
         try:
             return (self._wiki_dir / wiki_path).read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -131,7 +158,18 @@ class Analyzer:
     async def analyze(
         self, extract: ExtractResult, result: SearchResult,
     ) -> AnalysisResult:
-        """② 关系分析: 新文档与 search 候选页面之间的关系。"""
+        """关系分析——新文档与 search 候选页面的两段式分析。
+
+        Args:
+            extract: 源文档抽取结果。
+            result: search 阶段输出的候选页面。
+
+        Returns:
+            分析结果（实体/概念/关系 + 自由分析文本）。
+
+        Raises:
+            IngestError: 校验穷尽后仍失败。
+        """
         if not result.rel_paths:
             return AnalysisResult(source_identity=extract.source_identity)
 
@@ -222,6 +260,17 @@ class Planner:
 
         system/user 双消息（prompt cache 拆分）——固定角色留 system，
         动态数据（分析文本/index/当前页）放 user。
+
+        Args:
+            extract: 源文档抽取结果。
+            system_prompt: plan system prompt。
+            user_prompt: plan user prompt。
+
+        Returns:
+            解析后的 IntegrationPlan（含原始输出 raw）。
+
+        Raises:
+            IngestError: 校验穷尽后仍失败。
         """
         allowed = getattr(self._prompts, "ALLOWED_DISPOSITIONS", _VALID_DISPOSITIONS)
         check_plan = lambda content: _check_plan_json(
@@ -254,6 +303,21 @@ class Planner:
         self, extract: ExtractResult, analysis: AnalysisResult, *,
         schema: str = "", purpose: str = "", index_content: str = "",
     ) -> IntegrationPlan:
+        """制定集成计划（子类实现）。
+
+        Args:
+            extract: 源文档抽取结果。
+            analysis: analyze 阶段的分析结果。
+            schema: 目录规范文本。
+            purpose: 知识库使命文本。
+            index_content: index.md 全文。
+
+        Returns:
+            集成计划（页面目标列表）。
+
+        Raises:
+            NotImplementedError: 未实现。
+        """
         raise NotImplementedError
 
 
@@ -264,6 +328,18 @@ class CuratorPlanner(Planner):
         self, extract: ExtractResult, analysis: AnalysisResult, *,
         schema: str = "", purpose: str = "", index_content: str = "",
     ) -> IntegrationPlan:
+        """策展人决策——compile 模式，new/update 开放决策。
+
+        Args:
+            extract: 源文档抽取结果。
+            analysis: analyze 阶段的分析结果。
+            schema: 目录规范文本。
+            purpose: 知识库使命文本。
+            index_content: index.md 全文。
+
+        Returns:
+            集成计划；引用会过滤无效 slug 并 emit plan_decision 事件。
+        """
         plan = await self._invoke_plan(
             extract,
             self._prompts.plan_system(schema=schema, purpose=purpose),
@@ -313,6 +389,19 @@ class PolisherPlanner(Planner):
         schema: str = "", purpose: str = "", index_content: str = "",
         current_page: str = "",
     ) -> IntegrationPlan:
+        """润色师决策——refine 模式，只更新自己。
+
+        Args:
+            extract: 源文档抽取结果。
+            analysis: analyze 阶段的分析结果。
+            schema: 目录规范文本。
+            purpose: 知识库使命文本。
+            index_content: index.md 全文。
+            current_page: 当前精炼页面 slug（self-update 过滤依据）。
+
+        Returns:
+            集成计划（只含指向自身的 update target）。
+        """
         page_meta = self._page_meta(current_page)
         plan = await self._invoke_plan(
             extract,
@@ -341,7 +430,14 @@ class PolisherPlanner(Planner):
         return plan
 
     def _page_meta(self, current_page: str) -> str:
-        """读本页 frontmatter 摘要——goal/gaps/summary/type。"""
+        """读本页 frontmatter 摘要——goal/gaps/summary/type。
+
+        Args:
+            current_page: 页面 slug。
+
+        Returns:
+            元信息逐行文本（"k: v"）；读取失败/为空返回空串。
+        """
         if not current_page:
             return ""
         try:
@@ -356,7 +452,12 @@ class PolisherPlanner(Planner):
         )
 
     def _filter_self_updates(self, plan: IntegrationPlan, self_slug: str) -> None:
-        """丢弃非 self-update 的 target——prompt+校验之后最后一道。"""
+        """丢弃非 self-update 的 target——prompt+校验之后最后一道。
+
+        Args:
+            plan: 集成计划（就地过滤 page_targets）。
+            self_slug: 当前页面 slug。
+        """
         kept = []
         for t in plan.page_targets:
             t_slug = _normalize_wiki_path(t.wiki_path).replace(".md", "")
@@ -386,13 +487,26 @@ class Executor:
         self._prompts = prompts
 
     async def _read_page(self, wiki_path: str) -> str:
+        """读 wiki 页面全文。
+
+        Args:
+            wiki_path: 页面相对路径。
+
+        Returns:
+            页面内容；页面不存在返回空串。
+        """
         try:
             return (self._wiki_dir / wiki_path).read_text(encoding="utf-8")
         except FileNotFoundError:
             return ""
 
     async def _write_page(self, wiki_path: str, content: str) -> None:
-        """落盘——内容处理链在 execute 内完成，这里只写文件。"""
+        """落盘——内容处理链在 execute 内完成，这里只写文件。
+
+        Args:
+            wiki_path: 页面相对路径（会做规范化）。
+            content: 页面完整内容。
+        """
         wiki_path = _normalize_wiki_path(wiki_path)
         full = self._wiki_dir / wiki_path
         full.parent.mkdir(parents=True, exist_ok=True)
@@ -404,6 +518,17 @@ class Executor:
         """按 disposition 生成页面——new 从零生成 / update 合并已有页。
 
         校验不过 → 重试；穷尽后仍不过 → raise（质量闸门，不许静默落盘）。
+
+        Args:
+            target: 页面目标（disposition/path/references）。
+            existing: 已有页面内容（update 时作为合并基底）。
+            extract: 源文档抽取结果。
+
+        Returns:
+            生成的页面原始内容。
+
+        Raises:
+            IngestError: 重试穷尽后校验仍失败。
         """
         if not existing:
             system_prompt = self._prompts.new_page_system()
@@ -434,7 +559,16 @@ class Executor:
     async def execute(
         self, plan: IntegrationPlan, extract: ExtractResult,
     ) -> list[PageTarget]:
-        """执行 plan——并行处理每个 target，失败隔离 + 死链兜底。"""
+        """执行 plan——并行处理每个 target，失败隔离 + 死链兜底。
+
+        Args:
+            plan: 集成计划。
+            extract: 源文档抽取结果。
+
+        Returns:
+            成功落盘的 target 列表（失败的 target 返回 None 被过滤，
+            不会混入成功结果）。
+        """
         if not plan.page_targets:
             return []
 
@@ -513,6 +647,12 @@ def _format_analysis_for_plan(analysis: AnalysisResult) -> str:
 
     自由分析是核心依据（原样传递），结构化尾巴作索引——
     plan 从自由文本里读推理，从尾巴里查实体/关系。
+
+    Args:
+        analysis: analyze 阶段结果。
+
+    Returns:
+        格式化文本；无结构化内容时回退到原始分析文本。
     """
     parts: list[str] = []
 
@@ -550,6 +690,12 @@ def extract_slugs_from_index(index_content: str) -> set[str]:
     """从 wiki/index.md 提取所有已有页面 slug。
 
     匹配 `[[entities/xxx]]`、`[[concepts/xxx]]`、`[[topics/xxx]]` 格式。
+
+    Args:
+        index_content: index.md 内容。
+
+    Returns:
+        slug 集合（不含 .md 后缀）。
     """
     slugs: set[str] = set()
     for m in re.finditer(r"\[\[([a-zA-Z0-9][^\]]+?)\]\]", index_content):
@@ -566,6 +712,13 @@ def filter_plan_refs(
     """过滤每个 PageTarget.references 中的无效 slug。
 
     slug 不在 valid_slugs 中的引用会被移除并记录警告。
+
+    Args:
+        targets: 页面目标列表（就地修改 references）。
+        valid_slugs: 合法 slug 集合。
+
+    Returns:
+        过滤后的 targets（原列表）。
     """
     for t in targets:
         if not t.references or not valid_slugs:

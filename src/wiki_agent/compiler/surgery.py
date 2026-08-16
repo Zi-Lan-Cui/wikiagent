@@ -72,7 +72,14 @@ class SurgeryResult:
 # ════════════════════════════════════════════════════════════
 
 def _load_pages(wiki_dir: str | Path) -> dict[str, dict]:
-    """读全库页面 → {slug: {path, summary, body, related, title}}。"""
+    """读全库页面。
+
+    Args:
+        wiki_dir: wiki 根目录。
+
+    Returns:
+        {slug: {path, summary, body, related, title}} 映射。
+    """
     from wiki_agent.compiler.parse import split_frontmatter
 
     wiki = Path(wiki_dir)
@@ -98,7 +105,15 @@ def _load_pages(wiki_dir: str | Path) -> dict[str, dict]:
 def _filter_valid_pages(
     proposals: list[Proposal], pages: dict[str, dict],
 ) -> list[Proposal]:
-    """过滤 LLM 幻觉 slug——所有涉及页面必须真实存在，否则丢弃提议。"""
+    """过滤 LLM 幻觉 slug——所有涉及页面必须真实存在，否则丢弃提议。
+
+    Args:
+        proposals: 原始提议列表。
+        pages: 页面表。
+
+    Returns:
+        只含真实页面的提议。
+    """
     valid: list[Proposal] = []
     for p in proposals:
         missing = [s for s in p.pages if s not in pages]
@@ -112,7 +127,14 @@ def _filter_valid_pages(
 
 
 def _index_overview(wiki_dir: str | Path) -> str:
-    """全库紧凑视野——slug + title + summary（粗提的输入）。"""
+    """全库紧凑视野——slug + title + summary（粗提的输入）。
+
+    Args:
+        wiki_dir: wiki 根目录。
+
+    Returns:
+        逐行索引文本。
+    """
     pages = _load_pages(wiki_dir)
     lines = []
     for slug in sorted(pages):
@@ -123,7 +145,15 @@ def _index_overview(wiki_dir: str | Path) -> str:
 
 
 def _incoming_links(pages: dict[str, dict], slug: str) -> list[str]:
-    """收集谁引用了 slug——复判的证据（代码收集，LLM 裁决）。"""
+    """收集谁引用了 slug——复判的证据（代码收集，LLM 裁决）。
+
+    Args:
+        pages: 页面表。
+        slug: 被引用页面。
+
+    Returns:
+        引用方 slug 列表。
+    """
     incoming = []
     for other, page in pages.items():
         if other == slug:
@@ -139,6 +169,12 @@ def _safe_parse_json(content: str):
     retry 的契约是"返回最后一次响应（即使校验未通过）"——
     check 通过与否，解析都可能拿到坏内容（超长截断/重试穷尽）。
     二次校验防护是每个 LLM 调用点的义务（plan 静默失败同款 bug 教训）。
+
+    Args:
+        content: LLM 原始输出。
+
+    Returns:
+        解析后的 JSON；解析失败返回 None。
     """
     # fence 剥离统一走 parse._strip_fence（含 I5 尾部括号 repair）
     cleaned = _strip_fence(content)
@@ -154,6 +190,14 @@ def _safe_parse_json(content: str):
 # ════════════════════════════════════════════════════════════
 
 def _check_propose_list(content: str) -> tuple[bool, str]:
+    """校验粗提输出——原子提议数组。
+
+    Args:
+        content: LLM 原始输出。
+
+    Returns:
+        (是否通过, 错误消息)。
+    """
     import json as _json
     # fence 剥离统一走 parse._strip_fence（与 check/parse 层同一规约，
     # 含 I5 尾部括号 repair——手术的 LLM 输出同样可能缺尾括号）
@@ -177,7 +221,15 @@ def _check_propose_list(content: str) -> tuple[bool, str]:
 
 
 async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
-    """粗提——一次 LLM 调用，index 全量可见，输出 flat 原子提议数组。"""
+    """粗提——一次 LLM 调用，index 全量可见，输出 flat 原子提议数组。
+
+    Args:
+        llm: LLM 客户端。
+        wiki_dir: wiki 根目录。
+
+    Returns:
+        提议列表；LLM 失败/坏内容时降级为空列表（不崩）。
+    """
     overview = _index_overview(wiki_dir)
     prompt = "\n\n".join([
         "你是知识库的结构审查员。基于全库页面索引，提出结构手术的原子提议。",
@@ -244,6 +296,14 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
 # ════════════════════════════════════════════════════════════
 
 def _check_recheck(content: str) -> tuple[bool, str]:
+    """校验复判输出——verdict 字段。
+
+    Args:
+        content: LLM 原始输出。
+
+    Returns:
+        (是否通过, 错误消息)。
+    """
     import json as _json
     cleaned = _strip_fence(content)
     try:
@@ -256,6 +316,15 @@ def _check_recheck(content: str) -> tuple[bool, str]:
 
 
 def _recheck_prompt(prop: Proposal, pages: dict[str, dict]) -> str:
+    """构造复判 prompt——merge/delete 各自带涉事页面与证据。
+
+    Args:
+        prop: 待复判提议。
+        pages: 页面表。
+
+    Returns:
+        system prompt 文本。
+    """
     if prop.op == "merge":
         a, b = prop.pages
         return "\n\n".join([
@@ -292,6 +361,11 @@ async def recheck(
     llm, wiki_dir: str | Path, proposals: list[Proposal],
 ) -> tuple[list[Proposal], list[tuple[Proposal, str]]]:
     """精选复判——每条提议单独复检（只带涉事页面，局部上下文）。
+
+    Args:
+        llm: LLM 客户端。
+        wiki_dir: wiki 根目录。
+        proposals: 待复判提议。
 
     Returns:
         (confirmed, rejected)——rejected 携带否决理由，调用方决定怎么呈现。
@@ -359,12 +433,28 @@ class Conflict:
 
 
 def _page_quality(page: dict) -> int:
-    """页面质量分——冲突时定 merge 方向：内容更全/摘要更完整的一页做吸收方。"""
+    """页面质量分——冲突时定 merge 方向。
+
+    Args:
+        page: 页面数据。
+
+    Returns:
+        质量分（正文长度 + 2×摘要长度）。
+    """
     return len(page["body"]) + 2 * len(page["summary"])
 
 
 def _src_of(prop: Proposal) -> str:
-    """merge 的被吸收页（merge_into_first 吸收 pages[1]，反之 pages[0]）。"""
+    """返回 merge 的被吸收页。
+
+    merge_into_first 吸收 pages[1]，反之 pages[0]。
+
+    Args:
+        prop: merge 提议。
+
+    Returns:
+        被吸收页 slug。
+    """
     return prop.pages[1] if prop.op == "merge_into_first" else prop.pages[0]
 
 
@@ -379,6 +469,13 @@ def resolve_conflicts(
     3. delete 被吸收页 → merge 赢（merge 保留信息，delete 只减不增）
     4. delete 吸收方 → Conflict（吸收方即将消失，LLM 复裁）
     5. merge 链（A→B 且 B→C）→ 合法保留（每步原子，内容沿链流动）
+
+    Args:
+        proposals: 复判后的提议。
+        pages: 页面表（质量分用）。
+
+    Returns:
+        (clean, conflicts)——clean 直接进执行，conflicts 待复裁。
     """
     # 1. 去重
     seen: set[tuple] = set()
@@ -442,6 +539,14 @@ def resolve_conflicts(
 # ════════════════════════════════════════════════════════════
 
 def _check_re_arbitrate(content: str) -> tuple[bool, str]:
+    """校验复裁输出——提议数组。
+
+    Args:
+        content: LLM 原始输出。
+
+    Returns:
+        (是否通过, 错误消息)。
+    """
     import json as _json
     cleaned = _strip_fence(content)
     try:
@@ -477,6 +582,14 @@ async def re_arbitrate(
 
     无法仲裁的冲突**不静默丢弃、不自动推进**——返回 unresolved，
     由调用方阻塞等人（手术是破坏性低频操作，半应用状态比等待更糟）。
+
+    Args:
+        llm: LLM 客户端。
+        wiki_dir: wiki 根目录。
+        conflicts: 待复裁冲突。
+
+    Returns:
+        ArbitrationResult（resolved 进执行 / unresolved 记录待决策）。
     """
     pages = _load_pages(wiki_dir)
     conflict_text = "\n\n".join(
@@ -543,7 +656,13 @@ async def re_arbitrate(
 # ════════════════════════════════════════════════════════════
 
 def _rewrite_links(pages: dict[str, dict], old_slug: str, new_slug: str) -> None:
-    """全库把 [[old]] 链接重写为 [[new]]（含别名形式）。"""
+    """全库把 [[old]] 链接重写为 [[new]]（含别名形式）。
+
+    Args:
+        pages: 页面表。
+        old_slug: 旧 slug。
+        new_slug: 新 slug。
+    """
     pattern = re.compile(rf"\[\[{re.escape(old_slug)}(?:\|([^\]]+?))?\]\]")
     for page in pages.values():
         p = page["path"]
@@ -570,7 +689,16 @@ _LINK_RE = re.compile(r"\[\[([^\]]+?)(?:\|([^\]]+?))?\]\]")
 
 
 def _rewrite_source_links(text: str, source_slug: str, target_slug: str) -> str:
-    """源页正文内的自引用 → 指向合并后的目标页（内容搬家，链接跟着搬）。"""
+    """源页正文内的自引用 → 指向合并后的目标页（内容搬家，链接跟着搬）。
+
+    Args:
+        text: 页面正文。
+        source_slug: 源页 slug。
+        target_slug: 目标页 slug。
+
+    Returns:
+        重写后的文本。
+    """
     return _LINK_RE.sub(
         lambda m: (
             f"[[{target_slug}|{m.group(2)}]]" if m.group(1).strip() == source_slug and m.group(2)
@@ -582,7 +710,16 @@ def _rewrite_source_links(text: str, source_slug: str, target_slug: str) -> str:
 
 
 def _plain_source_links(text: str, source_slug: str, source_title: str) -> str:
-    """目标页原正文对源页的引用 → 纯文本（合并后成了自链，转别名）。"""
+    """目标页原正文对源页的引用 → 纯文本（合并后成了自链，转别名）。
+
+    Args:
+        text: 页面正文。
+        source_slug: 源页 slug。
+        source_title: 源页标题（别名兜底）。
+
+    Returns:
+        重写后的文本。
+    """
     return _LINK_RE.sub(
         lambda m: (
             m.group(2) if m.group(1).strip() == source_slug and m.group(2)
@@ -601,6 +738,10 @@ def execute_merge(wiki: Path, prop: Proposal) -> None:
     - 目标页原正文对源页的引用 → 纯文本别名（合并后自链无意义）
     - 其他页对源页的引用 → [[target]]（保留别名）
     吸收章节标题用纯文本（不带 wikilink）——重写器碰不到它。
+
+    Args:
+        wiki: wiki 根目录。
+        prop: merge 提议（含方向与 target）。
     """
     source_slug = prop.pages[1] if prop.op == "merge_into_first" \
         else prop.pages[0]
@@ -642,7 +783,12 @@ def execute_merge(wiki: Path, prop: Proposal) -> None:
 
 
 def execute_delete(wiki: Path, prop: Proposal) -> None:
-    """纯删除——文件 + index + 引用它的链接转纯文本。"""
+    """纯删除——文件 + index + 引用它的链接转纯文本。
+
+    Args:
+        wiki: wiki 根目录。
+        prop: delete 提议。
+    """
     slug = prop.pages[0]
     pages = _load_pages(wiki)
     # 引用者链接转纯文本（死链防线同款语义）
@@ -663,7 +809,17 @@ def execute_delete(wiki: Path, prop: Proposal) -> None:
 
 def _backup(wiki: Path, pages: dict[str, dict], slugs: set[str],
             backup_dir: Path | None) -> list[str]:
-    """执行前备份受影响文件 + index——破坏性操作可回滚。"""
+    """执行前备份受影响文件 + index——破坏性操作可回滚。
+
+    Args:
+        wiki: wiki 根目录。
+        pages: 页面表。
+        slugs: 受影响页面集合。
+        backup_dir: 备份目录（None 跳过备份）。
+
+    Returns:
+        备份的文件相对路径列表。
+    """
     if backup_dir is None:
         return []
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -695,6 +851,14 @@ def execute(
       不 KeyError 不误删
     - 备份: backup_dir 提供时复制受影响文件 + index（破坏性操作可回滚）
     - 结果结构化: SurgeryResult（actions/skipped/backed_up）——机器可消费
+
+    Args:
+        wiki_dir: wiki 根目录。
+        proposals: 复判通过的提议。
+        backup_dir: 备份目录（None 跳过备份）。
+
+    Returns:
+        结构化执行结果。
     """
     wiki = Path(wiki_dir)
     pages = _load_pages(wiki)

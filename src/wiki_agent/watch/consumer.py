@@ -32,7 +32,15 @@ logger = get_logger("WATCH_CONSUMER")
 
 
 def _clean_body_links(wiki: Path, slug: str) -> int:
-    """全库正文中 [[sources/<slug>|别名]] → 别名纯文本。返回清理的文件数。"""
+    """全库正文中 [[sources/<slug>|别名]] → 别名纯文本。
+
+    Args:
+        wiki: wiki 根目录。
+        slug: 被删 sources 页 slug。
+
+    Returns:
+        清理的文件数。
+    """
     changed = 0
     for sub in ("concepts", "entities", "topics"):
         d = wiki / sub
@@ -84,7 +92,11 @@ class WatchConsumer:
                 self._queue.task_done()
 
     def _process_delete(self, name: str) -> None:
-        """源文件删除 → sources 页清理（wiki 写操作，消费者职责）。"""
+        """源文件删除 → sources 页清理（wiki 写操作，消费者职责）。
+
+        Args:
+            name: 被删源文件名。
+        """
         wiki = self._wiki_dir
         src_dir = wiki / "sources"
         if not src_dir.is_dir():
@@ -118,6 +130,12 @@ class WatchConsumer:
             emit_event("watch_source_deleted", file=name, action=action)
 
     async def _process_ingest(self, path: Path, loader: DataLoader) -> None:
+        """处理文件变更——加载 → ingest → 状态回写。
+
+        Args:
+            path: 变更的文件路径。
+            loader: DataLoader 实例。
+        """
         name = path.name
         logger.info("ingest: %s", name)
 

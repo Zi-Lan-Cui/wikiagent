@@ -57,7 +57,15 @@ ARG_STYLE = "bright_black"
 
 def _trunc(s: str, max_len: int = 80) -> str:
     """截断长文本，按终端显示宽度（Rich cell_len——CJK 双宽/
-    emoji 宽度由 Rich 统一处理，替代手写 Unicode 区间判断）。"""
+    emoji 宽度由 Rich 统一处理，替代手写 Unicode 区间判断）。
+
+    Args:
+        s: 原始文本。
+        max_len: 最大显示宽度。
+
+    Returns:
+        截断后的文本（尾部加 ...）。
+    """
     if cell_len(s) <= max_len:
         return s
     acc = 0
@@ -69,7 +77,14 @@ def _trunc(s: str, max_len: int = 80) -> str:
 
 
 def _fmt_args(args: dict[str, Any]) -> str:
-    """格式化工具参数为简短摘要。最多显示 2 个关键参数。"""
+    """格式化工具参数为简短摘要。最多显示 2 个关键参数。
+
+    Args:
+        args: 工具参数字典。
+
+    Returns:
+        摘要文本（如 "(file_path=index.md)"）；无关键参数返回空串。
+    """
     keys = _key_params(args)
     if not keys:
         return ""
@@ -80,7 +95,14 @@ def _fmt_args(args: dict[str, Any]) -> str:
 
 
 def _key_params(args: dict[str, Any]) -> list[str]:
-    """提取最关键的参数名，优先级靠前的排在前。"""
+    """提取最关键的参数名，优先级靠前的排在前。
+
+    Args:
+        args: 工具参数字典。
+
+    Returns:
+        参数名列表。
+    """
     order = ["file_path", "dir_path", "pattern", "query", "collection_name"]
     keys = [k for k in order if k in args]
     keys += [k for k in args if k not in keys]
@@ -88,7 +110,15 @@ def _key_params(args: dict[str, Any]) -> list[str]:
 
 
 def _result_summary(tool_name: str, result: str) -> str:
-    """从工具结果中提取摘要。"""
+    """从工具结果中提取摘要（按工具类型）。
+
+    Args:
+        tool_name: 工具名。
+        result: 工具结果文本。
+
+    Returns:
+        摘要文本。
+    """
     result = result.strip()
     if tool_name == "ReadFile":
         lines = result.count("\n") + 1 if result else 0
@@ -137,7 +167,11 @@ class TerminalRenderer(AgentHook):
     # ── 流式内部状态机 ────────────────────────────────────
 
     def _stream_delta(self, delta: str) -> None:
-        """缓冲累积 + Live 惰性启动并刷新。"""
+        """缓冲累积 + Live 惰性启动并刷新。
+
+        Args:
+            delta: 增量文本块。
+        """
         self._text += delta
         if not self._text.strip():
             return
@@ -161,10 +195,11 @@ class TerminalRenderer(AgentHook):
             self._c.print(text)
 
     def _finish_stream(self) -> str:
-        """turn 收尾——停止 Live + Markdown 展示，返回尾部片段。
+        """turn 收尾——停止 Live + Markdown 展示。
 
-        只返回最后一次 flush 之后的片段——之前片段已在工具行
-        交错时以纯文本落盘，重复渲染会重复显示。
+        Returns:
+            尾部片段（最后一次 flush 之后的文本——之前片段已在
+            工具行交错时以纯文本落盘，重复渲染会重复显示）。
         """
         if self._live is not None:
             self._live.stop()

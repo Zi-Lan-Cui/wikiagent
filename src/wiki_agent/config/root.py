@@ -102,9 +102,20 @@ class PathsConfig(BaseSettings):
     workspace_dir: Path | None = None
 
     def resolved_wiki_dir(self) -> Path:
+        """返回解析后的 wiki 目录。
+
+        Returns:
+            显式配置的 wiki_dir；未配置时按 project_root/wiki 推导。
+        """
         return self.wiki_dir or (self.project_root / "wiki")
 
     def resolved_workspace_dir(self) -> Path:
+        """返回解析后的工作区目录。
+
+        Returns:
+            显式配置的 workspace_dir；未配置时按
+            project_root/workspace 推导。
+        """
         return self.workspace_dir or (self.project_root / "workspace")
 
 
@@ -156,6 +167,11 @@ class McpConfig(BaseModel):
     servers: dict[str, McpServerConfig] = Field(default_factory=dict)
 
     def enabled(self) -> dict[str, McpServerConfig]:
+        """返回启用的 MCP server（带有效 transport 的）。
+
+        Returns:
+            server 名 → 配置映射；transport 为空的被过滤。
+        """
         return {k: v for k, v in self.servers.items() if v.transport}
 
 
@@ -173,7 +189,14 @@ class RootConfig(BaseSettings):
 
     @model_validator(mode="after")
     def _check_required(self) -> "RootConfig":
-        """fail-fast 校验——缺关键配置启动即报错。"""
+        """fail-fast 校验——缺关键配置启动即报错。
+
+        Returns:
+            校验通过后的自身。
+
+        Raises:
+            ValueError: LLM API key 或模型名缺失。
+        """
         if not self.llm.api_key:
             raise ValueError(
                 "缺少 LLM API key——请在 env/.env 中设置 LLM_API_KEY"

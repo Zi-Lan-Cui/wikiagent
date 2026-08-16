@@ -69,10 +69,24 @@ class TextChunker(BaseChunker):
         """只要模态是 text 且内容非空就接受——兜底 chunker。
 
         StructuredChunker 在 dispatcher 中排前面，先拦截 csv/json/jsonl。
+
+        Args:
+            file: 转换后的文件。
+
+        Returns:
+            True 表示支持处理。
         """
         return file.modality == "text" and bool(file.content.strip())
 
     def chunk(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
+        """切割文件为语义 chunk。
+
+        Args:
+            file: 转换后的文件。
+
+        Returns:
+            chunk 列表（空内容返回 []）。
+        """
         content = file.content
         if not content.strip():
             logger.warning(f"TextChunker 跳过空内容: {file.name}")
@@ -86,6 +100,7 @@ class TextChunker(BaseChunker):
 
         # 3. 尾部合并（同步标题）
         merged = self._merge_tail(raw_chunks)
+
 
         # 4. 包装
         return [
@@ -111,6 +126,12 @@ class TextChunker(BaseChunker):
         标题路径是 chunk 的归属信息——源头就记录，下游不再重新解析
         （下游重解析可能猜错，源头永远正确）。
         无标题的纯文本返回单元素列表（heading 为空串）。
+
+        Args:
+            content: 文本内容。
+
+        Returns:
+            (section 文本, 标题路径) 列表。
         """
         if not re.search(r"^#{1,4}\s", content, re.MULTILINE):
             return [(content, "")]
@@ -143,6 +164,12 @@ class TextChunker(BaseChunker):
         """section → 段落累积 → (chunk, heading_path) 列表。
 
         累积合并时保留第一个非空标题（合并块归属它开头的 section）。
+
+        Args:
+            sections: (section 文本, 标题路径) 列表。
+
+        Returns:
+            (chunk 文本, 标题路径) 列表。
         """
         chunks: list[tuple[str, str]] = []
 
@@ -169,14 +196,28 @@ class TextChunker(BaseChunker):
 
     @staticmethod
     def _split_paragraphs(text: str) -> list[str]:
-        """按双换行切分段落，保留空行分隔。"""
+        """按双换行切分段落，保留空行分隔。
+
+        Args:
+            text: 文本。
+
+        Returns:
+            非空段落列表。
+        """
         parts = re.split(r"\n\s*\n", text)
         return [p.strip() for p in parts if p.strip()]
 
     # ── 超长降级 ──────────────────────────────────────────
 
     def _split_oversized(self, text: str) -> list[str]:
-        """单个内容过长时，先在句子边界切分；没有句子则折半。"""
+        """单个内容过长时，先在句子边界切分；没有句子则折半。
+
+        Args:
+            text: 超长段落。
+
+        Returns:
+            子块列表。
+        """
         sentences = _SENTENCE_END.split(text)
 
         # 重组句子（因为 split 会丢弃分隔符部分）
@@ -215,7 +256,14 @@ class TextChunker(BaseChunker):
     def _merge_tail(
         self, chunks: list[tuple[str, str]],
     ) -> list[tuple[str, str]]:
-        """最后一个 chunk 太短则合并到前一个（标题保留前一个的）。"""
+        """最后一个 chunk 太短则合并到前一个（标题保留前一个的）。
+
+        Args:
+            chunks: (chunk 文本, 标题路径) 列表。
+
+        Returns:
+            合并尾部后的列表。
+        """
         if len(chunks) < 2:
             return chunks
         if len(chunks[-1][0]) >= self._min_chunk_size:

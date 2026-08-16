@@ -73,13 +73,25 @@ class CompilePipeline:
         index_reader: Callable[[Path], str] | None = None,
         save_sources: bool | None = None,
     ):
-        """mode: "compile"（源→wiki 初次编译，默认）/ "refine"（wiki 自编译）。
+        """初始化流水线。
 
+        mode: "compile"（源→wiki 初次编译，默认）/ "refine"（wiki 自编译）。
         模式声明一处、下游隐式推导:
         - refine: index 排除自身（无 index_reader 时构造默认排除闭包）+
           不存 source 页 + refine prompts（plan 带当前页身份段）
         - compile: 全量 index + 存 source 页 + compile prompts
         显式传入 index_reader/save_sources 时覆盖模式默认。
+
+        Args:
+            llm: LLM 客户端。
+            vlm: VLM 客户端（图片 caption）。
+            wiki_dir: wiki 根目录。
+            chunk_size: 分块大小（字符）。
+            model_context: extract 阶段的模型上下文窗口。
+            extract_concurrency: extract 并发数。
+            mode: "compile" 或 "refine"。
+            index_reader: 自定义 index 读取钩子。
+            save_sources: 是否写 sources 页（覆盖模式默认）。
         """
         self._wiki_dir = Path(wiki_dir)
         if mode not in ("compile", "refine"):
@@ -121,10 +133,19 @@ class CompilePipeline:
             self._integrator = compile_integrator(llm, wiki_dir=self._wiki_dir)
 
     async def ingest_one(self, raw_file: RawFileProperties) -> IngestOutcome:
-        """单文件完整流水线。失败 raise IngestError(stage=失败阶段)。
+        """单文件完整流水线。
 
         整个文件包一个 span("ingest_file")——事件流里能看到
         每个文件的耗时与成败（llm_attempt 只覆盖调用级）。
+
+        Args:
+            raw_file: 源文件属性。
+
+        Returns:
+            产出（统计/存档用）。
+
+        Raises:
+            IngestError: 阶段失败，stage 指明失败发生在哪一段。
         """
         async with span("ingest_file", file=raw_file.name, mode=self._mode):
             return await self._ingest_one(raw_file)
@@ -239,6 +260,12 @@ class CompilePipeline:
 
         （只拿不放的过滤与 page_meta 已归 PolisherPlanner——
         planner 自持模式语义，pipeline 只剩 slug 计算这个纯函数。）
+
+        Args:
+            raw_file: 源文件属性。
+
+        Returns:
+            refine 模式的页面 slug；compile 模式或路径越界返回空串。
         """
         if self._mode != "refine":
             return ""
@@ -261,7 +288,14 @@ class CompilePipeline:
             logger.info("  index.md 不存在——已创建空 index")
 
     def _read_optional(self, name: str) -> str:
-        """读取 wiki 系统文件——不存在返回空串（首次运行无 index）。"""
+        """读取 wiki 系统文件。
+
+        Args:
+            name: 文件名（schema.md/purpose.md）。
+
+        Returns:
+            文件内容（strip 后）；不存在返回空串。
+        """
         try:
             return (self._wiki_dir / name).read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -271,6 +305,10 @@ class CompilePipeline:
         """新页面进 index——跳过生成失败的（幽灵页面防线）。
 
         index 已由 _ensure_index 保证存在——这里读失败是 bug，不吞。
+
+        Args:
+            plan: 集成计划（取 target 的 slug/标题）。
+            pages_written: 实际落盘的页面路径列表。
         """
         index_path = self._wiki_dir / "index.md"
         existing = index_path.read_text(encoding="utf-8")
@@ -315,6 +353,13 @@ def _to_source_chunk(ck, total: int) -> SourceChunk:
 
     heading 的唯一权威在 chunker（切分时已知 chunk 归属哪个 section），
     消费端不重新解析——源头记录、下游取用，解析猜错的问题不存在。
+
+    Args:
+        ck: ingestion chunk 对象。
+        total: chunk 总数。
+
+    Returns:
+        compiler 侧 SourceChunk。
     """
     meta = getattr(ck, "metadata", None) or {}
     return SourceChunk(
@@ -324,7 +369,14 @@ def _to_source_chunk(ck, total: int) -> SourceChunk:
 
 
 def _normalize(wiki_path: str) -> str:
-    """去掉 wiki/ 前缀（integrate 内部已规范化，这里防 LLM 路径变体）。"""
+    """去掉 wiki/ 前缀（integrate 内部已规范化，这里防 LLM 路径变体）。
+
+    Args:
+        wiki_path: 原始路径。
+
+    Returns:
+        去掉前缀后的相对路径。
+    """
     p = wiki_path.strip()
     while p.startswith("wiki/"):
         p = p[len("wiki/"):]

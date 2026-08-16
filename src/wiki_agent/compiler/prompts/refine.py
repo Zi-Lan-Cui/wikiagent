@@ -52,6 +52,13 @@ def plan_system(
 
     schema/purpose 是签名兼容位（compile 同名函数使用）——
     refine 的润色师不读它们。
+
+    Args:
+        schema: 目录规范（兼容位，不读）。
+        purpose: 知识库使命（兼容位，不读）。
+
+    Returns:
+        system prompt 文本。
     """
     return "\n\n".join(p for p in [
         "你是知识库的润色师。基于关系分析，对当前页面做精炼。",
@@ -93,7 +100,15 @@ def plan_user(
 ) -> str:
     """润色师决策的动态度——当前页身份/本页 meta/分析/摘要（逐页变化）。
 
-    page_meta: 本页 frontmatter 摘要（goal/gaps/summary）——目标完成度判断依据。
+    Args:
+        extract: 文档摘要结果。
+        analysis_text: 关系分析文本。
+        current_page: 当前页面 slug（唯一允许更新的页面）。
+        page_meta: 本页 frontmatter 摘要（goal/gaps/summary）——
+            目标完成度判断依据。
+
+    Returns:
+        user prompt 文本。
     """
     return "\n\n".join(p for p in [
         f"当前页面: [[{current_page}]]——它就是本次精炼的对象，也是唯一允许更新的页面。",

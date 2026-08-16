@@ -77,11 +77,16 @@ def _wiki_overview() -> str:
 # ════════════════════════════════════════════════════════════
 
 def _new_session_key() -> str:
-    """生成新 key——时间戳唯一，所有会话统一走这里。"""
+    """生成新 key——时间戳唯一，所有会话统一走这里。
+
+    Returns:
+        形如 session_YYYYMMDD_HHMMSS 的 key。
+    """
     return f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 
 async def _interactive_loop(agent: ReActAgent, session_key: str, cli_hook: TerminalRenderer) -> None:
+    """交互循环——输入 → agent.run（渲染全走 hook）→ footer。"""
     console.print(_banner(agent.llm.model_id))
     console.print(f"  [bright_black]会话: {session_key}[/]\n")
 
@@ -136,6 +141,7 @@ async def _interactive_loop(agent: ReActAgent, session_key: str, cli_hook: Termi
 # ════════════════════════════════════════════════════════════
 
 def main() -> None:
+    """CLI 入口——解析参数 → 配置 → 组装 agent → 交互循环。"""
     import argparse
 
     parser = argparse.ArgumentParser(description="wiki-agent — 基于 wiki 知识库的问答助手")
@@ -196,7 +202,14 @@ def main() -> None:
 
 
 async def _run_cli(cfg, agent: ReActAgent, session_key: str, cli_hook: TerminalRenderer) -> None:
-    """连接 MCP servers（如果配了）→ 交互循环 → 退出时清理连接。"""
+    """连接 MCP servers（如果配了）→ 交互循环 → 退出时清理连接。
+
+    Args:
+        cfg: 根配置（MCP 连接信息）。
+        agent: ReActAgent 实例。
+        session_key: 会话 key。
+        cli_hook: 终端渲染器。
+    """
     mcp_connections = {}
     if cfg.mcp.servers:
         from wiki_agent.tools.mcp_tools.mcp_adaptor import connect_mcp_servers

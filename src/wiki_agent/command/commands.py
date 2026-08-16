@@ -55,7 +55,14 @@ class Command:
     description: ClassVar[str] = ""
 
     async def execute(self, ctx: CommandContext) -> CommandResult | None:
-        """执行命令。返回 None 表示非命令输入（走正常 LLM 流程）。"""
+        """执行命令。
+
+        Args:
+            ctx: 命令上下文（raw/key/args/session/agent）。
+
+        Returns:
+            命令结果；None 表示非命令输入（走正常 LLM 流程）。
+        """
         raise NotImplementedError
 
 
@@ -66,13 +73,30 @@ class CommandRouter:
         self._commands: dict[str, Command] = {}
 
     def register(self, cmd: Command) -> None:
+        """注册命令（同名覆盖）。
+
+        Args:
+            cmd: 命令实例。
+        """
         self._commands[cmd.name] = cmd
 
     def all(self) -> list[Command]:
+        """返回全部已注册命令。
+
+        Returns:
+            命令实例列表。
+        """
         return list(self._commands.values())
 
     def match(self, raw: str) -> tuple[Command, str] | None:
-        """匹配输入，返回 (命令, 参数)。非命令输入返回 None。"""
+        """匹配输入，返回 (命令, 参数)。
+
+        Args:
+            raw: 原始输入（以 / 开头）。
+
+        Returns:
+            (命令实例, 参数字符串)；非命令输入返回 None。
+        """
         if not raw.startswith("/"):
             return None
         parts = raw[1:].strip().split(maxsplit=1)
@@ -86,10 +110,18 @@ class CommandRouter:
     async def dispatch(
         self, raw: str, session: "Session", agent: "ReActAgent",
     ) -> CommandResult | None:
-        """分发命令。非命令输入返回 None（走正常 LLM 流程）。
+        """分发命令。
 
         CommandContext 在此构造——key/args 由 match 结果填充，
         调用方只传原材料（raw/session/agent），不接触占位值。
+
+        Args:
+            raw: 用户原始输入。
+            session: 当前会话。
+            agent: ReActAgent 实例。
+
+        Returns:
+            命令执行结果；非命令输入返回 None（走正常 LLM 流程）。
         """
         matched = self.match(raw)
         if matched is None:
@@ -277,7 +309,14 @@ class RefineCommand(Command):
     description = "触发 wiki 精炼链（自编译 + 结构手术 dry-run）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        """refine 全量 + 结构手术 dry-run——复用 agent 的 llm/vlm。"""
+        """refine 全量 + 结构手术 dry-run——复用 agent 的 llm/vlm。
+
+        Args:
+            ctx: 命令上下文。
+
+        Returns:
+            执行结果（汇总 refine/手术/扫描统计）。
+        """
         from pathlib import Path
 
         from wiki_agent.compiler.pipeline import CompilePipeline
@@ -328,7 +367,14 @@ class RefineCommand(Command):
 
     @staticmethod
     def _wiki_dir(ctx: CommandContext) -> Path | None:
-        """从工具注册表拿 wiki 根（ReadFile._root）。"""
+        """从工具注册表拿 wiki 根（ReadFile._root）。
+
+        Args:
+            ctx: 命令上下文。
+
+        Returns:
+            wiki 根路径；ReadFile 未注册时返回 None。
+        """
         registry = getattr(ctx.agent, "tool_registery", None)
         if registry is None:
             return None
@@ -343,7 +389,11 @@ class RefineCommand(Command):
 # ════════════════════════════════════════════════════════════
 
 def create_command_router() -> CommandRouter:
-    """创建已注册全部内置命令的 router。"""
+    """创建已注册全部内置命令的 router。
+
+    Returns:
+        包含全部内置命令的 CommandRouter。
+    """
     router = CommandRouter()
     for cmd in (HelpCommand(), SessionCommand(), RetryCommand(),
                 RefineCommand(), QueueCommand(), ResolveCommand()):

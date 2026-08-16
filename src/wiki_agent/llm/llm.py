@@ -14,10 +14,16 @@ logger=get_logger("LLMCLIENT")
 
 
 def _parse_tool_calls(openai_calls) -> list[ToolCall]:
-    """OpenAI 工具调用 → 内部 ToolCall 列表。
+    """将 OpenAI 工具调用转换为内部 ToolCall 列表。
 
     arguments 解析失败不丢弃调用本身——空 args + 警告（调用存在
     是事实，参数坏是 LLM 的错；丢弃会让上层误以为没调用）。
+
+    Args:
+        openai_calls: OpenAI 响应中的 tool_calls 列表。
+
+    Returns:
+        内部 ToolCall 列表（坏参数调用保留空 arguments）。
     """
     result: list[ToolCall] = []
     for tc in openai_calls:
@@ -33,7 +39,13 @@ def _parse_tool_calls(openai_calls) -> list[ToolCall]:
 
 class LLMClient:
     def __init__(self,config:LLMConfig):
-        """构造即完整——配置注入后立刻可用，无中间态。"""
+        """初始化 LLM 客户端。
+
+        构造即完整——配置注入后立刻可用，无中间态。
+
+        Args:
+            config: LLM 配置（api_key/base_url/model_id）。
+        """
         self.api_key:str=config.api_key
         self.base_url:str=config.base_url
         self.model_id:str=config.model_id
@@ -49,6 +61,21 @@ class LLMClient:
             temperature:float=0.5,
             extra_body:dict=None,
         )->LLMResponse:
+        """同步非流式调用（内部工具，测试/脚本用）。
+
+        Args:
+            messages: 消息列表（内部 Message 格式）。
+            tools: OpenAI 工具 schema 列表。
+            max_tokens: 生成 token 上限。
+            temperature: 采样温度。
+            extra_body: 附加请求体参数（如 thinking 开关）。
+
+        Returns:
+            组装好的 LLMResponse。
+
+        Raises:
+            翻译后的三分类异常（RetryableError/HandleableError/FatalError）。
+        """
         try:
             response=self.client.chat.completions.create(
                 messages=[message.openai_schema for message in messages],
@@ -84,7 +111,21 @@ class LLMClient:
             temperature:float=0.5,
             extra_body:dict=None,
         )->LLMResponse:
-        """异步非流式调用"""
+        """异步非流式调用。
+
+        Args:
+            messages: 消息列表（内部 Message 格式）。
+            tools: OpenAI 工具 schema 列表。
+            max_tokens: 生成 token 上限。
+            temperature: 采样温度。
+            extra_body: 附加请求体参数（如 thinking 开关）。
+
+        Returns:
+            组装好的 LLMResponse（含 usage 与 cache_hit/cache_miss）。
+
+        Raises:
+            翻译后的三分类异常。
+        """
         try:
             response = await self.async_client.chat.completions.create(
                 messages=[message.openai_schema for message in messages],
@@ -131,6 +172,19 @@ class LLMClient:
         on_delta 支持同步/异步两种回调（返回值 awaitable 则 await）——
         订阅方（agent 的 on_stream_delta hook）是 async 的，
         流式增量要按序触发。
+
+        Args:
+            messages: 消息列表（内部 Message 格式）。
+            tools: OpenAI 工具 schema 列表。
+            max_tokens: 生成 token 上限。
+            temperature: 采样温度。
+            on_delta: 每收到一段文本调用一次的回调（同步或异步）。
+
+        Returns:
+            组装好的 LLMResponse（content + tool_calls + usage）。
+
+        Raises:
+            翻译后的三分类异常。
         """
         tool_calls_buffer: dict[int,dict[str,str]] = {}
         content_buffer = ""
@@ -222,7 +276,21 @@ class LLMClient:
             temperature:float=0.5,
             on_delta: Callable[[str], None] | None = None,
         )->LLMResponse:
-        """基于回调的同步流式调用。"""
+        """基于回调的同步流式调用。
+
+        Args:
+            messages: 消息列表（内部 Message 格式）。
+            tools: OpenAI 工具 schema 列表。
+            max_tokens: 生成 token 上限。
+            temperature: 采样温度。
+            on_delta: 每收到一段文本调用一次的回调（仅同步）。
+
+        Returns:
+            组装好的 LLMResponse（content + tool_calls）。
+
+        Raises:
+            翻译后的三分类异常。
+        """
         tool_calls_buffer: dict[int,dict[str,str]] = {}
         content_buffer = ""
         tool_calls_list: list[ToolCall] = []

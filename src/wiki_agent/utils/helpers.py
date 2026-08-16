@@ -17,7 +17,15 @@ def _encoder():
 
 
 def ensure_dir(path: Path):
-    """递归创建目录。路径已被文件占位时返回 None（调用方短路）。"""
+    """递归创建目录。
+
+    Args:
+        path: 要创建的目录路径。
+
+    Returns:
+        创建成功的目录路径；路径已被文件占位时返回 None
+        （调用方短路）。
+    """
     try:
         path.mkdir(parents=True, exist_ok=True)
     except FileExistsError:
@@ -26,6 +34,16 @@ def ensure_dir(path: Path):
 
 
 def truncate_text_by_tokens(text: str, max_tokens: int):
+    """按 token 数截断文本（截断处附加标志后缀）。
+
+    Args:
+        text: 原始文本。
+        max_tokens: 允许的最大 token 数。
+
+    Returns:
+        截断后的文本；不超过预算时原样返回；编码失败时按
+        每 token 2 字符的保守估计截断。
+    """
     _TRUNCATED_SUFFIX = "\n... (truncated)"
     enc = _encoder()
 
@@ -57,6 +75,14 @@ def truncate_text_by_tokens(text: str, max_tokens: int):
 
 
 def estimate_text_tokens(text: str):
+    """估算文本的 token 数。
+
+    Args:
+        text: 待估算文本。
+
+    Returns:
+        token 数；编码失败时返回保守估计（每字符 2 token）。
+    """
     enc = _encoder()
 
     try:

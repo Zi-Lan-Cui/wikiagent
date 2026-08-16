@@ -25,6 +25,14 @@ class Converter:
         self._converters = converters or [MinerUConverter()]
 
     async def convert(self, raw_file: RawFileProperties) -> ConvertedFile:
+        """按顺序匹配首个支持的 converter 并转换。
+
+        Args:
+            raw_file: 原始文件属性。
+
+        Returns:
+            转换后的 ConvertedFile（无 converter 支持时返回空文本）。
+        """
         for conv in self._converters:
             if conv.accepts(raw_file):
                 return await conv.convert(raw_file)
@@ -34,6 +42,14 @@ class Converter:
     async def batch_convert(
         self, raw_files: list[RawFileProperties],
     ) -> list[ConvertedFile]:
+        """批量转换多个文件（保持入参顺序）。
+
+        Args:
+            raw_files: 原始文件属性列表。
+
+        Returns:
+            转换结果列表（顺序与入参一致）。
+        """
         collected: list[tuple[int, ConvertedFile]] = []
         for index, raw_file in enumerate(raw_files):
             collected.append((index, await self.convert(raw_file)))

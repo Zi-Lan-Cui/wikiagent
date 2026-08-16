@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from enum import Enum
+from typing import Awaitable,Callable
 
 from wiki_agent.log import get_logger
 
@@ -48,7 +49,11 @@ class HandleableError(WikiAgentError):
         self._handler = handler
 
     async def handle(self):
-        """执行修复。无 handler 则返回 None（视为修复失败）。"""
+        """执行修复。
+
+        Returns:
+            handler 执行结果；无 handler 返回 None（视为修复失败）。
+        """
         if self._handler is None:
             return None
         return await self._handler()

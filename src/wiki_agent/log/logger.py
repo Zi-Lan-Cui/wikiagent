@@ -48,8 +48,11 @@ def configure_logging(
 ) -> None:
     """配置根 logger——全局只调用一次（CLI 入口）。
 
-    console_level: 终端显示级别。默认 WARNING+，INFO 属于内部细节
-    file_path:     指定则全量日志（file_level）写入该文件
+    Args:
+        console_level: 终端显示级别。默认 WARNING+，INFO 属于
+            内部细节不打扰用户。
+        file_path: 指定则全量日志（file_level）写入该文件。
+        file_level: 文件日志级别。
     """
     root = logging.getLogger(ROOT_NAME)
     root.setLevel(logging.DEBUG)  # 根放行一切，handler 各自过滤
@@ -78,6 +81,12 @@ def get_logger(name: str) -> logging.Logger:
 
     用法不变: ``get_logger("LLM_FACTORY")`` → ``wiki_agent.LLM_FACTORY``。
     级别由根配置统一控制，调用方不关心细节。
+
+    Args:
+        name: logger 名（自动补 wiki_agent. 前缀）。
+
+    Returns:
+        配置好的 logger 实例。
     """
     if not name.startswith(ROOT_NAME + "."):
         name = f"{ROOT_NAME}.{name}"

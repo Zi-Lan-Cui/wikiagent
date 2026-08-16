@@ -38,7 +38,17 @@ class ReActRunner:
         self, session: Session, messages: list[Message], stream: bool,
         run_ctx: RunContext,
     ) -> None:
-        """执行 ReAct 循环。无工具调用时自动 break。"""
+        """执行 ReAct 循环。
+
+        Args:
+            session: 当前会话（token 统计写入对象）。
+            messages: 工作副本消息列表——循环内追加 assistant/tool 消息。
+            stream: 为 True 时使用流式调用。
+            run_ctx: 回合级上下文（贯穿工具事件）。
+
+        Returns:
+            None。循环在无工具调用时自动结束。
+        """
         for _ in range(self._agent.max_loop):
             runner_messages = self._agent.context_governor.prepare_for_llm(
                 session=session,
@@ -59,7 +69,16 @@ class ReActRunner:
     async def _execute_tools(
         self, tool_calls: list, run_ctx: RunContext,
     ) -> list[Message]:
-        """并发执行工具调用，返回 tool role 消息列表。"""
+        """并发执行工具调用。
+
+        Args:
+            tool_calls: LLM 返回的工具调用列表（含 name/id/arguments）。
+            run_ctx: 回合上下文——工具事件与 tools_used 记录对象。
+
+        Returns:
+            tool role 消息列表（每条对应一次工具调用，失败时
+            content 为错误文本）。
+        """
 
         for tc in tool_calls:
             await self._agent._hooks.on_tool_call_start(
@@ -105,7 +124,17 @@ class ReActRunner:
         self, session: Session, messages: list[Message],
         runner_messages: list[Message], run_ctx: RunContext,
     ) -> bool:
-        """调用 LLM + 执行工具（非流式）。返回 True 表示有工具调用需继续。"""
+        """调用 LLM 并执行工具（非流式）。
+
+        Args:
+            session: 会话（usage 统计写入对象）。
+            messages: 工作副本——追加 assistant 与 tool 消息。
+            runner_messages: 实际发送给 LLM 的消息（governor 处理过）。
+            run_ctx: 回合上下文。
+
+        Returns:
+            True 表示存在工具调用需继续循环；False 表示已出最终回答。
+        """
         async with span("llm_call", model=self._agent.llm.model_id, stream=False) as s:
             response = await self._agent.llm.async_invoke(
                 runner_messages,
@@ -148,11 +177,21 @@ class ReActRunner:
         runner_messages: list[Message],
         run_ctx: RunContext,
     ) -> bool:
-        """调用 LLM + 执行工具（流式）。返回 True 表示有工具调用需继续。
+        """调用 LLM 并执行工具（流式）。
 
         流式增量经 on_stream_delta hook 事件——渲染层等订阅方
         工作在 hook 信息之上（llm 侧 on_delta 支持 awaitable，
         hook 是 async 也按序触发）。
+
+        Args:
+            session: 会话（usage 统计写入对象）。
+            messages: 工作副本——追加 assistant 与 tool 消息。
+            runner_messages: 实际发送给 LLM 的消息（governor 处理过）。
+            run_ctx: 回合上下文。
+
+        Returns:
+            True 表示存在工具调用需继续循环；False 表示已出最终回答
+            （空响应时经 hook 发送兜底提示）。
         """
         async with span("llm_call", model=self._agent.llm.model_id, stream=True) as s:
             response = await self._agent.llm.async_stream(
@@ -317,7 +356,13 @@ class ReActAgent(BaseAgent):
             user_input: str,
             stream: bool,
         ):
-        """_run 主体——turn span 包住整轮（restore → … → save）。"""
+        """执行一轮完整对话（restore → 命令分发 → 压缩 → 回答 → save）。
+
+        Args:
+            session_key: 会话标识。
+            user_input: 用户输入文本。
+            stream: 为 True 时使用流式调用。
+        """
         run_ctx = RunContext(session_key=session_key)
 
         # restore
@@ -395,16 +440,24 @@ class ReActAgent(BaseAgent):
         await self._hooks.on_run_end(run_ctx)
 
     async def _dream_loop(self,interval:int=3000):
-        """
-        每interval秒触发一次。单用户模式直接 dream。
+        """定期触发记忆整理。
+
+        Args:
+            interval: 触发间隔（秒），默认 3000。单用户模式直接 dream。
         """
         while True:
             await asyncio.sleep(interval)
             await self.dreamer.dream(llm=self.llm)
 
-    def _get_skip_count(self,initial_message_count):
-        """
-        获取新消息应该从哪里起始
+    def _get_skip_count(self, initial_message_count: int) -> int:
+        """计算本次新增消息在 messages 中的起始下标。
+
+        Args:
+            initial_message_count: build 后 messages 的初始长度。
+
+        Returns:
+            新消息的起始下标（丢弃 build 阶段的历史部分，
+            只追加本轮新增消息）。
         """
         # 在nanobot上，情况稍微复杂点，因为作者想要崩溃时保存住用户的消息，为了防止突然崩溃，会提前将合并的部分写入磁盘
         # 所以合并不合并的起始在这种情况下就改变了。但是我的设计逻辑是，任何情况下history都存储的是上一轮结束的结果
