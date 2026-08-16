@@ -268,8 +268,10 @@ class ReActAgent(BaseAgent):
             # wiki 目录显式传入（CLI 从配置解析）——build 时读
             # purpose/schema/index 组装环境块
             wiki_dir=wiki_dir,
+            agent_config=self.agent_config,
         )
-        self.context_governor=ContextGovernor(workspace=workspace)
+        self.context_governor=ContextGovernor(
+            workspace=workspace, agent_config=self.agent_config)
         self.consolidator=Consolidator(
             consolidate_ratio=self.agent_config.consolidate_ratio,
             trigger_ratio=self.agent_config.trigger_ratio,

@@ -14,16 +14,6 @@ from wiki_agent.log import get_logger
 
 logger = get_logger("CONTEXT_GOVERNOR")
 
-# ── 工具结果新鲜度 ─────────────────────────────────────────────
-# 可重复获得的工具——TTL 硬驱逐（超时清除内容，模型重新调用）。
-# wiki 导航三件套读本地文件：成本低、可随时重取；wiki 经
-# compile/refine 变化后，长对话里跨轮携带的旧结果已失真。
-_REPRODUCIBLE_TOOL_TTL: dict[str, int] = {
-    "ReadFile": 30 * 60,
-    "Grep": 30 * 60,
-    "ListDir": 30 * 60,
-}
-
 # 内部瞬时工具——结果是副作用确认（无时效内容），不驱逐不标注
 _INTERNAL_TRANSIENT_TOOLS = frozenset({"RecordCorrection"})
 
@@ -41,18 +31,32 @@ def _age_label(age_seconds: float) -> str:
 
 class ContextGovernor:
     _MERGEABLE_ROLES = {"user", "assistant"}
-    _TOOL_PERSIST_LENGTH = 8_000
-    _SAFE_BUFFER = 1024
     # 导航三件套是探索原语，输出已自限——不截断，模型需要完整结果决定下一步
     _PERSIST_EXEMPT_TOOLS = frozenset({"ReadFile", "Grep", "ListDir"})
 
-    def __init__(self,workspace:Path,snip_ratio:float=0.5,
-                 tool_ttl:dict[str,int]|None=None):
-        self.workspace=workspace
-        self.tmp_dir=self.workspace/"tmp"
-        self._snip_ratio=snip_ratio
-        # TTL 可注入（测试/调参），默认用模块常量
-        self._tool_ttl = tool_ttl if tool_ttl is not None else _REPRODUCIBLE_TOOL_TTL
+    def __init__(self, workspace: Path, agent_config=None,
+                 tool_ttl: dict[str, int] | None = None):
+        """治理参数从 agent_config 取（E3 收编）——tool_ttl 保留
+        为测试注入口（测试传 60 秒验证驱逐行为，生产用 config 默认）。"""
+        self.workspace = workspace
+        self.tmp_dir = self.workspace / "tmp"
+        cfg = agent_config
+        # TTL 表：config 的一个时限 → 三个可重复获得工具共用
+        ttl_seconds = (
+            (cfg.tool_result_ttl_minutes * 60) if cfg
+            else 30 * 60
+        )
+        self._tool_ttl = tool_ttl if tool_ttl is not None else {
+            "ReadFile": ttl_seconds,
+            "Grep": ttl_seconds,
+            "ListDir": ttl_seconds,
+        }
+        self._persist_length = cfg.tool_persist_length if cfg else 8_000
+        self._safe_buffer = cfg.snip_safe_buffer if cfg else 1024
+        self._snip_ratio = cfg.snip_ratio if cfg else 0.5
+        self._inflight_target_ratio = cfg.inflight_target_ratio if cfg else 0.85
+        self._compact_min_chars = (
+            cfg.inflight_compact_min_chars if cfg else 500)
 
     def _merge_consecutive(self,messages:list[Message]):
         """
@@ -90,7 +94,7 @@ class ContextGovernor:
         return messages
 
     def _get_budget(self,context_window,max_tokens):
-        return context_window-max_tokens-self._SAFE_BUFFER
+        return context_window-max_tokens-self._safe_buffer
 
     def _snip_by_tokens(self,messages:list[Message],agent_config):
         """
@@ -143,8 +147,6 @@ class ContextGovernor:
 
     # ── 窗口维度紧凑化（空间不够就丢可重取结果）──────────────
 
-    _INFLIGHT_TARGET_RATIO = 0.85      # nanobot 同款目标水位
-    _COMPACT_MIN_CHARS = 500           # 短结果不值得紧凑化（省不了多少）
 
     def _total_tokens(self, messages: list[Message]) -> int:
         return sum(estimate_text_tokens(m.text_schema) for m in messages)
@@ -170,7 +172,7 @@ class ContextGovernor:
         if estimate <= budget:
             return
 
-        target = int(budget * self._INFLIGHT_TARGET_RATIO)
+        target = int(budget * self._inflight_target_ratio)
 
         # 候选: 可重取工具的 tool 消息，内容够长，未紧凑化过
         tool_indexes = [
@@ -178,7 +180,7 @@ class ContextGovernor:
             if m.role == "tool"
             and m.tool_name in self._tool_ttl
             and m.tool_name not in _INTERNAL_TRANSIENT_TOOLS
-            and len(m.content) >= self._COMPACT_MIN_CHARS
+            and len(m.content) >= self._compact_min_chars
             and "已紧凑化" not in m.content
         ]
         if not tool_indexes:
@@ -232,7 +234,7 @@ class ContextGovernor:
         if message.tool_name in self._PERSIST_EXEMPT_TOOLS:
             return
         content_length=len(message.content)
-        if content_length > self._TOOL_PERSIST_LENGTH:
+        if content_length > self._persist_length:
             rel = self._persist_tool_result(
                 session=session,
                 message=message,
