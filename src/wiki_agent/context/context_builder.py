@@ -23,12 +23,6 @@ from wiki_agent.message import Message
 from wiki_agent.session import Session
 
 
-# index 地图的字符上限——按行截断（不切断行），超限提示用工具探索
-_WIKI_INDEX_CHARS = 4_000
-# 纠错清单的字符上限——通常短，超限才截
-_CORRECTIONS_CHARS = 2_000
-
-
 class ContextBuilder:
     """从 system_prompt, session.history, tool_description 构建初始信息。"""
 
@@ -38,11 +32,16 @@ class ContextBuilder:
             tool_registery: ToolRegistry,
             memory_store: MemoryStore,
             wiki_dir: str | Path | None = None,
+            agent_config=None,
         ):
         self.system_prompt = system_prompt
         self.tool_registery = tool_registery
         self.memory_store = memory_store
         self.wiki_dir = Path(wiki_dir) if wiki_dir else None
+        # 截断上限从 agent_config 取（E3 收编）——None 时用默认
+        cfg = agent_config
+        self._index_chars = cfg.wiki_index_chars if cfg else 4_000
+        self._corrections_chars = cfg.corrections_chars if cfg else 2_000
 
     # ── system prompt 各块 ─────────────────────────────────
 
@@ -86,7 +85,7 @@ class ContextBuilder:
             kept: list[str] = []
             total = 0
             for line in lines:
-                if total + len(line) + 1 > _WIKI_INDEX_CHARS:
+                if total + len(line) + 1 > self._index_chars:
                     break
                 kept.append(line)
                 total += len(line) + 1
@@ -105,8 +104,8 @@ class ContextBuilder:
         if not items:
             return "（暂无待处理纠错）"
         text = "\n".join(items)
-        if len(text) > _CORRECTIONS_CHARS:
-            text = text[:_CORRECTIONS_CHARS] + "\n...（纠错清单过长已截断）"
+        if len(text) > self._corrections_chars:
+            text = text[:self._corrections_chars] + "\n...（纠错清单过长已截断）"
         return text
 
     def _build_system_prompt(

@@ -48,6 +48,11 @@ class AgentConfig(BaseSettings):
     """Agent 生成与治理参数（env 前缀 AGENT_）。
 
     agent 生成与治理参数——唯一配置来源（react/governor/consolidator 直接读本类）。
+
+    治理参数（E3 收编，2026-08-17）:
+    - 工具结果 TTL: 可重复获得工具的驱逐时限——wiki 经 compile/refine
+      变化，跨轮旧读取会失真；30 分钟是经验值（实测依据见报告 11.7）
+    - 转存/紧凑化/snip: 窗口维度治理的阈值——与 context_windows 配套调
     """
 
     model_config = SettingsConfigDict(env_prefix="AGENT_", frozen=True, extra="ignore")
@@ -59,6 +64,15 @@ class AgentConfig(BaseSettings):
     consolidate_ratio: float = 0.5
     trigger_ratio: float = 0.8
     dream_interval: int = 3_000
+    # ── 治理参数（E3 收编——原散在 governor/builder 模块顶部）──
+    tool_result_ttl_minutes: int = 30       # 可重复获得工具（导航三件套）驱逐时限
+    tool_persist_length: int = 8_000        # 工具结果转存阈值（超限写文件）
+    snip_safe_buffer: int = 1024            # token 估计安全余量
+    inflight_target_ratio: float = 0.85     # 窗口紧凑化目标水位
+    inflight_compact_min_chars: int = 500   # 紧凑化最小长度（短结果不值得）
+    snip_ratio: float = 0.5                 # snip 截断力度（保预算的比例）
+    wiki_index_chars: int = 4_000           # system prompt 的 index 地图截断
+    corrections_chars: int = 2_000          # system prompt 的纠错清单截断
 
 
 class LoggingConfig(BaseSettings):
