@@ -15,5 +15,3 @@ from wiki_agent.ingestion.chunker import (
     ChunkedFileProperties,
     TextChunker,
 )
-from wiki_agent.ingestion.processor import Processor
-from wiki_agent.ingestion.pipeline import BasePipeline, TextPipeline
