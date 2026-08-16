@@ -46,7 +46,11 @@ class ContextBuilder:
     # ── system prompt 各块 ─────────────────────────────────
 
     def _load_user_description(self) -> str:
-        """用户画像——memory.md（Dreamer 定期加工）。"""
+        """读用户画像块——memory.md（Dreamer 定期加工）。
+
+        Returns:
+            画像文本；文件缺失时返回占位文案。
+        """
         try:
             content = self.memory_store.memory_file.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -54,7 +58,14 @@ class ContextBuilder:
         return content.strip() or "（暂无用户画像——对话积累后由记忆机制生成）"
 
     def _read_wiki_file(self, name: str) -> str:
-        """读 wiki 系统文件——不存在返回空串。"""
+        """读 wiki 系统文件。
+
+        Args:
+            name: 文件名（purpose.md/schema.md/index.md）。
+
+        Returns:
+            文件内容（strip 后）；不存在或未接入 wiki 返回空串。
+        """
         if self.wiki_dir is None:
             return ""
         try:
@@ -72,6 +83,7 @@ class ContextBuilder:
             return "（未接入 wiki 目录）"
 
         parts: list[str] = []
+
         purpose = self._read_wiki_file("purpose.md")
         if purpose:
             parts.append(f"## 知识库使命\n{purpose}")
@@ -99,7 +111,11 @@ class ContextBuilder:
         return "\n\n".join(parts)
 
     def _load_corrections(self) -> str:
-        """待处理纠错——corrections.md（未处理清单，回答时注意避开）。"""
+        """读待处理纠错块——corrections.md（回答时注意避开）。
+
+        Returns:
+            纠错清单文本（超长截断）；无纠错时返回占位文案。
+        """
         items = self.memory_store.get_corrections()
         if not items:
             return "（暂无待处理纠错）"
@@ -113,6 +129,15 @@ class ContextBuilder:
             tools_description: str,
             last_summery: str,
         ) -> str:
+        """组装完整 system prompt（五块填充）。
+
+        Args:
+            tools_description: 工具描述文本。
+            last_summery: 对话摘要。
+
+        Returns:
+            填充后的 system prompt 文本。
+        """
         return self.system_prompt.format(
             user_description=self._load_user_description(),
             wiki_context=self._load_wiki_context(),
@@ -134,6 +159,15 @@ class ContextBuilder:
         当前消息追加）。消息治理（合并连续同 role / 孤儿修复 /
         token 截断）是 ContextGovernor.prepare_for_llm 的职责——
         本函数的输出是"原始形态"，治理在发出请求前由 governor 完成。
+
+        Args:
+            session: 会话（供组装使用）。
+            current_message: 当前用户消息（追加在末尾）。
+            last_summery: 对话摘要（进 system prompt）。
+            history: 未压缩历史消息（拼接在 system 之后）。
+
+        Returns:
+            组装好的消息列表（首条为 system）。
         """
         messages = [
             Message(

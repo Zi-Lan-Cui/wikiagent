@@ -36,10 +36,24 @@ class BaseChunker(ABC):
 
     @abstractmethod
     def chunk(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
-        """切割文本为 chunk 列表。"""
+        """切割文本为 chunk 列表。
+
+        Args:
+            file: 转换后的文件。
+
+        Returns:
+            chunk 列表。
+        """
         ...
 
     @abstractmethod
     def can_process(self, file: ConvertedFile) -> bool:
-        """是否支持该文件类型。"""
+        """是否支持该文件类型。
+
+        Args:
+            file: 转换后的文件。
+
+        Returns:
+            True 表示支持处理。
+        """
         ...

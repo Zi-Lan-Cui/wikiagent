@@ -23,6 +23,12 @@ class BaseTool(ABC):
           不向 LLM 泄漏内部细节，也不静默吞掉——日志可排查。
         - 其他 WikiAgentError（可预期的业务错误）→ 转可读错误文本给 LLM，
           LLM 能根据错误调整策略（换参数/换工具）。
+
+        Args:
+            **kwargs: 工具参数（子类 schema 声明的字段）。
+
+        Returns:
+            工具结果文本（成功结果或错误文本，均可直接进消息）。
         """
         try:
             result= await self._execute(**kwargs)
@@ -49,12 +55,23 @@ class BaseTool(ABC):
     @abstractmethod
     async def _execute(**kwargs)->str:
         """
-        真正的执行逻辑，工具子类必须重写这个函数
+        真正执行逻辑——工具子类必须重写。
+
+        Args:
+            **kwargs: 工具参数。
+
+        Returns:
+            工具结果文本。
         """
         pass
 
     @classmethod
     def openai_schema(cls):
+        """构造 OpenAI 工具 schema。
+
+        Returns:
+            注册/调用用 schema 字典（name/description/parameters）。
+        """
         return {
             "type":"function",
             "function":{

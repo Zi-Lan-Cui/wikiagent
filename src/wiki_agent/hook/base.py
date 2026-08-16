@@ -86,8 +86,12 @@ class AgentHook:
     __slots__ = ("_reraise",)
 
     def __init__(self, *, reraise: bool = False) -> None:
-        """*reraise* – when True, exceptions from this hook propagate
-        to the agent loop instead of being logged and swallowed."""
+        """Initialize the hook.
+
+        Args:
+            reraise: when True, exceptions from this hook propagate
+                to the agent loop instead of being logged and swallowed.
+        """
         self._reraise = reraise
 
     # ── Run scope ──────────────────────────────────────────
@@ -95,37 +99,66 @@ class AgentHook:
     async def on_status(self, context: RunContext, status: str) -> None:
         """Agent 状态变更通知。
 
-        status 取值:
-        - "compacting"   正在压缩历史
-        - "thinking"     等待 LLM 响应
-        - "idle"         空闲（等待用户输入）
+        Args:
+            context: 回合级上下文。
+            status: 状态值——"compacting" 正在压缩历史；
+                "thinking" 等待 LLM 响应；"idle" 空闲。
         """
         pass
 
     async def on_run_start(self, context: RunContext) -> None:
-        """Called once before the agent loop begins."""
+        """Called once before the agent loop begins.
+
+        Args:
+            context: 回合级上下文。
+        """
 
     async def on_run_end(self, context: RunContext) -> None:
-        """Called once after the agent loop finishes (success path)."""
+        """Called once after the agent loop finishes (success path).
+
+        Args:
+            context: 回合级上下文。
+        """
 
     async def on_run_error(self, context: RunContext) -> None:
-        """Called once when the agent loop terminates with an error."""
+        """Called once when the agent loop terminates with an error.
+
+        Args:
+            context: 回合级上下文。
+        """
 
     # ── Iteration scope ────────────────────────────────────
 
     async def on_iteration_start(self, context: RunContext) -> None:
-        """Called at the top of each agent loop iteration."""
+        """Called at the top of each agent loop iteration.
+
+        Args:
+            context: 回合级上下文。
+        """
 
     async def on_iteration_end(self, context: RunContext) -> None:
-        """Called at the bottom of each agent loop iteration."""
+        """Called at the bottom of each agent loop iteration.
+
+        Args:
+            context: 回合级上下文。
+        """
 
     # ── Stream scope ───────────────────────────────────────
 
     async def on_stream_delta(self, context: RunContext, delta: str) -> None:
-        """Called for each chunk of streamed LLM text output."""
+        """Called for each chunk of streamed LLM text output.
+
+        Args:
+            context: 回合级上下文。
+            delta: 本次增量文本块。
+        """
 
     async def on_stream_end(self, context: RunContext) -> None:
-        """Called when the full streaming response has been assembled."""
+        """Called when the full streaming response has been assembled.
+
+        Args:
+            context: 回合级上下文。
+        """
 
     # ── Tool scope ─────────────────────────────────────────
 
@@ -136,7 +169,14 @@ class AgentHook:
         tool_call_id: str,
         arguments: dict[str, Any],
     ) -> None:
-        """Called immediately before a single tool is invoked."""
+        """Called immediately before a single tool is invoked.
+
+        Args:
+            context: 回合级上下文。
+            tool_name: 工具名。
+            tool_call_id: LLM 侧的工具调用 id（与结果配对）。
+            arguments: 工具调用的参数字典。
+        """
 
     async def on_tool_result(
         self,
@@ -145,7 +185,14 @@ class AgentHook:
         tool_call_id: str,
         result: Any,
     ) -> None:
-        """Called after a single tool invocation succeeds."""
+        """Called after a single tool invocation succeeds.
+
+        Args:
+            context: 回合级上下文。
+            tool_name: 工具名。
+            tool_call_id: 工具调用 id。
+            result: 工具返回值（转字符串后进入消息）。
+        """
 
     async def on_tool_error(
         self,
@@ -154,27 +201,52 @@ class AgentHook:
         tool_call_id: str,
         error: Any,
     ) -> None:
-        """Called when a tool invocation raises an exception."""
+        """Called when a tool invocation raises an exception.
+
+        Args:
+            context: 回合级上下文。
+            tool_name: 工具名。
+            tool_call_id: 工具调用 id。
+            error: 捕获到的异常对象。
+        """
 
     # ── Reasoning scope ────────────────────────────────────
 
     async def on_reasoning_start(self, context: RunContext) -> None:
-        """Called when the LLM begins emitting reasoning / thinking content."""
+        """Called when the LLM begins emitting reasoning / thinking content.
+
+        Args:
+            context: 回合级上下文。
+        """
 
     async def on_reasoning_delta(self, context: RunContext, delta: str) -> None:
-        """Called for each chunk of reasoning / thinking text."""
+        """Called for each chunk of reasoning / thinking text.
+
+        Args:
+            context: 回合级上下文。
+            delta: 本次增量思考文本块。
+        """
 
     async def on_reasoning_end(self, context: RunContext) -> None:
-        """Called when the reasoning stream has finished."""
+        """Called when the reasoning stream has finished.
+
+        Args:
+            context: 回合级上下文。
+        """
 
     # ── Post‑processing ────────────────────────────────────
 
     def finalize_content(self, content: str | None) -> str | None:
-        """Called to transform the final response text before it is
-        returned to the caller. Return the (possibly modified) text.
+        """Transform the final response text before it is returned.
 
         Unlike the other methods this is synchronous — it runs as a
         pipeline, not a callback.
+
+        Args:
+            content: 原始回复文本（可能为 None）。
+
+        Returns:
+            转换后的文本（可原样返回）。
         """
         return content
 
@@ -202,11 +274,15 @@ class CompositeHook(AgentHook):
     # ── helpers ──
 
     async def _fanout(self, method: Any, *args: Any, **kwargs: Any) -> None:
-        """逐 hook 扇出——传入绑定方法（非字符串），编译期保证存在。
+        """逐 hook 扇出调用。
 
-        字符串分发（getattr(h, "on_x")）是运行时反射：方法名改错
-        不报错、拼写错误静默丢失。绑定方法调用让改名/删除在
-        定义处直接暴露。
+        传入绑定方法（非字符串），编译期保证存在——字符串分发
+        （getattr(h, "on_x")）是运行时反射：方法名改错不报错、
+        拼写错误静默丢失。绑定方法调用让改名/删除在定义处直接暴露。
+
+        Args:
+            method: 要调用的 hook 方法（绑定方法）。
+            *args / **kwargs: 透传给每个 hook 的参数。
         """
         for h in self._hooks:
             if h._reraise:

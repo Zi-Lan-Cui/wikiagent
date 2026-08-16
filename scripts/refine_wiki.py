@@ -31,6 +31,7 @@ WIKI_DIR = PROJECT_ROOT / "wiki"
 
 
 async def main():
+    """refine 主流程——备份 → 逐页精炼 → 扫描报告。"""
     # ── 运行容器（runs/refine_<ts>——与 compile 容器区分）──────
     run_dir = WIKI_DIR / ".logs" / "runs" / f"refine_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)

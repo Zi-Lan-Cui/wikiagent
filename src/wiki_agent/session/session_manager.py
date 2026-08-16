@@ -51,11 +51,16 @@ class Session:
     
     def get_history(self,max_messages_length:int=10,extend_to_user:bool=True):
         """
-        选中一个满足最大长度，起始合法(不保证整个历史合法)的记录
+        返回满足最大长度且起始合法的历史窗口。
+
+        只保证窗口起点合法，不保证整个窗口合法（build 阶段再处理）。
 
         Args:
-            max_message:窗口的最大长度
-            extend_to_user:返回的第一条消息是否必须是user
+            max_messages_length: 窗口最大消息数。
+            extend_to_user: 为 True 时窗口首条消息必须是 user。
+
+        Returns:
+            截取后的消息列表（空窗口返回 []）。
         """
         if max_messages_length<=0:
             return []
@@ -72,7 +77,12 @@ class Session:
 
     def update_token_cost(self,prompt:int,completion:int,total:int):
         """
-        更新token消耗信息
+        累加本轮调用的 token 消耗。
+
+        Args:
+            prompt: 本轮 prompt token 数。
+            completion: 本轮生成 token 数。
+            total: 本轮总 token 数。
         """
         self.token_cost["prompt"]+=prompt
         self.token_cost["completion"]+=completion
@@ -171,8 +181,18 @@ class SessionManager:
 
     def save_checkpoint(self,session:Session,fsync:bool=False):
         """
-        将会话持久化到磁盘中，fsync为True表示立即将更新刷入磁盘，该操作较慢，默认为False。False时的做法是将内容写入操作系统的页缓存
-        当操作系统关机的时候，会自动存入磁盘。但是如果遇到掉电等情况会丢失(因为是内存)
+        将会话持久化到磁盘（临时文件 + 原子替换）。
+
+        fsync 为 True 时立即刷入磁盘（较慢）；False（默认）只写
+        操作系统页缓存——关机自动落盘，但掉电可能丢失。
+
+        Args:
+            session: 要保存的会话。
+            fsync: 是否强制 fsync 刷盘。
+
+        Returns:
+            True 表示保存成功；False 表示失败（sessions 目录不可用
+            或写入异常），调用方需自行处理。
         """
 
         key=session.key
@@ -246,7 +266,11 @@ class SessionManager:
         return session.token_cost
 
     def list_session_keys(self)->list[str]:
-        """列出磁盘上所有 session key，按修改时间倒序。"""
+        """列出磁盘上所有 session key，按修改时间倒序。
+
+        Returns:
+            session key 列表（sessions 目录不存在时返回空列表）。
+        """
         if not self.sessions_dir.is_dir():
             return []
         files=sorted(

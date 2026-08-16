@@ -77,6 +77,11 @@ class SourceDocument:
 
     @property
     def chunk_count(self) -> int:
+        """返回 chunk 总数。
+
+        Returns:
+            chunks 列表长度。
+        """
         return len(self.chunks)
 
 

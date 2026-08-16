@@ -106,7 +106,11 @@ class FileWatcher:
     # ── 事件桥（观察者线程侧）──────────────────────────────
 
     def _bridge_event(self, path: str) -> None:
-        """线程安全转发到 loop——不阻塞观察者线程。"""
+        """线程安全转发到 loop——不阻塞观察者线程。
+
+        Args:
+            path: 触发事件的文件路径。
+        """
         if self._loop is None:
             return
         try:
@@ -115,7 +119,14 @@ class FileWatcher:
             pass  # loop 已关闭（shutdown 竞态）
 
     def _is_supported(self, path: str) -> bool:
-        """受支持扩展名——与 ingest 接受范围一致（复用 DataLoader 模态表）。"""
+        """受支持扩展名——与 ingest 接受范围一致（复用 DataLoader 模态表）。
+
+        Args:
+            path: 文件路径。
+
+        Returns:
+            True 表示扩展名受支持。
+        """
         from wiki_agent.ingestion.data_loader import DataLoader
         return Path(path).suffix.lower() in DataLoader.ext_to_modality
 
@@ -136,6 +147,7 @@ class FileWatcher:
             self._stop_observer()
 
     def _start_observer(self) -> None:
+        """启动 inotify 观察器。"""
         self._loop = asyncio.get_running_loop()
         self._observer = Observer()
         self._observer.schedule(
@@ -144,6 +156,7 @@ class FileWatcher:
         logger.info("inotify 观察器已启动: %s", self._root)
 
     def _stop_observer(self) -> None:
+        """停止观察器并清理定时器。"""
         for timer in self._timers.values():
             timer.cancel()
         self._timers.clear()
@@ -159,6 +172,9 @@ class FileWatcher:
 
         _check_path 是 async 函数——call_later 只接受普通回调，
         包一层同步壳在回调里 create_task 调度协程。
+
+        Args:
+            path: 触发事件的文件路径。
         """
         if self._loop is None:
             return
@@ -177,6 +193,12 @@ class FileWatcher:
 
         定时器句柄已在 _fire 里弹出，这里不重复 pop（_notify 的
         pop 语义是"取消旧定时器"——此处已无句柄）。
+
+        Args:
+            path: 文件路径。
+
+        Returns:
+            入队/删除的路径列表（事件路径用）。
         """
         p = Path(path)
 
@@ -224,7 +246,11 @@ class FileWatcher:
     # ── 回退路径：全量扫描（轮询语义保留）──────────────────
 
     async def _poll_once(self) -> list[str]:
-        """单轮全量扫描——inotify 溢出/丢事件的安全网 + 启动 reconcile。"""
+        """单轮全量扫描——inotify 溢出/丢事件的安全网 + 启动 reconcile。
+
+        Returns:
+            入队/删除的路径列表。
+        """
         queued: list[str] = []
         current = self._scan_files()
         logger.debug("回退扫描: %d 个文件", len(current))
@@ -257,7 +283,11 @@ class FileWatcher:
     # ── 扫描 ──────────────────────────────────────────────
 
     def _scan_files(self) -> list[Path]:
-        """扫描源目录下所有受支持扩展名的文件（递归）。"""
+        """扫描源目录下所有受支持扩展名的文件（递归）。
+
+        Returns:
+            文件路径列表。
+        """
         from wiki_agent.ingestion.data_loader import DataLoader
 
         supported = DataLoader.ext_to_modality
@@ -273,6 +303,14 @@ class FileWatcher:
         """两段确认 + 变更门（回退路径用）。
 
         返回 True → 入队（大改动确认）；False → 忽略或仅更新 pending。
+
+        Args:
+            st: 文件状态。
+            content: 当前内容。
+            digest: 当前内容哈希。
+
+        Returns:
+            True 表示应入队。
         """
         # 新文件: 无已知状态 → 走两段确认（首次见存 pending）
         if not st.hash:
@@ -292,6 +330,12 @@ class FileWatcher:
 
         事件路径（单路径检查发现消失）与回退路径（state/磁盘 diff）
         都走这里——删除语义只有一处。
+
+        Args:
+            path: 被删文件路径。
+
+        Returns:
+            ["delete:<name>"] 标记列表。
         """
         name = Path(path).name
         self._state.drop(path)
@@ -300,7 +344,15 @@ class FileWatcher:
         return [f"delete:{name}"]
 
     def _is_major_change(self, st: FileState, content: str) -> bool:
-        """与已知文本比相似度——低于阈值才算大改动。"""
+        """与已知文本比相似度——低于阈值才算大改动。
+
+        Args:
+            st: 文件状态（已知文本）。
+            content: 当前内容。
+
+        Returns:
+            True 表示大改动。
+        """
         if st.text is None:
             return True
         if not st.text:
@@ -308,7 +360,16 @@ class FileWatcher:
         return SequenceMatcher(None, st.text, content).ratio() < self._threshold
 
     def _confirm(self, st: FileState, content: str, digest: str) -> bool:
-        """两段确认: 同一内容连续出现 _CONFIRM_ROUNDS 轮才通过。"""
+        """两段确认: 同一内容连续出现 _CONFIRM_ROUNDS 轮才通过。
+
+        Args:
+            st: 文件状态（pending 现场读写）。
+            content: 当前内容。
+            digest: 当前内容哈希。
+
+        Returns:
+            True 表示确认通过。
+        """
         if st.pending_text is not None and st.pending_text == content:
             st.pending_seen += 1
             if st.pending_seen >= _CONFIRM_ROUNDS:
@@ -327,6 +388,11 @@ class FileWatcher:
 
         事件路径（稳定性复读一致）与回退路径（两段确认通过）
         最终都走这里落 state——状态写入只有一处。
+
+        Args:
+            st: 文件状态（就地写入）。
+            content: 定案内容。
+            digest: 定案内容哈希。
         """
         st.hash = digest
         st.text = content

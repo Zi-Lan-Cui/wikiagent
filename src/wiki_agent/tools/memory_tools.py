@@ -47,6 +47,15 @@ class RecordCorrection(BaseTool):
         self._memory_store = memory_store
 
     async def _execute(self, page: str = "", issue: str = "") -> str:
+        """记录纠错进待修清单。
+
+        Args:
+            page: 出错页面的相对路径（可为空）。
+            issue: 自然语言问题描述。
+
+        Returns:
+            记录结果文本；issue 为空时返回"未记录"。
+        """
         text = f"{issue.strip()}"
         if page.strip():
             text = f"[{page.strip()}] {text}"

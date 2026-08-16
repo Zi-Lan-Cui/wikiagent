@@ -49,7 +49,18 @@ class Consolidator:
             last_summery:str=""
     )->str|None:
         """
-        实现压缩逻辑，返回压缩后的摘要,失败则返回None
+        压缩消息列表为一段摘要。
+
+        Args:
+            llm: LLM 客户端。
+            messages: 待压缩的消息列表（按逆序拼接——截断时
+                保留最近信息）。
+            context_windows: 模型上下文窗口大小。
+            max_tokens: 摘要的最大生成 token 数。
+            last_summery: 上一次压缩摘要（有剩余预算时并入）。
+
+        Returns:
+            压缩后的摘要文本；输入为空或调用失败时返回 None。
         """
         if not messages:
             return None
@@ -102,7 +113,20 @@ class Consolidator:
             last_summery:str=""
         )->tuple[str,int]|None:
         """
-        判断并执行压缩,成功返回压缩的摘要str,失败返回None
+        判断并压缩窗口外溢出的未压缩历史。
+
+        Args:
+            llm: LLM 客户端。
+            messages: 完整历史消息。
+            context_windows: 模型上下文窗口大小。
+            max_tokens: 摘要的最大生成 token 数。
+            last_consolidate: 上次压缩到的下标。
+            replay_max_messages: 保留的最远消息数（replay 窗口）。
+            last_summery: 上一次压缩摘要。
+
+        Returns:
+            (摘要, end_idx) 二元组——end_idx 是压缩推进到的下标；
+            无需压缩或压缩失败时返回 None。
         """
         if len(messages)-last_consolidate<=replay_max_messages:
             return None
@@ -148,8 +172,18 @@ class Consolidator:
 
 
     def _pick_consolidation_boundry_by_tokens(self,session:Session,tokens_to_remove:int)->int|None:
-        """
-        从最早未压缩的消息往最近的消息遍历,返回history中满足压缩要求的最小合法边界.如果没有合法边界返回None
+        """寻找满足压缩 token 目标的最小合法切分边界。
+
+        从最早未压缩的消息往最近遍历；切分点落在 user 消息上
+        （避免切开工具调用-结果配对）。
+
+        Args:
+            session: 会话（读未压缩历史）。
+            tokens_to_remove: 需要移除的 token 数。
+
+        Returns:
+            边界下标（切片 end）；无合法边界（含无内容可压）
+            时返回 None。
         """
         start=session.last_consolidated
 
@@ -177,13 +211,23 @@ class Consolidator:
             replay_max_messages:int,
         )->bool:
         """
-        两种策略：
-        1. 对超出get_history提取窗口的对llm已经不可见的内容进行压缩。
-        2. 消息在窗口内，但是窗口内总消息tokens超出了预算，对所有的未压缩消息进行压缩（此时的未压缩消息都在窗口内）
+        按需压缩会话历史——内部更新 session 压缩状态，但不保存。
 
-        内部更新了session压缩状态更新，但未保存。
-        如果发生了压缩操作返回True
-        否则返回False
+        两种策略:
+        1. 压缩超出 get_history 提取窗口（对 LLM 已不可见）的内容。
+        2. 窗口内总消息 token 超出预算时，对窗口内未压缩消息
+           整体压缩。
+
+        Args:
+            llm: LLM 客户端。
+            session: 目标会话（last_consolidated/last_summery 会被推进）。
+            context_builder: 用于估计窗口 prompt token 数。
+            context_windows: 模型上下文窗口大小。
+            max_tokens: 摘要的最大生成 token 数。
+            replay_max_messages: 保留的最远消息数。
+
+        Returns:
+            True 表示发生了压缩；False 表示未压缩。
         """
         old_consolidated = session.last_consolidated
 

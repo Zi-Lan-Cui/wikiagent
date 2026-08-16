@@ -66,6 +66,9 @@ def check_page_quality(content: str, *, path: str) -> list[Issue]:
     闸门不过 → Issue(error)（frontmatter 必填 goal 在内 / 正文存在 /
     wikilink 格式 / fence 闭合）；闸门过了 → 补体检独有的 warning
     观察（正文过短）。
+
+    Returns:
+        Issue 列表（error/warning）。
     """
     issues: list[Issue] = []
 
@@ -92,6 +95,14 @@ def check_dead_links(content: str, *, path: str, valid_slugs: set[str]) -> list[
     """死链检测——正文中的 [[wikilink]] 指向不存在的页面。
 
     跳过代码块（审计 I2）——代码里的 ``[[1, 2, 3]]`` 不是链接。
+
+    Args:
+        content: 页面内容。
+        path: 页面相对路径。
+        valid_slugs: 有效页面 slug 集合。
+
+    Returns:
+        死链 Issue 列表。
     """
     if not valid_slugs:
         return []
@@ -120,7 +131,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
         wiki_dir: wiki 根目录
 
     Returns:
-        全部 Issue（error + warning）
+        全部 Issue（error + warning）。
     """
     wiki = Path(wiki_dir)
     all_issues: list[Issue] = []
@@ -212,7 +223,14 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
 
 
 def format_scan_report(issues: list[Issue]) -> str:
-    """格式化扫描报告。"""
+    """格式化扫描报告。
+
+    Args:
+        issues: 扫描得到的 Issue 列表。
+
+    Returns:
+        Markdown 报告文本。
+    """
     errors = [i for i in issues if i.level == "error"]
     warnings = [i for i in issues if i.level == "warning"]
 
