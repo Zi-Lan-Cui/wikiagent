@@ -19,6 +19,3 @@ from wiki_agent.config.root import (
     VLMConfig,
     load_config,
 )
-from wiki_agent.config.embedding_config import BaseEmbeddingConfig, DashScopeEmbeddingConfig
-from wiki_agent.config.storage_config import BaseStorageConfig, QdrantStorageConfig
-from wiki_agent.config.chunker_config import BaseChunkerConfig, TextChunkerConfig
