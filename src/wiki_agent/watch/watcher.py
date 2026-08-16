@@ -29,9 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from watchdog.events import FileSystemEventHandler
-# 运行时导入: watchdog 6.0 的 Observer 是平台分发的变量赋值
-# （Observer = _get_observer_cls()），不是 class 定义——实例化用它，
-# 类型注解用 TYPE_CHECKING 下的真实基类 BaseObserver
+# Observer 是平台分发的运行时变量（非 class 定义）——类型注解见字段处
 from watchdog.observers import Observer
 
 if TYPE_CHECKING:

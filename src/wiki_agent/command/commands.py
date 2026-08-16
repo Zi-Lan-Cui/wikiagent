@@ -139,7 +139,6 @@ class ResolveCommand(Command):
         args = ctx.args.strip()
         corrections = store.get_corrections()
 
-        # 子命令
         parts = args.split(maxsplit=1)
         action = parts[0].lower() if parts else ""
 
@@ -161,7 +160,6 @@ class ResolveCommand(Command):
                     "keep": "❓ 标记存疑"}[action]
             return CommandResult(text=f"# /resolve\n\n{verb}: 第 {parts[1]} 条")
 
-        # 列表视图
         if not corrections:
             return CommandResult(text="# /resolve\n\n没有待裁决的纠错条目。")
         lines = ["# 纠错条目裁决", ""]
@@ -190,7 +188,6 @@ class QueueCommand(Command):
         store = QueueStore(ctx.agent.workspace)
         args = ctx.args.strip()
 
-        # /queue done <id>
         if args.startswith("done "):
             item_id = args[5:].strip()
             if not store.remove(item_id):

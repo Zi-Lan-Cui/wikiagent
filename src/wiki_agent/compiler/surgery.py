@@ -245,8 +245,6 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
 
 def _check_recheck(content: str) -> tuple[bool, str]:
     import json as _json
-    # fence 剥离统一走 parse._strip_fence（与 check/parse 层同一规约，
-    # 含 I5 尾部括号 repair——手术的 LLM 输出同样可能缺尾括号）
     cleaned = _strip_fence(content)
     try:
         data = _json.loads(cleaned)
@@ -445,8 +443,6 @@ def resolve_conflicts(
 
 def _check_re_arbitrate(content: str) -> tuple[bool, str]:
     import json as _json
-    # fence 剥离统一走 parse._strip_fence（与 check/parse 层同一规约，
-    # 含 I5 尾部括号 repair——手术的 LLM 输出同样可能缺尾括号）
     cleaned = _strip_fence(content)
     try:
         data = _json.loads(cleaned)

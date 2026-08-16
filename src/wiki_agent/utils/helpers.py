@@ -18,7 +18,6 @@ def _encoder():
 
 def ensure_dir(path: Path):
     """递归创建目录。路径已被文件占位时返回 None（调用方短路）。"""
-    # parents递归创建子目录
     try:
         path.mkdir(parents=True, exist_ok=True)
     except FileExistsError:

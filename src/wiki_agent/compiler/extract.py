@@ -207,9 +207,7 @@ class Extractor:
         from datetime import date as _date
         today = _date.today().isoformat()
 
-        # 去掉扩展名作为标题
         display_name = source.name.rsplit(".", 1)[0] if "." in source.name else source.name
-        # 提取摘要第一句（≤80字）
         summary_line = raw_summary.split("\n")[0].strip().lstrip("# ")[:80]
 
         frontmatter = "\n".join([

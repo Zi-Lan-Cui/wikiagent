@@ -41,7 +41,6 @@ class ContextGovernor:
         self.workspace = workspace
         self.tmp_dir = self.workspace / "tmp"
         cfg = agent_config
-        # TTL 表：config 的一个时限 → 三个可重复获得工具共用
         ttl_seconds = (
             (cfg.tool_result_ttl_minutes * 60) if cfg
             else 30 * 60
@@ -141,7 +140,6 @@ class ContextGovernor:
 
         saved_messages=list(reversed(saved_messages_reversed))
 
-        # 要保证save合法
         idx=find_first_legal_idx(saved_messages,extend_to_user=True)
         return system_messages+saved_messages[idx:]
 
@@ -174,7 +172,6 @@ class ContextGovernor:
 
         target = int(budget * self._inflight_target_ratio)
 
-        # 候选: 可重取工具的 tool 消息，内容够长，未紧凑化过
         tool_indexes = [
             i for i, m in enumerate(messages)
             if m.role == "tool"
@@ -346,7 +343,6 @@ def _repair_orphan_tool_call(messages: list[Message]) -> list[Message]:
     repaired: list[Message] = []
     for m in messages:
         repaired.append(m)
-        # 缺失回复的调用后紧跟占位结果
         if m.role == "assistant" and m.tool_calls:
             for tc in m.tool_calls:
                 if tc.id in orphan_ids:

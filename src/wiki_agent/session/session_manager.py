@@ -42,13 +42,11 @@ class Session:
     def add_message(self,message:Message):
         self.history.append(message)
 
-        # 状态更新
         self.updated_at=datetime.now().isoformat()
 
     def add_messages(self,messages:list[Message]):
         self.history.extend(messages)
 
-        # 状态更新
         self.updated_at=datetime.now().isoformat()
     
     def get_history(self,max_messages_length:int=10,extend_to_user:bool=True):
@@ -63,15 +61,11 @@ class Session:
             return []
         # 1. 选中可选的未压缩信息
         unconsolidated_messages=self.history[self.last_consolidated:]
-        # 2. 额外遍历处理逻辑
-        # 3. 检查信息长度，如果小于最大长度，直接进入步骤4
         limited_messages=[]
         if len(unconsolidated_messages)<max_messages_length:
             limited_messages=unconsolidated_messages
-        # 3. 按照最大窗口进行截取
         else:
             limited_messages=unconsolidated_messages[-max_messages_length:]
-        # 4. 检查修复不合法的对话
         start=find_first_legal_idx(limited_messages,extend_to_user)
         messages=limited_messages[start:]
         return messages
@@ -153,13 +147,9 @@ class SessionManager:
         return meta_data
 
     def _load(self,session_key):
-        # file_path-< session_dir+session_key
         file_path=self.sessions_dir/f"{session_key}.jsonl"
-        # if 不存在 then: 
         if not file_path.exists():
-        #   return None
             return None
-        # else:
         else:
             meta_data,history = self._prase_checkpoint(file_path)
 
@@ -176,7 +166,6 @@ class SessionManager:
                 session.last_summery=validate_meta_data["last_summery"]
                 session.token_cost=validate_meta_data["token_cost"]
                 session.current_window_tokens=validate_meta_data["current_window_tokens"]
-                # 返回重新组织的结果
                 return session
         return None
 
@@ -186,7 +175,6 @@ class SessionManager:
         当操作系统关机的时候，会自动存入磁盘。但是如果遇到掉电等情况会丢失(因为是内存)
         """
 
-        # 获取存储路径
         key=session.key
         if ensure_dir(self.sessions_dir):
             file_path=self.sessions_dir/f"{key}.jsonl"
@@ -194,7 +182,6 @@ class SessionManager:
             tmp_file_path=file_path.with_suffix(".tmp")
             try:
                 with open(tmp_file_path,"w",encoding="utf-8") as f:
-                    # 写好meatadata
                     metadata_line={
                         "_type":"metadata",
                         "key":session.key,
@@ -209,7 +196,6 @@ class SessionManager:
                     }
                     f.write(json.dumps(metadata_line,ensure_ascii=False)+ "\n")
 
-                    # 将session中的记录转换为存储文件
                     for message in session.history:
                         # message还原成字典格式再写入,加\n换行
                         f.write(message.model_dump_json()+"\n")
