@@ -1,38 +1,40 @@
 """终端渲染器——独立实体，直接作为 agent 的 hook 订阅事件并渲染。
 
 单实体设计: 渲染器本身就是 hook（不再有适配器/独立流式状态机
-两个中间层）。流式缓冲 + Live 生命周期是它的内部状态，
-工具行渲染是它的内部逻辑——一个类、一份状态、一个入口。
+两个中间层）。追加式流式输出——完整行即时渲染打印，增量即
+最终；工具行渲染是它的内部逻辑——一个类、一份状态、一个入口。
 
 事件 → 渲染映射::
 
-    on_run_start        → 重置流式缓冲
-    on_stream_delta     → 缓冲累积 + Live 实时刷新
-    on_status           → 冻结缓冲 + 状态提示行
-    on_tool_call_start  → 冻结缓冲 + 工具行（时间序交错点）
+    on_run_start        → 复位缓冲与 fence 状态
+    on_stream_delta     → 缓冲累积 + 完整行即时打印
+    on_status           → 打印剩余缓冲 + 状态提示行
+    on_tool_call_start  → 打印剩余缓冲 + 工具行（时间序交错点）
     on_tool_result      → 结果行（✓ + 摘要 + 耗时）
     on_tool_error       → 错误行（✗）
-    on_run_end          → 收尾: 停止 Live + Markdown 展示
+    on_run_end          → 打印未闭合尾行
 
 cli 用法::
 
     renderer = TerminalRenderer(console)
     agent = ReActAgent(..., hooks=[renderer])
 
-工具行打印前必须冻结流式缓冲——否则 transient Live 擦除会
-打乱叙述文本与工具行的时间序。
+为什么是追加式: 旧设计 transient Live（流式预览）+ 收尾
+Markdown 重渲染，依赖擦除消除预览帧——长回答帧高超过终端
+高度时 cursor-up 被 clamp，滚入 scrollback 的帧行擦不掉，
+残留帧 + 重渲染 = 同一回答显示两遍。追加式没有预览、没有
+擦除、没有重渲染——架构上不存在双渲染。代价: 多行 markdown
+元素（表格/嵌套列表）按行渲染不如整篇渲染精致，可读性无损。
 """
 
 from __future__ import annotations
 
 import re
-import sys
 import time
 from typing import Any
 
 from rich.cells import cell_len
 from rich.console import Console
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.text import Text
 
@@ -161,69 +163,96 @@ class TerminalRenderer(AgentHook):
         # _text 字符串累积而非 list——_stream_delta 每个 token 触发一次，
         # list+join 是 O(n²)（长回复每 delta 全量 join），+= 是 O(1) 摊销
         self._text: str = ""
-        self._live: Live | None = None
+        # fence 状态—— ``` 未闭合时代码行累积进 _fence_buf，
+        # 闭合后整块交 Markdown 渲染（语法高亮 + 代码块样式），
+        # 不逐行裸打印（逐行打印无高亮、fence 标记可见，观感
+        # 像"代码块没渲染"）
+        self._in_fence: bool = False
+        self._fence_buf: list[str] = []
         self._timers: dict[str, float] = {}
 
-    # ── 流式内部状态机 ────────────────────────────────────
+    # ── 流式内部状态机（追加式——完整行即时打印）────────────
 
     def _stream_delta(self, delta: str) -> None:
-        """缓冲累积 + Live 惰性启动并刷新。
+        """缓冲累积，完整行即时渲染打印。
+
+        增量即最终——输出顺序天然正确，无预览帧、无擦除、无
+        重渲染（Live 两步模型的长回答双渲染 bug 在此架构不存在）。
 
         Args:
             delta: 增量文本块。
         """
         self._text += delta
-        if not self._text.strip():
+        # 只打印含换行的完整行；未闭合尾行留在缓冲等下一个
+        # delta 或 flush/finish
+        while "\n" in self._text:
+            line, self._text = self._text.split("\n", 1)
+            self._print_line(line)
+
+    def _print_line(self, line: str) -> None:
+        """渲染单行——fence 内累积，闭合时整块渲染；否则行级 Markdown。
+
+        Args:
+            line: 一行文本（不含换行符）。
+        """
+        stripped = line.strip()
+        if self._in_fence:
+            self._fence_buf.append(line)
+            # 同字符三连（``` 或 ~~~）闭合 fence——整块渲染
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                self._close_fence()
             return
-        if self._live is None:
-            self._live = Live(
-                Text(""), console=self._c,
-                auto_refresh=False, transient=True,
-            )
-            self._live.start()
-        self._live.update(Text(self._text))
-        self._live.refresh()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            self._in_fence = True
+            self._fence_buf = [line]
+            return
+        if line.strip():
+            self._c.print(Markdown(line))
+        else:
+            self._c.print()
+
+    def _close_fence(self) -> None:
+        """fence 闭合——整块交 Markdown 渲染（语法高亮 + 代码块背景）。
+
+        块级渲染只在闭合时发生一次——代码块生成期间的延迟
+        （块不出现在屏幕上，直到闭合）换来的是一次性成型的
+        代码块观感；LLM 代码块通常 < 20 行，延迟不可感知。
+        """
+        if self._fence_buf:
+            self._c.print(Markdown("\n".join(self._fence_buf)))
+        self._fence_buf = []
+        self._in_fence = False
 
     def _flush_stream(self) -> None:
-        """把当前流式缓冲冻结成持久输出（工具行时间序交错点）。"""
-        if self._live is not None:
-            self._live.stop()   # transient 自动擦除局部帧
-            self._live = None
-        text = self._text
-        self._text = ""
-        if text.strip():
-            self._c.print(text)
+        """打印剩余缓冲并复位（工具行/状态行时间序交错点）。
 
-    def _finish_stream(self) -> str:
-        """turn 收尾——停止 Live + Markdown 展示。
-
-        Returns:
-            尾部片段（最后一次 flush 之后的文本——之前片段已在
-            工具行交错时以纯文本落盘，重复渲染会重复显示）。
+        追加式下"冻结"简化为排空未闭合尾行——流式输出本来
+        就按到达顺序落盘，交错只需保证尾行先于工具行打印。
+        fence 未闭合就交错（模型消息中途被工具行打断）——
+        补一个假闭合行让缓冲的代码块仍以代码块样式落盘。
         """
-        if self._live is not None:
-            self._live.stop()
-            self._live = None
-        full = self._text
-        self._text = ""
-        if not full.strip():
-            return full
-        # 不用 self._c.print(Markdown(full))——transient Live stop 后
-        # console 仍处于 screen 清理状态，直接 print 会与 Live 的
-        # 擦除序列交互（Markdown 输出被清屏序列吞掉/错位）。
-        # capture 隔离渲染拿到成品字节，绕过 console 的 screen
-        # 状态直接写 stdout。这是踩过的坑——不要"简化"。
-        with self._c.capture() as cap:
-            self._c.print(Markdown(full))
-        sys.stdout.write(cap.get())
-        sys.stdout.flush()
-        return full
+        if self._in_fence:
+            self._fence_buf.append("```")
+            self._close_fence()
+        if self._text:
+            self._print_line(self._text)
+            self._text = ""
+
+    def _finish_stream(self) -> None:
+        """turn 收尾——打印未闭合尾行。
+
+        无 Live、无重渲染——内容已在流式过程中全部落盘，
+        收尾只剩最后一行未换行的缓冲。
+        """
+        self._flush_stream()
 
     # ── hook 事件（渲染入口）──────────────────────────────
 
     async def on_run_start(self, context: RunContext) -> None:
+        # 复位缓冲与 fence 状态（跨 turn 复用渲染器实例）
         self._text = ""
-        self._live = None
+        self._in_fence = False
+        self._fence_buf = []
 
     async def on_stream_delta(self, context: RunContext, delta: str) -> None:
         self._stream_delta(delta)

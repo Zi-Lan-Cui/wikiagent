@@ -28,60 +28,84 @@ def test_flush_drains_buffer():
     asyncio.run(r.on_run_start(_ctx()))
     asyncio.run(r.on_stream_delta(_ctx(), "第一部分"))
     asyncio.run(r.on_status(_ctx(), "compacting"))  # flush 触发
+    # flush 后缓冲清空（未换行的第一部分已落持久输出）
+    assert r._text == ""
     asyncio.run(r.on_stream_delta(_ctx(), "第二部分"))
-    # flush 后缓冲只含第二部分（第一部分已落持久输出）
-    assert "第一部分" not in r._text
-    assert "第二部分" in r._text
+    # 无换行增量留在缓冲等下一个换行/flush
+    assert r._text == "第二部分"
 
 
-def test_finish_renders_tail_segment_only():
-    """收尾只渲染最后一次 flush 之后的片段——之前片段已在
-    工具行交错时以纯文本落盘（console file），收尾段经
-    capture + sys.stdout（绕过 console screen 状态的踩坑设计）。"""
-    import io
-    import sys as _sys
+def test_finish_leaves_content_in_console():
+    """追加式：流式即最终——完整行即时落盘，无重渲染。
 
+    旧设计收尾段经 capture + sys.stdout 重渲染（依赖 transient
+    擦除消除预览帧），长回答下擦除失效会双渲染——追加式
+    无预览、无擦除、无重渲染，架构上不存在双渲染。
+    """
     tmp = Path(tempfile.mkdtemp()) / "out.txt"
     r = TerminalRenderer(Console(file=open(tmp, "w", encoding="utf-8")))
     asyncio.run(r.on_run_start(_ctx()))
-    asyncio.run(r.on_stream_delta(_ctx(), "第一段"))
+    asyncio.run(r.on_stream_delta(_ctx(), "第一段\n"))   # 完整行即时打印
     asyncio.run(r.on_tool_call_start(
-        _ctx(), "Grep", "c1", {"pattern": "x"}))   # flush 第一段落盘
+        _ctx(), "Grep", "c1", {"pattern": "x"}))   # flush 剩余缓冲
     asyncio.run(r.on_stream_delta(_ctx(), "第二段"))
-
-    captured = io.StringIO()
-    old_stdout = _sys.stdout
-    _sys.stdout = captured
-    try:
-        asyncio.run(r.on_run_end(_ctx()))
-    finally:
-        _sys.stdout = old_stdout
+    asyncio.run(r.on_run_end(_ctx()))   # 打印未闭合尾行
 
     # 收尾后缓冲清空
     assert r._text == ""
-    # 第一段在 console file（flush 纯文本），第二段在 stdout（Markdown 收尾）
-    assert "第一段" in tmp.read_text(encoding="utf-8")
-    assert "第二段" in captured.getvalue()
+    # 两段都在 console file，且恰好各出现一次（无重渲染）
+    out = tmp.read_text(encoding="utf-8")
+    assert out.count("第一段") == 1
+    assert out.count("第二段") == 1
 
 
 def test_run_start_resets_state():
     r = _renderer()
     asyncio.run(r.on_run_start(_ctx()))
-    asyncio.run(r.on_stream_delta(_ctx(), "旧内容"))
+    asyncio.run(r.on_stream_delta(_ctx(), "旧内容\n"))
     asyncio.run(r.on_run_start(_ctx()))  # 新 turn 重置
     assert r._text == ""
-    assert r._live is None
+    assert r._in_fence is False
 
 
-def test_stream_delta_starts_live_lazily():
-    """空白增量不启动 Live；有内容才启动。"""
-    r = _renderer()
+def test_stream_delta_prints_complete_lines():
+    """完整行即时打印，未闭合尾行留在缓冲。"""
+    tmp = Path(tempfile.mkdtemp()) / "out.txt"
+    r = TerminalRenderer(Console(file=open(tmp, "w", encoding="utf-8")))
     asyncio.run(r.on_run_start(_ctx()))
-    asyncio.run(r.on_stream_delta(_ctx(), "  "))  # 纯空白
-    assert r._live is None
-    asyncio.run(r.on_stream_delta(_ctx(), "有内容"))
-    assert r._live is not None
+    asyncio.run(r.on_stream_delta(_ctx(), "第一行\n第二行"))  # 尾行无换行
+    assert "第一行" in tmp.read_text(encoding="utf-8")
+    assert "第二行" in r._text  # 未闭合，等 flush/finish
     asyncio.run(r.on_run_end(_ctx()))
+    assert r._text == ""
+
+
+def test_fence_state_machine():
+    """``` 代码块整块缓冲，闭合时经 Markdown 渲染（标记隐藏 + 高亮）。"""
+    tmp = Path(tempfile.mkdtemp()) / "out.txt"
+    r = TerminalRenderer(Console(file=open(tmp, "w", encoding="utf-8")))
+    asyncio.run(r.on_run_start(_ctx()))
+    asyncio.run(r.on_stream_delta(_ctx(), "```python\nprint('a')\n```\n"))
+    out = tmp.read_text(encoding="utf-8")
+    assert "print('a')" in out   # 代码内容已渲染
+    assert "```" not in out      # 块渲染隐藏 fence 标记
+    assert r._in_fence is False  # 已闭合
+    assert r._fence_buf == []    # 缓冲已清空
+
+
+def test_unclosed_fence_flushed_as_block():
+    """fence 未闭合就交错（工具行）——补假闭合行仍按代码块落盘。"""
+    tmp = Path(tempfile.mkdtemp()) / "out.txt"
+    r = TerminalRenderer(Console(file=open(tmp, "w", encoding="utf-8")))
+    asyncio.run(r.on_run_start(_ctx()))
+    asyncio.run(r.on_stream_delta(_ctx(), "```python\nprint('a')\n"))
+    assert r._in_fence is True   # 未闭合
+    asyncio.run(r.on_tool_call_start(
+        _ctx(), "Grep", "c1", {"pattern": "x"}))   # flush 触发假闭合
+    out = tmp.read_text(encoding="utf-8")
+    assert "print('a')" in out
+    assert r._in_fence is False
+    assert r._fence_buf == []
 
 
 def test_tool_result_timing_line():
