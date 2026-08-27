@@ -18,10 +18,10 @@ import asyncio
 import re
 from pathlib import Path
 
-from wiki_agent.compiler.parse import split_frontmatter
-from wiki_agent.compiler.pipeline import CompilePipeline
-from wiki_agent.ingestion.data_loader import DataLoader
+from wiki_agent.compiler.wiki.frontmatter import split_frontmatter
+from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.errors import IngestError
+from wiki_agent.ingestion.data_loader import DataLoader
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.watch.state import WatchState
 
@@ -87,7 +87,9 @@ class WatchConsumer:
                 if kind == "delete":
                     self._process_delete(item[1])
                 else:
-                    await self._process_ingest(item if not isinstance(item, tuple) else item[1], loader)
+                    await self._process_ingest(
+                        item if not isinstance(item, tuple) else item[1], loader
+                    )
             finally:
                 self._queue.task_done()
 
@@ -105,8 +107,9 @@ class WatchConsumer:
             content = page.read_text(encoding="utf-8")
             fm, _ = split_frontmatter(content)
             raw_sources = fm.get("sources", "")
-            listed = [s.strip().strip("\"'")
-                      for s in raw_sources.strip("[]").split(",") if s.strip()]
+            listed = [
+                s.strip().strip("\"'") for s in raw_sources.strip("[]").split(",") if s.strip()
+            ]
             if name not in listed:
                 continue
             remaining = [s for s in listed if s != name]
@@ -115,9 +118,10 @@ class WatchConsumer:
                 # 规则 3: 保留页面，移除条目
                 new_sources = ", ".join(f'"{s}"' for s in remaining)
                 new_content = re.sub(
-                    r'(?m)^\s*sources\s*:.*$',
+                    r"(?m)^\s*sources\s*:.*$",
                     f"sources: [{new_sources}]",
-                    content, count=1,
+                    content,
+                    count=1,
                 )
                 page.write_text(new_content, encoding="utf-8")
                 action = f"keep {slug}（sources 移除 {name}）"
@@ -152,10 +156,14 @@ class WatchConsumer:
         except IngestError as e:
             logger.error("  ingest 失败 [%s]: %s", e.stage.value, str(e)[:200])
             # 事件是机器通道——全量不截断（截断是给人看的习惯）
-            emit_event("watch_failure", file=name, stage=e.stage.value,
-                       error=str(e),
-                       cause=type(e.cause).__name__ if e.cause else None,
-                       raw=e.raw)
+            emit_event(
+                "watch_failure",
+                file=name,
+                stage=e.stage.value,
+                error=str(e),
+                cause=type(e.cause).__name__ if e.cause else None,
+                raw=e.raw,
+            )
             return
 
         # 状态回写: ingest 完成才更新（失败保留 pending，下次变更再触发）
@@ -163,8 +171,7 @@ class WatchConsumer:
         if outcome.noop:
             emit_event("watch_noop", file=name)
         else:
-            emit_event("watch_ingested", file=name,
-                       pages=len(outcome.pages_written))
+            emit_event("watch_ingested", file=name, pages=len(outcome.pages_written))
         st.last_ingested_at = ""
         self._state.set(str(path), st)
         self._state.save()

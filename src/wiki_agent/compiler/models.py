@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class Disposition(str, Enum):
+class Disposition(StrEnum):
     """页面操作类型——只含要执行的决策。
 
     plan 的产出是"要做什么"，不是"我考虑过什么"。
@@ -17,9 +17,17 @@ class Disposition(str, Enum):
     UPDATE = "update"
 
 
+# 编译流水线关 thinking——deepseek-v4-flash 是 reasoning 模型，
+# 思考段会静默吃掉整个 max_tokens 预算、content 留空（审计 C1 根因）。
+# 编译输出是"写页面"不是"解难题"，直接写更可靠也更便宜。
+# 单一来源：integration 四阶段与 surgery 复用此常量（勿再各存副本）。
+_NO_THINKING = {"thinking": {"type": "disabled"}}
+
+
 # ════════════════════════════════════════════════════════════════
 #  Phase 1 输入 —— 来自 Chunker 的结构化 chunk
 # ════════════════════════════════════════════════════════════════
+
 
 @dataclass
 class SourceChunk:
@@ -89,6 +97,7 @@ class SourceDocument:
 #  Phase 1 输出 —— ExtractResult
 # ════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class ChunkSummary:
     chunk_index: int
@@ -108,6 +117,7 @@ class ExtractResult:
 #  Phase 2 输出
 # ════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class PageTarget:
     wiki_path: str
@@ -125,13 +135,16 @@ class SearchResult:
     rel_paths: list[str] = field(default_factory=list)
     """相关页面路径，如 ['concepts/backpropagation.md', ...]。"""
 
+    raw: str = ""
+    """LLM 原始输出，供阶段评测和失败排查使用。"""
+
 
 @dataclass
 class PageRelationship:
     from_page: str = ""  # 关系起点——已有页面路径（或当前文档标识）
-    to_page: str = ""    # 关系终点——已有页面路径（或当前文档标识）
-    relation: str = ""   # duplicate / extends / related / contradicts / unrelated
-    detail: str = ""     # 具体说明（内容层面的共同点/差异/依据）
+    to_page: str = ""  # 关系终点——已有页面路径（或当前文档标识）
+    relation: str = ""  # duplicate / extends / related / contradicts / unrelated
+    detail: str = ""  # 具体说明（内容层面的共同点/差异/依据）
 
 
 @dataclass

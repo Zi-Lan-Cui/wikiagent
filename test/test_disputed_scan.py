@@ -6,7 +6,7 @@
 import tempfile
 from pathlib import Path
 
-from wiki_agent.compiler.quality import scan_wiki
+from wiki_agent.compiler.wiki.quality import scan_wiki
 
 
 def _make_wiki(tmp: Path) -> Path:
@@ -19,7 +19,7 @@ def test_scan_detects_disputed_block():
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
     (wiki / "concepts" / "x.md").write_text(
-        "---\ntype: concept\ntitle: \"X\"\nsummary: \"s\"\ngoal: \"g\"\n"
+        '---\ntype: concept\ntitle: "X"\nsummary: "s"\ngoal: "g"\n'
         "related: []\n---\n# X\n\n正文内容。\n\n"
         "> **Status: Disputed**\n>\n"
         "> - 版本A (已有): 旧说法\n"
@@ -37,7 +37,7 @@ def test_scan_counts_multiple_blocks():
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
     (wiki / "concepts" / "x.md").write_text(
-        "---\ntype: concept\ntitle: \"X\"\nsummary: \"s\"\ngoal: \"g\"\n"
+        '---\ntype: concept\ntitle: "X"\nsummary: "s"\ngoal: "g"\n'
         "related: []\n---\n# X\n\n正文。\n\n"
         "> **Status: Disputed**\n> - 版本A (已有): a1\n> - 版本B (新): b1\n\n"
         "更多正文。\n\n"
@@ -54,7 +54,7 @@ def test_clean_page_no_disputed_issue():
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
     (wiki / "concepts" / "x.md").write_text(
-        "---\ntype: concept\ntitle: \"X\"\nsummary: \"s\"\ngoal: \"g\"\n"
+        '---\ntype: concept\ntitle: "X"\nsummary: "s"\ngoal: "g"\n'
         "related: []\n---\n# X\n\n正常正文。\n",
         encoding="utf-8",
     )
@@ -64,6 +64,7 @@ def test_clean_page_no_disputed_issue():
 
 if __name__ == "__main__":
     import traceback
+
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:

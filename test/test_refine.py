@@ -12,25 +12,27 @@ import asyncio
 import tempfile
 from pathlib import Path
 
+from wiki_agent.compiler.integration.checks import _check_plan_json
 from wiki_agent.compiler.models import (
     Disposition,
     ExtractResult,
     IntegrationPlan,
     PageTarget,
 )
-from wiki_agent.compiler.pipeline import CompilePipeline, IngestOutcome
-from wiki_agent.compiler.prompts import compile as cp, refine as rp
-from wiki_agent.compiler.checks import _check_page_output, _check_plan_json
-from wiki_agent.compiler.refine import (
+from wiki_agent.compiler.prompts import compile as cp
+from wiki_agent.compiler.prompts import refine as rp
+from wiki_agent.compiler.wiki.rules import _check_page_output
+from wiki_agent.compiler.workflows.ingest import CompilePipeline
+from wiki_agent.compiler.workflows.refine import (
     build_index_excluding_self,
     refine_pages,
 )
 from wiki_agent.message import LLMResponse
 
-
 # ════════════════════════════════════════════════════════════
 #  unit: prompt 契约与校验
 # ════════════════════════════════════════════════════════════
+
 
 def test_refine_plan_is_independent_curator():
     """refine 的 plan 是独立实现（润色师），不继承 compile 的策展人。"""
@@ -39,13 +41,13 @@ def test_refine_plan_is_independent_curator():
     user_text = rp.plan_user(ext, "分析文本", current_page="concepts/x")
     assert "润色师" in sys_text
     assert "只拿不放" in sys_text
-    assert "concepts/x" in user_text          # 动态身份在 user 段
+    assert "concepts/x" in user_text  # 动态身份在 user 段
     # compile 的策展人文本不被继承
     c_sys = cp.plan_system()
     c_user = cp.plan_user(ext, "分析文本", index_content="- [[concepts/y]] — y")
     assert "润色师" not in c_sys
     assert "策展人" in c_sys
-    assert "- [[concepts/y]]" in c_user   # index 动态数据在 user 段
+    assert "- [[concepts/y]]" in c_user  # index 动态数据在 user 段
 
 
 def test_mode_contract_constants():
@@ -54,27 +56,36 @@ def test_mode_contract_constants():
     assert cp.ALLOWED_DISPOSITIONS == {"new", "update"}
 
 
+def test_refine_prompt_requires_evidence_or_noop():
+    text = rp.plan_system()
+    assert "材料明确支持时才补内容" in text
+    assert "合法 no-op" in text
+    assert "不得凭常识补齐" in text
+    assert "页面变长" in text
+
+
 def test_check_blocks_new_in_refine():
     """refine 契约: new 被校验拦截（retry 报错），update 放行。
 
     注意 wiki_path 必须带合法目录前缀——路由校验（2026-08-14 新增）
     在 disposition 校验之前拦非法目录。
     """
-    new_plan = ('{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
-                '"disposition": "new", "reason": "x"}]}')
-    ok, err = _check_plan_json(
-        new_plan, allowed_dispositions=rp.ALLOWED_DISPOSITIONS)
+    new_plan = (
+        '{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
+        '"disposition": "new", "reason": "x"}]}'
+    )
+    ok, err = _check_plan_json(new_plan, allowed_dispositions=rp.ALLOWED_DISPOSITIONS)
     assert not ok and "update" in err
 
-    upd_plan = ('{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
-                '"disposition": "update", "reason": "x"}]}')
-    ok, err = _check_plan_json(
-        upd_plan, allowed_dispositions=rp.ALLOWED_DISPOSITIONS)
+    upd_plan = (
+        '{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
+        '"disposition": "update", "reason": "x"}]}'
+    )
+    ok, err = _check_plan_json(upd_plan, allowed_dispositions=rp.ALLOWED_DISPOSITIONS)
     assert ok, err
 
     # compile 契约不受影响
-    ok, err = _check_plan_json(
-        new_plan, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
+    ok, err = _check_plan_json(new_plan, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
     assert ok, err
 
 
@@ -100,20 +111,12 @@ def test_page_output_requires_frontmatter_fields():
 
 def test_page_output_requires_body_content():
     """正文存在性进闸门（与 quality error 同语义）: 无正文/只有标题 → retry。"""
-    no_body = (
-        "---\n"
-        'type: concept\ntitle: "X"\nsummary: "概述"\n'
-        'goal: "讲清 X"\n'
-        "---\n"
-    )
+    no_body = '---\ntype: concept\ntitle: "X"\nsummary: "概述"\ngoal: "讲清 X"\n---\n'
     ok, err = _check_page_output(no_body)
     assert not ok and "无正文" in err
 
     only_title = (
-        "---\n"
-        'type: concept\ntitle: "X"\nsummary: "概述"\n'
-        'goal: "讲清 X"\n'
-        "---\n# X\n\n## 小节\n"
+        '---\ntype: concept\ntitle: "X"\nsummary: "概述"\ngoal: "讲清 X"\n---\n# X\n\n## 小节\n'
     )
     ok, err = _check_page_output(only_title)
     assert not ok and "只有标题" in err
@@ -156,6 +159,7 @@ def test_prompt_cache_separation():
 
     # chunk: 位置/原文只在 user 段（system 不含 chunk 身份）
     from wiki_agent.compiler.models import SourceChunk
+
     ck = SourceChunk(content="原文ABC", index=2, total=5, heading_path="x/y")
     assert "原文ABC" not in cp.chunk_system()
     assert "原文ABC" in cp.chunk_user(ck)
@@ -169,6 +173,7 @@ def test_prompt_cache_separation():
 # ════════════════════════════════════════════════════════════
 #  unit: refine 编排与 index 排除
 # ════════════════════════════════════════════════════════════
+
 
 def _make_wiki(tmp: Path) -> Path:
     """构造最小 wiki 结构，返回 wiki 目录。"""
@@ -219,13 +224,14 @@ def test_refine_pages_scope():
 #  unit: 模式接线与兜底过滤
 # ════════════════════════════════════════════════════════════
 
+
 class _MockLLM:
     model_id = "mock"
 
 
 def test_mode_wiring():
     """mode 一处声明——四阶段按模式组装（工厂），refine 用 PolisherPlanner。"""
-    from wiki_agent.compiler.stages import PolisherPlanner, CuratorPlanner
+    from wiki_agent.compiler.integration.plan import CuratorPlanner, PolisherPlanner
 
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
@@ -253,31 +259,35 @@ def test_mode_wiring():
 
 def test_filter_refine_targets_keeps_only_self():
     """只拿不放兜底（PolisherPlanner）: 保留 self-update，丢弃 other-update 与 new。"""
-    from wiki_agent.compiler.stages import PolisherPlanner
+    from wiki_agent.compiler.integration.plan import PolisherPlanner
     from wiki_agent.compiler.prompts import refine as rp
 
     tmp = Path(tempfile.mkdtemp())
     planner = PolisherPlanner(_MockLLM(), _make_wiki(tmp), rp)
 
-    plan = IntegrationPlan(page_targets=[
-        PageTarget("concepts/self.md", "S", Disposition.UPDATE, "x"),
-        PageTarget("concepts/other.md", "O", Disposition.UPDATE, "x"),
-        PageTarget("concepts/newpage.md", "N", Disposition.NEW, "x"),
-    ])
+    plan = IntegrationPlan(
+        page_targets=[
+            PageTarget("concepts/self.md", "S", Disposition.UPDATE, "x"),
+            PageTarget("concepts/other.md", "O", Disposition.UPDATE, "x"),
+            PageTarget("concepts/newpage.md", "N", Disposition.NEW, "x"),
+        ]
+    )
     planner._filter_self_updates(plan, "concepts/self")
     assert [t.wiki_path for t in plan.page_targets] == ["concepts/self.md"]
 
 
 def test_filter_refine_targets_all_violations_turn_noop():
     """全部违规 → 空 targets（execute 会按 noop 处理）。"""
-    from wiki_agent.compiler.stages import PolisherPlanner
+    from wiki_agent.compiler.integration.plan import PolisherPlanner
     from wiki_agent.compiler.prompts import refine as rp
 
     tmp = Path(tempfile.mkdtemp())
     planner = PolisherPlanner(_MockLLM(), _make_wiki(tmp), rp)
-    plan = IntegrationPlan(page_targets=[
-        PageTarget("concepts/other.md", "O", Disposition.UPDATE, "x"),
-    ])
+    plan = IntegrationPlan(
+        page_targets=[
+            PageTarget("concepts/other.md", "O", Disposition.UPDATE, "x"),
+        ]
+    )
     planner._filter_self_updates(plan, "concepts/self")
     assert plan.page_targets == []
 
@@ -285,6 +295,7 @@ def test_filter_refine_targets_all_violations_turn_noop():
 # ════════════════════════════════════════════════════════════
 #  integration: ingest_one 全链（脚本化 LLM）
 # ════════════════════════════════════════════════════════════
+
 
 class ScriptedLLM:
     """按 prompt 内容路由的脚本化 LLM——记录每次调用的 system 内容。"""
@@ -305,8 +316,9 @@ class ScriptedLLM:
         self._plan_json = plan_json
         self.calls: list[str] = []
 
-    async def async_invoke(self, messages, tools=None, max_tokens=None,
-                           temperature=0.5, extra_body=None):
+    async def async_invoke(
+        self, messages, tools=None, max_tokens=None, temperature=0.5, extra_body=None
+    ):
         # chunk/synthesis 是 system+user 双消息——扫描全部消息，
         # 只读 messages[-1] 会拿到 user 的 chunk 正文，分支永远不命中
         content = "\n".join(m.content for m in messages)
@@ -318,14 +330,16 @@ class ScriptedLLM:
         if "你是 Wiki 相关度过滤器" in content:
             return LLMResponse(content='["concepts/y"]')
         if "你是知识库的关系分析师" in content:
-            return LLMResponse(content=(
-                "自由分析：本文档与候选页 Y 相关。\n"
-                "```json\n"
-                '{"entities": [], "concepts": [], "relationships": ['
-                '{"from": "current-doc", "to": "concepts/y", '
-                '"relation": "extends", "detail": "本文档补充 Y 页"}]}'
-                "\n```"
-            ))
+            return LLMResponse(
+                content=(
+                    "自由分析：本文档与候选页 Y 相关。\n"
+                    "```json\n"
+                    '{"entities": [], "concepts": [], "relationships": ['
+                    '{"from": "current-doc", "to": "concepts/y", '
+                    '"relation": "extends", "detail": "本文档补充 Y 页"}]}'
+                    "\n```"
+                )
+            )
         if "润色师" in content:
             return LLMResponse(content=self._plan_json)
         if "你是知识库的编辑" in content:
@@ -342,15 +356,15 @@ def _run_refine_ingest(plan_json: str):
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
     (wiki / "concepts" / "x.md").write_text(
-        "---\ntype: concept\ntitle: \"X\"\nsummary: \"旧概述\"\n---\n# X\n\n旧正文。\n",
+        '---\ntype: concept\ntitle: "X"\nsummary: "旧概述"\n---\n# X\n\n旧正文。\n',
         encoding="utf-8",
     )
     (wiki / "concepts" / "y.md").write_text(
-        "---\ntype: concept\ntitle: \"Y\"\n---\n# Y\n\nY 的正文，不会被 refine 修改。\n",
+        '---\ntype: concept\ntitle: "Y"\n---\n# Y\n\nY 的正文，不会被 refine 修改。\n',
         encoding="utf-8",
     )
     (wiki / "entities" / "e.md").write_text(
-        "---\ntype: entity\ntitle: \"E\"\n---\n# E\n\nE 的正文。\n",
+        '---\ntype: entity\ntitle: "E"\n---\n# E\n\nE 的正文。\n',
         encoding="utf-8",
     )
     y_before = _page_content(wiki, "concepts/y.md")
@@ -360,14 +374,18 @@ def _run_refine_ingest(plan_json: str):
     pipeline = CompilePipeline(llm=llm, vlm=object(), wiki_dir=wiki, mode="refine")
 
     from wiki_agent.ingestion.data_loader import DataLoader
+
     loader = DataLoader()
     summary = loader.load([wiki / "concepts" / "x.md"])
     assert summary.files, "加载失败"
 
     outcome = asyncio.run(pipeline.ingest_one(summary.files[0]))
     return {
-        "wiki": wiki, "llm": llm, "outcome": outcome,
-        "y_before": y_before, "index_before": index_before,
+        "wiki": wiki,
+        "llm": llm,
+        "outcome": outcome,
+        "y_before": y_before,
+        "index_before": index_before,
     }
 
 
@@ -401,9 +419,9 @@ def test_ingest_refine_full_chain():
     assert not outcome.noop
     assert [t.wiki_path for t in outcome.plan.page_targets] == ["concepts/x.md"]
     x_after = _page_content(wiki, "concepts/x.md")
-    assert "Y页" in x_after                       # 新内容落盘
-    assert "updated:" in x_after                  # 系统字段注入
-    assert "related: [\"[[concepts/y]]\"]" in x_after  # related 代码提取
+    assert "Y页" in x_after  # 新内容落盘
+    assert "updated:" in x_after  # 系统字段注入
+    assert 'related: ["[[concepts/y]]"]' in x_after  # related 代码提取
     # other 页分毫未动
     assert _page_content(wiki, "concepts/y.md") == r["y_before"]
     # 不存 source 档案页
@@ -434,6 +452,7 @@ def test_ingest_refine_all_rogue_turns_noop():
 
 if __name__ == "__main__":
     import traceback
+
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:
