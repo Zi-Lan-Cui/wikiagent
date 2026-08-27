@@ -22,7 +22,7 @@
 
 > 当前系统已具备单用户本地 Agent 的完整主链路；下一阶段重点不是扩功能，而是补齐**可安装、可配置、可验证、可长期维护**的工程边界。基线：`264 passed, 5 skipped`。
 
-### 临时：Compiler 目录重构蓝图（执行中，2026-08-28）
+### 临时：Compiler 目录重构蓝图（已完成，2026-08-28）
 
 目标：按依赖方向重组编译器，保留 `models` 与 `wiki` 为无 LLM 的底层，
 将 LLM 阶段、工作流和结构手术隔离；旧模块路径在迁移期仅作兼容 re-export。
@@ -41,7 +41,7 @@ compiler/
 - [x] 将 `stages.py` 分为 search、analyze、plan、execute；LLM 输出解析和运行时校验保持单一来源（`integration/{parse,checks,common}` + `wiki/rules` 一份页面闸门；`_NO_THINKING` 收进 models 单源）（2026-08-28）。
 - [x] 将 `parse.py`、`checks.py` 按 integration 与 wiki 两类职责拆分，禁止跨层复制校验规则（→ `wiki/{frontmatter,rules}` + `integration/{parse,checks}`；根 parse/checks 降级为 facade）（2026-08-28）。
 - [x] 将 `surgery.py` 分为 proposal、review、resolve、execute、rewrite、transaction；LLM 只存在于 proposal/review，备份回滚只存在于 transaction（新增 `surgery/common` 收证据收集；`__init__` 补 `_index_overview` 导出，修复 surgery_wiki ImportError）（2026-08-28）。
-- [ ] 更新入口、测试和文档；最后删除兼容模块并完成全量测试。**（部分：src/test/scripts 消费者已全部改指新真实路径、facade 零外部引用、`266 passed` 全绿；根 facade 文件保留，物理删除留后续独立一次提交——按 2026-08-28 决策"重指向并保留 facade"）**
+- [x] 更新入口、测试和文档；最后删除兼容模块并完成全量测试（2026-08-28：src/test/scripts/evals 消费者全部改指新真实路径后，删除 13 个兼容 facade——根 parse/checks/stages/normalize/quality/pipeline/refine/extract/failures/integrator/retry_service + integration/stages + surgery/service；`266 passed` 全绿、ruff 干净、无环导入）。蓝图全部完成。
 
 ### P0：交付与配置正确性
 
