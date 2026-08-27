@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Callable
+from collections.abc import Callable
 
-from wiki_agent.llm.llm import LLMClient
-from wiki_agent.message import LLMResponse, Message
-from wiki_agent.log import get_logger, span
+from openai.types.chat import ChatCompletionToolParam
+
+from wiki_agent.config import RetryConfig
 from wiki_agent.errors import FatalError, RetryableError
+from wiki_agent.llm.llm import LLMClient
+from wiki_agent.log import get_logger, span
+from wiki_agent.message import LLMResponse, Message
 
 logger = get_logger("LLM_RETRY")
 
@@ -30,7 +33,7 @@ async def _sleep_backoff(attempt: int, base_delay: float) -> None:
         attempt: 已失败的尝试次数（从 0 起）。
         base_delay: 基础延迟（秒）。
     """
-    await asyncio.sleep(base_delay * (2 ** attempt))
+    await asyncio.sleep(base_delay * (2**attempt))
 
 
 async def async_invoke_with_retry(
@@ -38,12 +41,12 @@ async def async_invoke_with_retry(
     messages: list[Message],
     *,
     check: OutputCheck | None = None,
-    tools: list[dict] = None,
-    max_tokens: int = None,
+    tools: list[ChatCompletionToolParam] | None = None,
+    max_tokens: int | None = None,
     temperature: float = 0.5,
-    extra_body: dict = None,
-    max_retries: int = 3,
-    base_delay: float = 2.0,
+    extra_body: dict | None = None,
+    max_retries: int | None = None,
+    base_delay: float | None = None,
 ) -> LLMResponse:
     """带输出校验 + 自动重试的 LLM 调用。
 
@@ -73,18 +76,33 @@ async def async_invoke_with_retry(
         最后一次 LLMResponse（即使最终仍未通过校验，check_ok
         字段携带校验结果，调用方据此处理）。
     """
+    # 生产 LLMClient 在工厂中注入 RootConfig.retry。保留这个回退，使只
+    # 实现 async_invoke 的轻量测试替身和第三方适配器仍可复用重试包装器。
+    retry_config = getattr(client, "retry_config", RetryConfig())
+    # 用新局部名承接（而非回写声明为 int|None / float|None 的形参）——形参
+    # 声明类型对 pyright 是粘性的，回写后读取仍是 Optional；新名被推断为具体
+    # 数值，range/减法/_sleep_backoff 才不误判 None。语义与运行时无变化。
+    attempts = max_retries if max_retries is not None else retry_config.llm_max_attempts
+    delay = base_delay if base_delay is not None else retry_config.llm_base_delay_seconds
     msgs = list(messages)
     last_response: LLMResponse | None = None
     last_error: str | None = None
 
-    for attempt in range(max_retries):
-        async with span("llm_attempt", attempt=attempt + 1, max_retries=max_retries) as s:
+    for attempt in range(attempts):
+        async with span("llm_attempt", attempt=attempt + 1, max_retries=attempts) as s:
             try:
                 response = await client.async_invoke(
-                    msgs, tools=tools,
-                    max_tokens=max_tokens, temperature=temperature,
+                    msgs,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
                     extra_body=extra_body,
                 )
+            except asyncio.CancelledError:
+                # 用户/上层任务主动取消，不是 provider 瞬态故障。
+                # 不 sleep、不重试、不伪装成普通 LLM 错误，直接传播。
+                s.mark_failure("cancelled")
+                raise
             except FatalError as exc:
                 # 401/404/400——重试一万次也没用，直接冒泡让边界处理
                 logger.error("Fatal 错误，放弃重试: %s", exc)
@@ -93,10 +111,10 @@ async def async_invoke_with_retry(
             except RetryableError as exc:
                 # 限流/超时/网络抖动——指数退避重试
                 last_error = str(exc)
-                logger.warning("调用失败 %d/%d: %s", attempt + 1, max_retries, last_error)
+                logger.warning("调用失败 %d/%d: %s", attempt + 1, attempts, last_error)
                 s.mark_failure("retryable")
-                if attempt < max_retries - 1:
-                    await _sleep_backoff(attempt, base_delay)
+                if attempt < attempts - 1:
+                    await _sleep_backoff(attempt, delay)
                 continue
             except Exception as exc:
                 # 翻译漏网的防御兜底（理论不可达: client.async_invoke
@@ -108,10 +126,10 @@ async def async_invoke_with_retry(
                 # 与 translate_generic_error 的"未知默认 Fatal"不冲突:
                 # 那是本地 IO/工具语境（重试可能放大问题），这是网络语境。
                 last_error = f"{type(exc).__name__}: {exc}"
-                logger.warning("未知异常 %d/%d: %s", attempt + 1, max_retries, last_error)
+                logger.warning("未知异常 %d/%d: %s", attempt + 1, attempts, last_error)
                 s.mark_failure("unknown")
-                if attempt < max_retries - 1:
-                    await _sleep_backoff(attempt, base_delay)
+                if attempt < attempts - 1:
+                    await _sleep_backoff(attempt, delay)
                 continue
 
             last_response = response
@@ -123,7 +141,10 @@ async def async_invoke_with_retry(
                 rc_len = len(response.reasoning_content or "")
                 logger.warning(
                     "空响应 %d/%d (finish=%s, reasoning=%d chars)",
-                    attempt + 1, max_retries, response.finish_reason, rc_len,
+                    attempt + 1,
+                    attempts,
+                    response.finish_reason,
+                    rc_len,
                 )
                 s.mark_failure("empty")
                 s.set_attr("finish_reason", response.finish_reason)
@@ -135,8 +156,8 @@ async def async_invoke_with_retry(
                     f"输出为空（finish_reason={response.finish_reason}）——"
                     f"请输出完整内容，不要只输出思考。"
                 )
-                if attempt < max_retries - 1:
-                    await _sleep_backoff(attempt, base_delay)
+                if attempt < attempts - 1:
+                    await _sleep_backoff(attempt, delay)
                 continue
 
             if check is None:
@@ -159,22 +180,30 @@ async def async_invoke_with_retry(
                 "校验失败 %d/%d: %s（finish=%s, content_len=%d, "
                 "completion_tokens=%s, prompt_tokens=%s, "
                 "cache_hit=%s, cache_miss=%s）",
-                attempt + 1, max_retries, reason[:120],
-                response.finish_reason, len(content),
-                usage.get("completion"), usage.get("prompt"),
-                usage.get("cache_hit"), usage.get("cache_miss"),
+                attempt + 1,
+                attempts,
+                reason[:120],
+                response.finish_reason,
+                len(content),
+                usage.get("completion"),
+                usage.get("prompt"),
+                usage.get("cache_hit"),
+                usage.get("cache_miss"),
             )
             s.mark_failure("check_failed")
             s.set_attr("check_reason", reason[:120])
             s.set_attr("finish_reason", response.finish_reason)
             s.set_attr("content_len", len(content))
-            if attempt < max_retries - 1:
+            if attempt < attempts - 1:
                 msgs.append(Message(role="assistant", content=content))
-                msgs.append(Message(role="user", content=(
-                    f"上一次输出有问题，请修正后重新输出。问题是: {reason}"
-                )))
-                await _sleep_backoff(attempt, base_delay)
+                msgs.append(
+                    Message(
+                        role="user",
+                        content=(f"上一次输出有问题，请修正后重新输出。问题是: {reason}"),
+                    )
+                )
+                await _sleep_backoff(attempt, delay)
 
     if last_response is not None:
         return last_response
-    raise RuntimeError(f"LLM 调用 {max_retries} 次均失败 - {last_error}")
+    raise RuntimeError(f"LLM 调用 {attempts} 次均失败 - {last_error}")
