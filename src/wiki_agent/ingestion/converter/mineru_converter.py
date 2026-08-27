@@ -24,32 +24,38 @@ import base64
 import hashlib
 import os
 import re
-import shutil
 import tempfile
 from pathlib import Path
+
+from mineru.cli.common import do_parse as _mineru_do_parse
+from mineru.cli.common import read_fn as _mineru_read_fn
 
 from wiki_agent.ingestion.converter.base import BaseConverter, ConvertedFile
 from wiki_agent.ingestion.data_loader import RawFileProperties
 from wiki_agent.llm.llm import LLMClient
-from wiki_agent.message import Message
 from wiki_agent.log import get_logger
+from wiki_agent.message import Message
 
 logger = get_logger("MINERU_CONVERTER")
-
-# ── 可选依赖 ──────────────────────────────────────────────
-
-try:
-    from mineru.cli.common import do_parse as _mineru_do_parse
-    from mineru.cli.common import read_fn as _mineru_read_fn
-    _HAS_MINERU = True
-except ImportError:
-    _HAS_MINERU = False
 
 # ── 常量 ──────────────────────────────────────────────────
 
 # 需要 MinerU 解析的格式（非 Markdown、非纯文本）
-_NEEDS_PARSING = {"pdf", "docx", "doc", "pptx", "ppt", "xlsx", "xls",
-                  "png", "jpg", "jpeg", "gif", "bmp", "webp"}
+_NEEDS_PARSING = {
+    "pdf",
+    "docx",
+    "doc",
+    "pptx",
+    "ppt",
+    "xlsx",
+    "xls",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "bmp",
+    "webp",
+}
 
 # 已是 Markdown 格式——直接读文件，不需要 MinerU
 _IS_ALREADY_MARKDOWN = {"md", "markdown"}
@@ -61,6 +67,7 @@ _RE_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 # ════════════════════════════════════════════════════════════
 #  MinerUConverter
 # ════════════════════════════════════════════════════════════
+
 
 class MinerUConverter(BaseConverter):
     """文件 → Markdown + 图片 caption。"""
@@ -98,10 +105,9 @@ class MinerUConverter(BaseConverter):
         Returns:
             True 表示支持处理。
         """
-        return _HAS_MINERU and (
-            raw_file.ext in _NEEDS_PARSING or
-            raw_file.ext in _IS_ALREADY_MARKDOWN
-        )
+        # Markdown 已是目标格式，直接读取、不依赖 MinerU 解析（历史坑:
+        # 曾把 .md 与 PDF/DOCX 一起放在同一门控下）。
+        return raw_file.ext in _IS_ALREADY_MARKDOWN or raw_file.ext in _NEEDS_PARSING
 
     async def convert(self, raw_file: RawFileProperties) -> ConvertedFile:
         """转换单个文件——已有内容直接用，否则按类型转换。
@@ -260,9 +266,7 @@ class MinerUConverter(BaseConverter):
         """
         loop = asyncio.new_event_loop()
         try:
-            return loop.run_until_complete(
-                self._apply_captions(markdown, images_base_dir)
-            )
+            return loop.run_until_complete(self._apply_captions(markdown, images_base_dir))
         finally:
             loop.close()
 
@@ -289,22 +293,23 @@ class MinerUConverter(BaseConverter):
         logger.info("  caption 开始: %d 张图片", len(matches))
 
         # 并发为所有图片生成 caption
-        new_parts = await asyncio.gather(*[
-            self._caption_one_match(m, images_base_dir)
-            for m in matches
-        ])
+        new_parts = await asyncio.gather(
+            *[self._caption_one_match(m, images_base_dir) for m in matches]
+        )
 
         # 从后往前替换，避免偏移
         result = markdown
         for m, new_text in reversed([(m, t) for m, t in zip(matches, new_parts)]):
-            result = result[:m.start()] + new_text + result[m.end():]
+            result = result[: m.start()] + new_text + result[m.end() :]
 
         captioned = sum(1 for t in new_parts if not t.startswith("!["))
         logger.info("  caption 完成: %d/%d 张有描述", captioned, len(matches))
         return result
 
     async def _caption_one_match(
-        self, match: re.Match, images_base_dir: str,
+        self,
+        match: re.Match,
+        images_base_dir: str,
     ) -> str:
         """处理单个 ``![]()`` 匹配——解析路径 → VLM → 返回替换文本。
 
@@ -350,7 +355,10 @@ class MinerUConverter(BaseConverter):
         Returns:
             wiki 相对路径（assets/<hash>.<ext>）。
         """
-        self._assets_dir.mkdir(parents=True, exist_ok=True)
+        assets_dir = self._assets_dir
+        if assets_dir is None:
+            return os.path.basename(image_path)
+        assets_dir.mkdir(parents=True, exist_ok=True)
         try:
             data = Path(image_path).read_bytes()
         except OSError:
@@ -358,7 +366,7 @@ class MinerUConverter(BaseConverter):
             return os.path.basename(image_path)
         digest = hashlib.sha256(data).hexdigest()[:16]
         ext = Path(image_path).suffix.lower() or ".png"
-        target = self._assets_dir / f"{digest}{ext}"
+        target = assets_dir / f"{digest}{ext}"
         if not target.exists():
             target.write_bytes(data)
         # 路径相对 wiki 根（assets 在 wiki/ 下）
@@ -397,6 +405,8 @@ class MinerUConverter(BaseConverter):
         Returns:
             描述文本（读图失败/VLM 失败返回空串）。
         """
+        if self._llm is None:
+            return ""
         try:
             with open(image_path, "rb") as fh:
                 image_b64 = base64.b64encode(fh.read()).decode("ascii")
@@ -405,17 +415,19 @@ class MinerUConverter(BaseConverter):
 
         try:
             response = await self._llm.async_invoke(
-                [Message(
-                    role="user",
-                    content=(
-                        "用一句中文描述图片。规则:\n"
-                        "- 图表类: 先判断类型（柱状图/折线图/流程图/架构图），再说「对比了什么」或「展示了什么」\n"
-                        "- 公式/板书/截图: 描述主题和关键信息\n"
-                        "- 自然图像: 描述场景和主体\n"
-                        "- 15-30字，只输出描述，不要「这张图片」「图中」等前缀"
-                    ),
-                    images=[image_b64],
-                )],
+                [
+                    Message(
+                        role="user",
+                        content=(
+                            "用一句中文描述图片。规则:\n"
+                            "- 图表类: 先判断类型（柱状图/折线图/流程图/架构图），再说「对比了什么」或「展示了什么」\n"
+                            "- 公式/板书/截图: 描述主题和关键信息\n"
+                            "- 自然图像: 描述场景和主体\n"
+                            "- 15-30字，只输出描述，不要「这张图片」「图中」等前缀"
+                        ),
+                        images=[image_b64],
+                    )
+                ],
                 max_tokens=200,
             )
             return response.content.strip()
