@@ -7,31 +7,20 @@ requires-python = ">=3.13"
 dependencies = [
     "watchdog>=6.0.0",
     "pydantic>=2.13.4",
+    "pydantic-settings>=2.0.0",
     "openai>=1.0.0",
+    "rich>=13.0.0",
     "tiktoken>=0.5.0",
-    "qdrant-client>=1.9.0",
     "httpx>=0.27.0",
-    "python-dotenv>=1.0.0",
-    "requests>=2.31.0",
-    "dashscope>=1.20.0",
     # mcp 2.0.0 的 sse_client 有上游 bug（关闭时 anyio cancel scope
     # 跨 task 退出 → "generator didn't stop after athrow()" 噪音）。
     # 钉在 1.x——SSE 独立实现无此问题；升级 2.x 需先验证关闭路径
     "mcp>=1.0.0,<2",
-    "pillow>=12.3.0",
-    "tesserocr>=2.11.0",
-    "pypdf>=6.15.0",
-    "pypdfium2>=5.12.1",
-    "fpdf2>=2.8.7",
-    "python-docx>=1.2.0",
-    "python-pptx>=1.0.2",
+    "mineru[pipeline]>=3.4.5",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
-]
+[project.scripts]
+wiki-agent = "wiki_agent.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -42,5 +31,39 @@ packages = ["src/wiki_agent"]
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.411",
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.4",
 ]
+
+[tool.pytest.ini_options]
+addopts = "-p no:launch_testing -p no:launch_ros"
+markers = [
+    "live: calls a real LLM and is excluded from normal regression runs",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+# Keep the baseline focused on correctness, import hygiene, and Python 3.13
+# compatibility.  Broader stylistic rule families can be introduced gradually.
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/**/__init__.py" = ["F401"]
+# These executable entry points must add the repository's source directory before
+# importing the package, so their import placement is intentional.
+"scripts/*.py" = ["E402"]
+# 可直接执行的评测入口需先将项目根和 src 加入导入路径。
+"evals/*.py" = ["E402"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = "none"
