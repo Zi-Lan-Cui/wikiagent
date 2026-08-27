@@ -21,14 +21,17 @@ class RecordCorrection(BaseTool):
     主动调用——纠错是知识库演化的信号，不能丢在对话里。
     """
 
-    name: ClassVar[str] = "RecordCorrection"
-    description: ClassVar[str] = (
+    name: str = "RecordCorrection"
+    # append_correction 每次生成新的随机 corr_id；在 operation key 尚未
+    # 贯穿存储层前，不能把它当作幂等写入自动重试。
+    side_effect: ClassVar[str] = "irreversible"
+    description: str = (
         "当用户指出 wiki 知识库中某页面的内容错误、过时或缺失时调用——"
         "把纠错记进待修清单（corrections.md），供后续 refine/手术使用。"
         "注意: 只在用户明确表达 wiki 内容有问题时调用；"
         "普通问答、用户提问不算纠错。"
     )
-    parameters: ClassVar[dict] = {
+    parameters: dict = {
         "type": "object",
         "properties": {
             "page": {
@@ -46,7 +49,7 @@ class RecordCorrection(BaseTool):
     def __init__(self, memory_store: MemoryStore):
         self._memory_store = memory_store
 
-    async def _execute(self, page: str = "", issue: str = "") -> str:
+    async def execute_once(self, page: str = "", issue: str = "") -> str:
         """记录纠错进待修清单。
 
         Args:
@@ -56,10 +59,9 @@ class RecordCorrection(BaseTool):
         Returns:
             记录结果文本；issue 为空时返回"未记录"。
         """
-        text = f"{issue.strip()}"
-        if page.strip():
-            text = f"[{page.strip()}] {text}"
-        if not text.strip():
+        text = issue.strip()
+        if not text:
             return "未记录——issue 为空"
-        self._memory_store.append_correction(text=text)
-        return f"已记录纠错: {text}"
+        self._memory_store.append_correction(text=text, page=page)
+        shown = f"[{page.strip()}] {text}" if page.strip() else text
+        return f"已记录纠错: {shown}"

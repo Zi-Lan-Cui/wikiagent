@@ -33,6 +33,7 @@ import re
 from pathlib import Path
 
 from wiki_agent.compiler.models import (
+    _NO_THINKING,
     ChunkSummary,
     ExtractResult,
     SourceChunk,
@@ -43,10 +44,6 @@ from wiki_agent.llm.llm import LLMClient
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
 from wiki_agent.message import Message
-
-# 编译流水线关 thinking——reasoning 模型思考段会吃掉整个 max_tokens
-# 预算、content 留空（审计 C1 根因）。摘要/页面生成不需要深度推理。
-_NO_THINKING = {"thinking": {"type": "disabled"}}
 
 logger = get_logger("EXTRACTOR")
 

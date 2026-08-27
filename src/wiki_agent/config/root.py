@@ -16,8 +16,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
+from copy import deepcopy
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,6 +36,12 @@ class LLMConfig(BaseSettings):
     # 单次请求超时（秒）——reasoning 模型思考段长，
     # 120s 对 deepseek 思考链不够（两次 chunk 间隔超限即 ReadTimeout）
     timeout: float = 300.0
+
+    @model_validator(mode="after")
+    def _check_timeout(self) -> LLMConfig:
+        if self.timeout <= 0:
+            raise ValueError("LLM_TIMEOUT 必须大于 0 秒")
+        return self
 
 
 class VLMConfig(LLMConfig):
@@ -67,15 +75,130 @@ class AgentConfig(BaseSettings):
     consolidate_ratio: float = 0.5
     trigger_ratio: float = 0.8
     dream_interval: int = 3_000
+    session_idle_minutes: int = 15
+    session_tail_messages: int = 6
+    dream_poll_interval: int = 60
     # ── 治理参数（E3 收编——原散在 governor/builder 模块顶部）──
-    tool_result_ttl_minutes: int = 30       # 可重复获得工具（导航三件套）驱逐时限
-    tool_persist_length: int = 8_000        # 工具结果转存阈值（超限写文件）
-    snip_safe_buffer: int = 1024            # token 估计安全余量
-    inflight_target_ratio: float = 0.85     # 窗口紧凑化目标水位
-    inflight_compact_min_chars: int = 500   # 紧凑化最小长度（短结果不值得）
-    snip_ratio: float = 0.5                 # snip 截断力度（保预算的比例）
-    wiki_index_chars: int = 4_000           # system prompt 的 index 地图截断
-    corrections_chars: int = 2_000          # system prompt 的纠错清单截断
+    tool_result_ttl_minutes: int = 30  # 可重复获得工具（导航三件套）驱逐时限
+    tool_persist_length: int = 8_000  # 工具结果转存阈值（超限写文件）
+    snip_safe_buffer: int = 1024  # token 估计安全余量
+    inflight_target_ratio: float = 0.85  # 窗口紧凑化目标水位
+    inflight_compact_min_chars: int = 500  # 紧凑化最小长度（短结果不值得）
+    snip_ratio: float = 0.5  # snip 截断力度（保预算的比例）
+    wiki_index_chars: int = 4_000  # system prompt 的 index 地图截断
+    corrections_chars: int = 2_000  # system prompt 的纠错清单截断
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> AgentConfig:
+        if self.context_windows <= 0 or self.max_tokens <= 0:
+            raise ValueError("AGENT_CONTEXT_WINDOWS 和 AGENT_MAX_TOKENS 必须大于 0")
+        if self.max_tokens >= self.context_windows:
+            raise ValueError("AGENT_MAX_TOKENS 必须小于 AGENT_CONTEXT_WINDOWS")
+        for field in ("consolidate_ratio", "trigger_ratio", "inflight_target_ratio", "snip_ratio"):
+            value = getattr(self, field)
+            if not 0 < value < 1:
+                raise ValueError(f"AGENT_{field.upper()} 必须在 (0, 1) 内")
+        if self.consolidate_ratio >= self.trigger_ratio:
+            raise ValueError("AGENT_CONSOLIDATE_RATIO 必须小于 AGENT_TRIGGER_RATIO")
+        if (
+            min(
+                self.max_messages_length,
+                self.max_loop,
+                self.dream_interval,
+                self.session_idle_minutes,
+                self.session_tail_messages,
+                self.dream_poll_interval,
+                self.tool_result_ttl_minutes,
+                self.tool_persist_length,
+                self.inflight_compact_min_chars,
+                self.wiki_index_chars,
+                self.corrections_chars,
+            )
+            <= 0
+        ):
+            raise ValueError("Agent 的消息数、时间窗和字符预算必须大于 0")
+        if self.snip_safe_buffer < 0:
+            raise ValueError("AGENT_SNIP_SAFE_BUFFER 不能为负数")
+        return self
+
+
+class WatchConfig(BaseSettings):
+    """文件监听时间窗与变更门（env 前缀 WATCH_）。"""
+
+    model_config = SettingsConfigDict(env_prefix="WATCH_", frozen=True, extra="ignore")
+    settle_window: float = 2.0
+    stability_delay: float = 2.0
+    fallback_interval: float = 60.0
+    similarity_threshold: float = 0.7
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> WatchConfig:
+        if self.settle_window <= 0 or self.stability_delay <= 0 or self.fallback_interval <= 0:
+            raise ValueError(
+                "WATCH_SETTLE_WINDOW、WATCH_STABILITY_DELAY、WATCH_FALLBACK_INTERVAL 必须大于 0"
+            )
+        if not 0 <= self.similarity_threshold <= 1:
+            raise ValueError("WATCH_SIMILARITY_THRESHOLD 必须在 [0, 1] 内")
+        return self
+
+
+class RetryConfig(BaseSettings):
+    """远程 LLM 与 source 失败队列的重试策略（env 前缀 ``RETRY_``）。"""
+
+    model_config = SettingsConfigDict(env_prefix="RETRY_", frozen=True, extra="ignore")
+
+    llm_max_attempts: int = 3
+    llm_base_delay_seconds: float = 2.0
+    source_max_attempts: int = 3
+    source_base_delay_seconds: float = 30.0
+    source_max_delay_seconds: float = 3_600.0
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> RetryConfig:
+        if self.llm_max_attempts < 1 or self.source_max_attempts < 1:
+            raise ValueError("RETRY_LLM_MAX_ATTEMPTS 和 RETRY_SOURCE_MAX_ATTEMPTS 必须至少为 1")
+        if self.llm_base_delay_seconds <= 0 or self.source_base_delay_seconds <= 0:
+            raise ValueError("RETRY 的基础退避时间必须大于 0 秒")
+        if self.source_max_delay_seconds < self.source_base_delay_seconds:
+            raise ValueError("RETRY_SOURCE_MAX_DELAY_SECONDS 必须不小于基础退避时间")
+        return self
+
+
+class CompileConfig(BaseSettings):
+    """编译阶段预算与吞吐参数（env 前缀 COMPILE_）。
+
+    ``context_window`` 是模型能力上限；Extractor 会扣除 system、输出和
+    安全缓冲后得到阶段输入预算，不再由各层分别维护 60k/120k 两个语义
+    不同的默认值。
+    """
+
+    model_config = SettingsConfigDict(env_prefix="COMPILE_", frozen=True, extra="ignore")
+
+    context_window: int = 128_000
+    chunk_size: int = 8_000
+    extract_concurrency: int = 3
+    extract_system_tokens: int = 4_000
+    extract_output_tokens: int = 6_000
+    context_safety_buffer: int = 1_024
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> CompileConfig:
+        if self.context_window <= 0:
+            raise ValueError("COMPILE_CONTEXT_WINDOW 必须大于 0")
+        if self.chunk_size < 256:
+            raise ValueError("COMPILE_CHUNK_SIZE 必须至少为 256")
+        if self.extract_concurrency < 1:
+            raise ValueError("COMPILE_EXTRACT_CONCURRENCY 必须至少为 1")
+        if self.extract_system_tokens < 0 or self.extract_output_tokens < 0:
+            raise ValueError("编译 token 预算不能为负数")
+        if self.context_safety_buffer < 0:
+            raise ValueError("COMPILE_CONTEXT_SAFETY_BUFFER 不能为负数")
+        reserved = (
+            self.extract_system_tokens + self.extract_output_tokens + self.context_safety_buffer
+        )
+        if reserved >= self.context_window:
+            raise ValueError("编译阶段 system/output/安全缓冲预算超过 context window")
+        return self
 
 
 class LoggingConfig(BaseSettings):
@@ -92,9 +215,8 @@ class PathsConfig(BaseSettings):
 
     env 不覆盖时按项目根推导——入口传入 project_root 即可。
 
-    env_file 是本类的一个普通字段（记录 .env 位置供查询），
-    与 pydantic-settings 的 `_env_file` 参数（告诉库去哪读 .env）
-    无关——名字相近但语义不同，本类不消费 _env_file。
+    ``load_config`` 与其他 Settings 一样传入 `_env_file`，因此
+    ``WIKI_WIKI_DIR`` 等字段遵循统一优先级。
     """
 
     model_config = SettingsConfigDict(env_prefix="WIKI_", frozen=True, extra="ignore")
@@ -125,6 +247,7 @@ class PathsConfig(BaseSettings):
 # ════════════════════════════════════════════════════════════
 #  MCP 配置——独立 mcp.json，判别联合按 type 校验
 # ════════════════════════════════════════════════════════════
+
 
 class StdioMcpTransport(BaseModel):
     """stdio 传输——本地命令。"""
@@ -162,8 +285,8 @@ class McpServerConfig(BaseModel):
     transport: StdioMcpTransport | SseMcpTransport | StreamableHttpTransport = Field(
         discriminator="type",
     )
-    need_resources: bool = False   # 是否暴露 resources（wrapper 未实现，见 adaptor）
-    need_prompts: bool = False     # 是否暴露 prompts（wrapper 未实现，见 adaptor）
+    need_resources: bool = False  # 是否暴露 resources（wrapper 未实现，见 adaptor）
+    need_prompts: bool = False  # 是否暴露 prompts（wrapper 未实现，见 adaptor）
 
 
 class McpConfig(BaseModel):
@@ -193,12 +316,15 @@ class RootConfig(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vlm: VLMConfig = Field(default_factory=VLMConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    compile: CompileConfig = Field(default_factory=CompileConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
+    watch: WatchConfig = Field(default_factory=WatchConfig)
+    retry: RetryConfig = Field(default_factory=RetryConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
 
     @model_validator(mode="after")
-    def _check_required(self) -> "RootConfig":
+    def _check_required(self) -> RootConfig:
         """fail-fast 校验——缺关键配置启动即报错。
 
         Returns:
@@ -208,13 +334,9 @@ class RootConfig(BaseSettings):
             ValueError: LLM API key 或模型名缺失。
         """
         if not self.llm.api_key:
-            raise ValueError(
-                "缺少 LLM API key——请在 env/.env 中设置 LLM_API_KEY"
-            )
+            raise ValueError("缺少 LLM API key——请在 env/.env 中设置 LLM_API_KEY")
         if not self.llm.model_id:
-            raise ValueError(
-                "缺少 LLM 模型名——请在 env/.env 中设置 LLM_MODEL_ID"
-            )
+            raise ValueError("缺少 LLM 模型名——请在 env/.env 中设置 LLM_MODEL_ID")
         return self
 
 
@@ -237,17 +359,23 @@ def load_config(
     Raises:
         ValidationError: 配置缺失/类型错误——启动即报错，带明确提示
     """
-    root = (
-        Path(project_root) if project_root
-        else Path(__file__).resolve().parents[3]
-    )
+    root = Path(project_root) if project_root else Path(__file__).resolve().parents[3]
     env = Path(env_file) if env_file else (root / "env" / ".env")
 
-    paths = PathsConfig(project_root=root, env_file=env)
-    llm = LLMConfig(_env_file=env)
-    vlm = VLMConfig(_env_file=env)
-    agent = AgentConfig(_env_file=env)
-    logging_cfg = LoggingConfig(_env_file=env)
+    # pydantic-settings 用带下划线的 `_env_file` 指定加载哪个 .env（刻意加下
+    # 划线以免与字段名冲突）。frozen 模型下 pyright 按字段合成 __init__ 签名、
+    # 看不到继承来的该参数；经 dict[str, Any] 解包传入即可绕开该假阳性——运行时
+    # 命中的仍是 BaseSettings.__init__ 的同名参数，行为完全不变。
+    env_source: dict[str, Any] = {"_env_file": env}
+
+    paths = PathsConfig(**env_source, project_root=root, env_file=env)
+    llm = LLMConfig(**env_source)
+    vlm = VLMConfig(**env_source)
+    agent = AgentConfig(**env_source)
+    compile_cfg = CompileConfig(**env_source)
+    logging_cfg = LoggingConfig(**env_source)
+    watch_cfg = WatchConfig(**env_source)
+    retry_cfg = RetryConfig(**env_source)
 
     # MCP: 独立 env/mcp.json（存在才加载）——结构与密钥分离
     mcp_cfg = McpConfig()
@@ -256,13 +384,31 @@ def load_config(
         mcp_cfg = McpConfig.model_validate(json.loads(mcp_file.read_text(encoding="utf-8")))
 
     cfg = RootConfig(
-        llm=llm, vlm=vlm, agent=agent,
-        logging=logging_cfg, paths=paths, mcp=mcp_cfg,
+        llm=llm,
+        vlm=vlm,
+        agent=agent,
+        compile=compile_cfg,
+        logging=logging_cfg,
+        paths=paths,
+        watch=watch_cfg,
+        retry=retry_cfg,
+        mcp=mcp_cfg,
     )
     if overrides:
-        # dump 成 dict 树 → 合并 overrides → 整体重新 validate。
+        # dump 成 dict 树 → 深合并 overrides → 整体重新 validate。
         # model_validate 天然把嵌套 dict 转回子配置对象，
         # 且 fail-fast 校验（缺 API key）在合并后重新执行。
-        cfg = RootConfig.model_validate({**cfg.model_dump(), **overrides})
+        cfg = RootConfig.model_validate(_deep_merge(cfg.model_dump(), overrides))
     return cfg
 
+
+def _deep_merge(base: dict, overrides: Mapping) -> dict:
+    """递归合并配置覆盖，保留未被覆盖的嵌套字段。"""
+    merged = deepcopy(base)
+    for key, value in overrides.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, Mapping):
+            merged[key] = _deep_merge(current, value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged

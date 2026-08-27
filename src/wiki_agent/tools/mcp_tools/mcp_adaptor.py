@@ -1,27 +1,32 @@
-from mcp.client import session
-from mcp.client.stdio import stdio_client
-from mcp.client.stdio import StdioServerParameters
-from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamable_http_client
-from mcp.client.session import ClientSession
-from contextlib import AsyncExitStack,suppress
 import asyncio
 import hashlib
-import httpx
 import re
+from contextlib import AsyncExitStack, suppress
 from typing import Any
 
+import httpx
+from mcp.client.session import ClientSession
+from mcp.client.sse import sse_client
+from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.streamable_http import streamable_http_client
 
 from wiki_agent.log import get_logger
-from wiki_agent.tools import ToolRegistry
+from wiki_agent.tools.base import BaseTool
+from wiki_agent.tools.registry import ToolRegistry
 
-logger=get_logger("MCP")
+logger = get_logger("MCP")
 
 class MCPConnection:
     """
     给任务外部提供关闭连接的接口。因为stdio要求关闭任务的和连接的task要在一个task之内，所以需要使用这种方式包装owner
     """
-    def __init__(self,owner:asyncio.Task[None],close_requsted:asyncio.Event,dead:asyncio.Event|None=None)->None:
+
+    def __init__(
+        self,
+        owner: asyncio.Task[None],
+        close_requsted: asyncio.Event,
+        dead: asyncio.Event | None = None,
+    ) -> None:
         """包装连接生命周期。
 
         Args:
@@ -29,20 +34,20 @@ class MCPConnection:
             close_requsted: 关闭请求信号。
             dead: 健康检查失败信号（连接假死）。
         """
-        self._owner=owner
-        self._close_requsted=close_requsted
-        self._dead=dead or asyncio.Event()
+        self._owner = owner
+        self._close_requsted = close_requsted
+        self._dead = dead or asyncio.Event()
 
     @property
-    def is_alive(self)->bool:
+    def is_alive(self) -> bool:
         """连接是否存活（未被请求关闭且健康检查未失败）。
 
         Returns:
             True 表示连接可用。
         """
-        return (not self._close_requsted.is_set()
-                and not self._dead.is_set()
-                and not self._owner.done())
+        return (
+            not self._close_requsted.is_set() and not self._dead.is_set() and not self._owner.done()
+        )
 
     async def aclose(self):
         """请求关闭连接并等待 owner 退出。
@@ -62,7 +67,10 @@ class MCPConnection:
         except Exception:
             pass
 
-async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict[str,MCPConnection]:
+
+async def connect_mcp_servers(
+    mcp_servers: dict, tool_registry: ToolRegistry
+) -> dict[str, MCPConnection]:
     """连接配置中的所有 MCP server 并把工具注册进 registry。
 
     Args:
@@ -75,24 +83,22 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
         记录日志后跳过（不影响其他 server）。
     """
 
-    async def open_single_server(name,cfg):
+    async def open_single_server(name, cfg):
         # cfg 是 McpServerConfig——传输细节在 cfg.transport，
         # need_resources/need_prompts 是 server 级开关
         # （曾直接从 transport 读，AttributeError 导致 SSE 必失败）
         transport = cfg.transport
-        server_stack=AsyncExitStack()
+        server_stack = AsyncExitStack()
         await server_stack.__aenter__()
 
         try:
-            if transport.type=="stdio":
-                server_params=StdioServerParameters(
-                    command=transport.command,
-                    args=transport.args,
-                    env=transport.env
+            if transport.type == "stdio":
+                server_params = StdioServerParameters(
+                    command=transport.command, args=transport.args, env=transport.env
                 )
-                read,write=await server_stack.enter_async_context(stdio_client(server_params))
+                read, write = await server_stack.enter_async_context(stdio_client(server_params))
 
-            elif transport.type=="sse":
+            elif transport.type == "sse":
                 # mcp 1.x 的 sse_client 用 httpx + httpx-sse 的 aconnect_sse，
                 # 工厂返回普通 httpx.AsyncClient 即可。防御保留 httpx2
                 # 分支：pyproject 钉死 mcp<2（2.0.0 sse 关闭有上游 bug），
@@ -104,14 +110,16 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
 
                 # 根据client的类型标识，工厂必须有以下参数，在流程中会自动往里面传入一些值，所以必须有
                 def httpx_client_factory(
-                        headers: dict[str, str] | None = None,
-                        timeout: Any | None = None,
-                        auth: Any | None = None,
+                    headers: dict[str, str] | None = None,
+                    timeout: Any | None = None,
+                    auth: Any | None = None,
                 ) -> Any:
                     merged_headers = {
-                        'Accept': "application/json,text/event-stream",
+                        "Accept": "application/json,text/event-stream",
                         **(headers or {}),
-                        **(transport.headers or {})  # headers是client自己调用时注入，这个是自己配置输入
+                        **(
+                            transport.headers or {}
+                        ),  # headers是client自己调用时注入，这个是自己配置输入
                     }
 
                     return _sse_httpx.AsyncClient(
@@ -121,16 +129,15 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
                         trust_env=False,  # 不使用环境
                     )
 
-                read,write=await server_stack.enter_async_context(
-                    sse_client(
-                        url=transport.url,
-                        httpx_client_factory=httpx_client_factory
-                    )
+                read, write = await server_stack.enter_async_context(
+                    sse_client(url=transport.url, httpx_client_factory=httpx_client_factory)
                 )
 
-            elif transport.type=="streamable":
+            elif transport.type == "streamable":
                 # Streamable HTTP（MCP 2025-06 规范新传输，逐步取代 SSE）
-                read,write=await server_stack.enter_async_context(
+                # 该 client 返回 3 元组（read, write, get_session_id）——
+                # get_session_id 供会话头管理，ClientSession 只用前两个，显式丢弃
+                read, write, _get_session_id = await server_stack.enter_async_context(
                     streamable_http_client(transport.url)
                 )
 
@@ -139,14 +146,14 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
                 # else 显式抛错，避免 read/write 未定义的 NameError 误导排查
                 raise ValueError(f"MCP server '{name}' 未知传输类型: {transport.type!r}")
 
-            session = await server_stack.enter_async_context(ClientSession(read,write))
+            session = await server_stack.enter_async_context(ClientSession(read, write))
 
             await session.initialize()
 
-            tools=await session.list_tools()
+            tools = await session.list_tools()
 
             for tool in tools.tools:
-                wrappered_tool=MCPToolWrapper(session,name,tool)
+                wrappered_tool = MCPToolWrapper(session, name, tool)
                 tool_registry.register(wrappered_tool)
 
             if cfg.need_resources:
@@ -155,16 +162,20 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
                 # 属性时 AttributeError 必崩。实现前不注册，只留探测日志。
                 resources = await session.list_resources()
                 logger.warning(
-                    "MCP server '%s' 暴露 %d 个 resources——"
-                    "Resources 支持未实现，跳过注册", name, len(resources.resources))
+                    "MCP server '%s' 暴露 %d 个 resources——Resources 支持未实现，跳过注册",
+                    name,
+                    len(resources.resources),
+                )
 
             if cfg.need_prompts:
                 prompts = await session.list_prompts()
                 logger.warning(
-                    "MCP server '%s' 暴露 %d 个 prompts——"
-                    "Prompts 支持未实现，跳过注册", name, len(prompts.prompts))
+                    "MCP server '%s' 暴露 %d 个 prompts——Prompts 支持未实现，跳过注册",
+                    name,
+                    len(prompts.prompts),
+                )
 
-            return name,session,server_stack
+            return name, session, server_stack
 
         except BaseException:
             # 连接阶段失败——当场清理全部 context。泄漏给 GC 的
@@ -176,19 +187,20 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
             except Exception:
                 pass
             raise
-    async def connect_single_server(name,cfg):
+
+    async def connect_single_server(name, cfg):
         # get_running_loop——本函数在 async 上下文内，
         # get_event_loop 无当前 loop 时行为有坑（可能新建/报错）
-        loop=asyncio.get_running_loop()
-        ready=loop.create_future()
+        loop = asyncio.get_running_loop()
+        ready = loop.create_future()
         close_requested = asyncio.Event()
-        dead = asyncio.Event()   # 健康检查失败 = 连接假死
+        dead = asyncio.Event()  # 健康检查失败 = 连接假死
 
         async def own_connection():
-            stack:AsyncExitStack|None=None
-            session=None
+            stack: AsyncExitStack | None = None
+            session = None
             try:
-                _,session,stack= await open_single_server(name,cfg)
+                _, session, stack = await open_single_server(name, cfg)
                 if not ready.done():
                     ready.set_result(stack is not None)
                 if stack is None:
@@ -206,7 +218,7 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
                             dead.set()
                             return
 
-                watcher=asyncio.create_task(health_watch())
+                watcher = asyncio.create_task(health_watch())
                 # asyncio.wait 在 3.13 禁止传 coroutine
                 # （"Passing coroutines is forbidden"）——Event.wait()
                 # 必须先包成 task。否则连接成功走到这里立即 TypeError，
@@ -239,8 +251,8 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
                         # sse_reader 后台任务可能往已关闭的流写入，触发 BrokenResourceError，属于无害关闭噪音
                         pass
 
-        owner=asyncio.create_task(own_connection(),name=f"mcp:{name}")
-        connection=MCPConnection(owner,close_requested,dead)
+        owner = asyncio.create_task(own_connection(), name=f"mcp:{name}")
+        connection = MCPConnection(owner, close_requested, dead)
 
         connected = False
         try:
@@ -259,40 +271,42 @@ async def connect_mcp_servers(mcp_servers:dict,tool_registry:ToolRegistry)->dict
 
         if not connected:
             await connection.aclose()
-            return name,None
-        return name,connection
+            return name, None
+        return name, connection
 
-    server_stacks: dict[str,MCPConnection]={}
+    server_stacks: dict[str, MCPConnection] = {}
 
-    for name,cfg in mcp_servers.items():
+    for name, cfg in mcp_servers.items():
         try:
-            name,connection=await connect_single_server(name,cfg)
-        except Exception as e:
+            name, connection = await connect_single_server(name, cfg)
+        except Exception:
             logger.exception(f"MCP server '{name}' connection failed")
             continue
-        if connection is not None and name: 
-            server_stacks[name]=connection
+        if connection is not None and name:
+            server_stacks[name] = connection
 
     return server_stacks
 
-def _extract_nullable_branch(options:list[dict]):
-    if not isinstance(options,list):
+
+def _extract_nullable_branch(options: list[dict]):
+    if not isinstance(options, list):
         return None
 
-    non_null=[]
-    has_null=False
+    non_null = []
+    has_null = False
     for option in options:
-        if not isinstance(option,dict):
+        if not isinstance(option, dict):
             return None
-        if option.get("type")=="null":
-            has_null=True
+        if option.get("type") == "null":
+            has_null = True
             continue
         non_null.append(option)
 
     # 只处理恰好一个null，一个非null的情况
-    if has_null and len(non_null)==1:
-        return non_null[0],True
+    if has_null and len(non_null) == 1:
+        return non_null[0], True
     return None
+
 
 def normlize_schema_for_openai(raw_schema):
     """把 MCP schema 规范化为 OpenAI 兼容格式。
@@ -305,57 +319,62 @@ def normlize_schema_for_openai(raw_schema):
     Returns:
         规范化后的 schema dict（非 dict 输入返回空 object 兜底）。
     """
-    if not isinstance(raw_schema,dict):
-        return {"type":"object","properties":{}}
+    if not isinstance(raw_schema, dict):
+        return {"type": "object", "properties": {}}
 
     # 复制一份schema
     dict_schema = dict(raw_schema)
 
-    raw_type=dict_schema.get("type")
-    if isinstance(raw_type,list):
+    raw_type = dict_schema.get("type")
+    if isinstance(raw_type, list):
         # 只处理一个null，一个非null的情况，对于多个类型加null的情况，不处理
         # 等待报错后，交给用户自己处理，openai不支持这种格式
-        non_null=[item for item in raw_type if item!="null"]
+        non_null = [item for item in raw_type if item != "null"]
         if "null" in raw_type and len(non_null) == 1:
-            dict_schema["type"]=non_null[0]
+            dict_schema["type"] = non_null[0]
             dict_schema["nullable"] = True
 
-    for key in ("oneOf","anyOf"):
-        nullable_branch=_extract_nullable_branch(dict_schema.get(key))
+    for key in ("oneOf", "anyOf"):
+        branches = dict_schema.get(key)
+        if not branches:
+            continue
+        nullable_branch = _extract_nullable_branch(branches)
         # 返回值可能是None，或者两个返回值，所以不能直接解包
         if nullable_branch:
-            branch , _=nullable_branch
+            branch, _ = nullable_branch
             # 删除key，并且将branch添加进去,这里使用了创建新对像，然后拷贝的做法
-            merged={k:v for k,v in dict_schema.items() if k!=key}
+            merged = {k: v for k, v in dict_schema.items() if k != key}
             merged.update(branch)
-            dict_schema=merged
+            dict_schema = merged
 
-            dict_schema["nullable"]=True
+            dict_schema["nullable"] = True
             break
 
-    if "properties" in dict_schema and  isinstance(dict_schema["properties"],dict):
+    if "properties" in dict_schema and isinstance(dict_schema["properties"], dict):
         # 对properties中嵌套的字典进行处理
-        dict_schema["properties"]={
-            name:normlize_schema_for_openai(prop) if isinstance(prop,dict) else prop
-            for name,prop in dict_schema["properties"].items()
+        dict_schema["properties"] = {
+            name: normlize_schema_for_openai(prop) if isinstance(prop, dict) else prop
+            for name, prop in dict_schema["properties"].items()
         }
 
-    if "items" in dict_schema and isinstance(dict_schema["items"],dict):
+    if "items" in dict_schema and isinstance(dict_schema["items"], dict):
         # 对items同样处理
-        dict_schema["items"]=normlize_schema_for_openai(dict_schema["items"])
+        dict_schema["items"] = normlize_schema_for_openai(dict_schema["items"])
 
-    if dict_schema.get("type")!="object":
+    if dict_schema.get("type") != "object":
         return dict_schema
 
     # 对含有object属性的字典，初始化dict_schema默认值，包括初始最上层和可能的嵌套情况
-    dict_schema.setdefault("properties",{})
-    dict_schema.setdefault("required",[])
+    dict_schema.setdefault("properties", {})
+    dict_schema.setdefault("required", [])
     return dict_schema
+
 
 # OpenAI function name 规范: 只允许 [a-zA-Z0-9_-]，最长 64 字符
 _MAX_TOOL_NAME_LEN = 64
 
-def _sanitize_tool_name(name:str) -> str:
+
+def _sanitize_tool_name(name: str) -> str:
     """把 MCP 工具名规范化为 OpenAI 兼容的函数名。
 
     规则:
@@ -381,61 +400,37 @@ def _sanitize_tool_name(name:str) -> str:
     return result[:_MAX_TOOL_NAME_LEN].rstrip("_-")
 
 
-class MCPToolWrapper:
-    def __init__(self,session,server_name,tool_def,tool_timeout:int=30):
-        self.server_name=server_name
-        self.session=session
-        self.tool_def=tool_def
-        self.raw_schema=tool_def.inputSchema or {"type":"object","properities":{}}
-        self.timeout=tool_timeout
-        self.original_name=tool_def.name
+class MCPToolWrapper(BaseTool):
+    """将 MCP 工具适配为统一的 ToolRegistry 执行协议。"""
+
+    # 外部 MCP 工具的副作用未知；除非将来由 MCP 元数据明确声明幂等性，
+    # 不能自动重试可能已成功的远端写操作。
+    side_effect = "irreversible"
+
+    def __init__(self, session, server_name, tool_def, tool_timeout: int = 30):
+        self.server_name = server_name
+        self.session = session
+        self.tool_def = tool_def
+        self.raw_schema = tool_def.inputSchema or {"type": "object", "properities": {}}
+        self.timeout_seconds = tool_timeout
+        self.original_name = tool_def.name
 
         # 有些 MCP 提供者的函数名是中文/以数字开头等，不符合 OpenAI 规范，需要重命名。
         # server 名做前缀（自己配置的、可控），不同 server 的同名工具天然不冲突，
         # LLM 也能从名字看出工具归属（如 weather_search / filesystem_search）。
         self.name = f"{server_name}_{_sanitize_tool_name(tool_def.name)}"
-        self.description=tool_def.description
+        self.description = tool_def.description
         self.parameters = normlize_schema_for_openai(self.raw_schema)
 
-    async def execute(self,**kwrags):
-        """调用 MCP 工具（必须传原名，不是 sanitize 后的名字）。
+    async def execute_once(self, **kwargs):
+        """调用 MCP 工具一次（必须传原名，不是 sanitize 后的名字）。
 
-        Args:
-            **kwrags: 工具参数。
-
-        Returns:
-            工具结果文本；超时/取消/异常转可读错误文本。
+        timeout、取消和异常分类由 ``ToolRegistry`` 统一处理。
         """
-        try:
-            result = await asyncio.wait_for(
-                #! 必须调用tool的原名,而不是sanitize之后的名字
-                self.session.call_tool(self.original_name,arguments=kwrags),
-                timeout=self.timeout
-            )
-        # 超时（3.11+ asyncio.TimeoutError 是 TimeoutError 别名；
-        # 显式写 asyncio 版，语义限定在 wait_for 超时，不误捕 httpx 内部超时）
-        except asyncio.TimeoutError :
-            return f"Error: mcp server {self.server_name} 中的 mcp tool {self.original_name} 调用超时！"
+        result = await self.session.call_tool(self.original_name, arguments=kwargs)
+        return self._render_call_result(result.content, kwargs)
 
-        # 取消
-        except asyncio.CancelledError:
-            task=asyncio.current_task()
-            if task is not None and task.cancelling()>0:
-                raise
-            return f"Error: mcp server {self.server_name} 中的 mcp tool {self.original_name} was cancelled"
-        except Exception as e:
-            return f"Error: mcp server {self.server_name} 中的 mcp tool{self.original_name}调用出现错误 - {e}"
-        # 成功获取到结果
-        else:
-            try:
-                # 需要将mcp的result格式转换成当前能接受的格式
-                redered_result=self._render_call_result(result.content,kwrags)
-            except Exception as exc:
-                raise ValueError(f"Error: MCP返回结果解析出现错误 {exc}")
-            else:
-                return redered_result
-
-    def _render_call_result(self,content,arguments):
+    def _render_call_result(self, content, arguments):
         """渲染 MCP 调用结果——可能包含图片，暂时只提取文本。
 
         Args:
@@ -447,16 +442,21 @@ class MCPToolWrapper:
         """
         from mcp import types
 
-        text_part:list[str]=[]
+        text_part: list[str] = []
         for block in content:
-            if isinstance(block,types.TextContent):
+            if isinstance(block, types.TextContent):
                 text_part.append(block.text)
                 continue
         return "\n".join(text_part)
 
+
 class MCPResourceWrapper:
     """TODO: MCP Resources 支持（URI 寻址 + 动态发现）——未实现，不注册。"""
+
     pass
+
+
 class MCPPromptWrapper:
     """TODO: MCP Prompts 支持——未实现，不注册。"""
+
     pass

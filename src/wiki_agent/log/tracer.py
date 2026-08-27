@@ -18,7 +18,8 @@ import time
 from typing import Any
 
 _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "wiki_trace_id", default=None,
+    "wiki_trace_id",
+    default=None,
 )
 
 
@@ -73,7 +74,7 @@ class span:
         self._status = "ok"
         self._error: str | None = None
 
-    async def __aenter__(self) -> "span":
+    async def __aenter__(self) -> span:
         self._started = time.perf_counter()
         return self
 
@@ -103,6 +104,7 @@ class span:
             self._error = f"{exc_type.__name__}: {exc}"
 
         from wiki_agent.log.events import emit_event
+
         emit_event(
             self._event,
             dur_ms=round(dur_ms, 1),
@@ -110,5 +112,5 @@ class span:
             **({"error": self._error} if self._error else {}),
             **self._attrs,
         )
-        # 不吞异常——re-raise
-        return False
+        # 不吞异常——返回 None 即让异常照常传播（类型检查据此不误判可抑制）
+        return
