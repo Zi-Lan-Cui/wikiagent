@@ -1,4 +1,4 @@
-"""兼容导入：请改用 :mod:`wiki_agent.compiler.integration`。"""
+"""知识页 search / analyze / plan / execute 集成阶段。"""
 
 from wiki_agent.compiler.integration.workflow import (
     Integrator,
