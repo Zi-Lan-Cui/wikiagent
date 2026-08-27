@@ -21,10 +21,10 @@ from rich.text import Text
 from wiki_agent.agent import ReActAgent
 from wiki_agent.config import load_config
 from wiki_agent.errors import RetryableError
-from wiki_agent.render import TerminalRenderer
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.log.logger import configure_logging
-from wiki_agent.tools import ToolRegistry, ReadFile, ListDir, Grep
+from wiki_agent.render import TerminalRenderer
+from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
 
 HERE = Path(__file__).resolve().parent
 console = Console()
@@ -33,6 +33,7 @@ console = Console()
 # ════════════════════════════════════════════════════════════
 #  视图组件
 # ════════════════════════════════════════════════════════════
+
 
 def _banner(llm: str) -> Panel:
     t = Table(show_header=False, box=None, padding=(0, 1))
@@ -68,7 +69,7 @@ def _wiki_overview() -> str:
                 parts.append(f"[bold]{d}[/] [dim]{n}页[/]")
     idx = wiki / "index.md"
     if idx.exists():
-        n = sum(1 for l in idx.read_text().split("\n") if l.startswith("- [["))
+        n = sum(1 for line in idx.read_text().split("\n") if line.startswith("- [["))
         parts.append(f"[bold]索引[/] [dim]{n}条[/]")
     return "  ".join(parts) if parts else "[red]wiki 为空[/]"
 
@@ -76,6 +77,7 @@ def _wiki_overview() -> str:
 # ════════════════════════════════════════════════════════════
 #  交互循环
 # ════════════════════════════════════════════════════════════
+
 
 def _new_session_key() -> str:
     """生成新 key——时间戳唯一，所有会话统一走这里。
@@ -86,24 +88,24 @@ def _new_session_key() -> str:
     return f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 
-async def _interactive_loop(agent: ReActAgent, session_key: str, cli_hook: TerminalRenderer) -> None:
+async def _interactive_loop(
+    agent: ReActAgent, session_key: str, cli_hook: TerminalRenderer
+) -> None:
     """交互循环——输入 → agent.run（渲染全走 hook）→ footer。"""
     console.print(_banner(agent.llm.model_id))
     console.print(f"  [bright_black]会话: {session_key}[/]\n")
 
     dream_task = None
     try:
-        dream_task = asyncio.create_task(agent._dream_loop(interval=agent.agent_config.dream_interval))
+        dream_task = asyncio.create_task(
+            agent._dream_loop(interval=agent.agent_config.dream_interval)
+        )
 
         while True:
             try:
-                user_input = console.input(
-                    f"[bold green]你[/] [bold cyan]▶[/] "
-                ).strip()
+                user_input = console.input("[bold green]你[/] [bold cyan]▶[/] ").strip()
             except (EOFError, KeyboardInterrupt):
-                console.print(
-                    f"\n[bright_black]再见 👋  下次用 --resume {session_key} 继续[/]\n"
-                )
+                console.print(f"\n[bright_black]再见 👋  下次用 --resume {session_key} 继续[/]\n")
                 break
 
             if not user_input:
@@ -111,9 +113,7 @@ async def _interactive_loop(agent: ReActAgent, session_key: str, cli_hook: Termi
 
             lo = user_input.lower()
             if lo in ("/q", "/exit", "/quit"):
-                console.print(
-                    f"[bright_black]再见 👋  下次用 --resume {session_key} 继续[/]\n"
-                )
+                console.print(f"[bright_black]再见 👋  下次用 --resume {session_key} 继续[/]\n")
                 break
 
             console.print()
@@ -123,7 +123,9 @@ async def _interactive_loop(agent: ReActAgent, session_key: str, cli_hook: Termi
             # cli 只管编排，流式增量/工具行交错/收尾展示都在渲染器侧
             try:
                 await agent.run(
-                    user_input=user_input, session_key=session_key, stream=True,
+                    user_input=user_input,
+                    session_key=session_key,
+                    stream=True,
                 )
             except RetryableError as exc:
                 # LLM 调用重试已耗尽（网络/限流）——提示后回到输入循环，
@@ -136,9 +138,14 @@ async def _interactive_loop(agent: ReActAgent, session_key: str, cli_hook: Termi
             elapsed = time.time() - t0
             s = agent.session_manager.get_or_create(session_key)
             total_tk = s.token_cost.get("total", 0)
-            console.print(_footer(elapsed, total_tk,
-                                  win=s.current_window_tokens,
-                                  cap=agent.agent_config.context_windows))
+            console.print(
+                _footer(
+                    elapsed,
+                    total_tk,
+                    win=s.current_window_tokens,
+                    cap=agent.agent_config.context_windows,
+                )
+            )
 
     finally:
         if dream_task:
@@ -149,17 +156,19 @@ async def _interactive_loop(agent: ReActAgent, session_key: str, cli_hook: Termi
 #  入口
 # ════════════════════════════════════════════════════════════
 
+
 def main() -> None:
     """CLI 入口——解析参数 → 配置 → 组装 agent → 交互循环。"""
     import argparse
 
     parser = argparse.ArgumentParser(description="wiki-agent — 基于 wiki 知识库的问答助手")
-    parser.add_argument("--resume", metavar="KEY",
-                        help="恢复指定会话（默认新建）")
-    parser.add_argument("--list", action="store_true",
-                        help="列出所有历史会话后退出")
-    parser.add_argument("--debug", action="store_true",
-                        help="全量日志 + 结构化事件写入 workspace/（debug.log + events.jsonl）")
+    parser.add_argument("--resume", metavar="KEY", help="恢复指定会话（默认新建）")
+    parser.add_argument("--list", action="store_true", help="列出所有历史会话后退出")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="全量日志 + 结构化事件写入 workspace/（debug.log + events.jsonl）",
+    )
     args = parser.parse_args()
 
     # ── 配置: 单一入口，CLI 参数 > 环境变量 > .env > 默认值 ──
@@ -172,6 +181,7 @@ def main() -> None:
     )
     if cfg.logging.debug:
         from wiki_agent.log import setup_event_log
+
         setup_event_log(workspace / "events.jsonl")
 
     llm = create_llm(cfg.llm)
@@ -222,11 +232,12 @@ async def _run_cli(cfg, agent: ReActAgent, session_key: str, cli_hook: TerminalR
     mcp_connections = {}
     if cfg.mcp.servers:
         from wiki_agent.tools.mcp_tools.mcp_adaptor import connect_mcp_servers
+
         # adaptor 吃 {name: McpServerConfig}——transport 在
         # cfg.transport 里，need_resources/need_prompts 是 server 级开关
         mcp_connections = await connect_mcp_servers(
             mcp_servers=cfg.mcp.servers,
-            tool_registry=agent.tool_registery,
+            tool_registry=agent.tool_registry,
         )
         for name, conn in mcp_connections.items():
             console.print(f"  [bright_black]MCP 已连接: {name}[/]")

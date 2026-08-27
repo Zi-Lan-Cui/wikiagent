@@ -1,69 +1,148 @@
-from abc import abstractmethod,ABC
-from typing import ClassVar
-from wiki_agent.log import get_logger, emit_event
-from wiki_agent.errors import FatalError, WikiAgentError, translate_generic_error
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import ClassVar, Literal
 
-logger=get_logger("TOOL")
+from wiki_agent.errors import (
+    HandleableError,
+    RetryableError,
+    WikiAgentError,
+)
+
+ToolSideEffect = Literal["read_only", "idempotent_write", "irreversible"]
+
+
+@dataclass(frozen=True)
+class ToolResiliencePolicy:
+    """工具声明的执行策略；执行器由 ToolRegistry 统一提供。"""
+
+    side_effect: ToolSideEffect = "read_only"
+    timeout_seconds: float = 30.0
+    max_attempts: int = 2
+    base_delay_seconds: float = 0.2
+    failure_threshold: int = 5
+    recovery_seconds: float = 30.0
+    breaker_key: str = ""
+
+
+def format_tool_error(
+    tool: str,
+    code: str,
+    message: str,
+    *,
+    next_action: str,
+    retryable: bool = False,
+) -> str:
+    """统一生成工具结果中的可行动错误块。"""
+    return "\n".join(
+        (
+            "[TOOL_ERROR]",
+            f"tool: {tool}",
+            f"code: {code}",
+            f"retryable: {'true' if retryable else 'false'}",
+            f"message: {message}",
+            f"next_action: {next_action}",
+        )
+    )
+
 
 class BaseTool(ABC):
-    name:ClassVar[str]
-    description:ClassVar[str]
+    # name/description/parameters 是实例级元数据：静态工具在类体赋默认值即可
+    # （`name: str = "ReadFile"`），动态工具（MCPToolWrapper，从 server 发现）
+    # 必须在 __init__ 逐实例赋值——故不能是 ClassVar（ClassVar 禁止 self 赋值）。
+    name: str
+    description: str
     # schema 是嵌套 dict（type/properties/required）——不是 str。
-    # 旧 property description 已删: 与子类 ClassVar 同名的 property
-    # 是死代码 + 递归陷阱（property 体内访问 self.description）；
-    # 现役工具正常只因子类重定义了 ClassVar 遮蔽它。
-    parameters:ClassVar[dict]
+    # 旧 property description 已删: 与子类同名的 property 是死代码 + 递归陷阱
+    # （property 体内访问 self.description）；现役工具只在子类赋类级默认。
+    parameters: dict
 
-    async def execute(self,**kwargs)->str:
+    # 工具的副作用等级是重试策略的输入，不是工具名称的约定。
+    # 默认只读：没有声明写入副作用的工具可以安全地被重试。
+    side_effect: ClassVar[ToolSideEffect] = "read_only"
+    # 总尝试次数（包含首次调用）。只读工具默认最多 2 次；写工具
+    # 只有在显式声明参数名并收到 key 时才允许进入同一重试路径。
+    retry_attempts: ClassVar[int] = 2
+    idempotency_key_param: ClassVar[str | None] = None
+    retry_base_delay: ClassVar[float] = 0.2
+    timeout_seconds: float = 30.0  # 实例级（MCP 逐 server 配超时），静态工具用类级默认
+    breaker_failure_threshold: ClassVar[int] = 5
+    breaker_recovery_seconds: ClassVar[float] = 30.0
+    breaker_key: ClassVar[str | None] = None
+
+    def resilience_policy(self) -> ToolResiliencePolicy:
+        """返回当前工具的统一执行策略。"""
+        return ToolResiliencePolicy(
+            side_effect=self.side_effect,
+            timeout_seconds=self.timeout_seconds,
+            # 是否允许本次重试依赖调用参数（尤其是幂等 key），由
+            # Registry 在拿到 params 后再判断；这里仅返回工具上限。
+            max_attempts=max(1, self.retry_attempts),
+            base_delay_seconds=max(0.0, self.retry_base_delay),
+            failure_threshold=max(1, self.breaker_failure_threshold),
+            recovery_seconds=max(0.0, self.breaker_recovery_seconds),
+            breaker_key=self.breaker_key or f"tool:{self.name}",
+        )
+
+    def _retry_is_allowed(self, kwargs: dict) -> bool:
+        """根据副作用等级决定是否可以重试。"""
+        if self.side_effect == "read_only":
+            return True
+        if self.side_effect == "idempotent_write":
+            key_name = self.idempotency_key_param
+            return bool(key_name and kwargs.get(key_name))
+        return False
+
+    def error_result(
+        self,
+        code: str,
+        message: str,
+        *,
+        next_action: str,
+        retryable: bool = False,
+    ) -> str:
+        """生成给 LLM 的可行动错误结果。
+
+        工具的业务错误应调用此方法，而不是各自拼接 ``Error: ...``。
+        日志仍由边界负责记录；这里的内容只包含 LLM 能据此采取行动的
+        安全信息，不包含堆栈和内部路径。
         """
-        工具执行的入口——工具边界。
+        return format_tool_error(
+            self.name,
+            code,
+            message,
+            next_action=next_action,
+            retryable=retryable,
+        )
 
-        边界规则:
-        - FatalError（编程 bug/配置错/未知异常）→ 记录 + 事件 + 转"内部错误"文本。
-          不向 LLM 泄漏内部细节，也不静默吞掉——日志可排查。
-        - 其他 WikiAgentError（可预期的业务错误）→ 转可读错误文本给 LLM，
-          LLM 能根据错误调整策略（换参数/换工具）。
-
-        Args:
-            **kwargs: 工具参数（子类 schema 声明的字段）。
-
-        Returns:
-            工具结果文本（成功结果或错误文本，均可直接进消息）。
-        """
-        try:
-            result= await self._execute(**kwargs)
-        except WikiAgentError as e:
-            # 已分类的异常——按类型走边界决策
-            if isinstance(e, FatalError):
-                logger.exception("工具 %s 内部致命错误", self.name)
-                # 机器通道不截断（截断是给人看的习惯）
-                emit_event("tool_error", tool=self.name, error_type="fatal", error=str(e))
-                result=f"Error: 工具 {self.name} 内部错误——请检查服务端日志"
-            else:
-                result=f"Error: {self.name} - {e}"
-        except Exception as e:
-            # 未分类异常 → 翻译 → 递归走上面的分支（translate 默认 Fatal）
-            translated = translate_generic_error(e, context=f"工具 {self.name}")
-            if isinstance(translated, FatalError):
-                logger.exception("工具 %s 内部致命错误", self.name)
-                emit_event("tool_error", tool=self.name, error_type="fatal", error=str(e))
-                result=f"Error: 工具 {self.name} 内部错误——请检查服务端日志"
-            else:
-                result=f"Error: {self.name} - {translated}"
-        return result
+    def _exception_result(self, error: WikiAgentError) -> str:
+        """把分类异常转换成 LLM 可执行的诊断。"""
+        if isinstance(error, RetryableError):
+            return self.error_result(
+                "transient_unavailable",
+                str(error) or "暂时无法完成工具调用",
+                retryable=True,
+                next_action="稍后重试；如果问题持续，请换用其他工具或告知用户。",
+            )
+        if isinstance(error, HandleableError):
+            return self.error_result(
+                "recoverable_error",
+                str(error) or "工具执行需要修复",
+                next_action="根据错误信息修正参数后再调用；如果仍失败，请停止重复调用。",
+            )
+        return self.error_result(
+            "tool_error",
+            str(error) or "工具未能完成请求",
+            next_action="检查调用参数并尝试其他可行方案。",
+        )
 
     @abstractmethod
-    async def _execute(**kwargs)->str:
-        """
-        真正执行逻辑——工具子类必须重写。
+    async def execute_once(self, **kwargs) -> str:
+        """执行一次业务动作，不处理 timeout、retry、熔断或错误渲染。
 
-        Args:
-            **kwargs: 工具参数。
-
-        Returns:
-            工具结果文本。
+        ``ToolRegistry.execute()`` 是唯一公共入口；它统一处理取消、
+        timeout、retry、circuit breaker 以及面向 LLM 的错误结果。
         """
-        pass
+        raise NotImplementedError
 
     @classmethod
     def openai_schema(cls):
@@ -73,10 +152,10 @@ class BaseTool(ABC):
             注册/调用用 schema 字典（name/description/parameters）。
         """
         return {
-            "type":"function",
-            "function":{
-                "name":cls.name,
-                "description":cls.description,
-                "parameters":cls.parameters
-            }
+            "type": "function",
+            "function": {
+                "name": cls.name,
+                "description": cls.description,
+                "parameters": cls.parameters,
+            },
         }
