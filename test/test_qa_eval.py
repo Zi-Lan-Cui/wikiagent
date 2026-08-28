@@ -6,43 +6,38 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from evals.qa_harness import load_cases, score_answer, summarize
-from evals.qa_semantic_judge import check_qa_judge_json
+from evals.core.qa_harness import QACase, score_answer, summarize
+from evals.judges.qa_semantic_judge import check_qa_judge_json
 
 
 def test_qa_manifest_covers_core_question_types():
-    cases = load_cases()
-    assert len(cases) >= 10
-    assert {case.type for case in cases} >= {
-        "fact",
-        "compare",
-        "relation",
-        "uncertainty",
-        "followup",
-    }
+    data = json.loads((Path(__file__).parents[1] / "evals/templates/qa_manifest.json").read_text())
+    assert data["version"] == 1
+    assert {"id", "type", "question", "must_include", "required_tools"} <= set(data["cases"][0])
 
 
-def test_expanded_qa_manifest_has_120_cases_and_five_per_source():
-    path = Path(__file__).resolve().parents[1] / "evals/golden/qa_expanded_manifest.json"
-    cases = load_cases(path)
-    assert len(cases) == 120
-    raw_ids = [item["id"] for item in json.loads(path.read_text(encoding="utf-8"))["cases"]]
-    assert sum("-cross-" in case_id for case_id in raw_ids) == 20
-    assert sum("-cross-" not in case_id for case_id in raw_ids) == 100
-    base = json.loads((path.parent / "manifest.json").read_text(encoding="utf-8"))
-    for item in base["cases"]:
-        expected = {
-            f"qa-expanded-{item['id']}-{suffix}"
-            for suffix in ("facts", "relation", "boundary", "unknown", "scope")
-        }
-        assert expected <= set(raw_ids)
-    assert sum(case.type == "uncertainty" for case in cases) == 40
-    assert sum(case.type == "compare" for case in cases) == 20
-    assert sum(case.type == "followup" for case in cases) == 20
+def _case(**kwargs):
+    defaults = dict(
+        type="fact",
+        question="q",
+        must_include=(),
+        must_include_any=(),
+        must_not_claim=(),
+        must_not_include=(),
+        expected_pages=(),
+        required_tools=(),
+        forbidden_tools=(),
+    )
+    defaults.update(kwargs)
+    return QACase(**defaults)
 
 
 def test_qa_hard_contract_accepts_grounded_answer():
-    case = next(x for x in load_cases() if x.id == "qa-process-states")
+    case = _case(
+        id="states",
+        must_include=("创建态", "就绪态", "运行态", "阻塞态"),
+        required_tools=("ReadFile",),
+    )
     score = score_answer(
         case,
         {
@@ -57,7 +52,9 @@ def test_qa_hard_contract_accepts_grounded_answer():
 
 
 def test_qa_hard_contract_rejects_side_effect_and_invention():
-    case = next(x for x in load_cases() if x.id == "qa-unknown-thread-safety")
+    case = _case(
+        id="thread", must_not_claim=("线程安全保证",), forbidden_tools=("RecordCorrection",)
+    )
     score = score_answer(
         case,
         {
@@ -71,7 +68,9 @@ def test_qa_hard_contract_rejects_side_effect_and_invention():
 
 
 def test_qa_hard_contract_allows_negated_forbidden_claim():
-    case = next(x for x in load_cases() if x.id == "qa-unknown-thread-safety")
+    case = _case(
+        id="thread", must_not_claim=("线程安全保证",), forbidden_tools=("RecordCorrection",)
+    )
     score = score_answer(
         case,
         {
@@ -83,7 +82,12 @@ def test_qa_hard_contract_allows_negated_forbidden_claim():
 
 
 def test_qa_hard_contract_rejects_explicit_external_knowledge():
-    case = next(x for x in load_cases() if x.id == "qa-unknown-thread-safety")
+    case = _case(
+        id="thread",
+        must_not_claim=("线程安全保证",),
+        must_not_include=("来自我已有知识",),
+        forbidden_tools=("RecordCorrection",),
+    )
     score = score_answer(
         case,
         {
@@ -96,7 +100,12 @@ def test_qa_hard_contract_rejects_explicit_external_knowledge():
 
 
 def test_qa_hard_contract_accepts_one_of_equivalent_unknown_markers():
-    case = next(x for x in load_cases() if x.id == "qa-unknown-cpu")
+    case = _case(
+        id="cpu",
+        must_include_any=("没有", "未说明"),
+        must_not_claim=("具体 CPU 架构的实现细节",),
+        required_tools=("ReadFile",),
+    )
     score = score_answer(
         case,
         {
@@ -125,8 +134,18 @@ def test_qa_judge_schema_requires_all_dimensions():
 
 
 def test_qa_summary_is_not_semantic_pass():
-    case = next(x for x in load_cases() if x.id == "qa-process-components")
-    score = score_answer(case, {"answer": "进程控制块 PCB。", "tool_calls": []})
+    case = _case(
+        id="process",
+        must_include=("进程", "程序", "进程控制块", "PCB"),
+        required_tools=("ReadFile",),
+    )
+    score = score_answer(
+        case,
+        {
+            "answer": "进程是程序的一次执行，包含进程控制块 PCB。",
+            "tool_calls": [],
+        },
+    )
     summary = summarize([score])
     assert summary["passed"] == 0
     assert summary["mean_coverage"] == 1.0

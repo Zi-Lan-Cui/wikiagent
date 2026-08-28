@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "source_root_env": "WIKI_NOTEBOOK_ROOT",
+  "description": "用户自行填写的 source 黄金集模板",
+  "clusters": [
+    {
+      "id": "example-topic",
+      "expected_pages": ["concepts/example.md"],
+      "expected_relations": []
+    }
+  ],
+  "cases": [
+    {
+      "id": "example-case",
+      "cluster": "example-topic",
+      "source": "path/to/source.md",
+      "sha256": "REPLACE_WITH_SHA256",
+      "must_include": ["关键事实"],
+      "must_not_invent": ["原文没有给出的结论"],
+      "expected_verdict": "pass",
+      "annotation": {
+        "source": "human",
+        "reviewer": "REPLACE_WITH_REVIEWER",
+        "notes": "说明人工为何认为该样本应通过"
+      }
+    }
+  ]
+}

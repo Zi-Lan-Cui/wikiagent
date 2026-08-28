@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from evals.harness import GoldenCase
-from evals.stage_harness import score_run, summarize
+from evals.core.harness import GoldenCase
+from evals.core.stage_harness import score_run, summarize
 
 
 def _case() -> GoldenCase:

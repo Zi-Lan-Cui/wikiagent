@@ -1,7 +1,7 @@
 """Test chunker dispatch and semantic chunking.
 
 Run:
-    cd /home/zilan/桌面/wiki_agent
+    cd /path/to/wiki-agent
     .venv/bin/python -m pytest test/test_chunker.py -v
 """
 
