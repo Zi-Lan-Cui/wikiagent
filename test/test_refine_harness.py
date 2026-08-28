@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from evals.refine_harness import score_refine_run, summarize_refine
+from evals.core.refine_harness import score_refine_run, summarize_refine
 
 
 def test_refine_harness_accepts_self_update(tmp_path: Path):

@@ -3,8 +3,8 @@
 
 支持两种 manifest:
 
-* ``evals/golden/manifest.json``：带人工维护 cluster/事实约束的黄金集；
-* ``evals/golden/source_manifest_120.json``：按 source id 对应批量编译产物，
+* ``evals/templates/manifest.json``：用户填写的 cluster/事实约束清单；
+* ``evals/templates/source_manifest.json``：用户填写的 source 批量清单，
   组织参考从每条 source 的 plan 动态读取。
 """
 
@@ -13,15 +13,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sys
 from pathlib import Path
+from typing import Any, cast
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from evals.harness import notebook_root
-from evals.semantic_judge import judge_case
+from evals.core.harness import notebook_root
+from evals.core.paths import PROJECT_ROOT, require_directory, require_file
+from evals.judges.semantic_judge import judge_case
 from wiki_agent.config import load_config
 from wiki_agent.llm.factory import create_llm
 
@@ -58,7 +55,7 @@ def _artifact_folder(run_dirs: Path | list[Path], case: dict[str, object]) -> Pa
 
 
 def _load_cases(manifest_path: Path) -> tuple[list[dict], bool]:
-    """加载旧黄金集或 source_manifest_120，并返回是否为批量 source 集。"""
+    """加载用户提供的标准 manifest，并返回是否为批量 source 集。"""
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     if isinstance(data.get("cases"), list):
         return data["cases"], False
@@ -128,7 +125,7 @@ def _write_progress(path: Path | None, payload: dict) -> None:
 
 
 async def run(args) -> dict:
-    manifest_path = Path(args.manifest)
+    manifest_path = require_file(args.manifest, kind="semantic manifest")
     cases, source_manifest = _load_cases(manifest_path)
     clusters = {
         c["id"]: c
@@ -153,7 +150,7 @@ async def run(args) -> dict:
         folder = _artifact_folder(run_dirs, case)
         try:
             source = (root / case["source"]).read_text(encoding="utf-8")
-            plan = _artifact(folder, "plan.json", {})
+            plan = cast(dict[str, Any], _artifact(folder, "plan.json", {}))
             artifacts = {
                 "extract": (folder / "extract.json").read_text(encoding="utf-8")[:24000]
                 if (folder / "extract.json").exists()
@@ -211,7 +208,7 @@ def main() -> int:
         "--state", type=Path, help="compile_manifest 的 state.json；跨批次评估全部 source"
     )
     parser.add_argument(
-        "--manifest", type=Path, default=PROJECT_ROOT / "evals/golden/manifest.json"
+        "--manifest", type=Path, default=PROJECT_ROOT / "evals/templates/manifest.json"
     )
     parser.add_argument("--notebook-root", type=Path)
     parser.add_argument("--wiki-dir", type=Path, help="Wiki 根目录；默认从 run_dir 推导")
@@ -220,6 +217,15 @@ def main() -> int:
     args = parser.parse_args()
     if args.concurrency < 1:
         parser.error("--concurrency 必须大于 0")
+    args.run_dir = require_directory(args.run_dir, kind="compile run 目录")
+    if args.state:
+        args.state = require_file(args.state, kind="compile state")
+    if args.notebook_root:
+        args.notebook_root = require_directory(args.notebook_root, kind="笔记根目录")
+    if args.wiki_dir:
+        args.wiki_dir = require_directory(args.wiki_dir, kind="Wiki 根目录")
+    if args.output:
+        args.output = args.output.expanduser().resolve()
     print(
         f"开始 semantic eval: manifest={args.manifest} "
         f"concurrency={args.concurrency} output={args.output or '<stdout>'}",

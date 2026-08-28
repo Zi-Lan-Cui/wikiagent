@@ -61,7 +61,8 @@ select = ["E4", "E7", "E9", "F", "I", "UP"]
 "evals/*.py" = ["E402"]
 
 [tool.pyright]
-include = ["src"]
+include = ["src", "evals"]
+extraPaths = [".", "src"]
 pythonVersion = "3.13"
 venvPath = "."
 venv = ".venv"

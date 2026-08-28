@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "description": "用户自行填写的批量 source manifest 模板",
+  "sources": [
+    {
+      "id": "source-001",
+      "path": "path/to/source.md",
+      "category": "example",
+      "title": "示例文档",
+      "chars": 0,
+      "sha256": "REPLACE_WITH_SHA256",
+      "review_status": "candidate",
+      "expected_verdict": "pass",
+      "annotation": {
+        "source": "human",
+        "reviewer": "REPLACE_WITH_REVIEWER",
+        "notes": "填写 source 是否应被纳入评测"
+      }
+    }
+  ]
+}

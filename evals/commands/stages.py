@@ -5,13 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from dataclasses import asdict
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from evals.stage_harness import score_run, summarize
+from evals.core.stage_harness import score_run, summarize
 
 
 def main() -> int:

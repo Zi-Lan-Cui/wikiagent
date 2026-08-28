@@ -1,7 +1,7 @@
 """Test cases for wiki_agent.message — Message, ToolCall, LLMResponse, ChatHistory.
 
 Run:
-    cd /home/zilan/桌面/wiki_agent
+    cd /path/to/wiki-agent
     uv run pytest test/test_messages.py -v
 """
 
