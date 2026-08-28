@@ -18,7 +18,7 @@
 - [ ] **将 `docs/` 纳入版本控制**：从 `.gitignore` 移除 `docs/`；保留快速开始、系统设计、评测说明和最少 ADR，使代码与说明同版本演进。
 - [x] **建立最小 CI**：已新增 `.github/workflows/ci.yml`，GitHub Actions 在干净环境依次执行 `uv sync --locked --group dev`、Ruff format/lint、Pyright、Pytest、`uv build`，并安装 wheel 后运行 `wiki-agent --help`；本地已按同流程验证通过（2026-08-29）。
 - [ ] **完成发布安装验收**：本地模拟干净环境安装构建出的 wheel；验证 CLI help、配置缺失时的明确报错，以及最小 compile/scan 流程。
-- [ ] **确定评测资产边界**：将公开 golden manifest、harness 与小样本版本化；继续忽略个人笔记、生成 Wiki 与大型 run 产物，并记录来源/hash/筛选规则。
+- [x] **确定评测资产边界**：仓库仅保留评测脚本和 `evals/templates/` 格式模板；真实 manifest、个人笔记、生成 Wiki 和大型 run 产物均由用户通过参数提供，不进入 CI（2026-08-29）。
 
 **下一步：推送后观察首次远程 CI。** 本地质量门禁与 wheel smoke test 已全绿；首次 GitHub Actions 运行后，若 runner 环境暴露平台差异，再针对性修正 workflow。
 

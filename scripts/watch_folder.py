@@ -1,7 +1,7 @@
 """watch 模式入口——监视源文件夹，大改动自动重新 ingest。
 
 用法:
-    VIRTUAL_ENV= .venv/bin/python scripts/watch_folder.py /media/.../Python
+    uv run python scripts/watch_folder.py /path/to/source-folder
 
 数据流:
     源目录 → FileWatcher(事件驱动 inotify：去抖+稳定性复读+变更门，
