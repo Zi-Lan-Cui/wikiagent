@@ -38,13 +38,13 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text
 
-from wiki_agent.hook.base import AgentHook, RunContext
+from wiki_agent.hook.base import AgentHook, CommandProgress, RunContext
 
 # ── 样式 ──────────────────────────────────────────────────
 TOOL_ICONS: dict[str, str] = {
     "ReadFile": "📖",
-    "ListDir":  "📂",
-    "Grep":     "🔍",
+    "ListDir": "📂",
+    "Grep": "🔍",
 }
 FALLBACK_ICON = "🔧"
 
@@ -56,6 +56,7 @@ ARG_STYLE = "bright_black"
 
 
 # ── 工具行渲染辅助（纯函数）────────────────────────────────
+
 
 def _trunc(s: str, max_len: int = 80) -> str:
     """截断长文本，按终端显示宽度（Rich cell_len——CJK 双宽/
@@ -142,6 +143,7 @@ def _result_summary(tool_name: str, result: str) -> str:
 # ════════════════════════════════════════════════════════════
 #  TerminalRenderer — 渲染实体（直接订阅 hook 事件）
 # ════════════════════════════════════════════════════════════
+
 
 class TerminalRenderer(AgentHook):
     """终端渲染实体——流式文本 + 工具行的全部渲染状态与逻辑。"""
@@ -263,9 +265,73 @@ class TerminalRenderer(AgentHook):
             self._flush_stream()
             self._c.print(Text(text, style="dim"))
 
+    async def on_command_start(
+        self,
+        context: RunContext,
+        command: str,
+        task_id: str,
+    ) -> None:
+        self._flush_stream()
+        self._c.print(Text(f"  ▶ /{command} 开始（{task_id}）", style=START_STYLE))
+
+    async def on_command_progress(
+        self,
+        context: RunContext,
+        progress: CommandProgress,
+    ) -> None:
+        self._flush_stream()
+        if progress.current is not None and progress.total:
+            position = f"{progress.current}/{progress.total}"
+        elif progress.current is not None:
+            position = str(progress.current)
+        else:
+            position = ""
+        suffix = f" {position}" if position else ""
+        message = f"  · [{progress.stage}]{suffix}"
+        if progress.message:
+            message += f" {progress.message}"
+        style = ERR_STYLE if progress.level == "error" else DETAIL_STYLE
+        self._c.print(Text(message, style=style))
+
+    async def on_command_end(
+        self,
+        context: RunContext,
+        command: str,
+        task_id: str,
+        result: Any,
+    ) -> None:
+        self._flush_stream()
+        status = getattr(result, "status", "succeeded") if result else "succeeded"
+        style = ERR_STYLE if status == "failed" else OK_STYLE
+        self._c.print(Text(f"  ✓ /{command} {status}（{task_id}）", style=style))
+
+    async def on_command_error(
+        self,
+        context: RunContext,
+        command: str,
+        task_id: str,
+        error: Any,
+    ) -> None:
+        self._flush_stream()
+        self._c.print(
+            Text(f"  ✗ /{command} 失败：{str(error)[:120]}（{task_id}）", style=ERR_STYLE)
+        )
+
+    async def on_command_cancelled(
+        self,
+        context: RunContext,
+        command: str,
+        task_id: str,
+    ) -> None:
+        self._flush_stream()
+        self._c.print(Text(f"  ! /{command} 已取消（{task_id}）", style=ERR_STYLE))
+
     async def on_tool_call_start(
-        self, context: RunContext,
-        tool_name: str, tool_call_id: str, arguments: dict[str, Any],
+        self,
+        context: RunContext,
+        tool_name: str,
+        tool_call_id: str,
+        arguments: dict[str, Any],
     ) -> None:
         self._flush_stream()
         self._timers[tool_call_id] = time.time()
@@ -280,8 +346,11 @@ class TerminalRenderer(AgentHook):
         self._c.print(line)
 
     async def on_tool_result(
-        self, context: RunContext,
-        tool_name: str, tool_call_id: str, result: Any,
+        self,
+        context: RunContext,
+        tool_name: str,
+        tool_call_id: str,
+        result: Any,
     ) -> None:
         elapsed = time.time() - self._timers.pop(tool_call_id, 0)
 
@@ -297,8 +366,11 @@ class TerminalRenderer(AgentHook):
         self._c.print(line)
 
     async def on_tool_error(
-        self, context: RunContext,
-        tool_name: str, tool_call_id: str, error: Any,
+        self,
+        context: RunContext,
+        tool_name: str,
+        tool_call_id: str,
+        error: Any,
     ) -> None:
         self._timers.pop(tool_call_id, None)
 

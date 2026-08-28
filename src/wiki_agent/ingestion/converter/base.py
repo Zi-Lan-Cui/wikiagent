@@ -12,10 +12,10 @@ from typing import Any
 
 from wiki_agent.ingestion.data_loader import RawFileProperties
 
-
 # ════════════════════════════════════════════════════════════════
 #  ConvertedFile — 统一输出
 # ════════════════════════════════════════════════════════════════
+
 
 @dataclass
 class ConvertedFile:
@@ -32,7 +32,7 @@ class ConvertedFile:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_raw(cls, raw_file: RawFileProperties, content: str) -> "ConvertedFile":
+    def from_raw(cls, raw_file: RawFileProperties, content: str) -> ConvertedFile:
         """从原始文件属性构造 ConvertedFile。
 
         Args:
@@ -56,6 +56,7 @@ class ConvertedFile:
 # ════════════════════════════════════════════════════════════════
 #  BaseConverter — 抽象接口
 # ════════════════════════════════════════════════════════════════
+
 
 class BaseConverter(ABC):
     """文件 → 文本 的转换器。
