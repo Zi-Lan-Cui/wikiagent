@@ -13,7 +13,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument(
-        "--manifest", type=Path, default=Path("evals/golden/source_manifest_120.json")
+        "--manifest", type=Path, default=Path("evals/templates/source_manifest.json")
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

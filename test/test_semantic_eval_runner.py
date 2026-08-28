@@ -1,22 +1,25 @@
 """semantic eval runner 的 manifest/artifact 映射测试。"""
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from evals.run_semantic_eval import (
+from evals.commands.semantic import (
     _artifact_folder,
     _load_cases,
     _pages_from_plan,
 )
 
 
-def test_load_source_manifest_as_cases():
-    cases, is_source_manifest = _load_cases(Path("evals/golden/source_manifest_120.json"))
+def test_load_source_manifest_as_cases(tmp_path: Path):
+    manifest = tmp_path / "sources.json"
+    manifest.write_text(json.dumps({"sources": [{"id": "source-001", "path": "demo.md"}]}))
+    cases, is_source_manifest = _load_cases(manifest)
 
     assert is_source_manifest is True
-    assert len(cases) == 120
+    assert len(cases) == 1
     assert cases[0]["id"] == "source-001"
     assert cases[0]["source"]
     assert cases[0]["cluster"]["expected_pages"] == []

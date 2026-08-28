@@ -1,8 +1,7 @@
 """文件夹 → Wiki 编译脚本。
 
 用法:
-    cd /home/zilan/桌面/wiki_agent
-    VIRTUAL_ENV= .venv/bin/python scripts/compile_folder.py /media/zilan/.../Python
+    uv run python scripts/compile_folder.py /path/to/source-folder
 
 数据流:
     folder/ → DataLoader → Converter (+VLM caption) → Chunker → Compiler(Extractor+Integrator) → wiki/

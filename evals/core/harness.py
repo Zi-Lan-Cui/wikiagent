@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MANIFEST = Path(__file__).parent / "golden" / "manifest.json"
+DEFAULT_MANIFEST = Path(__file__).resolve().parents[1] / "templates" / "manifest.json"
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from evals.harness import GoldenCase, load_cases, score_summary
+from evals.core.harness import GoldenCase, load_cases, score_summary
 
 _VALID_DIRS = ("concepts/", "entities/", "topics/")
 _VALID_RELATIONS = {"duplicate", "extends", "related", "contradicts", "unrelated"}
