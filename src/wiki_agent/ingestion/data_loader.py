@@ -1,15 +1,16 @@
 import hashlib
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from wiki_agent.log import emit_event, get_logger
 
-logger=get_logger("DATALOADER")
+logger = get_logger("DATALOADER")
 
-class FileModality(str, Enum):
+
+class FileModality(StrEnum):
     TEXT = "text"
     IMAGE = "image"
     RICH = "rich"  # 多模态/富文档（PDF、docx 等）
@@ -65,6 +66,7 @@ class LoadSummary(BaseModel):
             if f.modality == FileModality.TEXT:
                 yield f
 
+
 class DataLoader:
     """文件发现 → 属性提取 → 文本内容读取。
 
@@ -75,23 +77,37 @@ class DataLoader:
     ext_to_modality: dict[str, FileModality] = {
         # ── 纯文本 ──
         ".txt": FileModality.TEXT,
-        ".py": FileModality.TEXT,       ".js": FileModality.TEXT,
-        ".json": FileModality.TEXT,     ".yaml": FileModality.TEXT,
-        ".yml": FileModality.TEXT,      ".csv": FileModality.TEXT,
-        ".xml": FileModality.TEXT,      ".html": FileModality.TEXT,
-        ".log": FileModality.TEXT,      ".sql": FileModality.TEXT,
-        ".sh": FileModality.TEXT,       ".toml": FileModality.TEXT,
-        ".cfg": FileModality.TEXT,      ".ini": FileModality.TEXT,
-        ".env": FileModality.TEXT,      ".rst": FileModality.TEXT,
+        ".py": FileModality.TEXT,
+        ".js": FileModality.TEXT,
+        ".json": FileModality.TEXT,
+        ".yaml": FileModality.TEXT,
+        ".yml": FileModality.TEXT,
+        ".csv": FileModality.TEXT,
+        ".xml": FileModality.TEXT,
+        ".html": FileModality.TEXT,
+        ".log": FileModality.TEXT,
+        ".sql": FileModality.TEXT,
+        ".sh": FileModality.TEXT,
+        ".toml": FileModality.TEXT,
+        ".cfg": FileModality.TEXT,
+        ".ini": FileModality.TEXT,
+        ".env": FileModality.TEXT,
+        ".rst": FileModality.TEXT,
         # ── 图片 ──
-        ".jpg": FileModality.IMAGE,     ".jpeg": FileModality.IMAGE,
-        ".png": FileModality.IMAGE,     ".gif": FileModality.IMAGE,
-        ".webp": FileModality.IMAGE,    ".svg": FileModality.IMAGE,
+        ".jpg": FileModality.IMAGE,
+        ".jpeg": FileModality.IMAGE,
+        ".png": FileModality.IMAGE,
+        ".gif": FileModality.IMAGE,
+        ".webp": FileModality.IMAGE,
+        ".svg": FileModality.IMAGE,
         ".bmp": FileModality.IMAGE,
         # ── 多模态/富文档 ──
-        ".md": FileModality.RICH,       ".markdown": FileModality.RICH,
-        ".pdf": FileModality.RICH,      ".doc": FileModality.RICH,
-        ".docx": FileModality.RICH,     ".pptx": FileModality.RICH,
+        ".md": FileModality.RICH,
+        ".markdown": FileModality.RICH,
+        ".pdf": FileModality.RICH,
+        ".doc": FileModality.RICH,
+        ".docx": FileModality.RICH,
+        ".pptx": FileModality.RICH,
         ".xlsx": FileModality.RICH,
     }
 
@@ -119,8 +135,15 @@ class DataLoader:
 
     # 递归扫描默认排除的目录——历史运行档案/版本控制/虚拟环境
     # 不是源材料（.logs/runs 里有几百个历史页面副本，吃进去会污染 wiki）
-    _EXCLUDED_DIRS = {".git", ".venv", ".logs", ".watch", "__pycache__",
-                      ".pytest_cache", "node_modules"}
+    _EXCLUDED_DIRS = {
+        ".git",
+        ".venv",
+        ".logs",
+        ".watch",
+        "__pycache__",
+        ".pytest_cache",
+        "node_modules",
+    }
 
     def load_dir(
         self,
@@ -149,9 +172,9 @@ class DataLoader:
 
         if recursive:
             paths = [
-                p for p in dir_path.rglob("*")
-                if p.is_file()
-                and not any(part in self._EXCLUDED_DIRS for part in p.parts)
+                p
+                for p in dir_path.rglob("*")
+                if p.is_file() and not any(part in self._EXCLUDED_DIRS for part in p.parts)
             ]
         else:
             paths = [p for p in dir_path.glob("*") if p.is_file()]
@@ -176,7 +199,9 @@ class DataLoader:
 
         return summary
 
-    def _get_file_properties(self, file: Path, summary: LoadSummary | None = None) -> RawFileProperties | None:
+    def _get_file_properties(
+        self, file: Path, summary: LoadSummary | None = None
+    ) -> RawFileProperties | None:
         """单文件属性提取 + 文本内容读取。
 
         Args:
@@ -209,8 +234,7 @@ class DataLoader:
             # 空内容拦截: 0 字节 / 纯空白 / JSON 空容器（[]、{}）
             if self._is_empty_content(content):
                 self._skip(file, f"空文件（{size}B，无有效内容）", summary)
-                emit_event("file_skipped", file=file.name, reason="empty",
-                           size_bytes=size)
+                emit_event("file_skipped", file=file.name, reason="empty", size_bytes=size)
                 return None
 
         content_hash = None
@@ -251,8 +275,7 @@ class DataLoader:
         if summary is not None:
             summary.skipped.append({"name": file.name, "path": str(file), "reason": reason})
 
-
-    def _is_empty_content(self,content: str) -> bool:
+    def _is_empty_content(self, content: str) -> bool:
         """判断文本内容是否"语义为空"。
 
         - 空串 / 纯空白
@@ -273,6 +296,7 @@ class DataLoader:
             return True
         try:
             import json
+
             data = json.loads(stripped)
             if isinstance(data, (list, dict)) and len(data) == 0:
                 return True
@@ -280,8 +304,7 @@ class DataLoader:
             pass
         return False
 
-
-    def _hash_file(self,file: Path) -> str | None:
+    def _hash_file(self, file: Path) -> str | None:
         """计算文件 SHA256——去重追踪。
 
         Args:
@@ -312,7 +335,9 @@ if __name__ == "__main__":
     summary = loader.load_dir(target)
 
     print(f"\n扫描: {target}")
-    print(f"发现: {summary.total_found}  加载: {summary.loaded_count}  跳过: {summary.skipped_count}")
+    print(
+        f"发现: {summary.total_found}  加载: {summary.loaded_count}  跳过: {summary.skipped_count}"
+    )
     print(f"模态: {summary.by_modality}")
 
     print("\n── 文本文件预览 ──")

@@ -5,20 +5,16 @@ Run:
     uv run pytest test/test_messages.py -v
 """
 
-from datetime import datetime
-
-import pytest
-
 from wiki_agent.message import (
     LLMResponse,
     Message,
     ToolCall,
 )
 
-
 # ════════════════════════════════════════════════════════════════
 #  ToolCall
 # ════════════════════════════════════════════════════════════════
+
 
 class TestToolCall:
     def test_create(self):
@@ -35,6 +31,7 @@ class TestToolCall:
 # ════════════════════════════════════════════════════════════════
 #  Message — construction
 # ════════════════════════════════════════════════════════════════
+
 
 class TestMessageConstruction:
     def test_defaults(self):
@@ -82,6 +79,7 @@ class TestMessageConstruction:
 # ════════════════════════════════════════════════════════════════
 #  Message — openai_schema
 # ════════════════════════════════════════════════════════════════
+
 
 class TestOpenAISchema:
     # ── 纯文本 ──────────────────────────────────────────
@@ -180,7 +178,9 @@ class TestOpenAISchema:
 
     def test_tool_result(self):
         schema = Message(
-            role="tool", content="result", tool_call_id="call_7",
+            role="tool",
+            content="result",
+            tool_call_id="call_7",
         ).openai_schema
         assert schema == {
             "role": "tool",
@@ -220,6 +220,7 @@ class TestOpenAISchema:
 # ════════════════════════════════════════════════════════════════
 #  Message — text_schema
 # ════════════════════════════════════════════════════════════════
+
 
 class TestTextSchema:
     def test_user_text_structure(self):
@@ -278,6 +279,7 @@ class TestTextSchema:
 # ════════════════════════════════════════════════════════════════
 #  Message — create_from_openai (逆序列化)
 # ════════════════════════════════════════════════════════════════
+
 
 class TestCreateFromOpenAI:
     def test_roundtrip_user_message(self):
@@ -357,6 +359,7 @@ class TestCreateFromOpenAI:
 #  LLMResponse
 # ════════════════════════════════════════════════════════════════
 
+
 class TestLLMResponse:
     def test_defaults(self):
         resp = LLMResponse()
@@ -385,6 +388,7 @@ class TestLLMResponse:
 #  Integration — 模拟一次对话的完整 schema 流转
 # ════════════════════════════════════════════════════════════════
 
+
 class TestFullConversationSchema:
     def test_multimodal_conversation(self):
         """模拟用户发图提问 → assistant 调用工具 → tool 返回结果。"""
@@ -407,21 +411,25 @@ class TestFullConversationSchema:
         assert user_content[1]["type"] == "image_url"
 
         # assistant (with tool_call)
-        messages.append(Message(
-            role="assistant",
-            content="",
-            tool_calls=[ToolCall(id="tc1", name="vision", arguments={"action": "describe"})],
-        ))
+        messages.append(
+            Message(
+                role="assistant",
+                content="",
+                tool_calls=[ToolCall(id="tc1", name="vision", arguments={"action": "describe"})],
+            )
+        )
         asst_schema = messages[2].openai_schema
         assert asst_schema["role"] == "assistant"
         assert len(asst_schema["tool_calls"]) == 1
 
         # tool result
-        messages.append(Message(
-            role="tool",
-            content="一只猫坐在窗台上",
-            tool_call_id="tc1",
-        ))
+        messages.append(
+            Message(
+                role="tool",
+                content="一只猫坐在窗台上",
+                tool_call_id="tc1",
+            )
+        )
         tool_schema = messages[3].openai_schema
         assert tool_schema["role"] == "tool"
         assert tool_schema["tool_call_id"] == "tc1"

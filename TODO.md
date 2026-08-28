@@ -2,18 +2,30 @@
 
 > 主体链路已可用；以下聚焦真正未完成、需要验证或值得优化的事项。历史验收记录保留在下方归档区。
 
-## 📌 当前状态快照（2026-08-28）
+## 📌 当前状态快照（2026-08-29）
 
 - **核心链路已完成**：compile / watch / refine / surgery / ReAct QA；日志、事件流、trace、异常队列、页面质检和追加式流式渲染已落地。
 - **当前最高风险**：extract 没有来源保真校验，仍可能把低信息量或错误源文件编成知识页面。
 - **当前最高收益**：让 `schema.md` 成为目录路由、prompt、校验和扫描的单一权威，减少多处硬编码漂移。
 - **CLI 缺口**：`/debug` 尚未实现；`/compile`、`/refine`、`/queue`、`/resolve` 已实现。
-- **工程状态**：使用 `uv` 管理依赖与质量工具；`ruff check .` 和完整测试已通过（`264 passed, 5 skipped`）。工作区状态以当前开发者改动为准。
+- **工程状态**：使用 `uv` 管理依赖与质量工具；Ruff、Pyright 均已全绿，完整测试已通过（`266 passed, 5 skipped`）。
+
+## 🚀 最终交付收口（当前阶段）
+
+> 目标不是继续扩功能，而是在干净环境可安装、可验证、可回归地交付当前单用户本地版。以下 P0 全部完成后，才进入 release candidate。
+
+- [x] **消除唯一 Pyright 阻塞**：移除项目不需要的 `httpx2` 兼容分支，并为 MCP SDK 未声明的运行时 `ping()` 做窄化兼容；`uv run pyright` 已零错误（2026-08-29）。
+- [ ] **将 `docs/` 纳入版本控制**：从 `.gitignore` 移除 `docs/`；保留快速开始、系统设计、评测说明和最少 ADR，使代码与说明同版本演进。
+- [x] **建立最小 CI**：已新增 `.github/workflows/ci.yml`，GitHub Actions 在干净环境依次执行 `uv sync --locked --group dev`、Ruff format/lint、Pyright、Pytest、`uv build`，并安装 wheel 后运行 `wiki-agent --help`；本地已按同流程验证通过（2026-08-29）。
+- [ ] **完成发布安装验收**：本地模拟干净环境安装构建出的 wheel；验证 CLI help、配置缺失时的明确报错，以及最小 compile/scan 流程。
+- [ ] **确定评测资产边界**：将公开 golden manifest、harness 与小样本版本化；继续忽略个人笔记、生成 Wiki 与大型 run 产物，并记录来源/hash/筛选规则。
+
+**下一步：推送后观察首次远程 CI。** 本地质量门禁与 wheel smoke test 已全绿；首次 GitHub Actions 运行后，若 runner 环境暴露平台差异，再针对性修正 workflow。
 
 ### 本轮清理说明
 
 - watch 已改为 watchdog/inotify + 定期全量 reconcile，README 中“未来再换事件驱动”的旧描述应一并修正。
-- 图片已在转换层完成 assets 资产化；MinerUConverter 顶部“图片路径修正未完成”和相关 TODO 注释已过时，应随代码清理。
+- 图片已在转换层完成 assets 资产化，转换器注释已同步清理。
 - 抽象基类中的 `pass`（hook、agent、tool、planner）是接口默认实现，不作为待办。
 
 ---
@@ -22,30 +34,9 @@
 
 > 当前系统已具备单用户本地 Agent 的完整主链路；下一阶段重点不是扩功能，而是补齐**可安装、可配置、可验证、可长期维护**的工程边界。基线：`264 passed, 5 skipped`。
 
-### 临时：Compiler 目录重构蓝图（已完成，2026-08-28）
-
-目标：按依赖方向重组编译器，保留 `models` 与 `wiki` 为无 LLM 的底层，
-将 LLM 阶段、工作流和结构手术隔离；旧模块路径在迁移期仅作兼容 re-export。
-
-```text
-compiler/
-├── models.py
-├── extraction/             # Extractor 与抽取提示词
-├── integration/            # search / analyze / plan / execute 与其组装
-├── wiki/                   # frontmatter、链接、页面规范化与质量扫描
-├── workflows/              # ingest、refine、失败队列与 source retry
-└── surgery/                # proposal / review / resolve / execute / rewrite / transaction
-```
-
-- [x] 建立新子包与稳定公开 API；抽取、集成、Wiki、工作流与手术包已落位，旧路径只做兼容转发（2026-08-28）。
-- [x] 将 `stages.py` 分为 search、analyze、plan、execute；LLM 输出解析和运行时校验保持单一来源（`integration/{parse,checks,common}` + `wiki/rules` 一份页面闸门；`_NO_THINKING` 收进 models 单源）（2026-08-28）。
-- [x] 将 `parse.py`、`checks.py` 按 integration 与 wiki 两类职责拆分，禁止跨层复制校验规则（→ `wiki/{frontmatter,rules}` + `integration/{parse,checks}`；根 parse/checks 降级为 facade）（2026-08-28）。
-- [x] 将 `surgery.py` 分为 proposal、review、resolve、execute、rewrite、transaction；LLM 只存在于 proposal/review，备份回滚只存在于 transaction（新增 `surgery/common` 收证据收集；`__init__` 补 `_index_overview` 导出，修复 surgery_wiki ImportError）（2026-08-28）。
-- [x] 更新入口、测试和文档；最后删除兼容模块并完成全量测试（2026-08-28：src/test/scripts/evals 消费者全部改指新真实路径后，删除 13 个兼容 facade——根 parse/checks/stages/normalize/quality/pipeline/refine/extract/failures/integrator/retry_service + integration/stages + surgery/service；`266 passed` 全绿、ruff 干净、无环导入）。蓝图全部完成。
-
 ### P0：交付与配置正确性
 
-- [ ] **将 `docs/` 纳入版本控制**：从 `.gitignore` 移除 `docs/`；README、设计说明、评测报告、ADR 必须与代码同版本演进。
+- [ ] **将 `docs/` 纳入版本控制**：见“最终交付收口”。
 - [x] **修正直接依赖声明并清理遗留依赖**：`rich`、`pydantic-settings` 已声明为直接依赖；已移除 RAG 遗留的 `qdrant-client` 等无引用依赖，并合并 pytest 开发依赖（2026-08-28）。
 - [x] **提供正式安装型 CLI**：入口已迁至 `src/wiki_agent/cli.py`，`wiki-agent` 已在 `[project.scripts]` 注册；`scripts/` 只保留开发、运维脚本，评测脚本已归入 `evals/`（2026-08-28）。
 - [x] **修复配置加载语义**：`PathsConfig` 读取指定 `.env`；`load_config(overrides=...)` 已深合并，并有优先级与嵌套覆盖回归测试（2026-08-28）。
@@ -58,17 +49,17 @@ compiler/
 
 ### P1：质量门禁与可复现交付
 
-- [ ] **建立最小 CI**：干净环境 `uv sync`、单测、ruff lint/format check、类型检查、wheel 构建与安装后 `wiki-agent --help` smoke test。
+- [x] **建立最小 CI**：见“最终交付收口”（2026-08-29）。
 - [ ] **引入统一代码规范**：使用 ruff format + ruff check；首次格式化作为独立机械提交，后续由 CI/pre-commit 约束。
-- [ ] **渐进式类型检查**：引入 pyright 或 mypy，先覆盖 config/compiler/tools/versioning 等关键边界；新增代码不再扩大 `Any`、裸 `dict` 和未标注公共 API。
-- [ ] **明确评测资产的版本策略**：golden manifest、harness、公开小样本进入 Git；个人笔记、生成 wiki、大型运行产物留在 ignore，保存 hash/来源/筛选规则以保证可复现。
+- [ ] **渐进式类型检查**：先完成发布门禁要求的 Pyright 零错误；随后再提高 `config/compiler/tools/versioning` 等关键边界的严格级别，新增代码不扩大 `Any`、裸 `dict` 和未标注公共 API。
+- [ ] **明确评测资产的版本策略**：见“最终交付收口”。
 
 ### P1：按职责拆分热点模块（按修改痛点渐进进行，不一次性重构）
 
 - [ ] `command/commands.py`：拆为 router、命令 DTO/报告、session/queue/wiki/history 子命令；命令层只做输入输出适配，工作流放应用服务。
 - [ ] `agent/react.py`：逐步分离主循环、工具执行、会话生命周期、idle compact；保留 `ReActAgent` 作为外观。
-- [x] `compiler/stages.py`：按 search/analyze/plan/execute 分拆；共享解析和运行时校验保持单一来源（2026-08-28，见上方蓝图；`integration/{search,analyze,plan,execute,common,parse,checks}` + `wiki/rules`）。
-- [x] `compiler/surgery.py`：按 proposal/review/resolve/execute/rewrite 分拆，避免高风险原子操作与 LLM 提案逻辑耦合在单文件（2026-08-28；LLM 只在 proposal/review，备份回滚只在 transaction）。
+- [x] `compiler/stages.py`：已按 search/analyze/plan/execute 分拆；共享解析与运行时校验集中在 `integration/{common,parse,checks}`，Wiki 规则集中在 `wiki/rules.py`（2026-08-29）。
+- [x] `compiler/surgery.py`：已拆为 proposal/review/resolve/execute/rewrite/transaction；LLM 仅存在于 proposal/review，备份回滚仅存在于 transaction（2026-08-29）。
 - [ ] `CompilePipeline`：在下一次需要替换 converter/chunker/extractor 或测试隔离时，引入组件 factory/协议注入；当前不为抽象而抽象。
 - [ ] LLM JSON 边界使用 Pydantic DTO 校验后再转领域 dataclass；不要求把全部内部模型 Pydantic 化。
 
@@ -179,7 +170,7 @@ compiler/
 | ~~空白 source 页检测~~                      | ~~高~~ | -        | ✅ 已完成——Extractor 摘要为空跳过写入 + scan_wiki 兜底                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | **超参数验证与配置化**                 | 中      | ⭐⭐⭐⭐ | **主要完成（2026-08-28）**——`CompileConfig`、`AgentConfig`、`WatchConfig` 与 `RetryConfig` 已统一并接入入口；LLM timeout、上下文/token 预算、并发、ratio、watch 时间窗和 LLM/source retry 退避均有启动期校验。**仍待处理**：① MCP timeout 的配置与边界；② chunk/阶段 token、并发等待、retry、timeout、length 截断、cache 命中、watch 积压等运行指标；③ TextChunker min/max、正文最小长度等参数评估；④ 真实不同模型上下文下的 length 截断验收。                                                             |
 | ~~watch 事件驱动化~~                        | -       | -        | ✅**已实现（2026-08-16）**——FileWatcher 重写为 watchdog/inotify 事件驱动：事件 → 每路径去抖（settle 2s，新事件重置定时器——编辑器原子保存的 2-4 事件合并）→ 稳定性复读（隔 2s 内容不变才定案 = 轮询版两段确认的事件等价，防半写文件）→ 变更门（相似度阈值）→ 入队。**回退路径保留**：每 60s 全量扫描 _poll_once（inotify 队列溢出/丢事件的安全网 + 启动 reconcile）。删除检测双入口（事件 settle 检查 + 回退 state diff）都产出 ("delete", name)，consumer 契约不变。确认时间 10s → 4s。watchdog 依赖入 pyproject；test_watcher 4 项（事件变更/微调跳过/事件删除/回退删除） |
-| ~~watch 模式（生产消费）~~                  | -       | -        | ✅ 已完成——轮询版生产消费：FileWatcher（轮询扫描+两段确认去抖+相似度变更门）→ asyncio.Queue → WatchConsumer（单 worker 串行 ingest）。单文件流水线抽成 compiler/pipeline.py::CompilePipeline（compile_folder 与 watch 共用入口）；state.json 是持久层（重启 reconcile 数据源）                                                                                                                                                                                                                                                                                                              |
+| ~~watch 模式（生产消费）~~                  | -       | -        | ✅ 已完成——FileWatcher（事件驱动 + 定期 reconcile）→ asyncio.Queue → WatchConsumer（单 worker 串行 ingest）。单文件流水线由 `compiler/workflows/ingest.py::CompilePipeline` 共用；state.json 是持久层（重启 reconcile 数据源）                                                                                                                                                                                                                                                                                                              |
 | ~~Extract 摘要重构（自由叙事 + 滚动重写）~~ | -       | -        | ✅ 已完成——① 两模式统一自由叙事 + 5 锚点（不做实体抽取）② rolling 每轮全量重写 + 不重复靠语义 ③ digest 防膨胀双保险（max_tokens 硬限 3000 + prompt 软限 1500）④ synthesis 章节结构线索（BUG-3）⑤ 矛盾标注锚点（遗漏-1）                                                                                                                                                                                                                                                                                                                                                                  |
 | ~~图片路径修正~~                            | -       | -        | ✅ 已实现——**转换层资产化**（MinerUConverter 加 assets_dir 参数）：caption 时图片复制到 wiki/assets/（内容 hash 命名去重）+ 回填 `assets/<hash>.png` 相对路径——wiki 自包含可渲染。时机在 caption 是唯一正确点（MinerU 临时目录用完即清）。CompilePipeline 已透传 assets_dir。3 项单测过                                                                                                                                                                                                                                                                                             |
 | ~~重复文件去重~~                            | -       | -        | ✅ 部分完成——watch 模式基于 SHA256 state 跳过未变文件；compile 全量模式仍需显式去重                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -244,7 +235,7 @@ compiler/
 | --------------------------------- | ------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ~~页面 goal 字段（目标自描述）~~ | -            | -        | ✅**已实现**——四处落地：① new_page_system 加 goal 字段规范（可检验的主题范围，方向锚）② update_system 保守更新规则（默认不动，使命真变才改）③ refine 润色师带本页 goal/gaps/summary 判断**目标完成度**（从"只补链接"升级为"按目标精炼"）④ analyze 候选 meta 带 goal（goal 相同 = duplicate 强信号）。PolisherPlanner 自己从 wiki_dir 读本页 frontmatter（needs_current_page=True 接口）                                                   |
 | ~~/refine 自编译~~               | -            | -        | ✅ 已完成——scripts/refine_wiki.py +`CompilePipeline(mode="refine")`。**只拿不放**三层防护：prompt 独立（润色师角色，不继承策展人）→ 契约校验（ALLOWED_DISPOSITIONS={"update"} 拦 new）→ pipeline 兜底过滤（非 self-update 丢弃转 noop）。收益：全库 refine 任意顺序、断点续跑、天然幂等。prompts 模块组（compiler/prompts/：compile 全量 + refine 覆写 plan）；test/test_refine.py 11 项测试                                                    |
-| **页面合并/拆分/删除**      | **高** | ⭐⭐⭐⭐ | **主体已实现**（`compiler/surgery.py` + `scripts/surgery_wiki.py` + CLI `/refine`）——粗提 → 复判 → 依赖消解 → 备份/原子执行；merge/delete 已落地，create/trim 已按依赖序列实现并支持分组回滚、index/related/sources 同步。`/refine` 默认执行，`--dry-run` 显式预览。**剩余**：补拆分 scan 回归测试。 |
+| **页面合并/拆分/删除**      | **高** | ⭐⭐⭐⭐ | **主体已实现**（`compiler/surgery/` + `scripts/surgery_wiki.py` + CLI `/refine`）——粗提 → 复判 → 依赖消解 → 备份/原子执行；merge/delete 已落地，create/trim 已按依赖序列实现并支持分组回滚、index/related/sources 同步。`/refine` 默认执行，`--dry-run` 显式预览。**剩余**：补拆分 scan 回归测试。 |
 | 源文件删除处理                    | **高** | ⭐⭐⭐⭐ | ✅**已实现**（内联在 watch/consumer.py——消费者职责：wiki 写操作归消费者，生产消费契约）。规则：sources 只含被删文件→删页+全库正文引用换别名；还含其他→保留仅移除条目。**watcher 只检测入队**（`("delete", name)`），consumer 执行清理 + `watch_source_deleted` 事件。端到端单测过                                                                                                                                                       |
 | 死链扫描                          | 中           | ⭐⭐⭐   | **主体已完成**——`scan_wiki` 已检查正文 wikilink、根目录垃圾、index 幽灵、related 缺失和 Disputed 标注；已增加独立 `/scan`、frontmatter 语义检查和完全重复页面自动清理；compile/refine/CLI `/scan` 已复用同一报告格式。剩余：① 死链需区分“页面尚未生成/已删除”与“模型幻觉目录”；② 孤岛检测。                                                                                                                            |
 | 孤岛检测                          | 中           | ⭐⭐⭐   | 没有任何页面链接到它的页面 → 建议升级为独立概念 or 合并                                                                                                                                                                                                                                                                                                                                                                                                    |

@@ -24,13 +24,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.log.tracer import current_trace_id
 from wiki_agent.log.logger import get_logger
+from wiki_agent.log.tracer import current_trace_id
 
 logger = get_logger("EVENTS")
 
 # 模块级单例——进程内唯一事件日志
-_event_log: "EventLog | None" = None
+_event_log: EventLog | None = None
 
 
 class EventLog:
@@ -72,8 +72,7 @@ class EventLog:
             # 机器通道丢事件必须可见（run 结束有 WARNING 汇总）
             self.dropped += 1
             if self.dropped % 10 == 1:  # 每 10 条警告一次，不刷屏
-                logger.warning(
-                    "事件写盘失败（已丢 %d 条）: %s", self.dropped, self._path)
+                logger.warning("事件写盘失败（已丢 %d 条）: %s", self.dropped, self._path)
 
 
 def setup_event_log(path: str | Path | None) -> None:

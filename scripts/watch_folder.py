@@ -18,10 +18,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import load_config
 from wiki_agent.llm.factory import create_llm, create_vlm
-from wiki_agent.compiler.pipeline import CompilePipeline
-from wiki_agent.log import begin_trace, configure_logging, emit_event, setup_event_log
+from wiki_agent.log import begin_trace, configure_logging, setup_event_log
 from wiki_agent.watch.consumer import WatchConsumer
 from wiki_agent.watch.state import WatchState
 from wiki_agent.watch.watcher import FileWatcher
@@ -50,19 +50,27 @@ async def main(source_dir: str):
 
     # ── 初始化 ─────────────────────────────────────────────
     cfg = load_config(project_root=PROJECT_ROOT)
-    llm = create_llm(cfg.llm)
-    vlm = create_vlm(cfg.vlm)
+    llm = create_llm(cfg.llm, cfg.retry)
+    vlm = create_vlm(cfg.vlm, cfg.retry)
 
-    pipeline = CompilePipeline(llm=llm, vlm=vlm, wiki_dir=WIKI_DIR)
+    pipeline = CompilePipeline(llm=llm, vlm=vlm, wiki_dir=WIKI_DIR, compile_config=cfg.compile)
     state = WatchState(WIKI_DIR / ".watch" / "state.json")
     queue: asyncio.Queue = asyncio.Queue()
 
-    watcher = FileWatcher(source_path, queue, state, wiki_dir=WIKI_DIR)
+    watcher = FileWatcher(
+        source_path,
+        queue,
+        state,
+        wiki_dir=WIKI_DIR,
+        settle_window=cfg.watch.settle_window,
+        stability_delay=cfg.watch.stability_delay,
+        fallback_interval=cfg.watch.fallback_interval,
+        similarity_threshold=cfg.watch.similarity_threshold,
+    )
     consumer = WatchConsumer(queue, pipeline, state, wiki_dir=WIKI_DIR)
 
     print(f"watch 模式启动: {source_path}")
-    print("检测: inotify 事件驱动（去抖 2s + 稳定性复读 2s）"
-          " + 60s 回退全量扫描兜底")
+    print("检测: inotify 事件驱动（去抖 2s + 稳定性复读 2s） + 60s 回退全量扫描兜底")
     print(f"事件流: {run_dir / 'events.jsonl'}")
 
     # 启动 reconcile: 先扫一轮存量变化（无变更则静默）

@@ -27,12 +27,13 @@ def _new_file(src: Path, name: str = "note.md", content: str = "hello") -> Path:
 
 def test_event_path_change_detection():
     """事件路径: 文件变化 → settle → 稳定性复读 → 入队（大改动）。"""
+
     async def run():
         tmp = Path(tempfile.mkdtemp())
         src, state, queue = _make_env(tmp)
-        watcher = FileWatcher(src, queue, state,
-                              settle_window=0.1, stability_delay=0.1,
-                              fallback_interval=3600)
+        watcher = FileWatcher(
+            src, queue, state, settle_window=0.1, stability_delay=0.1, fallback_interval=3600
+        )
         # 先建立已知状态（新文件两段确认需 2 轮扫描）
         f = _new_file(src, content="原文内容" * 20)
         await watcher._poll_once()
@@ -49,17 +50,19 @@ def test_event_path_change_detection():
         assert not queue.empty(), "大改动应入队"
         item = queue.get_nowait()
         assert str(item) == str(f)
+
     asyncio.run(run())
 
 
 def test_event_path_micro_change_skipped():
     """事件路径: 微调（相似度高）跳过变更门。"""
+
     async def run():
         tmp = Path(tempfile.mkdtemp())
         src, state, queue = _make_env(tmp)
-        watcher = FileWatcher(src, queue, state,
-                              settle_window=0.1, stability_delay=0.1,
-                              fallback_interval=3600)
+        watcher = FileWatcher(
+            src, queue, state, settle_window=0.1, stability_delay=0.1, fallback_interval=3600
+        )
         base = "这是关于迭代器的基础内容" * 15
         f = _new_file(src, content=base)
         await watcher._poll_once()  # 建立已知状态（两段确认 2 轮）
@@ -72,11 +75,13 @@ def test_event_path_micro_change_skipped():
         watcher._notify(str(f))
         await asyncio.sleep(0.5)
         assert queue.empty(), "微调应被变更门跳过"
+
     asyncio.run(run())
 
 
 def test_fallback_path_delete_detection():
     """回退路径: 文件删除 → state drop + delete 事件入队。"""
+
     async def run():
         tmp = Path(tempfile.mkdtemp())
         src, state, queue = _make_env(tmp)
@@ -91,17 +96,19 @@ def test_fallback_path_delete_detection():
         assert any(q.startswith("delete:note.md") for q in queued)
         item = queue.get_nowait()
         assert item[0] == "delete" and item[1] == "note.md"
+
     asyncio.run(run())
 
 
 def test_event_path_delete_detection():
     """事件路径: 文件消失 → settle 检查发现 → delete 入队。"""
+
     async def run():
         tmp = Path(tempfile.mkdtemp())
         src, state, queue = _make_env(tmp)
-        watcher = FileWatcher(src, queue, state,
-                              settle_window=0.1, stability_delay=0.1,
-                              fallback_interval=3600)
+        watcher = FileWatcher(
+            src, queue, state, settle_window=0.1, stability_delay=0.1, fallback_interval=3600
+        )
         f = _new_file(src, "note.md", "内容")
         await watcher._poll_once()
         await watcher._poll_once()
@@ -114,11 +121,13 @@ def test_event_path_delete_detection():
         await asyncio.sleep(0.5)
         item = queue.get_nowait()
         assert item[0] == "delete" and item[1] == "note.md"
+
     asyncio.run(run())
 
 
 if __name__ == "__main__":
     import traceback
+
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:

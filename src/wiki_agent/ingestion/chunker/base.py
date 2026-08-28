@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime
 
 from pydantic import BaseModel, Field
 
 from wiki_agent.ingestion.converter.base import ConvertedFile
 
-
 # ════════════════════════════════════════════════════════════════
 #  ChunkedFileProperties — 统一输出
 # ════════════════════════════════════════════════════════════════
+
 
 class ChunkedFileProperties(BaseModel):
     """单个 chunk——一段完整语义单元。"""
@@ -27,6 +26,7 @@ class ChunkedFileProperties(BaseModel):
 # ════════════════════════════════════════════════════════════════
 #  BaseChunker — 抽象接口
 # ════════════════════════════════════════════════════════════════
+
 
 class BaseChunker(ABC):
     """文本 → chunk 的切割器。

@@ -5,17 +5,16 @@
 - HandleableError: 带 handler 可修复 → 修好再试一次 → 再失败视为 Fatal
 - FatalError:      配置/编程/鉴权错误 → 不重试不修复，直接炸到边界
 
-重试壳的唯一实现是 llm/retry.py::async_invoke_with_retry——
-本模块只定义类型与翻译函数（通用 retry_with_backoff 曾是第二
-个壳，零调用点已删——LLM 场景的重试需求带 check 回调/修正消息，
-通用壳是没人用的泛化）。
+LLM 的重试壳是 llm/retry.py::async_invoke_with_retry；工具的重试
+策略在 tools/registry.py 边界按副作用等级执行。两者不嵌套：LLM 调用
+和工具调用各自只拥有一个重试边界。
 """
 
 from __future__ import annotations
 
 import asyncio
-from enum import Enum
-from typing import Awaitable,Callable
+from collections.abc import Awaitable, Callable
+from enum import StrEnum
 
 from wiki_agent.log import get_logger
 
@@ -67,16 +66,16 @@ class FatalError(WikiAgentError):
         self.cause = cause
 
 
-class IngestStage(str, Enum):
+class IngestStage(StrEnum):
     """编译链路各阶段——统一命名，杜绝魔法字符串。"""
 
-    LOAD = "load"          # 文件发现
-    CONVERT = "convert"    # 格式转换
-    EXTRACT = "extract"    # 摘要
-    SEARCH = "search"      # 候选检索
-    ANALYZE = "analyze"    # 关系分析
-    PLAN = "plan"          # 决策
-    EXECUTE = "execute"    # 页面生成
+    LOAD = "load"  # 文件发现
+    CONVERT = "convert"  # 格式转换
+    EXTRACT = "extract"  # 摘要
+    SEARCH = "search"  # 候选检索
+    ANALYZE = "analyze"  # 关系分析
+    PLAN = "plan"  # 决策
+    EXECUTE = "execute"  # 页面生成
 
 
 class IngestError(WikiAgentError):
@@ -93,13 +92,38 @@ class IngestError(WikiAgentError):
     边界统一收集，汇总按 stage 分组，落机器可读清单。
     """
 
-    def __init__(self, stage: IngestStage, message: str = "",
-                 *, source: str = "", cause: Exception | None = None,
-                 raw: str = ""):
+    def __init__(
+        self,
+        stage: IngestStage,
+        message: str = "",
+        *,
+        source: str = "",
+        cause: Exception | None = None,
+        raw: str = "",
+        error_code: str = "ingest_error",
+        error_class: str | None = None,
+        retry_policy: str | None = None,
+    ):
         super().__init__(message)
         self.stage = stage
         self.source = source
         self.cause = cause
+        self.error_code = error_code
+        if error_class is None or retry_policy is None:
+            if isinstance(cause, RetryableError):
+                error_class = error_class or "transient"
+                retry_policy = retry_policy or "auto_retry"
+            elif isinstance(cause, HandleableError):
+                error_class = error_class or "recoverable"
+                retry_policy = retry_policy or "retry_once"
+            elif isinstance(cause, FatalError):
+                error_class = error_class or "permanent"
+                retry_policy = retry_policy or "manual"
+            else:
+                error_class = error_class or "unknown"
+                retry_policy = retry_policy or "manual"
+        self.error_class = error_class
+        self.retry_policy = retry_policy
         # LLM 原始输出（如有）——失败现场数据。
         # 边界在 compile_failure/refine_failure 事件里全量落盘
         # （事件流是唯一机器事实源）。
@@ -109,6 +133,7 @@ class IngestError(WikiAgentError):
 # ════════════════════════════════════════════════════════════
 #  OpenAI/HTTP 异常翻译——把传输层异常映射到我们的类型
 # ════════════════════════════════════════════════════════════
+
 
 def translate_openai_error(exc: Exception) -> WikiAgentError:
     """把 OpenAI SDK 异常翻译成三分类。
@@ -130,21 +155,27 @@ def translate_openai_error(exc: Exception) -> WikiAgentError:
     """
     import openai
 
-    if isinstance(exc, (
-        openai.RateLimitError,
-        openai.APITimeoutError,
-        openai.APIConnectionError,
-        openai.InternalServerError,
-    )):
+    if isinstance(
+        exc,
+        (
+            openai.RateLimitError,
+            openai.APITimeoutError,
+            openai.APIConnectionError,
+            openai.InternalServerError,
+        ),
+    ):
         return RetryableError(f"限流或网络问题: {exc}", cause=exc)
-    if isinstance(exc, (
-        openai.AuthenticationError,
-        openai.PermissionDeniedError,
-        openai.NotFoundError,
-        openai.BadRequestError,
-        openai.UnprocessableEntityError,
-        openai.ConflictError,
-    )):
+    if isinstance(
+        exc,
+        (
+            openai.AuthenticationError,
+            openai.PermissionDeniedError,
+            openai.NotFoundError,
+            openai.BadRequestError,
+            openai.UnprocessableEntityError,
+            openai.ConflictError,
+        ),
+    ):
         return FatalError(f"请求本身有问题（检查 API key/模型名/参数）: {exc}", cause=exc)
     return RetryableError(f"LLM 调用异常: {exc}", cause=exc)
 

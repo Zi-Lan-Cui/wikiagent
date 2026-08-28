@@ -1,16 +1,14 @@
-from typing import List
+import re
 from datetime import datetime
 from pathlib import Path
-import re
 
-from wiki_agent.message import Message
+from wiki_agent.log import get_logger
+from wiki_agent.message import Message, find_first_legal_idx
 from wiki_agent.session import Session
-from wiki_agent.message import find_first_legal_idx
 from wiki_agent.utils.helpers import (
     ensure_dir,
     estimate_text_tokens,
 )
-from wiki_agent.log import get_logger
 
 logger = get_logger("CONTEXT_GOVERNOR")
 
@@ -44,8 +42,7 @@ class ContextGovernor:
     # 导航三件套是探索原语，输出已自限——不截断，模型需要完整结果决定下一步
     _PERSIST_EXEMPT_TOOLS = frozenset({"ReadFile", "Grep", "ListDir"})
 
-    def __init__(self, workspace: Path, agent_config=None,
-                 tool_ttl: dict[str, int] | None = None):
+    def __init__(self, workspace: Path, agent_config=None, tool_ttl: dict[str, int] | None = None):
         """初始化治理器。
 
         治理参数从 agent_config 取（E3 收编）——tool_ttl 保留
@@ -59,23 +56,23 @@ class ContextGovernor:
         self.workspace = workspace
         self.tmp_dir = self.workspace / "tmp"
         cfg = agent_config
-        ttl_seconds = (
-            (cfg.tool_result_ttl_minutes * 60) if cfg
-            else 30 * 60
+        ttl_seconds = (cfg.tool_result_ttl_minutes * 60) if cfg else 30 * 60
+        self._tool_ttl = (
+            tool_ttl
+            if tool_ttl is not None
+            else {
+                "ReadFile": ttl_seconds,
+                "Grep": ttl_seconds,
+                "ListDir": ttl_seconds,
+            }
         )
-        self._tool_ttl = tool_ttl if tool_ttl is not None else {
-            "ReadFile": ttl_seconds,
-            "Grep": ttl_seconds,
-            "ListDir": ttl_seconds,
-        }
         self._persist_length = cfg.tool_persist_length if cfg else 8_000
         self._safe_buffer = cfg.snip_safe_buffer if cfg else 1024
         self._snip_ratio = cfg.snip_ratio if cfg else 0.5
         self._inflight_target_ratio = cfg.inflight_target_ratio if cfg else 0.85
-        self._compact_min_chars = (
-            cfg.inflight_compact_min_chars if cfg else 500)
+        self._compact_min_chars = cfg.inflight_compact_min_chars if cfg else 500
 
-    def _merge_consecutive(self,messages:list[Message]):
+    def _merge_consecutive(self, messages: list[Message]):
         """
         合并连续相同 role 的消息。
 
@@ -88,20 +85,23 @@ class ContextGovernor:
         Returns:
             合并后的消息列表。
         """
-        merged:list[Message]=[]
+        merged: list[Message] = []
         for m in messages:
-            if(merged
-                    and merged[-1].role==m.role
-                    and m.role in self._MERGEABLE_ROLES
-                    and not m.tool_calls
-                    and not merged[-1].tool_calls 
+            if (
+                merged
+                and merged[-1].role == m.role
+                and m.role in self._MERGEABLE_ROLES
+                and not m.tool_calls
+                and not merged[-1].tool_calls
             ):
-                merged[-1].content+="\n\n"+m.content
+                merged[-1].content += "\n\n" + m.content
             else:
                 merged.append(m)
         return merged
 
-    def prepare_for_llm(self,session:Session,messages:list[Message],agent_config)->list[Message]:
+    def prepare_for_llm(
+        self, session: Session, messages: list[Message], agent_config
+    ) -> list[Message]:
         """请求前消息治理流水线。
 
         repair 出现两次（前后各一）:
@@ -117,20 +117,19 @@ class ContextGovernor:
         Returns:
             治理后的消息列表（可安全发给 LLM）。
         """
-        messages=self._merge_consecutive(messages)
-        messages=self._repair_broken_history(messages=messages)
-        self._process_tool_results(session=session,messages=messages)
+        messages = self._merge_consecutive(messages)
+        messages = self._repair_broken_history(messages=messages)
+        self._process_tool_results(session=session, messages=messages)
         self._expire_stale_tool_results(messages=messages)
-        messages=self._snip_by_tokens(messages,agent_config=agent_config)
-        self._compact_inflight_overflow(messages=messages,
-                                       agent_config=agent_config)
-        messages=self._repair_broken_history(messages=messages)
+        messages = self._snip_by_tokens(messages, agent_config=agent_config)
+        self._compact_inflight_overflow(messages=messages, agent_config=agent_config)
+        messages = self._repair_broken_history(messages=messages)
         return messages
 
-    def _get_budget(self,context_window,max_tokens):
-        return context_window-max_tokens-self._safe_buffer
+    def _get_budget(self, context_window, max_tokens):
+        return context_window - max_tokens - self._safe_buffer
 
-    def _snip_by_tokens(self,messages:list[Message],agent_config):
+    def _snip_by_tokens(self, messages: list[Message], agent_config):
         """
         按 token 预算截断对话部分（保留 system）。
 
@@ -144,38 +143,38 @@ class ContextGovernor:
         Returns:
             截断后的消息列表（预算不够时原样返回）。
         """
-        budget=self._get_budget(agent_config.context_windows,agent_config.max_tokens)
-        if budget<=0:
+        budget = self._get_budget(agent_config.context_windows, agent_config.max_tokens)
+        if budget <= 0:
             return messages
 
-        system_messages=[m for m in messages if m.role=="system"]
-        system_tokens=estimate_text_tokens(
-            text="\n".join([m.text_schema for m in system_messages if m.role=="system"])
+        system_messages = [m for m in messages if m.role == "system"]
+        system_tokens = estimate_text_tokens(
+            text="\n".join([m.text_schema for m in system_messages if m.role == "system"])
         )
 
-        conversation_messages=[m for m in messages if m.role!="system"]
-        conversation_tokens=estimate_text_tokens(
-            text="\n".join([m.text_schema for m in conversation_messages if m.role!="system"])
+        conversation_messages = [m for m in messages if m.role != "system"]
+        conversation_tokens = estimate_text_tokens(
+            text="\n".join([m.text_schema for m in conversation_messages if m.role != "system"])
         )
 
-        if system_tokens>budget:
+        if system_tokens > budget:
             return messages
 
-        target=(budget-system_tokens)*self._snip_ratio
+        target = (budget - system_tokens) * self._snip_ratio
 
-        if conversation_tokens<=target:
+        if conversation_tokens <= target:
             return messages
 
         # 逆序收集（最近的在末尾停下），再反转恢复时间顺序。
         # 旧代码收集完直接拼接——输出是倒序对话（问题3回答3问题2...），
         # LLM 读到逆时间线。find_first_legal_idx 在同一列表上做，
         # 两个操作都要在反转后的时间序上进行。
-        saved_tokens=0
-        saved_messages_reversed:list[Message]=[]
+        saved_tokens = 0
+        saved_messages_reversed: list[Message] = []
         for message in reversed(conversation_messages):
-            message_token=estimate_text_tokens(message.text_schema)
-            saved_tokens+=message_token
-            if saved_tokens<target:
+            message_token = estimate_text_tokens(message.text_schema)
+            saved_tokens += message_token
+            if saved_tokens < target:
                 saved_messages_reversed.append(message)
             else:
                 break
@@ -183,19 +182,20 @@ class ContextGovernor:
         if not saved_messages_reversed:
             return messages
 
-        saved_messages=list(reversed(saved_messages_reversed))
+        saved_messages = list(reversed(saved_messages_reversed))
 
-        idx=find_first_legal_idx(saved_messages,extend_to_user=True)
-        return system_messages+saved_messages[idx:]
+        idx = find_first_legal_idx(saved_messages, extend_to_user=True)
+        return system_messages + saved_messages[idx:]
 
     # ── 窗口维度紧凑化（空间不够就丢可重取结果）──────────────
-
 
     def _total_tokens(self, messages: list[Message]) -> int:
         return sum(estimate_text_tokens(m.text_schema) for m in messages)
 
     def _compact_inflight_overflow(
-        self, messages: list[Message], agent_config,
+        self,
+        messages: list[Message],
+        agent_config,
     ) -> None:
         """窗口维度驱逐——snip 后仍超预算时，丢弃可重取工具结果。
 
@@ -211,8 +211,7 @@ class ContextGovernor:
             messages: 消息列表（就地修改 tool 消息内容）。
             agent_config: AgentConfig（预算参数）。
         """
-        budget = self._get_budget(agent_config.context_windows,
-                                  agent_config.max_tokens)
+        budget = self._get_budget(agent_config.context_windows, agent_config.max_tokens)
         if budget <= 0:
             return
         estimate = self._total_tokens(messages)
@@ -222,7 +221,8 @@ class ContextGovernor:
         target = int(budget * self._inflight_target_ratio)
 
         tool_indexes = [
-            i for i, m in enumerate(messages)
+            i
+            for i, m in enumerate(messages)
             if m.role == "tool"
             and m.tool_name in self._tool_ttl
             and m.tool_name not in _INTERNAL_TRANSIENT_TOOLS
@@ -246,8 +246,7 @@ class ContextGovernor:
                 f"[先前 {name} 工具结果已紧凑化以适应上下文——"
                 f"调用已完成，如需内容请重新调用 {name}。]"
             )
-            logger.info("工具结果紧凑化: %s（%d → %d 字符）",
-                        name, old_len, len(m.content))
+            logger.info("工具结果紧凑化: %s（%d → %d 字符）", name, old_len, len(m.content))
             estimate = self._total_tokens(messages)
             if estimate <= target:
                 break
@@ -266,11 +265,7 @@ class ContextGovernor:
         """
         return re.sub(r"[^\w\-]", "_", session_key) or "default"
 
-    def _persist_tool_result(
-            self,
-            session:Session,
-            message:Message
-    ) -> str:
+    def _persist_tool_result(self, session: Session, message: Message) -> str:
         """完整结果写文件。
 
         Args:
@@ -287,25 +282,25 @@ class ContextGovernor:
             file.write_text(message.content)
         return f"tmp/{safe_key}/{file.name}"
 
-    def _maybe_persist_tool_result(
-            self,
-            session:Session,
-            message:Message
-    ):
+    def _maybe_persist_tool_result(self, session: Session, message: Message):
         # 豁免工具（ReadFile/Grep/ListDir）不转存——导航原语需要完整结果
         if message.tool_name in self._PERSIST_EXEMPT_TOOLS:
             return
-        content_length=len(message.content)
+        content_length = len(message.content)
         if content_length > self._persist_length:
             rel = self._persist_tool_result(
                 session=session,
                 message=message,
             )
             message.content = (
-                f"工具结果较长，已转存: {rel}"
-                f"（用 ReadFile 传入该相对路径可读取完整内容）"
+                f"工具结果较长，已转存: {rel}（用 ReadFile 传入该相对路径可读取完整内容）"
             )
-    def _process_tool_results(self,session:Session,messages:list[Message],):
+
+    def _process_tool_results(
+        self,
+        session: Session,
+        messages: list[Message],
+    ):
         """
         处理工具结果——超长结果转存文件，内容替换为指针路径。
 
@@ -314,9 +309,9 @@ class ContextGovernor:
             messages: 消息列表（就地修改超长 tool 消息）。
         """
         for message in messages:
-            if message.role!="tool":
+            if message.role != "tool":
                 continue
-            self._maybe_persist_tool_result(session,message)
+            self._maybe_persist_tool_result(session, message)
 
     # ── 工具结果新鲜度 ─────────────────────────────────────
 
@@ -377,11 +372,14 @@ class ContextGovernor:
             # 标记已驱逐（幂等）——重复 prepare 不二次替换
             if "已过期" in message.content:
                 continue
-            logger.info("工具结果过期驱逐: %s（%s）", message.tool_name,
-                        _age_label(self._tool_age_seconds(message)))
+            logger.info(
+                "工具结果过期驱逐: %s（%s）",
+                message.tool_name,
+                _age_label(self._tool_age_seconds(message)),
+            )
             message.content = reason
 
-    def _repair_broken_history(self,messages:list[Message]):
+    def _repair_broken_history(self, messages: list[Message]):
         """修复断裂的历史——孤儿调用补占位 / 孤儿结果移除。
 
         Args:
@@ -390,15 +388,15 @@ class ContextGovernor:
         Returns:
             修复后的消息列表。
         """
-        messages=_repair_orphan_tool_call(messages=messages)
-        messages=_remove_orphan_tool_result(messages=messages)
+        messages = _repair_orphan_tool_call(messages=messages)
+        messages = _remove_orphan_tool_result(messages=messages)
         return messages
-
 
 
 # ════════════════════════════════════════════════════════════
 #  历史修复工具（模块级——原 _repair_broken_history 的嵌套闭包）
 # ════════════════════════════════════════════════════════════
+
 
 def _get_orphan_tool_call_ids(messages: list[Message]) -> set[str]:
     """提取有调用无结果的 tool id（意外终止/截断造成）。
@@ -460,11 +458,13 @@ def _repair_orphan_tool_call(messages: list[Message]) -> list[Message]:
         if m.role == "assistant" and m.tool_calls:
             for tc in m.tool_calls:
                 if tc.id in orphan_ids:
-                    repaired.append(Message(
-                        role="tool",
-                        content="该工具执行中被意外打断，没有返回结果",
-                        tool_call_id=tc.id,
-                    ))
+                    repaired.append(
+                        Message(
+                            role="tool",
+                            content="该工具执行中被意外打断，没有返回结果",
+                            tool_call_id=tc.id,
+                        )
+                    )
     return repaired
 
 
@@ -479,7 +479,5 @@ def _remove_orphan_tool_result(messages: list[Message]) -> list[Message]:
     """
     orphan_idx = _get_orphan_tool_result_idx(messages)
     if orphan_idx:
-        return [
-            m for idx, m in enumerate(messages) if idx not in orphan_idx
-        ]
+        return [m for idx, m in enumerate(messages) if idx not in orphan_idx]
     return messages
