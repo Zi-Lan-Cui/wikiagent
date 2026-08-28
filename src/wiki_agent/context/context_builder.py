@@ -1,41 +1,36 @@
 """上下文构建——system prompt 组装 + history 拼接。
 
-system prompt 五块（build 阶段的核心扩展）:
+system prompt 四块（build 阶段的核心扩展）:
 1. 用户画像       memory.md（Dreamer 加工）
 2. wiki 环境      purpose.md（知识库使命）+ schema.md（目录规范）
                   + index.md（页面地图，行截断）
 3. 工具描述       tool registry
-4. 对话摘要       session.last_summery（压缩产物）
-5. 待处理纠错     corrections.md（未处理清单——回答时避开已知错误页）
-
-块顺序 = 变化频率排序（prompt cache 前缀纪律）: 位置 N 的变化
-只失效 N 之后——最易变的放最后。摘要变化时机（consolidate）
-恰好也是 history 重放窗口变化时机，放中间零额外代价；纠错是
-用户事件（独立于 history 变化），放最尾——记录一次纠错只 miss
-纠错块自身，工具描述与历史前缀照样命中。
+4. 对话摘要       session.last_summary（压缩产物）
+纠错不再插入 system prompt，而是作为 history 之后、当前问题之前的
+动态消息注入，避免改变稳定 system 前缀。
 """
 
 from pathlib import Path
 
-from wiki_agent.tools import ToolRegistry
 from wiki_agent.memory import MemoryStore
 from wiki_agent.message import Message
 from wiki_agent.session import Session
+from wiki_agent.tools import ToolRegistry
 
 
 class ContextBuilder:
     """从 system_prompt, session.history, tool_description 构建初始信息。"""
 
     def __init__(
-            self,
-            system_prompt: str,
-            tool_registery: ToolRegistry,
-            memory_store: MemoryStore,
-            wiki_dir: str | Path | None = None,
-            agent_config=None,
-        ):
+        self,
+        system_prompt: str,
+        tool_registry: ToolRegistry,
+        memory_store: MemoryStore,
+        wiki_dir: str | Path | None = None,
+        agent_config=None,
+    ):
         self.system_prompt = system_prompt
-        self.tool_registery = tool_registery
+        self.tool_registry = tool_registry
         self.memory_store = memory_store
         self.wiki_dir = Path(wiki_dir) if wiki_dir else None
         # 截断上限从 agent_config 取（E3 收编）——None 时用默认
@@ -121,19 +116,19 @@ class ContextBuilder:
             return "（暂无待处理纠错）"
         text = "\n".join(items)
         if len(text) > self._corrections_chars:
-            text = text[:self._corrections_chars] + "\n...（纠错清单过长已截断）"
+            text = text[: self._corrections_chars] + "\n...（纠错清单过长已截断）"
         return text
 
     def _build_system_prompt(
-            self,
-            tools_description: str,
-            last_summery: str,
-        ) -> str:
+        self,
+        tools_description: str,
+        last_summary: str,
+    ) -> str:
         """组装完整 system prompt（五块填充）。
 
         Args:
             tools_description: 工具描述文本。
-            last_summery: 对话摘要。
+            last_summary: 对话摘要。
 
         Returns:
             填充后的 system prompt 文本。
@@ -141,18 +136,19 @@ class ContextBuilder:
         return self.system_prompt.format(
             user_description=self._load_user_description(),
             wiki_context=self._load_wiki_context(),
-            corrections=self._load_corrections(),
+            # 兼容旧的外部模板；正式 ReAct system prompt 已移除该占位符。
+            corrections="",
             tools_description=tools_description,
-            summery=last_summery,
+            summary=last_summary,
         )
 
     def build_messages(
-            self,
-            session: Session,
-            current_message: Message,
-            last_summery: str,
-            history: list[Message],
-        ) -> list[Message]:
+        self,
+        session: Session,
+        current_message: Message,
+        last_summary: str,
+        history: list[Message],
+    ) -> list[Message]:
         """构建请求消息——system + 历史 + 当前输入。
 
         职责边界: 只做组装（system prompt 五块 + history 拼接 +
@@ -163,7 +159,7 @@ class ContextBuilder:
         Args:
             session: 会话（供组装使用）。
             current_message: 当前用户消息（追加在末尾）。
-            last_summery: 对话摘要（进 system prompt）。
+            last_summary: 对话摘要（进 system prompt）。
             history: 未压缩历史消息（拼接在 system 之后）。
 
         Returns:
@@ -173,12 +169,24 @@ class ContextBuilder:
             Message(
                 role="system",
                 content=self._build_system_prompt(
-                    tools_description=self.tool_registery.get_all_description(),
-                    last_summery=last_summery,
-                )
+                    tools_description=self.tool_registry.get_all_description(),
+                    last_summary=last_summary,
+                ),
             )
         ]
         messages.extend(history)
+        corrections = self._load_corrections()
+        if corrections != "（暂无待处理纠错）":
+            messages.append(
+                Message(
+                    role="system",
+                    content=(
+                        "# 当前 Wiki 纠错提示\n"
+                        "以下内容是用户提交但尚未完成修复的纠错。回答时不要把相关页面的争议内容当作确定事实；"
+                        "如问题涉及这些页面，明确提示存在待核实问题。\n\n" + corrections
+                    ),
+                )
+            )
         messages.append(current_message)
 
         return messages

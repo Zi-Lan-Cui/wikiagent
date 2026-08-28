@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from watchdog.events import FileSystemEventHandler
+
 # Observer 是平台分发的运行时变量（非 class 定义）——类型注解见字段处
 from watchdog.observers import Observer
 
@@ -46,8 +47,8 @@ _CONFIRM_ROUNDS = 2
 _MIN_SIMILARITY = 0.7
 
 # 事件路径时序（秒）
-_SETTLE_WINDOW = 2.0      # 事件静默窗口——编辑器保存的原子操作在此内吸收
-_STABILITY_DELAY = 2.0    # 稳定性复读间隔——第二次"看到同一内容"才定案
+_SETTLE_WINDOW = 2.0  # 事件静默窗口——编辑器保存的原子操作在此内吸收
+_STABILITY_DELAY = 2.0  # 稳定性复读间隔——第二次"看到同一内容"才定案
 _FALLBACK_INTERVAL = 60.0  # 回退全量扫描周期——inotify 溢出/丢事件的安全网
 
 
@@ -58,7 +59,7 @@ class _FsEventHandler(FileSystemEventHandler):
     src 消失 + dest 出现（MOVED），两个路径都要通知。
     """
 
-    def __init__(self, watcher: "FileWatcher"):
+    def __init__(self, watcher: FileWatcher):
         self._watcher = watcher
 
     def on_any_event(self, event):
@@ -101,7 +102,7 @@ class FileWatcher:
         self._loop: asyncio.AbstractEventLoop | None = None
         # 注解用 BaseObserver（TYPE_CHECKING 导入）——Observer 在 watchdog 6
         # 是运行时变量赋值（平台分发），Pylance 禁止变量进类型表达式
-        self._observer: "BaseObserver | None" = None
+        self._observer: BaseObserver | None = None
 
     # ── 事件桥（观察者线程侧）──────────────────────────────
 
@@ -128,6 +129,7 @@ class FileWatcher:
             True 表示扩展名受支持。
         """
         from wiki_agent.ingestion.data_loader import DataLoader
+
         return Path(path).suffix.lower() in DataLoader.ext_to_modality
 
     # ── 主循环 ─────────────────────────────────────────────
@@ -137,7 +139,10 @@ class FileWatcher:
         self._start_observer()
         logger.info(
             "watcher 启动（事件驱动）: %s（settle %.1fs, 稳定性 %.1fs, 回退扫描 %.0fs）",
-            self._root, self._settle, self._stability, self._fallback,
+            self._root,
+            self._settle,
+            self._stability,
+            self._fallback,
         )
         try:
             while True:
@@ -150,8 +155,7 @@ class FileWatcher:
         """启动 inotify 观察器。"""
         self._loop = asyncio.get_running_loop()
         self._observer = Observer()
-        self._observer.schedule(
-            _FsEventHandler(self), str(self._root), recursive=True)
+        self._observer.schedule(_FsEventHandler(self), str(self._root), recursive=True)
         self._observer.start()
         logger.info("inotify 观察器已启动: %s", self._root)
 
@@ -382,7 +386,10 @@ class FileWatcher:
         return False
 
     def _finalize_change(
-            self, st: FileState, content: str, digest: str,
+        self,
+        st: FileState,
+        content: str,
+        digest: str,
     ) -> None:
         """定案——把确认过的内容写进 state（两个入口共享）。
 

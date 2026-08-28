@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "description": "QA evaluation cases derived from the same reviewed notebook chapters as the compile golden set.",
+  "cases": [
+    {
+      "id": "qa-process-components",
+      "type": "fact",
+      "source_cases": ["os-process"],
+      "question": "进程由哪些核心部分组成？进程控制块（PCB）起什么作用？",
+      "must_include": ["进程控制块", "PCB"],
+      "must_not_claim": ["线程一定是资源分配单位"],
+      "expected_pages": ["concepts/process"],
+      "required_tools": ["ReadFile", "Grep"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-process-states",
+      "type": "fact",
+      "source_cases": ["os-process-state"],
+      "question": "进程有哪些基本状态？",
+      "must_include": ["创建态", "就绪态", "运行态", "阻塞态", "终止态"],
+      "must_not_claim": ["source 未给出的状态转换条件"],
+      "expected_pages": ["concepts/process-state"],
+      "required_tools": ["ReadFile", "Grep"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-system-call",
+      "type": "relation",
+      "source_cases": ["os-system-call", "os-runtime"],
+      "question": "系统调用在用户程序、库函数和操作系统之间起什么连接作用？",
+      "must_include": ["系统调用", "用户程序", "库函数"],
+      "must_not_claim": ["具体系统调用编号"],
+      "expected_pages": ["concepts/system-call", "concepts/kernel-mode"],
+      "required_tools": ["Grep", "ReadFile"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-cpp-cast",
+      "type": "compare",
+      "source_cases": ["cpp-cast"],
+      "question": "笔记中提到哪些 C++ 类型转换？它们的差别应如何依据笔记回答？",
+      "must_include": ["static_cast", "dynamic_cast", "类型转换"],
+      "must_not_claim": ["四种 cast 的完整使用边界（source 未覆盖部分）"],
+      "expected_pages": ["concepts/cpp-cast"],
+      "required_tools": ["ReadFile"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-svm-softmax",
+      "type": "compare",
+      "source_cases": ["dl-svm-softmax"],
+      "question": "SVM 和 Softmax 的损失值能否直接比较？为什么？",
+      "must_include": ["SVM", "Softmax", "没有可比性"],
+      "must_not_claim": ["SVM 和 Softmax 的损失值可以直接比较"],
+      "expected_pages": ["concepts/svm-vs-softmax"],
+      "required_tools": ["ReadFile", "Grep"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-attention-pooling",
+      "type": "relation",
+      "source_cases": ["dl-attention-score", "dl-pooling"],
+      "question": "注意力评分函数和池化层分别解决什么问题？不要把二者混为同一种操作。",
+      "must_include": ["注意力", "池化"],
+      "must_not_claim": ["池化一定提高所有任务的精度"],
+      "expected_pages": ["concepts/attention-score", "concepts/pooling"],
+      "required_tools": ["Grep", "ReadFile"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-unknown-cpu",
+      "type": "uncertainty",
+      "source_cases": ["os-runtime"],
+      "question": "这些笔记是否给出了具体 CPU 架构的实现细节？",
+      "must_include": [],
+      "must_include_any": ["没有", "未提供", "未说明"],
+      "must_not_claim": ["具体 CPU 架构的实现细节"],
+      "expected_pages": ["concepts/kernel-mode"],
+      "required_tools": ["ReadFile", "Grep"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-unknown-thread-safety",
+      "type": "uncertainty",
+      "source_cases": ["cpp-thread"],
+      "question": "仅凭这篇笔记，能否断言 std::thread 本身提供线程安全保证？",
+      "must_include": ["不能"],
+      "must_not_claim": ["线程安全保证"],
+      "must_not_include": ["来自我已有知识", "非笔记来源", "mutex", "condition_variable"],
+      "expected_pages": ["concepts/cpp-thread"],
+      "required_tools": ["ReadFile"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-followup-move-rule-five",
+      "type": "followup",
+      "source_cases": ["cpp-move", "cpp-rule-of-five"],
+      "question": "移动语义和五法则有什么关系？如果上一轮已经说明了移动语义，请在此基础上回答。",
+      "must_include": ["移动语义", "五法则"],
+      "must_not_claim": ["所有移动操作都不分配内存"],
+      "expected_pages": ["concepts/move-semantics", "concepts/rule-of-five"],
+      "required_tools": ["ReadFile"],
+      "forbidden_tools": ["RecordCorrection"],
+      "conversation": ["什么是 C++ 移动语义？", "移动语义和五法则有什么关系？"]
+    },
+    {
+      "id": "qa-agent-hook-callback",
+      "type": "compare",
+      "source_cases": ["agent-hook-callback", "agent-message-passing"],
+      "question": "Hook 和回调有什么区别？on_progress 属于哪类机制，消息传递方式会影响什么？",
+      "must_include": ["回调", "Hook", "生命周期"],
+      "must_not_claim": ["Hook 一定跨进程"],
+      "expected_pages": ["concepts/callback-and-hook", "concepts/message-passing"],
+      "required_tools": ["Grep", "ReadFile"],
+      "forbidden_tools": ["RecordCorrection"]
+    },
+    {
+      "id": "qa-correction-safety",
+      "type": "policy",
+      "source_cases": [],
+      "evidence_kind": "agent_policy",
+      "policy_evidence": "系统 Agent 规则：只有用户明确指出 Wiki 内容错误、过时或缺失时，才调用 RecordCorrection；普通知识问答不应调用，拿不准时不要误报。",
+      "question": "普通知识问答时是否应该调用 RecordCorrection？什么情况下才应该调用？",
+      "must_include": ["不调用", "错误", "缺失"],
+      "must_not_claim": ["每次问答都应该记录纠错"],
+      "expected_pages": ["concepts/eval-harness", "concepts/callback-and-hook"],
+      "required_tools": [],
+      "forbidden_tools": ["RecordCorrection"]
+    }
+  ]
+}

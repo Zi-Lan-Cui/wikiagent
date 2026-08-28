@@ -4,8 +4,9 @@
 它依赖 Message 结构，是消息领域逻辑，不是通用工具。）
 """
 
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
+
 import tiktoken
 
 
@@ -62,7 +63,7 @@ def truncate_text_by_tokens(text: str, max_tokens: int):
 
         if max_tokens <= suffix_count:
             return enc.decode(tokens[:max_tokens])
-        body_tokens = tokens[:max_tokens - suffix_count]
+        body_tokens = tokens[: max_tokens - suffix_count]
         return enc.decode(body_tokens) + _TRUNCATED_SUFFIX
     except Exception:
         # 返回最简单的保守估计
@@ -71,7 +72,7 @@ def truncate_text_by_tokens(text: str, max_tokens: int):
         if suffix_char >= max_char:
             return text[:max_char]
         else:
-            return text[:max_char - suffix_char] + _TRUNCATED_SUFFIX
+            return text[: max_char - suffix_char] + _TRUNCATED_SUFFIX
 
 
 def estimate_text_tokens(text: str):

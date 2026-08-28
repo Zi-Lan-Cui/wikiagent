@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 from wiki_agent.memory import MemoryStore
-from wiki_agent.tools import RecordCorrection
+from wiki_agent.tools import RecordCorrection, ToolRegistry
 
 
 def test_append_and_read_corrections():
@@ -20,8 +20,8 @@ def test_append_and_read_corrections():
     items = store.get_corrections()
     assert len(items) == 2
     assert "闭包捕获示例有误" in items[0]
-    assert "[s1]" in items[0]          # 带 session 标记
-    assert "yield from" in items[1]    # 第二条无 session 标记
+    assert "[s1]" in items[0]  # 带 session 标记
+    assert "yield from" in items[1]  # 第二条无 session 标记
 
 
 def test_corrections_file_separate_from_memory():
@@ -44,8 +44,11 @@ def test_record_correction_tool_executes():
     store = MemoryStore(workspace=tmp)
     tool = RecordCorrection(store)
 
-    out = asyncio.run(tool.execute(
-        page="concepts/lambda.md", issue="示例代码缩进错误"))
+    registry = ToolRegistry()
+    registry.register(tool)
+    out = asyncio.run(
+        registry.execute(tool.name, {"page": "concepts/lambda.md", "issue": "示例代码缩进错误"})
+    )
     assert "已记录" in out
     items = store.get_corrections()
     assert len(items) == 1
@@ -57,7 +60,9 @@ def test_record_correction_tool_empty_issue():
     tmp = Path(tempfile.mkdtemp())
     store = MemoryStore(workspace=tmp)
     tool = RecordCorrection(store)
-    out = asyncio.run(tool.execute(issue=""))
+    registry = ToolRegistry()
+    registry.register(tool)
+    out = asyncio.run(registry.execute(tool.name, {"issue": ""}))
     assert "未记录" in out
     assert store.get_corrections() == []
 
@@ -65,6 +70,7 @@ def test_record_correction_tool_empty_issue():
 def test_resolve_command_flow():
     """/resolve 裁决流——列出/accept/reject/keep 三态。"""
     import sys
+
     sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     from wiki_agent.command.commands import CommandContext, ResolveCommand
     from wiki_agent.session import Session
@@ -82,31 +88,54 @@ def test_resolve_command_flow():
     session = Session("t")
 
     # 列表
-    r = asyncio.run(cmd.execute(CommandContext(
-        raw="/resolve", key="resolve", args="", session=session, agent=agent)))
+    r = asyncio.run(
+        cmd.execute(
+            CommandContext(raw="/resolve", key="resolve", args="", session=session, agent=agent)
+        )
+    )
     assert "1." in r.text and "concepts/a.md" in r.text
     assert "2." in r.text
 
     # accept 第 1 条
-    r = asyncio.run(cmd.execute(CommandContext(
-        raw="/resolve accept 1", key="resolve", args="accept 1",
-        session=session, agent=agent)))
+    r = asyncio.run(
+        cmd.execute(
+            CommandContext(
+                raw="/resolve accept 1",
+                key="resolve",
+                args="accept 1",
+                session=session,
+                agent=agent,
+            )
+        )
+    )
     assert "已确认待修" in r.text
     items = agent.memory_store.get_corrections()
     assert "[已确认待修]" in items[0]
 
     # reject 第 2 条
-    r = asyncio.run(cmd.execute(CommandContext(
-        raw="/resolve reject 2", key="resolve", args="reject 2",
-        session=session, agent=agent)))
+    r = asyncio.run(
+        cmd.execute(
+            CommandContext(
+                raw="/resolve reject 2",
+                key="resolve",
+                args="reject 2",
+                session=session,
+                agent=agent,
+            )
+        )
+    )
     assert "已驳回" in r.text
     items = agent.memory_store.get_corrections()
     assert len(items) == 1 and "concepts/b.md" not in items[0]
 
     # keep 剩余那条
-    r = asyncio.run(cmd.execute(CommandContext(
-        raw="/resolve keep 1", key="resolve", args="keep 1",
-        session=session, agent=agent)))
+    r = asyncio.run(
+        cmd.execute(
+            CommandContext(
+                raw="/resolve keep 1", key="resolve", args="keep 1", session=session, agent=agent
+            )
+        )
+    )
     assert "存疑" in r.text
     assert "[存疑]" in agent.memory_store.get_corrections()[0]
 
@@ -114,6 +143,7 @@ def test_resolve_command_flow():
 def test_resolve_invalid_index():
     """序号无效——不崩。"""
     import sys
+
     sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     from wiki_agent.command.commands import CommandContext, ResolveCommand
     from wiki_agent.session import Session
@@ -125,14 +155,23 @@ def test_resolve_invalid_index():
     agent = _Agent()
     agent.memory_store = MemoryStore(workspace=tmp)
     cmd = ResolveCommand()
-    r = asyncio.run(cmd.execute(CommandContext(
-        raw="/resolve reject 99", key="resolve", args="reject 99",
-        session=Session("t"), agent=agent)))
+    r = asyncio.run(
+        cmd.execute(
+            CommandContext(
+                raw="/resolve reject 99",
+                key="resolve",
+                args="reject 99",
+                session=Session("t"),
+                agent=agent,
+            )
+        )
+    )
     assert "序号无效" in r.text
 
 
 if __name__ == "__main__":
     import traceback
+
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:

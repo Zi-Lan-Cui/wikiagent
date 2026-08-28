@@ -1,2 +1,1 @@
-from wiki_agent.session.session_manager import SessionManager
-from wiki_agent.session.session_manager import Session
+from wiki_agent.session.session_manager import Session, SessionManager

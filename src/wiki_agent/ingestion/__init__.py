@@ -1,7 +1,12 @@
+from wiki_agent.ingestion.chunker import (
+    BaseChunker,
+    ChunkedFileProperties,
+    TextChunker,
+)
 from wiki_agent.ingestion.converter import (
     BaseConverter,
-    Converter,
     ConvertedFile,
+    Converter,
     MinerUConverter,
 )
 from wiki_agent.ingestion.data_loader import (
@@ -9,9 +14,4 @@ from wiki_agent.ingestion.data_loader import (
     FileModality,
     LoadSummary,
     RawFileProperties,
-)
-from wiki_agent.ingestion.chunker import (
-    BaseChunker,
-    ChunkedFileProperties,
-    TextChunker,
 )

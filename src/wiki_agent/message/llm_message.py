@@ -1,8 +1,8 @@
-from typing import Any, List, Literal
+import json
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-from datetime import datetime
-import json
 
 
 class ToolCall(BaseModel):
@@ -93,10 +93,12 @@ class Message(BaseModel):
             {"type": "text", "text": self.content},
         ]
         for img in self.images:
-            parts.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{img}"},
-            })
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{img}"},
+                }
+            )
         return parts
 
     @property
@@ -160,16 +162,17 @@ class Message(BaseModel):
             tool_calls=tool_calls,
             tool_call_id=data.get("tool_call_id", ""),
         )
-            
+
+
 class LLMResponse(BaseModel):
-    role:str="assistant"
-    content:str=""
-    tool_calls:List[ToolCall]=Field(default_factory=list)
-    finish_reason:str=""
-    usage:dict=Field(default_factory=dict)
-    reasoning_content:str=""  # reasoning 模型思考段（编译流水线应禁用 thinking）
-    check_ok:bool=True        # 输出校验结果——retry 层填充（无 check 时恒 True）
-    check_reason:str=""       # 校验失败原因（check_ok=False 时非空）
+    role: str = "assistant"
+    content: str = ""
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    finish_reason: str = ""
+    usage: dict = Field(default_factory=dict)
+    reasoning_content: str = ""  # reasoning 模型思考段（编译流水线应禁用 thinking）
+    check_ok: bool = True  # 输出校验结果——retry 层填充（无 check 时恒 True）
+    check_reason: str = ""  # 校验失败原因（check_ok=False 时非空）
 
 
 def find_first_legal_idx(messages: list[Message], extend_to_user: bool = True):
@@ -201,9 +204,3 @@ def find_first_legal_idx(messages: list[Message], extend_to_user: bool = True):
         if extend_to_user and message.role == "user":
             return idx
     return start
-
-
-
-
-
-    

@@ -45,11 +45,10 @@ def test_finish_leaves_content_in_console():
     tmp = Path(tempfile.mkdtemp()) / "out.txt"
     r = TerminalRenderer(Console(file=open(tmp, "w", encoding="utf-8")))
     asyncio.run(r.on_run_start(_ctx()))
-    asyncio.run(r.on_stream_delta(_ctx(), "第一段\n"))   # 完整行即时打印
-    asyncio.run(r.on_tool_call_start(
-        _ctx(), "Grep", "c1", {"pattern": "x"}))   # flush 剩余缓冲
+    asyncio.run(r.on_stream_delta(_ctx(), "第一段\n"))  # 完整行即时打印
+    asyncio.run(r.on_tool_call_start(_ctx(), "Grep", "c1", {"pattern": "x"}))  # flush 剩余缓冲
     asyncio.run(r.on_stream_delta(_ctx(), "第二段"))
-    asyncio.run(r.on_run_end(_ctx()))   # 打印未闭合尾行
+    asyncio.run(r.on_run_end(_ctx()))  # 打印未闭合尾行
 
     # 收尾后缓冲清空
     assert r._text == ""
@@ -87,10 +86,10 @@ def test_fence_state_machine():
     asyncio.run(r.on_run_start(_ctx()))
     asyncio.run(r.on_stream_delta(_ctx(), "```python\nprint('a')\n```\n"))
     out = tmp.read_text(encoding="utf-8")
-    assert "print('a')" in out   # 代码内容已渲染
-    assert "```" not in out      # 块渲染隐藏 fence 标记
+    assert "print('a')" in out  # 代码内容已渲染
+    assert "```" not in out  # 块渲染隐藏 fence 标记
     assert r._in_fence is False  # 已闭合
-    assert r._fence_buf == []    # 缓冲已清空
+    assert r._fence_buf == []  # 缓冲已清空
 
 
 def test_unclosed_fence_flushed_as_block():
@@ -99,9 +98,8 @@ def test_unclosed_fence_flushed_as_block():
     r = TerminalRenderer(Console(file=open(tmp, "w", encoding="utf-8")))
     asyncio.run(r.on_run_start(_ctx()))
     asyncio.run(r.on_stream_delta(_ctx(), "```python\nprint('a')\n"))
-    assert r._in_fence is True   # 未闭合
-    asyncio.run(r.on_tool_call_start(
-        _ctx(), "Grep", "c1", {"pattern": "x"}))   # flush 触发假闭合
+    assert r._in_fence is True  # 未闭合
+    asyncio.run(r.on_tool_call_start(_ctx(), "Grep", "c1", {"pattern": "x"}))  # flush 触发假闭合
     out = tmp.read_text(encoding="utf-8")
     assert "print('a')" in out
     assert r._in_fence is False
@@ -112,17 +110,15 @@ def test_tool_result_timing_line():
     """工具行 + 结果行事件走渲染器不崩（输出到文件）。"""
     r = _renderer()
     asyncio.run(r.on_run_start(_ctx()))
-    asyncio.run(r.on_tool_call_start(
-        _ctx(), "ReadFile", "c1", {"file_path": "index.md"}))
-    asyncio.run(r.on_tool_result(
-        _ctx(), "ReadFile", "c1", "文件内容\n第二行\n"))
-    asyncio.run(r.on_tool_error(
-        _ctx(), "Grep", "c2", "正则错误"))
+    asyncio.run(r.on_tool_call_start(_ctx(), "ReadFile", "c1", {"file_path": "index.md"}))
+    asyncio.run(r.on_tool_result(_ctx(), "ReadFile", "c1", "文件内容\n第二行\n"))
+    asyncio.run(r.on_tool_error(_ctx(), "Grep", "c2", "正则错误"))
     asyncio.run(r.on_run_end(_ctx()))
 
 
 if __name__ == "__main__":
     import traceback
+
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:

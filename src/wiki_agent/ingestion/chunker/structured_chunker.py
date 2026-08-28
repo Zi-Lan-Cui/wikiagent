@@ -29,6 +29,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Sequence
 from datetime import datetime
 
 from wiki_agent.ingestion.chunker.base import BaseChunker, ChunkedFileProperties
@@ -92,17 +93,27 @@ class StructuredChunker(BaseChunker):
         for row in reader:
             batch_rows.append(row)
             if len(batch_rows) >= self._batch_size:
-                chunks.append(self._make_chunk(
-                    chunk_index, batch_rows, headers, file,
-                ))
+                chunks.append(
+                    self._make_chunk(
+                        chunk_index,
+                        batch_rows,
+                        headers,
+                        file,
+                    )
+                )
                 chunk_index += 1
                 batch_rows = []
 
         # 剩余行
         if batch_rows:
-            chunks.append(self._make_chunk(
-                chunk_index, batch_rows, headers, file,
-            ))
+            chunks.append(
+                self._make_chunk(
+                    chunk_index,
+                    batch_rows,
+                    headers,
+                    file,
+                )
+            )
 
         logger.info(f"CSV {file.name}: {chunk_index + 1} chunks")
         return chunks
@@ -134,9 +145,14 @@ class StructuredChunker(BaseChunker):
                 except json.JSONDecodeError:
                     logger.warning(f"JSONL 行解析失败: {line[:60]}...")
                     continue
-                chunks.append(self._make_chunk(
-                    chunk_index, item, [], file,
-                ))
+                chunks.append(
+                    self._make_chunk(
+                        chunk_index,
+                        item,
+                        [],
+                        file,
+                    )
+                )
                 chunk_index += 1
             return chunks
 
@@ -149,16 +165,26 @@ class StructuredChunker(BaseChunker):
 
         if isinstance(data, list):
             for item in data:
-                chunks.append(self._make_chunk(
-                    chunk_index, item, [], file,
-                ))
+                chunks.append(
+                    self._make_chunk(
+                        chunk_index,
+                        item,
+                        [],
+                        file,
+                    )
+                )
                 chunk_index += 1
 
         elif isinstance(data, dict):
             for key, value in data.items():
-                chunks.append(self._make_chunk(
-                    chunk_index, {key: value}, [], file,
-                ))
+                chunks.append(
+                    self._make_chunk(
+                        chunk_index,
+                        {key: value},
+                        [],
+                        file,
+                    )
+                )
                 chunk_index += 1
 
         else:
@@ -173,7 +199,7 @@ class StructuredChunker(BaseChunker):
         self,
         index: int,
         data: list[dict] | dict | object,
-        headers: list[str],
+        headers: Sequence[str],
         file: ConvertedFile,
     ) -> ChunkedFileProperties:
         """构造单个 chunk（JSON 序列化 + 元数据）。

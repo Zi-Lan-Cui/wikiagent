@@ -20,10 +20,10 @@ from pathlib import Path
 class FileState:
     """单个文件的已知状态。"""
 
-    hash: str = ""          # 已知内容哈希（sha256）
+    hash: str = ""  # 已知内容哈希（sha256）
     text: str | None = None  # 已 ingest 过的内容文本（None = 从未 ingest）
     pending_text: str | None = None  # 两段确认的第一段内容（待第二次确认）
-    pending_seen: int = 0   # pending 内容被看到的轮询次数
+    pending_seen: int = 0  # pending 内容被看到的轮询次数
     last_ingested_at: str = ""
 
     def to_dict(self) -> dict:
@@ -41,7 +41,7 @@ class FileState:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "FileState":
+    def from_dict(cls, d: dict) -> FileState:
         """从字典构造（读盘）。
 
         Args:
@@ -112,9 +112,7 @@ class WatchState:
         """原子写: 先写临时文件再 rename——避免中途崩溃留半个 JSON。"""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".json.tmp")
-        payload = {
-            path: st.to_dict() for path, st in self._entries.items()
-        }
+        payload = {path: st.to_dict() for path, st in self._entries.items()}
         tmp.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -127,6 +125,5 @@ class WatchState:
         except (FileNotFoundError, json.JSONDecodeError):
             return
         self._entries = {
-            path: FileState.from_dict(d)
-            for path, d in raw.items() if isinstance(d, dict)
+            path: FileState.from_dict(d) for path, d in raw.items() if isinstance(d, dict)
         }

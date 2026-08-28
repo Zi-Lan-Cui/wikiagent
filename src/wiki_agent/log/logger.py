@@ -8,24 +8,23 @@
 - ``configure_logging`` 是唯一配置入口，CLI 等入口启动时调用一次
 """
 
-from logging import Formatter
 import logging
 import sys
+from logging import Formatter
 
 ROOT_NAME = "wiki_agent"
 
 
 class ColorFormatter(Formatter):
-
     COLORS = {
-        logging.DEBUG:    '\033[90m',     # 灰色
-        logging.INFO:     '\033[32m',     # 绿色
-        logging.WARNING:  '\033[33m',     # 黄色
-        logging.ERROR:    '\033[31m',     # 红色
-        logging.CRITICAL: '\033[41;37m',  # 白字红底
+        logging.DEBUG: "\033[90m",  # 灰色
+        logging.INFO: "\033[32m",  # 绿色
+        logging.WARNING: "\033[33m",  # 黄色
+        logging.ERROR: "\033[31m",  # 红色
+        logging.CRITICAL: "\033[41;37m",  # 白字红底
     }
 
-    RESET = '\033[0m'
+    RESET = "\033[0m"
 
     def __init__(self, *args, use_color: bool = False, **kwargs):
         super().__init__(*args, **kwargs)

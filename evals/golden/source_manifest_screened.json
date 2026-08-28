@@ -1,0 +1,2187 @@
+{
+  "version": 1,
+  "description": "Sources passing deterministic screening; review entries remain in source_screening_120.json.",
+  "source_manifest": "evals/golden/source_manifest_120.json",
+  "sources": [
+    {
+      "id": "source-001",
+      "path": "Agent开发/HelloAgents/docs/api/agents/index.md",
+      "category": "Agent开发",
+      "title": "Agent系统 API 文档",
+      "chars": 12261,
+      "sha256": "7508afedb074c4f5d234561424505e6d89e2306e4cec318a3c964c2b4ab67d51",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 12261,
+        "lines": 713,
+        "content_lines": 542,
+        "headings": 116,
+        "code_fences": 56,
+        "links": 0,
+        "sha256": "7508afedb074c4f5d234561424505e6d89e2306e4cec318a3c964c2b4ab67d51",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-002",
+      "path": "Agent开发/HelloAgents/docs/api/memory/index.md",
+      "category": "Agent开发",
+      "title": "HelloAgents 记忆系统 API 文档",
+      "chars": 35922,
+      "sha256": "7cddb7a08b957b5867d01f507c4af11c70f5d834f2ac48fc24115e0a8934f8fc",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 35922,
+        "lines": 1674,
+        "content_lines": 1320,
+        "headings": 216,
+        "code_fences": 122,
+        "links": 6,
+        "sha256": "7cddb7a08b957b5867d01f507c4af11c70f5d834f2ac48fc24115e0a8934f8fc",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-003",
+      "path": "Agent开发/HelloAgents/docs/api/protocols/a2a_examples.md",
+      "category": "Agent开发",
+      "title": "A2A 协议使用示例",
+      "chars": 12880,
+      "sha256": "a3910a7e3a142b4d55ec3d3b6ec884a802157f49c8391eba314b1a0d9f2e1ce8",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 12880,
+        "lines": 570,
+        "content_lines": 444,
+        "headings": 56,
+        "code_fences": 36,
+        "links": 20,
+        "sha256": "a3910a7e3a142b4d55ec3d3b6ec884a802157f49c8391eba314b1a0d9f2e1ce8",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-004",
+      "path": "Agent开发/HelloAgents/docs/api/protocols/anp_examples.md",
+      "category": "Agent开发",
+      "title": "ANP 协议使用示例",
+      "chars": 15744,
+      "sha256": "723bc2ac24146b23e9db99170b6cacb304b3b2eeb1c1a36930d8f7b538c78d8e",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 15744,
+        "lines": 640,
+        "content_lines": 504,
+        "headings": 55,
+        "code_fences": 36,
+        "links": 33,
+        "sha256": "723bc2ac24146b23e9db99170b6cacb304b3b2eeb1c1a36930d8f7b538c78d8e",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-005",
+      "path": "Agent开发/HelloAgents/docs/api/rl/rewards.md",
+      "category": "Agent开发",
+      "title": "奖励函数API文档",
+      "chars": 8316,
+      "sha256": "39b3392a4a012390bef2d70b9c05cb27726bd920b40fef317ea5e2cdd88ca4b4",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 8316,
+        "lines": 472,
+        "content_lines": 339,
+        "headings": 58,
+        "code_fences": 44,
+        "links": 3,
+        "sha256": "39b3392a4a012390bef2d70b9c05cb27726bd920b40fef317ea5e2cdd88ca4b4",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-006",
+      "path": "Agent开发/HelloAgents/docs/api/rl/rl_training_tool.md",
+      "category": "Agent开发",
+      "title": "RLTrainingTool API文档",
+      "chars": 8198,
+      "sha256": "4b126f6f9267043fe835a9f4ab3b7661d66c7e3dd186e903b415eef897f7b020",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 8198,
+        "lines": 497,
+        "content_lines": 389,
+        "headings": 64,
+        "code_fences": 44,
+        "links": 4,
+        "sha256": "4b126f6f9267043fe835a9f4ab3b7661d66c7e3dd186e903b415eef897f7b020",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-007",
+      "path": "Agent开发/HelloAgents/docs/api/tools/index.md",
+      "category": "Agent开发",
+      "title": "工具系统 API 文档",
+      "chars": 9881,
+      "sha256": "91270dd7b67caa3922e66f582883bafde8baa8620244844cc108954204deeb4a",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 9881,
+        "lines": 464,
+        "content_lines": 348,
+        "headings": 63,
+        "code_fences": 38,
+        "links": 0,
+        "sha256": "91270dd7b67caa3922e66f582883bafde8baa8620244844cc108954204deeb4a",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-009",
+      "path": "Agent开发/RAG/文档拆分.md",
+      "category": "Agent开发",
+      "title": "文档拆分",
+      "chars": 10132,
+      "sha256": "2a7f7f0ea12daf52ef50444c577806a12eb0290b3cfb30a3152e4f3bb1a9d9d2",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 10132,
+        "lines": 312,
+        "content_lines": 246,
+        "headings": 12,
+        "code_fences": 10,
+        "links": 0,
+        "sha256": "2a7f7f0ea12daf52ef50444c577806a12eb0290b3cfb30a3152e4f3bb1a9d9d2",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-010",
+      "path": "Agent开发/hook和回调的区别.md",
+      "category": "Agent开发",
+      "title": "回调和 Hook 的区别",
+      "chars": 1684,
+      "sha256": "1593e2d08678816d6e181b2c5b384238688c67b106c0a206d8f2cdefbf547b09",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 1684,
+        "lines": 62,
+        "content_lines": 46,
+        "headings": 1,
+        "code_fences": 6,
+        "links": 0,
+        "sha256": "1593e2d08678816d6e181b2c5b384238688c67b106c0a206d8f2cdefbf547b09",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-012",
+      "path": "Agent开发/nanobot项目学习/nanobot状态机循环.md",
+      "category": "Agent开发",
+      "title": "nanobot 状态机流转",
+      "chars": 59713,
+      "sha256": "a0840caf4f848ab0f21ef4f9a98b876053d381b1e1f31ca7d0ecc9818550a467",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 59713,
+        "lines": 1424,
+        "content_lines": 1260,
+        "headings": 28,
+        "code_fences": 14,
+        "links": 0,
+        "sha256": "a0840caf4f848ab0f21ef4f9a98b876053d381b1e1f31ca7d0ecc9818550a467",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-015",
+      "path": "Agent开发/消息传递的手段.md",
+      "category": "Agent开发",
+      "title": "消息传递手段",
+      "chars": 617,
+      "sha256": "62805f9b39108fb6154775d5a1bc13d01cce0b04a4215c638cc6f55c2e1f31f0",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 617,
+        "lines": 24,
+        "content_lines": 18,
+        "headings": 2,
+        "code_fences": 0,
+        "links": 0,
+        "sha256": "62805f9b39108fb6154775d5a1bc13d01cce0b04a4215c638cc6f55c2e1f31f0",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-017",
+      "path": "C++/RTTI与动态类型转换.md",
+      "category": "C++",
+      "title": "RTTI与动态类型转换",
+      "chars": 3448,
+      "sha256": "aec65f2c01294c00c0bf80c1f30820b882583d6ce538697a04497f931c5dd762",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3448,
+        "lines": 144,
+        "content_lines": 91,
+        "headings": 12,
+        "code_fences": 12,
+        "links": 0,
+        "sha256": "9734be46442db01ba9d462ed3a6739b30f933a6d61da22f9cf7070caceba4631",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-018",
+      "path": "C++/cast转换.md",
+      "category": "C++",
+      "title": "类型转换机制",
+      "chars": 1345,
+      "sha256": "f7cac8b0a327c3cf0d3a386b821f11ed3ac31fe4859f204b061ea14155b895d9",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 1345,
+        "lines": 64,
+        "content_lines": 43,
+        "headings": 6,
+        "code_fences": 8,
+        "links": 0,
+        "sha256": "dad78d5bd87bdb66ffc99f725502a98fa28d43188c96a0fa3537afcf634d3195",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-019",
+      "path": "C++/书籍阅读笔记/C++_Core_Guidelines阅读/第三章 接口/运用依赖注入解耦合.md",
+      "category": "C++",
+      "title": "依赖注入与单例模式",
+      "chars": 2819,
+      "sha256": "6336d1f262a3f8fc7f54a29624d49b52535c8e9de7c618f02dec01ba93a93a1e",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2819,
+        "lines": 98,
+        "content_lines": 72,
+        "headings": 5,
+        "code_fences": 6,
+        "links": 0,
+        "sha256": "30bb493b05cecf0810b68a43d8f5c44a9eb8c369fa224393dec117f83c14f3e3",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-020",
+      "path": "C++/书籍阅读笔记/C++_primer_阅读/C++primer阅读笔记.md",
+      "category": "C++",
+      "title": "C++ Primer 阅读笔记",
+      "chars": 41419,
+      "sha256": "815312b12f92e75982f27357465812d0e8d1f5e2726547f2ae5c472572060e6c",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 41419,
+        "lines": 1319,
+        "content_lines": 841,
+        "headings": 116,
+        "code_fences": 156,
+        "links": 46,
+        "sha256": "815312b12f92e75982f27357465812d0e8d1f5e2726547f2ae5c472572060e6c",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-021",
+      "path": "C++/内存控制/如何为类对象数组分配内存并初始化.md",
+      "category": "C++",
+      "title": "如何为类对象数组分配内存并初始化",
+      "chars": 5112,
+      "sha256": "157061744d12ba99aeb1c95376335d3907213e3d3274bfc5d9be611e7bd08f47",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 5112,
+        "lines": 271,
+        "content_lines": 189,
+        "headings": 16,
+        "code_fences": 20,
+        "links": 0,
+        "sha256": "451cefacba5c10451abdded8d2f0bbf4b0055a93db09c3ed6dd32473453ece27",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-022",
+      "path": "C++/函数/Lambda函数.md",
+      "category": "C++",
+      "title": "Lambda 函数 |C++ 11",
+      "chars": 4968,
+      "sha256": "c06082f36a3850493c2d9295e8cc47fd037b08f791615eefc7e6729b664e922b",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 4968,
+        "lines": 181,
+        "content_lines": 121,
+        "headings": 15,
+        "code_fences": 14,
+        "links": 7,
+        "sha256": "c06082f36a3850493c2d9295e8cc47fd037b08f791615eefc7e6729b664e922b",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-024",
+      "path": "C++/标准库STL/STL源码剖析课程笔记.md",
+      "category": "C++",
+      "title": "STL源码剖析",
+      "chars": 2339,
+      "sha256": "ead234e90ae3a5766f83e49e7f905bf03bbbda9efce84e4564b7347c345fc75d",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2339,
+        "lines": 79,
+        "content_lines": 44,
+        "headings": 10,
+        "code_fences": 2,
+        "links": 11,
+        "sha256": "ead234e90ae3a5766f83e49e7f905bf03bbbda9efce84e4564b7347c345fc75d",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-025",
+      "path": "C++/标准库STL/hash函数的使用.md",
+      "category": "C++",
+      "title": "hash函数的使用",
+      "chars": 3854,
+      "sha256": "d79810247af1f3794075e7970d2bfa7f33115e647e0ac1486e1993700ed5b063",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3854,
+        "lines": 176,
+        "content_lines": 127,
+        "headings": 10,
+        "code_fences": 6,
+        "links": 0,
+        "sha256": "d79810247af1f3794075e7970d2bfa7f33115e647e0ac1486e1993700ed5b063",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-026",
+      "path": "C++/标准库STL/stack的使用.md",
+      "category": "C++",
+      "title": "stack使用",
+      "chars": 2635,
+      "sha256": "d8b71756f89a719be756a4361e8b8c87f3c4633f75a423016654f26bd5f46c7d",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2635,
+        "lines": 129,
+        "content_lines": 81,
+        "headings": 16,
+        "code_fences": 18,
+        "links": 0,
+        "sha256": "47db9a5a24665e3a9eba7e8ed193306c78af2ff3790de871c594bf3b1e9305ec",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-027",
+      "path": "C++/标准库STL/分配器以及对其实现的理解.md",
+      "category": "C++",
+      "title": "什么是分配器",
+      "chars": 14012,
+      "sha256": "571e06afcf00e2b8af302b1d3c073836ec6c798d5ccb38cdc23dcafd81e8795c",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 14012,
+        "lines": 483,
+        "content_lines": 340,
+        "headings": 11,
+        "code_fences": 30,
+        "links": 0,
+        "sha256": "705f263fa278b1be6995ab7323648c7658402d11f6d34078e3d1fb679b9ac816",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-028",
+      "path": "C++/移动语义.md",
+      "category": "C++",
+      "title": "移动语义",
+      "chars": 15638,
+      "sha256": "45a048ebdd605992cfd0d713f63f377850e7d3a2a7cd26972e12e0f5cfff569d",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 15638,
+        "lines": 686,
+        "content_lines": 485,
+        "headings": 23,
+        "code_fences": 46,
+        "links": 24,
+        "sha256": "d216d0587eaf4025dc22ea12e83e874ae170b42031ee765e477a3bea26c35b87",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-030",
+      "path": "C++/类/构造函数初始化.md",
+      "category": "C++",
+      "title": "构造函数初始化方法",
+      "chars": 2891,
+      "sha256": "c359de17fc4dc3308f01ff52e3ef5c54ab840cbaa06e59f003aabd0e041044cd",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2891,
+        "lines": 130,
+        "content_lines": 92,
+        "headings": 3,
+        "code_fences": 12,
+        "links": 3,
+        "sha256": "c359de17fc4dc3308f01ff52e3ef5c54ab840cbaa06e59f003aabd0e041044cd",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-031",
+      "path": "C++/继承/虚函数与纯虚函数.md",
+      "category": "C++",
+      "title": "虚函数与纯虚函数",
+      "chars": 3828,
+      "sha256": "4b6f01334ab548ae983511720a8f7291c91e06702d9a92bfcb0120470ea122c4",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3828,
+        "lines": 128,
+        "content_lines": 90,
+        "headings": 4,
+        "code_fences": 2,
+        "links": 0,
+        "sha256": "8eb9d0cedfce623e9731709a9e23d2598cc5a633199b7ed5254639ddb13a2d18",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-032",
+      "path": "C++/设计模式方法/单例模式.md",
+      "category": "C++",
+      "title": "单例模式",
+      "chars": 5897,
+      "sha256": "e095b8c6d16f73462b7371dbbaed076074c39eb543c6a49f19d674751fcb2aba",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 5897,
+        "lines": 343,
+        "content_lines": 246,
+        "headings": 10,
+        "code_fences": 16,
+        "links": 0,
+        "sha256": "62dddd387306ba05698dad1fb1a262efb78e9f43164e7fdcdc221d8e88bc4ed3",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-033",
+      "path": "C++/重载/较全的函数重载说明.md",
+      "category": "C++",
+      "title": "函数重载",
+      "chars": 11947,
+      "sha256": "606d2edd7d7350bffd694ada6aad494f3576ea541311a0f01d0beb1ef5425c31",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 11947,
+        "lines": 489,
+        "content_lines": 372,
+        "headings": 12,
+        "code_fences": 28,
+        "links": 17,
+        "sha256": "606d2edd7d7350bffd694ada6aad494f3576ea541311a0f01d0beb1ef5425c31",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-034",
+      "path": "C++/重载/较全的运算符重载说明.md",
+      "category": "C++",
+      "title": "运算符重载概述",
+      "chars": 8027,
+      "sha256": "a0f950ec9decd396108e892515eb50f661c7786b3d6935ade03e64cac0962076",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 8027,
+        "lines": 471,
+        "content_lines": 390,
+        "headings": 18,
+        "code_fences": 40,
+        "links": 4,
+        "sha256": "a0f950ec9decd396108e892515eb50f661c7786b3d6935ade03e64cac0962076",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-035",
+      "path": "C++/黑马程序员课程学习笔记.md",
+      "category": "C++",
+      "title": "黑马程序员课程学习笔记",
+      "chars": 41385,
+      "sha256": "58023f6d6a210269b02d50e2d87624c62a386b862080d77f90f2bec450c58094",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 41385,
+        "lines": 2214,
+        "content_lines": 1717,
+        "headings": 97,
+        "code_fences": 144,
+        "links": 6,
+        "sha256": "58023f6d6a210269b02d50e2d87624c62a386b862080d77f90f2bec450c58094",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-036",
+      "path": "C语言/C 语言易犯错误.md",
+      "category": "C语言",
+      "title": "C语言易犯错误",
+      "chars": 5213,
+      "sha256": "fafc91d89fd2b9fcdc8b3eb813ffed99e1bf7d221d050128df4fc8c6909ac28c",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 5213,
+        "lines": 146,
+        "content_lines": 109,
+        "headings": 1,
+        "code_fences": 18,
+        "links": 7,
+        "sha256": "fafc91d89fd2b9fcdc8b3eb813ffed99e1bf7d221d050128df4fc8c6909ac28c",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-037",
+      "path": "C语言/C规范问题/C预编译详解.md",
+      "category": "C语言",
+      "title": "C语言预编译详解",
+      "chars": 1261,
+      "sha256": "fd0f6a6860a38226c949f33fb26159bc8ce7b98b782ce06f39140b84d52ca353",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1261,
+        "lines": 54,
+        "content_lines": 38,
+        "headings": 3,
+        "code_fences": 4,
+        "links": 4,
+        "sha256": "fd0f6a6860a38226c949f33fb26159bc8ce7b98b782ce06f39140b84d52ca353",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-038",
+      "path": "C语言/C语言二级考试/公共通识部分.md",
+      "category": "C语言",
+      "title": "公共通识部分",
+      "chars": 2543,
+      "sha256": "801d31b943d62c7b7d66ea66ea3ebbc4de5115b8247b220eba3a089ddeafe2d6",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2543,
+        "lines": 54,
+        "content_lines": 35,
+        "headings": 5,
+        "code_fences": 0,
+        "links": 0,
+        "sha256": "7576e6f9d45f8dcff87dc750eb248c763d7863da74251185a03213d6570c2eed",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-039",
+      "path": "C语言/const专题.md",
+      "category": "C语言",
+      "title": "const专题",
+      "chars": 1628,
+      "sha256": "f030b1f9d367a2a2c4446222d502b07200825c4e74596a4a70dcc95b5b18b914",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1628,
+        "lines": 60,
+        "content_lines": 41,
+        "headings": 4,
+        "code_fences": 2,
+        "links": 5,
+        "sha256": "f030b1f9d367a2a2c4446222d502b07200825c4e74596a4a70dcc95b5b18b914",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-040",
+      "path": "C语言/typedef 使用总结.md",
+      "category": "C语言",
+      "title": "typedef的使用总结",
+      "chars": 8141,
+      "sha256": "90104f91cf2e3f39d5ecaa8344497b82badbcd0e1d15abb44ce0b64159e25b7c",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 8141,
+        "lines": 288,
+        "content_lines": 232,
+        "headings": 3,
+        "code_fences": 7,
+        "links": 0,
+        "sha256": "90104f91cf2e3f39d5ecaa8344497b82badbcd0e1d15abb44ce0b64159e25b7c",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-041",
+      "path": "C语言/二叉树/线索二叉树的一些总结.md",
+      "category": "C语言",
+      "title": "线索二叉树的一些总结",
+      "chars": 2960,
+      "sha256": "52ba8885784117308b507e6c8a0abad8181ad7496203b6847ebcba3cebc6fc5b",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2960,
+        "lines": 90,
+        "content_lines": 75,
+        "headings": 1,
+        "code_fences": 6,
+        "links": 4,
+        "sha256": "52ba8885784117308b507e6c8a0abad8181ad7496203b6847ebcba3cebc6fc5b",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-042",
+      "path": "C语言/关于程序设计的一个小思考.md",
+      "category": "C语言",
+      "title": "关于程序设计的一个小思考",
+      "chars": 944,
+      "sha256": "bbd1f163f2c70b206e28c86fee1bca2bc05afab98fa6250a3b3521b282d31143",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 944,
+        "lines": 29,
+        "content_lines": 25,
+        "headings": 1,
+        "code_fences": 2,
+        "links": 0,
+        "sha256": "bbd1f163f2c70b206e28c86fee1bca2bc05afab98fa6250a3b3521b282d31143",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-043",
+      "path": "C语言/关于递归运行的一点理解.md",
+      "category": "C语言",
+      "title": "关于递归运行的一点理解",
+      "chars": 1644,
+      "sha256": "a683aff3feb84e33eaceb4f35feb151e52c3de2373ce737ec4c2bcb0b9147470",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1644,
+        "lines": 71,
+        "content_lines": 57,
+        "headings": 4,
+        "code_fences": 2,
+        "links": 1,
+        "sha256": "a683aff3feb84e33eaceb4f35feb151e52c3de2373ce737ec4c2bcb0b9147470",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-044",
+      "path": "C语言/双亲树实现遇到的一些问题的分析.md",
+      "category": "C语言",
+      "title": "双亲树实现上遇到的问题",
+      "chars": 1309,
+      "sha256": "36f7cc1a8355f1fc5d974f0f661388f6f98d4913623db7348d7198146158913c",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1309,
+        "lines": 50,
+        "content_lines": 42,
+        "headings": 3,
+        "code_fences": 2,
+        "links": 1,
+        "sha256": "36f7cc1a8355f1fc5d974f0f661388f6f98d4913623db7348d7198146158913c",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-045",
+      "path": "C语言/基本库函数的使用问题.md",
+      "category": "C语言",
+      "title": "基本库函数的使用问题",
+      "chars": 1153,
+      "sha256": "ec2b7ce9b6fc8039431615536fec54a8f842208f23850606a14b8e6279796402",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1153,
+        "lines": 61,
+        "content_lines": 39,
+        "headings": 7,
+        "code_fences": 4,
+        "links": 0,
+        "sha256": "ec2b7ce9b6fc8039431615536fec54a8f842208f23850606a14b8e6279796402",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-046",
+      "path": "Linux/GCC编译的一些辅助工具.md",
+      "category": "Linux",
+      "title": "FILE 命令",
+      "chars": 1943,
+      "sha256": "82bd11e2bf8f9149041f499b7775784669ea38a1101c260b9e693831c32f8a23",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1943,
+        "lines": 74,
+        "content_lines": 54,
+        "headings": 6,
+        "code_fences": 10,
+        "links": 1,
+        "sha256": "82bd11e2bf8f9149041f499b7775784669ea38a1101c260b9e693831c32f8a23",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-047",
+      "path": "Linux/GCC编译链接.md",
+      "category": "Linux",
+      "title": "GCC编译",
+      "chars": 20256,
+      "sha256": "b1ca7ed1af62df59407f9ecb634928c98f4aa1ef7b445ea39e34c2063c3ccd7a",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 20256,
+        "lines": 753,
+        "content_lines": 480,
+        "headings": 56,
+        "code_fences": 93,
+        "links": 6,
+        "sha256": "b1ca7ed1af62df59407f9ecb634928c98f4aa1ef7b445ea39e34c2063c3ccd7a",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-048",
+      "path": "Linux/~.bashrc和~.bash_profile区别.md",
+      "category": "Linux",
+      "title": "~.bashrc和~.bash_profile的区别",
+      "chars": 975,
+      "sha256": "a0fb9f9b61184896299e5a3c2ffa3ad6e1131b3c206423e4eab459a23c2a93b5",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 975,
+        "lines": 28,
+        "content_lines": 20,
+        "headings": 4,
+        "code_fences": 0,
+        "links": 0,
+        "sha256": "ad24c4e8ef4c08c0f4c10362d4bbd99c4cb78f468c092483f6439fc107615937",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-049",
+      "path": "MATLAB使用/一些矩阵操作函数.md",
+      "category": "MATLAB使用",
+      "title": "一些矩阵操作函数",
+      "chars": 715,
+      "sha256": "6db9b982375090b8cdb99f130688ee0c54733875cc3c2438b613d0e305153d42",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 715,
+        "lines": 61,
+        "content_lines": 31,
+        "headings": 10,
+        "code_fences": 0,
+        "links": 10,
+        "sha256": "6db9b982375090b8cdb99f130688ee0c54733875cc3c2438b613d0e305153d42",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-050",
+      "path": "MATLAB使用/多维数组的创立.md",
+      "category": "MATLAB使用",
+      "title": "方法一",
+      "chars": 704,
+      "sha256": "291d669352fc5ff8f80b32f4b656a267e831b618911ac997c7288b86399839f5",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 704,
+        "lines": 41,
+        "content_lines": 29,
+        "headings": 1,
+        "code_fences": 6,
+        "links": 0,
+        "sha256": "291d669352fc5ff8f80b32f4b656a267e831b618911ac997c7288b86399839f5",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-051",
+      "path": "MATLAB使用/数字图像处理/BMP图像.md",
+      "category": "MATLAB使用",
+      "title": "BMP图像信息存储格式",
+      "chars": 1180,
+      "sha256": "c0fa686d7480c31477f7729ab9d9f7dd7f8f4cda589f86be7d4b518c162ac051",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1180,
+        "lines": 54,
+        "content_lines": 47,
+        "headings": 1,
+        "code_fences": 8,
+        "links": 0,
+        "sha256": "c0fa686d7480c31477f7729ab9d9f7dd7f8f4cda589f86be7d4b518c162ac051",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-052",
+      "path": "MATLAB使用/数字图像处理/图像处理函数.md",
+      "category": "MATLAB使用",
+      "title": "MATLAB图像处理函数",
+      "chars": 1335,
+      "sha256": "fa910a6374ac6d01daea803cdc3338b86065ca607e2700ce81f0dd2ef284e596",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1335,
+        "lines": 96,
+        "content_lines": 50,
+        "headings": 17,
+        "code_fences": 0,
+        "links": 7,
+        "sha256": "fa910a6374ac6d01daea803cdc3338b86065ca607e2700ce81f0dd2ef284e596",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-053",
+      "path": "MATLAB使用/矩阵创建和索引.md",
+      "category": "MATLAB使用",
+      "title": "矩阵创建与索引",
+      "chars": 833,
+      "sha256": "1c9015a0af8e9a46e7ddd529f87793daf087d42857008ee4c179ec30321d6f71",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 833,
+        "lines": 60,
+        "content_lines": 37,
+        "headings": 9,
+        "code_fences": 2,
+        "links": 9,
+        "sha256": "1c9015a0af8e9a46e7ddd529f87793daf087d42857008ee4c179ec30321d6f71",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-054",
+      "path": "MATLAB使用/矩阵运算.md",
+      "category": "MATLAB使用",
+      "title": "矩阵运算",
+      "chars": 1005,
+      "sha256": "6a8489221bd1d2f5da42700d9a167f112c3d82af18b0eaf1bdbcfc90f624f843",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1005,
+        "lines": 66,
+        "content_lines": 36,
+        "headings": 10,
+        "code_fences": 0,
+        "links": 12,
+        "sha256": "6a8489221bd1d2f5da42700d9a167f112c3d82af18b0eaf1bdbcfc90f624f843",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-055",
+      "path": "MATLAB使用/结构体和Cell类型.md",
+      "category": "MATLAB使用",
+      "title": "1.结构体类型",
+      "chars": 1353,
+      "sha256": "1bc0eb1b4abd0d98c9fbf3577d9ccff2d95773105fa18d07ae7e8154427fc3ba",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1353,
+        "lines": 68,
+        "content_lines": 43,
+        "headings": 3,
+        "code_fences": 6,
+        "links": 3,
+        "sha256": "1bc0eb1b4abd0d98c9fbf3577d9ccff2d95773105fa18d07ae7e8154427fc3ba",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-056",
+      "path": "MATLAB使用/色彩空间转换注意的点.md",
+      "category": "MATLAB使用",
+      "title": "色彩空间转换",
+      "chars": 688,
+      "sha256": "d65dbcece0e23f56d33c110d7036314bfce018233fef69fd30bf5d4d995ee52d",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 688,
+        "lines": 26,
+        "content_lines": 16,
+        "headings": 1,
+        "code_fences": 0,
+        "links": 5,
+        "sha256": "d65dbcece0e23f56d33c110d7036314bfce018233fef69fd30bf5d4d995ee52d",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-057",
+      "path": "OpenCV/课程笔记/1.Mat容器.md",
+      "category": "OpenCV",
+      "title": "Mat容器",
+      "chars": 7300,
+      "sha256": "779001141be7d13e66e8582940345c9a0f848ef4fc0308fddedbb02306728101",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 7300,
+        "lines": 260,
+        "content_lines": 195,
+        "headings": 21,
+        "code_fences": 16,
+        "links": 6,
+        "sha256": "779001141be7d13e66e8582940345c9a0f848ef4fc0308fddedbb02306728101",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-058",
+      "path": "OpenCV/课程笔记/2. 视频加载与摄像头使用.md",
+      "category": "OpenCV",
+      "title": "视频加载与摄像头使用",
+      "chars": 1955,
+      "sha256": "1837573d7d4051255caf1d111e1714e16a6fdddee507881bdd3dbe9c77ab751e",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1955,
+        "lines": 76,
+        "content_lines": 59,
+        "headings": 5,
+        "code_fences": 8,
+        "links": 3,
+        "sha256": "1837573d7d4051255caf1d111e1714e16a6fdddee507881bdd3dbe9c77ab751e",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-059",
+      "path": "OpenCV/课程笔记/3.数据类型及色彩空间变换.md",
+      "category": "OpenCV",
+      "title": "图像数据类型及色彩空间变换",
+      "chars": 2006,
+      "sha256": "73f17308bdcd01cfc16ca4abf7700d48ffb1e9766acc71dc826e203c7f384916",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2006,
+        "lines": 67,
+        "content_lines": 47,
+        "headings": 6,
+        "code_fences": 4,
+        "links": 2,
+        "sha256": "73f17308bdcd01cfc16ca4abf7700d48ffb1e9766acc71dc826e203c7f384916",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-060",
+      "path": "Python/位置参数和关键字参数.md",
+      "category": "Python",
+      "title": "位置参数和关键字参数",
+      "chars": 1640,
+      "sha256": "f44adc937e57660976eb928b5a5d8548e2fb70a7dbb056390e33e00e73b04a48",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1640,
+        "lines": 79,
+        "content_lines": 48,
+        "headings": 7,
+        "code_fences": 8,
+        "links": 0,
+        "sha256": "e15db829dfe72910c725effd3eea55a92f53da59f6106bfb2fad6b0551e4078b",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-061",
+      "path": "Python/关键字/with关键字.md",
+      "category": "Python",
+      "title": "with关键字",
+      "chars": 2021,
+      "sha256": "a6b630ce2541315568d9b9b0c4fc64a725c39a2e7613319ca7b8a890305be507",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2021,
+        "lines": 63,
+        "content_lines": 44,
+        "headings": 8,
+        "code_fences": 4,
+        "links": 0,
+        "sha256": "d278ed99fddc7fe02c8e122c042226ece101ed17d4fbdd0f7069681fb601d527",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-062",
+      "path": "Python/列表.md",
+      "category": "Python",
+      "title": "列表",
+      "chars": 2168,
+      "sha256": "8b0f21f8e8aa91cd4c9fd0db3a2adbf19e2fd52dcfdd7d35f87b4abd515f6052",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2168,
+        "lines": 112,
+        "content_lines": 83,
+        "headings": 7,
+        "code_fences": 12,
+        "links": 5,
+        "sha256": "8b0f21f8e8aa91cd4c9fd0db3a2adbf19e2fd52dcfdd7d35f87b4abd515f6052",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-063",
+      "path": "Python/字典.md",
+      "category": "Python",
+      "title": "字典",
+      "chars": 2916,
+      "sha256": "0fbf0c53f3485527099f181aa073f58deffd1bd0597d8db8d6596fe411f08c8e",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2916,
+        "lines": 194,
+        "content_lines": 126,
+        "headings": 11,
+        "code_fences": 42,
+        "links": 0,
+        "sha256": "e8bc74e8a651f38fb01a81cc0c1a131c736754f8d27f58d80acaebdbe0ecf833",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-064",
+      "path": "Python/字符串操作.md",
+      "category": "Python",
+      "title": "字符串操作",
+      "chars": 3761,
+      "sha256": "8f12352343f76e4e7d1c4096ddae5db8e939381e5f60053ce63bba9453aa62e1",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3761,
+        "lines": 192,
+        "content_lines": 132,
+        "headings": 19,
+        "code_fences": 22,
+        "links": 2,
+        "sha256": "8f12352343f76e4e7d1c4096ddae5db8e939381e5f60053ce63bba9453aa62e1",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-065",
+      "path": "Python/序列操作.md",
+      "category": "Python",
+      "title": "序列操作",
+      "chars": 3857,
+      "sha256": "12692a61a053e9886ca8220429194bb156d8ebdf27943d81f00b46d92624791e",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3857,
+        "lines": 239,
+        "content_lines": 168,
+        "headings": 16,
+        "code_fences": 46,
+        "links": 0,
+        "sha256": "de732bb9e319524554e4d19a3115069fb5a66ff0c0d34a964fc4f620977015ed",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-066",
+      "path": "Python/文件操作/pathlib模块.md",
+      "category": "Python",
+      "title": "pathlib",
+      "chars": 2068,
+      "sha256": "ef1d086a0c8921c464a9f2a6de34ea7abb4e423470640742d0900eba29d9305e",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2068,
+        "lines": 126,
+        "content_lines": 88,
+        "headings": 8,
+        "code_fences": 22,
+        "links": 0,
+        "sha256": "e0eb11f91232b92d9463d9e514b922d43864f0e5d4a59426facbc642c656fb58",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-067",
+      "path": "Python/类/类静态方法和变量访问.md",
+      "category": "Python",
+      "title": "类静态变量",
+      "chars": 2193,
+      "sha256": "310b46c543ef799b28551925bc7702a5dd3a8c323f54fb09bf72aed8208bcf55",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2193,
+        "lines": 112,
+        "content_lines": 74,
+        "headings": 7,
+        "code_fences": 12,
+        "links": 0,
+        "sha256": "a2c51532c3b15ff47fdf33f839a92e09cec93835b00003f01a2e4cb35cc45e8e",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-068",
+      "path": "Python/装饰器.md",
+      "category": "Python",
+      "title": "装饰器",
+      "chars": 1573,
+      "sha256": "a96cd51ec2b3a641656c3cfb4324fa333484402b06726892cce90ccaf1653a72",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1573,
+        "lines": 56,
+        "content_lines": 39,
+        "headings": 5,
+        "code_fences": 4,
+        "links": 0,
+        "sha256": "19bfbf0956b3cdd725e1308886e759a614807def1292fc70756238a01ad5dbd6",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-069",
+      "path": "Python/闭包.md",
+      "category": "Python",
+      "title": "闭包",
+      "chars": 2238,
+      "sha256": "7c08d959a5b1033a9fc38c288d3e21b6b65a5c1b6fea21817c5a457956578247",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2238,
+        "lines": 111,
+        "content_lines": 75,
+        "headings": 12,
+        "code_fences": 8,
+        "links": 0,
+        "sha256": "901db13c08b77ee40fa47c985aace4b2cee37ec49dba9da9e340f9d4029ee3f5",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-070",
+      "path": "Python/集合.md",
+      "category": "Python",
+      "title": "集合",
+      "chars": 2388,
+      "sha256": "6ccefd3623d09cbb869c11308bf5ab6dee6be3d3394766ad253d904f764eb44c",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2388,
+        "lines": 80,
+        "content_lines": 54,
+        "headings": 11,
+        "code_fences": 4,
+        "links": 0,
+        "sha256": "da1bae5f0f77e19f2ed3517a5cbba4bb2d4ae03d3d1dab5049014b07ea7a6177",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-071",
+      "path": "Python/魔法方法.md",
+      "category": "Python",
+      "title": "魔法方法",
+      "chars": 1866,
+      "sha256": "b17871f5e9d0c525cc91bfb61dc4b6f704bfd4c7d551f3ed8bb61e405b6dd515",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1866,
+        "lines": 62,
+        "content_lines": 50,
+        "headings": 4,
+        "code_fences": 2,
+        "links": 0,
+        "sha256": "000dc230e60b5c672cdf68f6a604786d30233550500d7e817233a2e5a0b1f1fc",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-072",
+      "path": "Pytorch/apply方法.md",
+      "category": "Pytorch",
+      "title": "apply方法",
+      "chars": 2515,
+      "sha256": "20a82c5db2a2b7165141f7d2eb8482911221501417deefaef6f413b98e1f3332",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2515,
+        "lines": 110,
+        "content_lines": 81,
+        "headings": 17,
+        "code_fences": 6,
+        "links": 0,
+        "sha256": "19dc54b56180c9f7e9f7109ad11503b4bc6b81061b0b1730941bbbb833e4cfe8",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-073",
+      "path": "Pytorch/使用分布式训练.md",
+      "category": "Pytorch",
+      "title": "pytorch使用分布式训练",
+      "chars": 6202,
+      "sha256": "eb4966b42769975370a7eec2e987604ecb0728a88125b6b582fde86a7718956a",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 6202,
+        "lines": 190,
+        "content_lines": 132,
+        "headings": 7,
+        "code_fences": 6,
+        "links": 3,
+        "sha256": "eb4966b42769975370a7eec2e987604ecb0728a88125b6b582fde86a7718956a",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-074",
+      "path": "Pytorch/梯度清零与梯度累计.md",
+      "category": "Pytorch",
+      "title": "梯度清零和梯度累计",
+      "chars": 2977,
+      "sha256": "51328dc30db806bbf67248e583ffcb9aa52d800cdf1374d0965a6d0e2686854d",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2977,
+        "lines": 123,
+        "content_lines": 83,
+        "headings": 16,
+        "code_fences": 8,
+        "links": 0,
+        "sha256": "51328dc30db806bbf67248e583ffcb9aa52d800cdf1374d0965a6d0e2686854d",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-075",
+      "path": "ROS/ROS1/ROS单节点带参数调试.md",
+      "category": "ROS",
+      "title": "ROS调试方法分类",
+      "chars": 1181,
+      "sha256": "b22fd8db116ab497c76573b32ddd2dfd8d9fbe2080f5328d1d1c7ef119d8ff1f",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1181,
+        "lines": 41,
+        "content_lines": 37,
+        "headings": 1,
+        "code_fences": 2,
+        "links": 1,
+        "sha256": "4231f8cf61b630b5fdbfbfca84b6fc05ac7318c140e22a347f567cf4b17ed369",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-076",
+      "path": "ROS/ROS1/launch_json示例.md",
+      "category": "ROS",
+      "title": "launch jason 示例",
+      "chars": 1081,
+      "sha256": "65e52646063c2a592dc7964c9b13e804da02c7214744c188c9876f247fe60f8a",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1081,
+        "lines": 40,
+        "content_lines": 36,
+        "headings": 1,
+        "code_fences": 2,
+        "links": 1,
+        "sha256": "c1f5ac274b9ce72d94edf65a78eadcfab4c3a90f4e67f28cc72ffd8e456b8abd",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-077",
+      "path": "ROS/ROS1/使用命令行编译ROS程序.md",
+      "category": "ROS",
+      "title": "使用命令行编译ROS程序",
+      "chars": 825,
+      "sha256": "c3ff3df22190bb9023df7d2486146327e4f50d4428c5bf86bfacac2d601e5a24",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 825,
+        "lines": 51,
+        "content_lines": 33,
+        "headings": 6,
+        "code_fences": 8,
+        "links": 0,
+        "sha256": "d00d4dc19a914f980a003b97d4845c118f8cd30a7824e5ab81a6be61a4e4cae2",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-078",
+      "path": "ROS/ROS1/使用自定义消息类型流程和注意事项.md",
+      "category": "ROS",
+      "title": "使用自定义消息类型流程和注意事项",
+      "chars": 2695,
+      "sha256": "e5b0ddda39d9477589556f7d77243af12ffe08b07bc75ff93910d9dd90cca97d",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2695,
+        "lines": 138,
+        "content_lines": 101,
+        "headings": 14,
+        "code_fences": 12,
+        "links": 1,
+        "sha256": "b289004fd70d9814afdccddd2fb98fdc353e730c08111e39e496c58d39fd0119",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-079",
+      "path": "ROS/ROS2/ROS2操作命令汇总.md",
+      "category": "ROS",
+      "title": "ROS2命令汇总",
+      "chars": 1074,
+      "sha256": "cd80543b3857736f130d3137bf899bd7e0a34d75acc009f6759c8cc0fc5cd6f4",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1074,
+        "lines": 60,
+        "content_lines": 38,
+        "headings": 6,
+        "code_fences": 14,
+        "links": 0,
+        "sha256": "cd80543b3857736f130d3137bf899bd7e0a34d75acc009f6759c8cc0fc5cd6f4",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-080",
+      "path": "操作系统/一.3.1操作系统的运行机制.md",
+      "category": "操作系统",
+      "title": "操作系统的运行机制",
+      "chars": 710,
+      "sha256": "ff8ddb4a3bf4413b569e3718c6711a274759af1ac268b035f4dc6fad23a27a82",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 710,
+        "lines": 29,
+        "content_lines": 15,
+        "headings": 6,
+        "code_fences": 0,
+        "links": 5,
+        "sha256": "ff8ddb4a3bf4413b569e3718c6711a274759af1ac268b035f4dc6fad23a27a82",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-082",
+      "path": "操作系统/一.3.3系统调用.md",
+      "category": "操作系统",
+      "title": "系统调用",
+      "chars": 1101,
+      "sha256": "61be0aaaeb03a3e985718d8e19923e613716eb6fba7236006abab86d600db5ac",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 1101,
+        "lines": 44,
+        "content_lines": 23,
+        "headings": 9,
+        "code_fences": 0,
+        "links": 9,
+        "sha256": "61be0aaaeb03a3e985718d8e19923e613716eb6fba7236006abab86d600db5ac",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-083",
+      "path": "操作系统/二.1.1进程的概念、组成、特征.md",
+      "category": "操作系统",
+      "title": "进程的概念、组成、特征",
+      "chars": 1043,
+      "sha256": "a20d093e1cc5875f1af588b83861a4ea5b53ab819522d8bcf70d11c0d19b739c",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 1043,
+        "lines": 32,
+        "content_lines": 20,
+        "headings": 6,
+        "code_fences": 0,
+        "links": 9,
+        "sha256": "a20d093e1cc5875f1af588b83861a4ea5b53ab819522d8bcf70d11c0d19b739c",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-084",
+      "path": "操作系统/二.1.3进程的状态与切换.md",
+      "category": "操作系统",
+      "title": "进程的状态与切换",
+      "chars": 1341,
+      "sha256": "dd1a58187bef0f417356dcfbe01b1926c4b2c5112e13d7f04c72ba39a518a14c",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 1341,
+        "lines": 59,
+        "content_lines": 32,
+        "headings": 13,
+        "code_fences": 0,
+        "links": 11,
+        "sha256": "dd1a58187bef0f417356dcfbe01b1926c4b2c5112e13d7f04c72ba39a518a14c",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-085",
+      "path": "数学建模/控制预测类/ARIMA模型.md",
+      "category": "数学建模",
+      "title": "什么是时间序列和时期序列",
+      "chars": 2029,
+      "sha256": "67f34bcdfe1045e42e7a5db6ecf50d3d2da51cbe32d1b4a9d78a9e694720a332",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2029,
+        "lines": 84,
+        "content_lines": 33,
+        "headings": 4,
+        "code_fences": 0,
+        "links": 19,
+        "sha256": "020849634639767f79086e3364a21e83717c834be38169e6e5628f0e868e08f2",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-086",
+      "path": "数学建模/控制预测类/回归分析.md",
+      "category": "数学建模",
+      "title": "回归分析一般概述",
+      "chars": 2021,
+      "sha256": "78272ba5a8a3dbd888b5459c353ca4bae96c81958c801fe28c71619b55f12f15",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2021,
+        "lines": 70,
+        "content_lines": 29,
+        "headings": 2,
+        "code_fences": 0,
+        "links": 16,
+        "sha256": "e885ffa3ab055f8242de6e1c70af7dc410e62aa02e8699fd51e2c0c59e6c891c",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-088",
+      "path": "数学建模/数据清洗.md",
+      "category": "数学建模",
+      "title": "数据清洗",
+      "chars": 1728,
+      "sha256": "6688093d5ec2b1b2088be69a21b28da87b988d4ba505b0fabdc5a2b22c9ab72f",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1728,
+        "lines": 134,
+        "content_lines": 93,
+        "headings": 37,
+        "code_fences": 24,
+        "links": 0,
+        "sha256": "35aa8cc16b3d4707b1de89f92f0fffd4ecc721a63da58acfe59f81378c0ec263",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-089",
+      "path": "数学建模/特征工程.md",
+      "category": "数学建模",
+      "title": "离散值处理  该笔记缺失图片文件",
+      "chars": 8966,
+      "sha256": "5c6a990cf6efa052712c74c0c665f75a18be43d1f61ebfd08e19a41aa9439b6b",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 8966,
+        "lines": 335,
+        "content_lines": 225,
+        "headings": 19,
+        "code_fences": 46,
+        "links": 4,
+        "sha256": "9f6733b9ccd732df31b50923443ec0f0c96bfab8c08f3121afefcf1883276f9a",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-090",
+      "path": "数学建模/规划类/多目标规划.md",
+      "category": "数学建模",
+      "title": "多目标规划问题",
+      "chars": 804,
+      "sha256": "ff8f010a071923a6a325d5a836bf3068a7294d8719ae3ccaee6b2f161b1ba38f",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 804,
+        "lines": 41,
+        "content_lines": 14,
+        "headings": 2,
+        "code_fences": 0,
+        "links": 8,
+        "sha256": "5453ebbda215ecbdef7220cb2baf7b4d0794418f784e6d93aed31eb3c83f2d82",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-091",
+      "path": "深度学习/SVM和Softmax的比较.md",
+      "category": "深度学习",
+      "title": "SVM和Softmax的比较",
+      "chars": 1686,
+      "sha256": "55d29aa5de12c181411ece7fc46b4031e672c047e1afb321f7c0878b5f6b76a0",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 1686,
+        "lines": 27,
+        "content_lines": 15,
+        "headings": 1,
+        "code_fences": 0,
+        "links": 1,
+        "sha256": "55d29aa5de12c181411ece7fc46b4031e672c047e1afb321f7c0878b5f6b76a0",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-092",
+      "path": "深度学习/softmax交叉熵求导.md",
+      "category": "深度学习",
+      "title": "softmax交叉熵求导",
+      "chars": 1520,
+      "sha256": "9055fa8d6686138b0c5b523eb0ebc108b3df5eeb62a4c5c43814cb88af9ed67f",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 1520,
+        "lines": 47,
+        "content_lines": 24,
+        "headings": 7,
+        "code_fences": 0,
+        "links": 8,
+        "sha256": "9055fa8d6686138b0c5b523eb0ebc108b3df5eeb62a4c5c43814cb88af9ed67f",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-093",
+      "path": "深度学习/几种注意力评分函数.md",
+      "category": "深度学习",
+      "title": "几种注意力评分机制",
+      "chars": 1387,
+      "sha256": "ffe404f2af3349184c08c4e5534f100c8a34919342bad94ae25bb7b33cbe7429",
+      "review_status": "inherited_reviewed",
+      "screening": {
+        "chars": 1387,
+        "lines": 48,
+        "content_lines": 40,
+        "headings": 1,
+        "code_fences": 0,
+        "links": 0,
+        "sha256": "cec70a70a6959d5537235acafd510cc7525cda9d5b8ad10f200f1fdd3fe8efdf",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-096",
+      "path": "算法与数据结构/二分查找法.md",
+      "category": "算法与数据结构",
+      "title": "二分查找",
+      "chars": 1942,
+      "sha256": "ffeb2d1ce41fd2dd40451d26ac2095b3750ee2207c99ad7cc2dda39ca3252cfb",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1942,
+        "lines": 66,
+        "content_lines": 57,
+        "headings": 2,
+        "code_fences": 4,
+        "links": 1,
+        "sha256": "ffeb2d1ce41fd2dd40451d26ac2095b3750ee2207c99ad7cc2dda39ca3252cfb",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-097",
+      "path": "算法与数据结构/二叉树/二叉树已知遍历构造树.md",
+      "category": "算法与数据结构",
+      "title": "根据序列构造二叉树",
+      "chars": 3084,
+      "sha256": "f23ee34fe33ec259f3c7151f72887a4c5f201c62e6d8a1bb7d14e476e554d5eb",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3084,
+        "lines": 106,
+        "content_lines": 86,
+        "headings": 3,
+        "code_fences": 4,
+        "links": 4,
+        "sha256": "f23ee34fe33ec259f3c7151f72887a4c5f201c62e6d8a1bb7d14e476e554d5eb",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-098",
+      "path": "算法与数据结构/从一道简单题看循环设计.md",
+      "category": "算法与数据结构",
+      "title": "从一道简单题看循环设置",
+      "chars": 1992,
+      "sha256": "555baba1bfcda3637ed3cd118493cbb751f4dd0f10932495ce79497a2dbe6b27",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1992,
+        "lines": 54,
+        "content_lines": 39,
+        "headings": 1,
+        "code_fences": 4,
+        "links": 1,
+        "sha256": "555baba1bfcda3637ed3cd118493cbb751f4dd0f10932495ce79497a2dbe6b27",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-099",
+      "path": "算法与数据结构/动态规划/动态规划算法示例.md",
+      "category": "算法与数据结构",
+      "title": "动态规划算法",
+      "chars": 2664,
+      "sha256": "d5d430fcc5115aefbf35a10175071267eb6788b4bb5f37d15880caae431a24d7",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2664,
+        "lines": 56,
+        "content_lines": 54,
+        "headings": 1,
+        "code_fences": 2,
+        "links": 0,
+        "sha256": "b69fbbb22f90dfe710a672c111dde5b6b957f41df5f5bf3d693d91870de95c96",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-100",
+      "path": "算法与数据结构/图算法/bellman-ford算法.md",
+      "category": "算法与数据结构",
+      "title": "Bellman-Ford Algorithm",
+      "chars": 2982,
+      "sha256": "2f8bdec0e1256e75fbb30525b04708e2fba735dc68c0f93292d317f144c752f2",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2982,
+        "lines": 94,
+        "content_lines": 74,
+        "headings": 5,
+        "code_fences": 2,
+        "links": 4,
+        "sha256": "2f8bdec0e1256e75fbb30525b04708e2fba735dc68c0f93292d317f144c752f2",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-101",
+      "path": "算法与数据结构/多线程任务调度问题.md",
+      "category": "算法与数据结构",
+      "title": "可并行任务求最小耗时问题分类总结",
+      "chars": 9028,
+      "sha256": "2a04feb650e2d6e316045cb25bd7123e7bf86fe2102ea4222ba11f991701919c",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 9028,
+        "lines": 352,
+        "content_lines": 267,
+        "headings": 19,
+        "code_fences": 18,
+        "links": 0,
+        "sha256": "be81d7242beb14d86f8181490e8c80d6707b63f95580a972e404b6759c002bf4",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-102",
+      "path": "算法与数据结构/滑动窗口法.md",
+      "category": "算法与数据结构",
+      "title": "滑动窗口",
+      "chars": 3889,
+      "sha256": "bb6c821d182b143c27f2b6071ef627157bc160faee62ab9a8cb03762e776c59d",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3889,
+        "lines": 166,
+        "content_lines": 140,
+        "headings": 5,
+        "code_fences": 8,
+        "links": 2,
+        "sha256": "bb6c821d182b143c27f2b6071ef627157bc160faee62ab9a8cb03762e776c59d",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-103",
+      "path": "自动驾驶/BEV算法学习/2D目标检测模型.md",
+      "category": "自动驾驶",
+      "title": "2D目标检测模型",
+      "chars": 4898,
+      "sha256": "de76e4f22a589182172907f005afd176c928fa43d34b42cd195054c1728f4fa2",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 4898,
+        "lines": 88,
+        "content_lines": 46,
+        "headings": 6,
+        "code_fences": 0,
+        "links": 19,
+        "sha256": "de76e4f22a589182172907f005afd176c928fa43d34b42cd195054c1728f4fa2",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-104",
+      "path": "自动驾驶/BEV算法学习/3D目标检测Bev算法架构图.md",
+      "category": "自动驾驶",
+      "title": "Bev算法架构图",
+      "chars": 2070,
+      "sha256": "89a1c8eb972a94367e182e10ff7ae97e68032e32c4b1e9b02ec3dcb4e3dfb525",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2070,
+        "lines": 98,
+        "content_lines": 50,
+        "headings": 22,
+        "code_fences": 0,
+        "links": 28,
+        "sha256": "89a1c8eb972a94367e182e10ff7ae97e68032e32c4b1e9b02ec3dcb4e3dfb525",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-105",
+      "path": "自动驾驶/BEV算法学习/Anchor中方向分类正弦角度编码设计原理.md",
+      "category": "自动驾驶",
+      "title": "为什么使用rad_pred_encoding = sin(r1) \\* cos(r2) 和rad_tg_encoding = cos(r1) \\* sin(r2)编码角度",
+      "chars": 2268,
+      "sha256": "84f81c2e6e3aa331730352d9f00545f4ea6144df454a433a82a4d2d53e0daed8",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2268,
+        "lines": 93,
+        "content_lines": 61,
+        "headings": 9,
+        "code_fences": 0,
+        "links": 0,
+        "sha256": "84f81c2e6e3aa331730352d9f00545f4ea6144df454a433a82a4d2d53e0daed8",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-106",
+      "path": "自动驾驶/BEV算法学习/BEV感知课程总结.md",
+      "category": "自动驾驶",
+      "title": "BEV感知课程总结",
+      "chars": 3490,
+      "sha256": "8d734315b778c7b99b18f692e6f853f5381824fc3da74c6427b463b4308ce213",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3490,
+        "lines": 152,
+        "content_lines": 85,
+        "headings": 34,
+        "code_fences": 0,
+        "links": 18,
+        "sha256": "8d734315b778c7b99b18f692e6f853f5381824fc3da74c6427b463b4308ce213",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-107",
+      "path": "自动驾驶/BEV算法学习/KTTI数据集特攻/Voxelset.md",
+      "category": "自动驾驶",
+      "title": "论文主要内容",
+      "chars": 2094,
+      "sha256": "d48a5e8c6785aeb2516680d9dea8287cb40ff86018fed4aec8fc2cc3ee7a2e00",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2094,
+        "lines": 44,
+        "content_lines": 24,
+        "headings": 5,
+        "code_fences": 0,
+        "links": 3,
+        "sha256": "d48a5e8c6785aeb2516680d9dea8287cb40ff86018fed4aec8fc2cc3ee7a2e00",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-108",
+      "path": "自动驾驶/BEV算法学习/LSS_Based/LSS算法实现细节梳理.md",
+      "category": "自动驾驶",
+      "title": "LSS实现细节梳理",
+      "chars": 1891,
+      "sha256": "883500a9e0a48dbea786169110b4cbbe9d64b8721d13e3594e2a8bb935f449ea",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 1891,
+        "lines": 32,
+        "content_lines": 24,
+        "headings": 2,
+        "code_fences": 2,
+        "links": 1,
+        "sha256": "883500a9e0a48dbea786169110b4cbbe9d64b8721d13e3594e2a8bb935f449ea",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-109",
+      "path": "自动驾驶/BEV算法学习/mmdet3d/mmdet3d数据加载器在哪定义的.md",
+      "category": "自动驾驶",
+      "title": "mmdet数据加载器",
+      "chars": 2992,
+      "sha256": "0ba21203d3fe1b9c6b7c61f257724c8cc7aafd6df835a2795ddcd48f944491f6",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2992,
+        "lines": 105,
+        "content_lines": 75,
+        "headings": 7,
+        "code_fences": 8,
+        "links": 0,
+        "sha256": "0ba21203d3fe1b9c6b7c61f257724c8cc7aafd6df835a2795ddcd48f944491f6",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-110",
+      "path": "自动驾驶/BEV算法学习/mmdet3d/mmdetection3d 全流程梳理.md",
+      "category": "自动驾驶",
+      "title": "mmdetection3d 全流程梳理",
+      "chars": 4413,
+      "sha256": "f4482db7a9c2c4c85e43078ae9a044d09cae9e5b6ff48fe79c02b37d0f820724",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 4413,
+        "lines": 99,
+        "content_lines": 70,
+        "headings": 8,
+        "code_fences": 4,
+        "links": 0,
+        "sha256": "f4482db7a9c2c4c85e43078ae9a044d09cae9e5b6ff48fe79c02b37d0f820724",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-111",
+      "path": "自动驾驶/BEV算法学习/mmdet3d/transfrom阶段处理的是单批次数据.md",
+      "category": "自动驾驶",
+      "title": "transfrom阶段处理的是单批次数据",
+      "chars": 3068,
+      "sha256": "d9f0e1c39cff4b8def1a01636e7929bd060ecb12624848b42f28061edc6ae7d7",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 3068,
+        "lines": 126,
+        "content_lines": 90,
+        "headings": 16,
+        "code_fences": 8,
+        "links": 0,
+        "sha256": "d9f0e1c39cff4b8def1a01636e7929bd060ecb12624848b42f28061edc6ae7d7",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-112",
+      "path": "自动驾驶/BEV算法学习/平移等变性和旋转等变性.md",
+      "category": "自动驾驶",
+      "title": "平移等变性和旋转等变性",
+      "chars": 2670,
+      "sha256": "3dd83be15db6c0cd22547482c6a07c753fa3b6875a1a0a49540534009fcd6005",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2670,
+        "lines": 123,
+        "content_lines": 72,
+        "headings": 15,
+        "code_fences": 0,
+        "links": 0,
+        "sha256": "3dd83be15db6c0cd22547482c6a07c753fa3b6875a1a0a49540534009fcd6005",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-113",
+      "path": "自动驾驶/autoware/课程/2.地图/地图类型.md",
+      "category": "自动驾驶",
+      "title": "Autoware地图类型",
+      "chars": 2486,
+      "sha256": "09af5bce628d3a08e5624058e8d598282a994afc09535eb5777b0e6762aa272e",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2486,
+        "lines": 61,
+        "content_lines": 41,
+        "headings": 6,
+        "code_fences": 0,
+        "links": 4,
+        "sha256": "09af5bce628d3a08e5624058e8d598282a994afc09535eb5777b0e6762aa272e",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-114",
+      "path": "自动驾驶/autoware/课程/3.定位/定位流程.md",
+      "category": "自动驾驶",
+      "title": "定位流程",
+      "chars": 2756,
+      "sha256": "d86a9273bcec07a3bfb52d63fbccabe9452e12bb0d1c0170fe9751ded4fe9b56",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2756,
+        "lines": 178,
+        "content_lines": 114,
+        "headings": 17,
+        "code_fences": 0,
+        "links": 7,
+        "sha256": "d86a9273bcec07a3bfb52d63fbccabe9452e12bb0d1c0170fe9751ded4fe9b56",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-115",
+      "path": "自动驾驶/autoware/课程/4.感知/感知算法.md",
+      "category": "自动驾驶",
+      "title": "Autoware 感知流程",
+      "chars": 2772,
+      "sha256": "25676e2ed2858e3d7a1a705a10aa0442bb12212ec472d36a51dbfcd93b1195b2",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 2772,
+        "lines": 116,
+        "content_lines": 71,
+        "headings": 13,
+        "code_fences": 0,
+        "links": 11,
+        "sha256": "25676e2ed2858e3d7a1a705a10aa0442bb12212ec472d36a51dbfcd93b1195b2",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-116",
+      "path": "自动驾驶/autoware/部分源码分析/点云预处理/concatenate_pointclouds分析.md",
+      "category": "自动驾驶",
+      "title": "concatenate_pointclouds分析",
+      "chars": 11550,
+      "sha256": "e15336c86d342a5229c1577865f9ad129f06c71c94d79b7f9f599761c262fbe8",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 11550,
+        "lines": 328,
+        "content_lines": 290,
+        "headings": 3,
+        "code_fences": 2,
+        "links": 0,
+        "sha256": "e15336c86d342a5229c1577865f9ad129f06c71c94d79b7f9f599761c262fbe8",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-117",
+      "path": "自动驾驶/autoware/部分源码分析/点云预处理/crop_box_filter分析.md",
+      "category": "自动驾驶",
+      "title": "Crop_Box_Filter分析",
+      "chars": 5504,
+      "sha256": "c3aabfb10ddc7d70eab6c43c804874b1efaa95a138525fc9a8459ac7a8fe06b6",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 5504,
+        "lines": 165,
+        "content_lines": 130,
+        "headings": 3,
+        "code_fences": 4,
+        "links": 0,
+        "sha256": "c3aabfb10ddc7d70eab6c43c804874b1efaa95a138525fc9a8459ac7a8fe06b6",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-118",
+      "path": "自动驾驶/autoware/部分源码分析/点云预处理/pointcloud_densifier点云密度增强.md",
+      "category": "自动驾驶",
+      "title": "PointCloud Densifier (点云密度增强)",
+      "chars": 7732,
+      "sha256": "9ddf53532542d2ea168c3c5ea390e7e8e4e0167338c6e5883a1ae1515812d913",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 7732,
+        "lines": 194,
+        "content_lines": 156,
+        "headings": 2,
+        "code_fences": 2,
+        "links": 0,
+        "sha256": "9ddf53532542d2ea168c3c5ea390e7e8e4e0167338c6e5883a1ae1515812d913",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-119",
+      "path": "自动驾驶/autoware/部分源码分析/点云预处理/voxel_grid_downsample_filter分析.md",
+      "category": "自动驾驶",
+      "title": "Voxel Grid Downsample Filter 分析",
+      "chars": 4546,
+      "sha256": "0ac5908b7cc3dffb790291484add30953dde2e2024fe59ef4ff7907fa94190f8",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 4546,
+        "lines": 129,
+        "content_lines": 106,
+        "headings": 4,
+        "code_fences": 4,
+        "links": 0,
+        "sha256": "0ac5908b7cc3dffb790291484add30953dde2e2024fe59ef4ff7907fa94190f8",
+        "reasons": [],
+        "decision": "keep"
+      }
+    },
+    {
+      "id": "source-120",
+      "path": "自动驾驶/自动驾驶感知问题专项.md",
+      "category": "自动驾驶",
+      "title": "自动驾驶BEV感知",
+      "chars": 15964,
+      "sha256": "195da699df2daf835be31ded1d9ad34f5c683549d453886e9b52e5fd6a903589",
+      "review_status": "candidate",
+      "screening": {
+        "chars": 15964,
+        "lines": 345,
+        "content_lines": 224,
+        "headings": 22,
+        "code_fences": 0,
+        "links": 0,
+        "sha256": "195da699df2daf835be31ded1d9ad34f5c683549d453886e9b52e5fd6a903589",
+        "reasons": [],
+        "decision": "keep"
+      }
+    }
+  ]
+}

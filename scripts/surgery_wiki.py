@@ -17,7 +17,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from wiki_agent.compiler.quality import format_scan_report, scan_wiki
 from wiki_agent.compiler.surgery import (
     _index_overview,
     _load_pages,
@@ -27,9 +26,11 @@ from wiki_agent.compiler.surgery import (
     recheck,
     resolve_conflicts,
 )
+from wiki_agent.compiler.wiki.quality import format_scan_report, scan_wiki
 from wiki_agent.config import load_config
 from wiki_agent.llm.factory import create_llm
 from wiki_agent.log import begin_trace, configure_logging, setup_event_log
+from wiki_agent.versioning import WikiGitManager
 
 WIKI_DIR = PROJECT_ROOT / "wiki"
 
@@ -47,10 +48,9 @@ async def main(dry_run: bool = False, yes: bool = False):
     setup_event_log(run_dir / "events.jsonl")
     begin_trace(trace_id=f"surgery_{run_dir.name}")
 
-    print(f"═══ 1. 粗提（LLM 见全库 index，"
-          f"{len(_index_overview(WIKI_DIR).splitlines())} 页）═══")
+    print(f"═══ 1. 粗提（LLM 见全库 index，{len(_index_overview(WIKI_DIR).splitlines())} 页）═══")
     cfg = load_config(project_root=PROJECT_ROOT)
-    llm = create_llm(cfg.llm)
+    llm = create_llm(cfg.llm, cfg.retry)
     proposals = await propose_from_index(llm, WIKI_DIR)
     if not proposals:
         print("无提议——结构健康。")
@@ -82,26 +82,48 @@ async def main(dry_run: bool = False, yes: bool = False):
         clean.extend(arb.resolved)
         if arb.unresolved:
             queue_file = run_dir / "pending_decisions.json"
-            queue_file.write_text(json.dumps(
-                [{"kind": c.kind, "detail": c.detail, "proposals": [
-                    {"op": p.op, "pages": p.pages, "target": p.target,
-                     "reason": p.reason}
-                    for p in c.proposals]}
-                 for c in arb.unresolved],
-                ensure_ascii=False, indent=2,
-            ), encoding="utf-8")
+            queue_file.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": c.kind,
+                            "detail": c.detail,
+                            "proposals": [
+                                {
+                                    "op": p.op,
+                                    "pages": p.pages,
+                                    "target": p.target,
+                                    "reason": p.reason,
+                                }
+                                for p in c.proposals
+                            ],
+                        }
+                        for c in arb.unresolved
+                    ],
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
             # 统一队列——/queue 可见，不再藏在时间戳目录里
             # 路径注入（config 解析的 workspace，不重推导）
             from wiki_agent.queue import QueueStore
+
             qstore = QueueStore(cfg.paths.resolved_workspace_dir())
             for c in arb.unresolved:
-                qstore.append("surgery_conflict",
-                              kind=c.kind, detail=c.detail,
-                              proposals=[{"op": p.op, "pages": p.pages,
-                                          "target": p.target, "reason": p.reason}
-                                         for p in c.proposals])
-            print(f"  ⚠ {len(arb.unresolved)} 组冲突无法仲裁——"
-                  f"已记录 pending_decisions.json + 统一队列（/queue 可见）")
+                qstore.append(
+                    "surgery_conflict",
+                    kind=c.kind,
+                    detail=c.detail,
+                    proposals=[
+                        {"op": p.op, "pages": p.pages, "target": p.target, "reason": p.reason}
+                        for p in c.proposals
+                    ],
+                )
+            print(
+                f"  ⚠ {len(arb.unresolved)} 组冲突无法仲裁——"
+                f"已记录 pending_decisions.json + 统一队列（/queue 可见）"
+            )
     print(f"  消解后有效提议: {len(clean)} 条")
     if not clean:
         print("消解后无有效提议。")
@@ -126,14 +148,40 @@ async def main(dry_run: bool = False, yes: bool = False):
         print(f"\n═══ 4. 执行（--yes，{len(accepted)} 条全部执行）═══")
 
     print("\n═══ 5. 执行（备份 → 原子动作）═══")
-    result = execute(WIKI_DIR, accepted, backup_dir=run_dir / "backup")
+    git_manager = WikiGitManager(WIKI_DIR, run_root=WIKI_DIR / ".logs" / "runs")
+    git_run = git_manager.begin(run_dir.name, mode="surgery")
+    try:
+        result = execute(WIKI_DIR, accepted)
+    except asyncio.CancelledError as exc:
+        git_manager.abort(git_run, reason=f"surgery cancelled: {exc}")
+        raise
+    except Exception as exc:
+        git_manager.abort(git_run, reason=f"surgery exception: {exc}")
+        raise
 
     print("\n═══ 6. 扫描报告 ═══")
     issues = scan_wiki(WIKI_DIR)
     print(format_scan_report(issues))
+    errors = [issue for issue in issues if issue.level == "error"]
+    if errors or result.skipped:
+        git_manager.abort(
+            git_run,
+            reason=f"surgery validation failed: errors={len(errors)}, skipped={len(result.skipped)}",
+        )
+        print("Git: 已恢复到运行前版本")
+    else:
+        git_manager.commit(
+            git_run,
+            message=f"wiki: surgery {git_run.run_id}",
+            scan_report=run_dir / "scan_report.md",
+            metadata={"actions": len(result.actions), "scan_errors": len(errors)},
+        )
+        print(f"Git: 已提交 {git_run.commit}")
 
-    print(f"\n完成: {len(result.actions)} 个动作 / 跳过 {len(result.skipped)}"
-          f" / 备份 {len(result.backed_up)} 文件")
+    print(
+        f"\n完成: {len(result.actions)} 个动作 / 跳过 {len(result.skipped)}"
+        f" / 备份 {len(result.backed_up)} 文件"
+    )
     if result.skipped:
         for s in result.skipped:
             print(f"  ⚠ {s}")

@@ -101,7 +101,6 @@ class TextChunker(BaseChunker):
         # 3. 尾部合并（同步标题）
         merged = self._merge_tail(raw_chunks)
 
-
         # 4. 包装
         return [
             ChunkedFileProperties(
@@ -150,7 +149,7 @@ class TextChunker(BaseChunker):
 
         # 第一个标题之前的文本（如果有）作为独立 section
         if matches and matches[0].start() > 0:
-            preamble = content[:matches[0].start()].strip()
+            preamble = content[: matches[0].start()].strip()
             if preamble:
                 sections.insert(0, (preamble, ""))
 
@@ -159,7 +158,8 @@ class TextChunker(BaseChunker):
     # ── Section → Chunk ───────────────────────────────────
 
     def _sections_to_chunks(
-        self, sections: list[tuple[str, str]],
+        self,
+        sections: list[tuple[str, str]],
     ) -> list[tuple[str, str]]:
         """section → 段落累积 → (chunk, heading_path) 列表。
 
@@ -218,8 +218,6 @@ class TextChunker(BaseChunker):
         Returns:
             子块列表。
         """
-        sentences = _SENTENCE_END.split(text)
-
         # 重组句子（因为 split 会丢弃分隔符部分）
         chunks: list[str] = []
         current = ""
@@ -254,7 +252,8 @@ class TextChunker(BaseChunker):
     # ── 尾部合并 ──────────────────────────────────────────
 
     def _merge_tail(
-        self, chunks: list[tuple[str, str]],
+        self,
+        chunks: list[tuple[str, str]],
     ) -> list[tuple[str, str]]:
         """最后一个 chunk 太短则合并到前一个（标题保留前一个的）。
 

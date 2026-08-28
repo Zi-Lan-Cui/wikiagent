@@ -1,16 +1,15 @@
 """测试 utils/helpers.py"""
 
-import pytest
 from pathlib import Path
-from wiki_agent.utils.helpers import truncate_text_by_tokens, ensure_dir
 
+from wiki_agent.utils.helpers import ensure_dir, truncate_text_by_tokens
 
 # ═══════════════════════════════════════════
 #  truncate_text_by_tokens
 # ═══════════════════════════════════════════
 
-class TestTruncateTextByTokens:
 
+class TestTruncateTextByTokens:
     def test_empty_text(self):
         """空文本直接返回空"""
         result = truncate_text_by_tokens("", max_tokens=100)
@@ -71,8 +70,8 @@ class TestTruncateTextByTokens:
 #  ensure_dir
 # ═══════════════════════════════════════════
 
-class TestEnsureDir:
 
+class TestEnsureDir:
     def test_creates_directory(self, tmp_path: Path):
         """创建不存在的目录"""
         new_dir = tmp_path / "a" / "b" / "c"
@@ -85,7 +84,7 @@ class TestEnsureDir:
         """目录已存在不报错"""
         new_dir = tmp_path / "exists"
         new_dir.mkdir()
-        result = ensure_dir(new_dir)   # 不抛异常
+        result = ensure_dir(new_dir)  # 不抛异常
         assert result == new_dir
 
     def test_returns_path(self, tmp_path: Path):

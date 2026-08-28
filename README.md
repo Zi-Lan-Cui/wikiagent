@@ -15,7 +15,7 @@ LLM 驱动的个人知识编译器——把杂乱的学习笔记编译成结构�
 | **refine** | `scripts/refine_wiki.py` | wiki 页面自身 → 自身 | 全文 index 建立后刷新交叉引用（执行前自动备份全部页面） |
 | **surgery** | `scripts/surgery_wiki.py [--dry-run\|--yes]` | wiki 全库 → 结构手术 | 合并重复页 / 删除垃圾页（两段 LLM 裁决 + 人工确认 + 自动备份） |
 
-另有基于 wiki 的问答 CLI：`python cli.py`（ReAct agent + wiki 探索工具）。
+另有基于 wiki 的问答 CLI：`uv run wiki-agent`（ReAct agent + wiki 探索工具）。
 
 ---
 
@@ -249,7 +249,7 @@ compiler/prompts/
 | | `scripts/watch_folder.py` | watch 模式（轮询生产消费） |
 | | `scripts/refine_wiki.py` | refine 模式（wiki 自编译，执行前备份全部页面） |
 | | `scripts/surgery_wiki.py` | 结构手术（两段 LLM 裁决 + 冲突消解 + 备份 + 原子执行） |
-| | `cli.py` | wiki 问答 CLI（ReAct agent） |
+| | `src/wiki_agent/cli.py` | 可安装的 wiki 问答 CLI（`wiki-agent`） |
 | **ingestion** | `data_loader.py` | 文件发现/模态分类/多编码/空文件拦截/SHA256 |
 | | `converter/` | MinerU 转 Markdown + VLM 图片 caption |
 | | `chunker/` | 标题感知语义切分 + 结构化分块 |
@@ -305,7 +305,7 @@ VIRTUAL_ENV= .venv/bin/python scripts/surgery_wiki.py --dry-run
 VIRTUAL_ENV= .venv/bin/python scripts/surgery_wiki.py
 
 # 问答
-python cli.py
+uv run wiki-agent
 ```
 
 配置：`env/.env`（API key/模型）+ `env/mcp.json`（MCP server 清单）。LLM 模型默认 `deepseek-v4-flash`（reasoning 模型——编译侧已关闭 thinking，见 §8）。

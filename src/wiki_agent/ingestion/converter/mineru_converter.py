@@ -90,7 +90,7 @@ class MinerUConverter(BaseConverter):
         self._llm = llm
         self._caption_enabled = caption_images and llm is not None
         # 图片资产目录（wiki/assets）——caption 时复制图片并回填路径，
-        # wiki 页面里的 ![](assets/x.png) 自包含可渲染（TODO 图片路径修正）。
+        # wiki 页面里的 ![](assets/x.png) 自包含可渲染。
         # None = 不回填（只 caption 不改路径）。
         self._assets_dir = Path(assets_dir) if assets_dir else None
 
@@ -314,7 +314,7 @@ class MinerUConverter(BaseConverter):
         """处理单个 ``![]()`` 匹配——解析路径 → VLM → 返回替换文本。
 
         assets_dir 配置时: 图片复制到 wiki/assets/（内容 hash 命名去重），
-        回填 assets 相对路径——wiki 页面自包含可渲染（TODO 图片路径修正）。
+        回填 assets 相对路径——wiki 页面自包含可渲染。
 
         Args:
             match: 单个 ``![]()`` 匹配。

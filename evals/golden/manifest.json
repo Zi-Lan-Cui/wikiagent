@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "source_root_env": "WIKI_NOTEBOOK_ROOT",
+  "description": "Curated behavioral cases from the personal notebook. Text is not copied into the repository; source_sha256 pins the reviewed input.",
+  "clusters": [
+    {
+      "id": "operating-system-process",
+      "goal": "从课程式章节恢复内核、系统调用和进程相关页面边界。",
+      "expected_pages": ["concepts/kernel-mode", "concepts/system-call", "concepts/process", "concepts/process-state"],
+      "expected_relations": [["kernel-mode", "system-call"], ["process", "process-state"]]
+    },
+    {
+      "id": "cpp-language-and-runtime",
+      "goal": "区分语言机制、对象生命周期、线程和未定义行为，避免机械合并。",
+      "expected_pages": ["concepts/cpp-cast", "concepts/move-semantics", "concepts/rule-of-five", "concepts/cpp-thread", "concepts/evaluation-order"],
+      "expected_relations": [["move-semantics", "rule-of-five"], ["cpp-thread", "evaluation-order"]]
+    },
+    {
+      "id": "deep-learning-math",
+      "goal": "保留公式、变量依赖和比较中的限制条件，并建立相关概念关系。",
+      "expected_pages": ["concepts/softmax-cross-entropy", "concepts/svm-vs-softmax", "concepts/attention-score", "concepts/pooling", "concepts/convolution-output-shape"],
+      "expected_relations": [["softmax-cross-entropy", "svm-vs-softmax"], ["attention-score", "pooling"]]
+    },
+    {
+      "id": "agent-architecture",
+      "goal": "从个人学习笔记中区分 harness、hook、callback、agent 和消息传递。",
+      "expected_pages": ["concepts/eval-harness", "concepts/callback-and-hook", "concepts/sub-agent", "concepts/message-passing", "concepts/document-merge"],
+      "expected_relations": [["eval-harness", "message-passing"], ["callback-and-hook", "message-passing"]]
+    }
+  ],
+  "cases": [
+    {"id":"os-runtime","cluster":"operating-system-process","source":"操作系统/一.3.1操作系统的运行机制.md","sha256":"ff8ddb4a3bf4413b569e3718c6711a274759af1ac268b035f4dc6fad23a27a82","must_include":["内核态","用户态","特权指令","系统调用"],"must_not_invent":["具体 CPU 架构的实现细节"]},
+    {"id":"os-interrupt","cluster":"operating-system-process","source":"操作系统/一.3.2中断和异常.md","sha256":"92c9bc3f4c8de195b298dea4021ff7a35021ee13e4e06b94f82d9b63cf8f29cf","must_include":["中断","内中断","外中断","异常"],"must_not_invent":["未出现的硬件中断优先级"]},
+    {"id":"os-system-call","cluster":"operating-system-process","source":"操作系统/一.3.3系统调用.md","sha256":"61be0aaaeb03a3e985718d8e19923e613716eb6fba7236006abab86d600db5ac","must_include":["系统调用","用户程序","库函数"],"must_not_invent":["具体系统调用编号"]},
+    {"id":"os-process","cluster":"operating-system-process","source":"操作系统/二.1.1进程的概念、组成、特征.md","sha256":"a20d093e1cc5875f1af588b83861a4ea5b53ab819522d8bcf70d11c0d19b739c","must_include":["进程","程序","进程控制块","PCB"],"must_not_invent":["线程一定是资源分配单位"]},
+    {"id":"os-process-state","cluster":"operating-system-process","source":"操作系统/二.1.3进程的状态与切换.md","sha256":"dd1a58187bef0f417356dcfbe01b1926c4b2c5112e13d7f04c72ba39a518a14c","must_include":["创建态","就绪态","运行态","阻塞态","终止态"],"must_not_invent":["source 未给出的状态转换条件"]},
+    {"id":"cpp-thread","cluster":"cpp-language-and-runtime","source":"C++/C++多线程.md","sha256":"977647f97943a0f264dd06c51f7a13240540e5807f9c90c28a4a3e86fdc3dff3","must_include":["std::thread","join","detach"],"must_not_invent":["线程安全保证"]},
+    {"id":"cpp-cast","cluster":"cpp-language-and-runtime","source":"C++/cast转换.md","sha256":"f7cac8b0a327c3cf0d3a386b821f11ed3ac31fe4859f204b061ea14155b895d9","must_include":["static_cast","dynamic_cast","类型转换"],"must_not_invent":["四种 cast 的完整使用边界（source 未覆盖部分）"]},
+    {"id":"cpp-move","cluster":"cpp-language-and-runtime","source":"C++/移动语义.md","sha256":"45a048ebdd605992cfd0d713f63f377850e7d3a2a7cd26972e12e0f5cfff569d","must_include":["移动语义","C++11","拷贝"],"must_not_invent":["所有移动操作都不分配内存"]},
+    {"id":"cpp-rule-of-five","cluster":"cpp-language-and-runtime","source":"C++/类/三法则和五法则.md","sha256":"6c81ea660e34d62e6816cf0fcc6b44825a50a38bbe4c5b206a0ed233707d8645","must_include":["三法则","五法则","析构函数","移动构造函数"],"must_not_invent":[]},
+    {"id":"cpp-evaluation-order","cluster":"cpp-language-and-runtime","source":"C++/函数/函数参数求值顺序.md","sha256":"96240364b172d4b03f4955ea182514b0efb03797d0f7b89ee14cf333cdd1c98d","must_include":["求值顺序","C++17","未定义行为"],"must_not_invent":["参数按从左到右求值"]},
+    {"id":"dl-softmax-ce","cluster":"deep-learning-math","source":"深度学习/softmax交叉熵求导.md","sha256":"9055fa8d6686138b0c5b523eb0ebc108b3df5eeb62a4c5c43814cb88af9ed67f","must_include":["softmax","交叉熵","变量关系"],"must_not_invent":["source 未出现的优化器结论"]},
+    {"id":"dl-svm-softmax","cluster":"deep-learning-math","source":"深度学习/SVM和Softmax的比较.md","sha256":"55d29aa5de12c181411ece7fc46b4031e672c047e1afb321f7c0878b5f6b76a0","must_include":["SVM","Softmax","损失值","没有可比性"],"must_not_invent":["SVM 和 Softmax 的损失值可以直接比较"]},
+    {"id":"dl-attention-score","cluster":"deep-learning-math","source":"深度学习/几种注意力评分函数.md","sha256":"ffe404f2af3349184c08c4e5534f100c8a34919342bad94ae25bb7b33cbe7429","must_include":["注意力","点积注意力","softmax","sqrt"],"must_not_invent":["未出现的评分函数性能排名"]},
+    {"id":"dl-pooling","cluster":"deep-learning-math","source":"深度学习/池化层作用.md","sha256":"7342f57d38390ba714ffdf39f395506079f19f11927510179b550839746d149a","must_include":["池化","最大池化","平移不变性"],"must_not_invent":["池化一定提高所有任务的精度"]},
+    {"id":"dl-conv-shape","cluster":"deep-learning-math","source":"深度学习/卷积运算输出形状公式分析.md","sha256":"b74d1429d36b5a2161e5d70383e2cce3748a4636c2cc9e122504a47d52b9b775","must_include":["输出形状","步长","向下取整"],"must_not_invent":["source 未说明的 padding 约定"]},
+    {"id":"agent-harness","cluster":"agent-architecture","source":"Agent开发/什么是harness.md","sha256":"c3ad839819325a7cd4d6e9238253d3f3b3369090adeb9f7b2b4151dd622c4347","must_include":["harness"],"must_not_invent":["source 未提供的 harness 定义"]},
+    {"id":"agent-hook-callback","cluster":"agent-architecture","source":"Agent开发/hook和回调的区别.md","sha256":"1593e2d08678816d6e181b2c5b384238688c67b106c0a206d8f2cdefbf547b09","must_include":["回调","Hook","on_progress","生命周期"],"must_not_invent":["Hook 一定跨进程"]},
+    {"id":"agent-sub-agent","cluster":"agent-architecture","source":"Agent开发/子agent.md","sha256":"97b2d59cb56f65f63600e1173db5c0fcf37e4a477ef925873e6518f36564fd0f","must_include":["子agent","并行工具","派生 agent"],"must_not_invent":["所有任务都应拆成子 agent"]},
+    {"id":"agent-message-passing","cluster":"agent-architecture","source":"Agent开发/消息传递的手段.md","sha256":"62805f9b39108fb6154775d5a1bc13d01cce0b04a4215c638cc6f55c2e1f31f0","must_include":["直接调用","回调","事件","耦合度"],"must_not_invent":["三种方式在可靠性上必然有固定排序"]},
+    {"id":"agent-document-merge","cluster":"agent-architecture","source":"Agent开发/RAG/文档合并.md","sha256":"f823862af22880664593f5640af5d5ca0009dcf5a14ea8aa2b88aca0fb94677a","must_include":["文档合并","哈希","语义分析"],"must_not_invent":["相似文档一定可以直接合并"]}
+  ]
+}
