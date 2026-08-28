@@ -40,7 +40,8 @@ class Converter:
         return ConvertedFile.from_raw(raw_file, "")
 
     async def batch_convert(
-        self, raw_files: list[RawFileProperties],
+        self,
+        raw_files: list[RawFileProperties],
     ) -> list[ConvertedFile]:
         """批量转换多个文件（保持入参顺序）。
 

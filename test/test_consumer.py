@@ -17,14 +17,14 @@ def _make_wiki(tmp: Path) -> Path:
         (wiki / sub).mkdir(parents=True)
     # sources 页引用两个源文件
     (wiki / "sources" / "note.md").write_text(
-        "---\ntype: source\ntitle: \"Note\"\nsummary: \"s\"\ngoal: \"g\"\n"
-        "related: []\nsources: [\"note.md\", \"other.md\"]\n"
+        '---\ntype: source\ntitle: "Note"\nsummary: "s"\ngoal: "g"\n'
+        'related: []\nsources: ["note.md", "other.md"]\n'
         "---\n# Note\n\n摘要。\n",
         encoding="utf-8",
     )
     # 正文引用 sources 页别名
     (wiki / "concepts" / "page.md").write_text(
-        "---\ntype: concept\ntitle: \"Page\"\nsummary: \"s\"\ngoal: \"g\"\n"
+        '---\ntype: concept\ntitle: "Page"\nsummary: "s"\ngoal: "g"\n'
         "related: []\n---\n# Page\n\n正文提到 [[sources/note|Note]] 档案。\n",
         encoding="utf-8",
     )
@@ -44,6 +44,7 @@ def test_clean_body_links_replaces_aliases():
 
 def test_process_delete_removes_only_entry():
     """sources 页只剩被删文件 → 页删除。"""
+
     async def run():
         tmp = Path(tempfile.mkdtemp())
         wiki = _make_wiki(tmp)
@@ -56,11 +57,13 @@ def test_process_delete_removes_only_entry():
         # other 从 sources 列表移除
         assert "other.md" not in content
         assert "note.md" in content
+
     asyncio.run(run())
 
 
 def test_process_delete_keeps_page_with_multiple_sources():
     """sources 页还剩其他文件 → 保留页仅移除条目。"""
+
     async def run():
         tmp = Path(tempfile.mkdtemp())
         wiki = _make_wiki(tmp)
@@ -72,11 +75,13 @@ def test_process_delete_keeps_page_with_multiple_sources():
         assert (wiki / "sources" / "note.md").exists()
         content = (wiki / "sources" / "note.md").read_text(encoding="utf-8")
         assert "note.md" not in content  # 条目移除
+
     asyncio.run(run())
 
 
 if __name__ == "__main__":
     import traceback
+
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:

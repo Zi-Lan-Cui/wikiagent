@@ -4,6 +4,7 @@
 """
 
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from wiki_agent.context.context_governor import ContextGovernor
@@ -15,11 +16,10 @@ def _gov() -> ContextGovernor:
     return ContextGovernor(workspace=Path(tempfile.mkdtemp()))
 
 
-
-
 def _cfg(ctx: int, mt: int):
     """测试用 AgentConfig 对象——governor 签名统一为 agent_config。"""
     from wiki_agent.config import AgentConfig
+
     return AgentConfig(context_windows=ctx, max_tokens=mt)
 
 
@@ -85,9 +85,13 @@ def test_repair_orphan_tool_call_fills_placeholder():
     gov = _gov()
     msgs = [
         Message(role="user", content="q"),
-        Message(role="assistant", content="", tool_calls=[
-            ToolCall(id="call_1", name="Grep", arguments={}),
-        ]),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(id="call_1", name="Grep", arguments={}),
+            ],
+        ),
         Message(role="user", content="q2"),
     ]
     repaired = gov._repair_broken_history(msgs)
@@ -112,28 +116,28 @@ def test_repair_orphan_tool_result_removed():
 #  工具结果 TTL 驱逐
 # ════════════════════════════════════════════════════════════
 
-from datetime import datetime
-
 
 def _old_tool_message(name: str, age_seconds: float, content: str = "旧结果") -> Message:
-    old_ts = (datetime.now().timestamp() - age_seconds)
+    old_ts = datetime.now().timestamp() - age_seconds
     # metadata 构造时传参（pydantic 验证 dict → MessageMeta）；
     # 构造后赋值不触发验证，直接放 dict 会在 created_at 读取时崩
     return Message(
-        role="tool", tool_name=name, tool_call_id="c1", content=content,
+        role="tool",
+        tool_name=name,
+        tool_call_id="c1",
+        content=content,
         metadata={"time_stamp": datetime.fromtimestamp(old_ts).isoformat()},
     )
 
 
 def _fresh_tool_message(name: str, content: str = "新结果") -> Message:
-    return Message(role="tool", tool_name=name, tool_call_id="c2",
-                   content=content)
+    return Message(role="tool", tool_name=name, tool_call_id="c2", content=content)
 
 
 def test_stale_tool_result_expired():
     """可重复获得工具超 TTL → 内容清除 + 重调提示。"""
     gov = _gov()
-    gov._tool_ttl = {"ReadFile": 60}   # 1 分钟 TTL 便于测试
+    gov._tool_ttl = {"ReadFile": 60}  # 1 分钟 TTL 便于测试
     msgs = [_old_tool_message("ReadFile", age_seconds=120)]
     gov._expire_stale_tool_results(msgs)
     assert "已过期" in msgs[0].content
@@ -186,13 +190,16 @@ def test_prepare_for_llm_includes_expiry():
         Message(role="system", content="SYS"),
         Message(role="user", content="问"),
         # 带真实 tool_calls 的 assistant——工具结果不是孤儿（repair 不删）
-        Message(role="assistant", content="", tool_calls=[
-            ToolCall(id="c1", name="ReadFile", arguments={}),
-        ]),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(id="c1", name="ReadFile", arguments={}),
+            ],
+        ),
         _old_tool_message("ReadFile", age_seconds=120),
     ]
-    out = gov.prepare_for_llm(Session("t"), msgs,
-                              _cfg(100000, 1000))
+    out = gov.prepare_for_llm(Session("t"), msgs, _cfg(100000, 1000))
     tool_msgs = [m for m in out if m.role == "tool"]
     assert tool_msgs and "已过期" in tool_msgs[0].content
 
@@ -203,8 +210,7 @@ def test_prepare_for_llm_includes_expiry():
 
 
 def _big_tool_message(name: str, chars: int = 5000, call_id: str = "c9") -> Message:
-    return Message(role="tool", tool_name=name, tool_call_id=call_id,
-                   content="数据" * chars)
+    return Message(role="tool", tool_name=name, tool_call_id=call_id, content="数据" * chars)
 
 
 def test_inflight_overflow_compacts_big_tool_result():
@@ -217,8 +223,7 @@ def test_inflight_overflow_compacts_big_tool_result():
         Message(role="user", content="问"),
         _big_tool_message("ReadFile"),
     ]
-    gov._compact_inflight_overflow(
-        msgs, _cfg(3000, 500))
+    gov._compact_inflight_overflow(msgs, _cfg(3000, 500))
     assert "已紧凑化" in msgs[2].content
     assert "数据" not in msgs[2].content
 
@@ -231,8 +236,7 @@ def test_inflight_within_budget_no_change():
         Message(role="user", content="问"),
         _big_tool_message("ReadFile", chars=100),
     ]
-    gov._compact_inflight_overflow(
-        msgs, _cfg(100000, 1000))
+    gov._compact_inflight_overflow(msgs, _cfg(100000, 1000))
     assert "已紧凑化" not in msgs[2].content
 
 
@@ -244,8 +248,7 @@ def test_inflight_unregistered_tool_untouched():
         Message(role="system", content="SYS"),
         _big_tool_message("weather_search", chars=5000),
     ]
-    gov._compact_inflight_overflow(
-        msgs, _cfg(3000, 500))
+    gov._compact_inflight_overflow(msgs, _cfg(3000, 500))
     assert "已紧凑化" not in msgs[1].content
 
 
@@ -257,8 +260,7 @@ def test_inflight_short_result_untouched():
         Message(role="system", content="SYS"),
         _big_tool_message("ReadFile", chars=100),
     ]
-    gov._compact_inflight_overflow(
-        msgs, _cfg(3000, 500))
+    gov._compact_inflight_overflow(msgs, _cfg(3000, 500))
     assert "已紧凑化" not in msgs[1].content
 
 
@@ -271,8 +273,7 @@ def test_inflight_keeps_newest_result():
         _big_tool_message("Grep", call_id="old"),
         _big_tool_message("Grep", call_id="new"),
     ]
-    gov._compact_inflight_overflow(
-        msgs, _cfg(3000, 500))
+    gov._compact_inflight_overflow(msgs, _cfg(3000, 500))
     # 旧的结果被紧凑化，最新的保留
     assert "已紧凑化" in msgs[1].content
     assert "已紧凑化" not in msgs[2].content
@@ -286,16 +287,15 @@ def test_inflight_idempotent():
         Message(role="system", content="SYS"),
         _big_tool_message("ReadFile"),
     ]
-    gov._compact_inflight_overflow(
-        msgs, _cfg(3000, 500))
+    gov._compact_inflight_overflow(msgs, _cfg(3000, 500))
     first = msgs[1].content
-    gov._compact_inflight_overflow(
-        msgs, _cfg(3000, 500))
+    gov._compact_inflight_overflow(msgs, _cfg(3000, 500))
     assert msgs[1].content == first
 
 
 if __name__ == "__main__":
     import traceback
+
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:

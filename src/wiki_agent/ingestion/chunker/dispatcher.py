@@ -40,7 +40,8 @@ class Chunker:
         return []
 
     def batch_chunk(
-        self, files: list[ConvertedFile],
+        self,
+        files: list[ConvertedFile],
     ) -> list[list[ChunkedFileProperties]]:
         """批量切分多个文件。
 

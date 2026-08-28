@@ -1,15 +1,15 @@
-from pathlib import Path
-from datetime import datetime
-from collections import defaultdict
-
-from wiki_agent.session import Session
-from wiki_agent.utils import helpers
-from wiki_agent.message import Message
-from wiki_agent.llm import LLMClient
-from wiki_agent.log import get_logger
-
 import json
 import os
+import uuid
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+
+from wiki_agent.llm import LLMClient
+from wiki_agent.log import get_logger
+from wiki_agent.message import Message
+from wiki_agent.session import Session
+from wiki_agent.utils import helpers
 
 # 单用户模式：所有 session 共享同一个 history 文件，按 session.key 分组压缩更新 memory。
 
@@ -23,49 +23,58 @@ import os
 #    再让 LLM 重写是风险（丢页面名/细节）不是收益。
 #    corrections.md 是待修清单，消费端（refine/surgery 前）读取。
 
-logger=get_logger("MEMORY")
+logger = get_logger("MEMORY")
+
 
 class MemoryStore:
-    def __init__(self,workspace:Path):
-        self.workspace=workspace
-        self.memory_dir=helpers.ensure_dir(self.workspace/"memory_store")
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+        memory_dir = helpers.ensure_dir(self.workspace / "memory_store")
+        if memory_dir is None:
+            raise OSError(f"无法创建记忆目录: {self.workspace / 'memory_store'}")
+        self.memory_dir: Path = memory_dir
 
-    def _read_history_counts(self)->int:
-        count=0
+    def _read_history_counts(self) -> int:
+        count = 0
         try:
-            with open(self.history_file,"r") as f:
+            with open(self.history_file) as f:
                 for _ in f:
-                    count+=1
+                    count += 1
                 return count
-        except (FileNotFoundError,ValueError):
+        except (FileNotFoundError, ValueError):
             return 0
 
     # ── 文件路径 (properties) ─────────────────────────────────
 
     @property
-    def history_file(self)->Path:
-        return self.memory_dir/"history.jsonl"
+    def history_file(self) -> Path:
+        return self.memory_dir / "history.jsonl"
 
     @property
-    def cursor_file(self)->Path:
-        return self.memory_dir/"cursor.txt"
+    def cursor_file(self) -> Path:
+        return self.memory_dir / "cursor.txt"
 
     @property
-    def dream_cursor_file(self)->Path:
-        return self.memory_dir/"dream_cursor.txt"
+    def dream_cursor_file(self) -> Path:
+        return self.memory_dir / "dream_cursor.txt"
 
     @property
-    def memory_file(self)->Path:
-        return self.memory_dir/"memory.md"
+    def memory_file(self) -> Path:
+        return self.memory_dir / "memory.md"
 
     @property
-    def corrections_file(self)->Path:
-        """wiki 纠错待修清单——自然语言原样落账（不做结构化）。"""
-        return self.memory_dir/"corrections.md"
+    def corrections_file(self) -> Path:
+        """wiki 纠错的人类可读视图。"""
+        return self.memory_dir / "corrections.md"
+
+    @property
+    def corrections_jsonl_file(self) -> Path:
+        """wiki 纠错的机器真相源。"""
+        return self.memory_dir / "corrections.jsonl"
 
     # ── cursor 读写 ──────────────────────────────────────────
 
-    def get_cursor(self)->int:
+    def get_cursor(self) -> int:
         """
         获取 history 游标（已处理的行数）。
 
@@ -74,17 +83,17 @@ class MemoryStore:
             （并回写校正游标文件）。
         """
         try:
-            raw=self.cursor_file.read_text()
-            cursor=int(raw)
+            raw = self.cursor_file.read_text()
+            cursor = int(raw)
 
             if cursor <= 0:
-                cursor=self._read_history_counts()
+                cursor = self._read_history_counts()
                 self.update_cursor(cursor)
             return cursor
-        except (FileNotFoundError,ValueError):
+        except (FileNotFoundError, ValueError):
             return self._read_history_counts()
 
-    def get_dream_cursor(self)->int:
+    def get_dream_cursor(self) -> int:
         """
         获取 dream 游标（指向的值已被处理）。
 
@@ -92,11 +101,11 @@ class MemoryStore:
             dream 游标值；文件缺失/损坏返回 0。
         """
         try:
-            raw=self.dream_cursor_file.read_text()
+            raw = self.dream_cursor_file.read_text()
             if not raw:
                 return 0
             return int(raw)
-        except (FileNotFoundError,ValueError):
+        except (FileNotFoundError, ValueError):
             return 0
 
     def _atomic_write(self, path: Path, content: str, fsync: bool = False) -> None:
@@ -122,20 +131,15 @@ class MemoryStore:
             os.fsync(fd)
             os.close(fd)
 
-    def update_cursor(self,new_cursor:int,fsync:bool=False):
+    def update_cursor(self, new_cursor: int, fsync: bool = False):
         self._atomic_write(self.cursor_file, str(new_cursor), fsync=fsync)
 
-    def update_dream_cursor(self,new_cursor:int,fsync:bool=False):
+    def update_dream_cursor(self, new_cursor: int, fsync: bool = False):
         self._atomic_write(self.dream_cursor_file, str(new_cursor), fsync=fsync)
 
     # ── history 读写 ─────────────────────────────────────────
 
-    def append_history(
-            self,
-            session:Session,
-            summery:str,
-            fsync:bool=False
-    ):
+    def append_history(self, session: Session, summary: str, fsync: bool = False):
         """
         追加一条压缩记录。
 
@@ -143,49 +147,54 @@ class MemoryStore:
 
         Args:
             session: 产生记录的会话。
-            summery: 压缩摘要文本。
+            summary: 压缩摘要文本。
             fsync: 是否强制刷盘。
         """
-        next_cursor=self.get_cursor()+1
-        with open(self.history_file,"a") as f:
-            record={
-                "cursor":next_cursor,
-                "time":datetime.now().isoformat(),
-                "session":session.key,
-                "summery":summery
+        next_cursor = self.get_cursor() + 1
+        with open(self.history_file, "a") as f:
+            record = {
+                "cursor": next_cursor,
+                "time": datetime.now().isoformat(),
+                "session": session.key,
+                "summary": summary,
             }
-            f.write(json.dumps(record,ensure_ascii=False)+"\n")
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
             if fsync:
                 f.flush()
                 os.fsync(f.fileno())
         if fsync:
-            fd=os.open(self.history_file.parent,os.O_RDONLY)
+            fd = os.open(self.history_file.parent, os.O_RDONLY)
             os.fsync(fd)
             os.close(fd)
-        self.update_cursor(next_cursor,fsync=fsync)
+        self.update_cursor(next_cursor, fsync=fsync)
 
-    def get_unprocessed_history(self)->dict:
+    def get_unprocessed_history(self) -> dict:
         """
         返回 dream 游标之后按 session 分组的历史记录。
 
         Returns:
             session.key → 记录列表的映射；文件缺失/损坏返回空 dict。
         """
-        memory_cursor=self.get_dream_cursor()
+        memory_cursor = self.get_dream_cursor()
         try:
-            group=defaultdict(list)
-            with open(self.history_file,"r") as f:
+            group = defaultdict(list)
+            with open(self.history_file) as f:
                 for line in f:
-                    entry=json.loads(line.strip())
-                    if  int(entry["cursor"]) > memory_cursor:
+                    entry = json.loads(line.strip())
+                    # history.jsonl 曾将 summary 错拼为 summery；读取时
+                    # 规范化，下一次追加只会写正确字段。
+                    if "summary" not in entry:
+                        entry["summary"] = entry.get("summery", "")
+                    entry.pop("summery", None)
+                    if int(entry["cursor"]) > memory_cursor:
                         group[entry["session"]].append(entry)
             return group
-        except (FileNotFoundError,ValueError):
+        except (FileNotFoundError, ValueError):
             return {}
 
     # ── memory 读写 ──────────────────────────────────────────
 
-    def get_memory_text(self)->str:
+    def get_memory_text(self) -> str:
         """读用户画像文本。
 
         Returns:
@@ -193,21 +202,17 @@ class MemoryStore:
         """
         try:
             return self.memory_file.read_text(encoding="utf-8")
-        except (FileNotFoundError,ValueError):
+        except (FileNotFoundError, ValueError):
             return ""
 
     # ── 纠错清单（独立管道，不经 Dreamer）────────────────────
 
     def append_correction(
-            self,
-            text:str,
-            session_key:str="",
-            fsync:bool=False
+        self, text: str, page: str = "", session_key: str = "", fsync: bool = False
     ):
-        """追加一条 wiki 纠错——自然语言原样落账。
+        """追加一条结构化 wiki 纠错，并刷新 Markdown 视图。
 
-        text 是 LLM 用自然语言总结的纠错事实（"该页闭包示例有误"），
-        不做结构化、不再 LLM 加工——corrections.md 就是待修清单。
+        text 是 LLM 用自然语言总结的纠错事实，不再经过 LLM 重写。
         调用点: /fix 命令或 hook 捕获（即时落账，不等 dream 周期）。
 
         Args:
@@ -215,35 +220,99 @@ class MemoryStore:
             session_key: 来源会话标识（可空）。
             fsync: 是否强制刷盘。
         """
-        line = (
-            f"- [{datetime.now().isoformat()}]"
-            + (f" [{session_key}]" if session_key else "")
-            + f" {text.strip()}\n"
-        )
-        with open(self.corrections_file, "a", encoding="utf-8") as f:
-            f.write(line)
-            if fsync:
-                f.flush()
-                os.fsync(f.fileno())
-        if fsync:
-            fd = os.open(self.corrections_file.parent, os.O_RDONLY)
-            os.fsync(fd)
-            os.close(fd)
+        record = {
+            "id": f"corr_{uuid.uuid4().hex[:12]}",
+            "created_at": datetime.now().isoformat(),
+            "session_key": session_key,
+            "page": page.strip(),
+            "text": text.strip(),
+            "status": "pending",
+        }
+        records = self.get_correction_records()
+        records.append(record)
+        self._write_correction_records(records, fsync=fsync)
 
-    def get_corrections(self)->list[str]:
+    def get_correction_records(self) -> list[dict]:
+        """读取结构化纠错；旧版 corrections.md 会懒迁移。"""
+        try:
+            return [
+                json.loads(line)
+                for line in self.corrections_jsonl_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except FileNotFoundError:
+            pass
+        except (ValueError, json.JSONDecodeError):
+            logger.warning("纠错 JSONL 损坏，回退读取 corrections.md")
+
+        try:
+            lines = [
+                line.strip()
+                for line in self.corrections_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except (FileNotFoundError, ValueError):
+            return []
+        records = []
+        for line in lines:
+            status = "pending"
+            for marker, value in (("[已确认待修] ", "accepted"), ("[存疑] ", "uncertain")):
+                if line.startswith(marker):
+                    status = value
+                    line = line[len(marker) :]
+            records.append(
+                {
+                    "id": f"corr_{uuid.uuid4().hex[:12]}",
+                    "created_at": "",
+                    "session_key": "",
+                    "page": "",
+                    "text": line,
+                    "status": status,
+                }
+            )
+        self._write_correction_records(records)
+        return records
+
+    def get_correction(self, index: int) -> dict | None:
+        records = self.get_correction_records()
+        return records[index] if 0 <= index < len(records) else None
+
+    def _write_correction_records(self, records: list[dict], *, fsync: bool = False) -> None:
+        payload = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
+        self._atomic_write(self.corrections_jsonl_file, payload, fsync=fsync)
+        lines = []
+        for record in records:
+            marker = {"accepted": "[已确认待修] ", "uncertain": "[存疑] "}.get(
+                record.get("status", ""), ""
+            )
+            page = f"[{record['page']}] " if record.get("page") else ""
+            stamp = f" [{record['created_at']}]" if record.get("created_at") else ""
+            session = f" [{record['session_key']}]" if record.get("session_key") else ""
+            lines.append(
+                f"- {record['id']}{stamp}{session} {marker}{page}{record.get('text', '').strip()}".rstrip()
+            )
+        self._atomic_write(
+            self.corrections_file, "\n".join(lines) + ("\n" if lines else ""), fsync=fsync
+        )
+
+    def get_corrections(self) -> list[str]:
         """读取待修清单。
 
         Returns:
             逐条纠错文本列表；文件缺失/损坏返回空列表。
         """
-        try:
-            return [
-                line for line in
-                self.corrections_file.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-        except (FileNotFoundError,ValueError):
-            return []
+        records = self.get_correction_records()
+        lines = []
+        for record in records:
+            marker = {"accepted": "[已确认待修] ", "uncertain": "[存疑] "}.get(
+                record.get("status", ""), ""
+            )
+            page = f"[{record['page']}] " if record.get("page") else ""
+            session = f" [{record['session_key']}]" if record.get("session_key") else ""
+            lines.append(
+                f"- {record['id']}{session} {marker}{page}{record.get('text', '').strip()}".rstrip()
+            )
+        return lines
 
     # ── 裁决操作（/resolve 用）──────────────────────────────
 
@@ -253,8 +322,8 @@ class MemoryStore:
         Args:
             lines: 要写入的行列表。
         """
-        with open(self.corrections_file, "w", encoding="utf-8") as f:
-            f.write("".join(line + "\n" for line in lines))
+        # 兼容旧内部调用；新代码应修改结构化 records。
+        self._atomic_write(self.corrections_file, "".join(line + "\n" for line in lines))
 
     def remove_correction(self, index: int) -> bool:
         """移除第 index 条（0-based）——驳回语义（wiki 对，用户观点弃）。
@@ -265,12 +334,12 @@ class MemoryStore:
         Returns:
             True 表示移除成功；下标越界返回 False。
         """
-        lines = self.get_corrections()
-        if not (0 <= index < len(lines)):
+        records = self.get_correction_records()
+        if not (0 <= index < len(records)):
             return False
-        removed = lines.pop(index)
-        self._rewrite_corrections(lines)
-        logger.info("纠错驳回 [%d]: %s", index, removed[:60])
+        removed = records.pop(index)
+        self._write_correction_records(records)
+        logger.info("纠错驳回 [%d]: %s", index, removed.get("text", "")[:60])
         return True
 
     def mark_correction(self, index: int, marker: str) -> bool:
@@ -285,22 +354,21 @@ class MemoryStore:
         Returns:
             True 表示操作成功；下标越界返回 False。
         """
-        lines = self.get_corrections()
-        if not (0 <= index < len(lines)):
+        records = self.get_correction_records()
+        if not (0 <= index < len(records)):
             return False
-        line = lines[index]
-        # 去掉旧标记再贴新标记——幂等重标记
-        for known in ("[已确认待修] ", "[存疑] "):
-            line = line.replace(known, "")
-        lines[index] = f"{marker} {line}" if marker else line
-        self._rewrite_corrections(lines)
+        records[index]["status"] = {
+            "[已确认待修]": "accepted",
+            "[存疑]": "uncertain",
+            "": "pending",
+        }.get(marker.strip(), marker.strip())
+        self._write_correction_records(records)
         logger.info("纠错标记 [%d]: %s", index, marker)
         return True
 
 
 class Dreamer:
-
-    _DREAM_PROMPT="""
+    _DREAM_PROMPT = """
         你是一名语言大师，擅长根据记录更新用户的画像，分析用户的爱好，价值观等能描述用户的信息，
         并根据已有的记录信息，对记录进行完整的重写，新的重写涵盖更丰富完整的用户描述。
 
@@ -317,18 +385,14 @@ class Dreamer:
     """
 
     def __init__(
-            self,
-            workspace:Path,
-            memory_store:MemoryStore,
-        ):
-        self.workspace=workspace
-        self.memory_store=memory_store
+        self,
+        workspace: Path,
+        memory_store: MemoryStore,
+    ):
+        self.workspace = workspace
+        self.memory_store = memory_store
 
-    def build_dream_prompt(
-            self,
-            history:str,
-            memory:str
-    )->str:
+    def build_dream_prompt(self, history: str, memory: str) -> str:
         """组装 dream 提示词。
 
         Args:
@@ -338,55 +402,56 @@ class Dreamer:
         Returns:
             格式化后的提示词文本。
         """
-        return self._DREAM_PROMPT.format(
-            history=history,
-            memory=memory
-        )
+        return self._DREAM_PROMPT.format(history=history, memory=memory)
 
-    async def dream(self,llm:LLMClient):
+    async def dream(self, llm: LLMClient):
         """单用户 dream——获取所有未处理的历史，更新 memory。
 
         Args:
             llm: LLM 客户端（生成更新后的画像）。
         """
-        grouped_history=self.memory_store.get_unprocessed_history()
-        memory=self.memory_store.get_memory_text()
-        new_cursor=self.memory_store.get_cursor()
+        grouped_history = self.memory_store.get_unprocessed_history()
+        memory = self.memory_store.get_memory_text()
+        new_cursor = self.memory_store.get_cursor()
 
+        failed = False
         for session_key, history in grouped_history.items():
             # 逐行拼接（换行分隔）——连续 JSON 对象粘连会让 LLM
             # 解析靠自然能力猜边界；每行一条是 JSONL 本来的形态
-            text_history="\n".join([json.dumps(record) for record in history])
+            text_history = "\n".join([json.dumps(record) for record in history])
 
-            update_messages=[
+            update_messages = [
                 Message(
                     role="system",
-                    content=self.build_dream_prompt(
-                        history=text_history,
-                        memory=memory
-                    )
+                    content=self.build_dream_prompt(history=text_history, memory=memory),
                 )
             ]
 
-            response= await llm.async_invoke(messages=update_messages)
+            try:
+                response = await llm.async_invoke(messages=update_messages)
+            except Exception as exc:
+                failed = True
+                logger.warning(
+                    "session %s Dream失败: %s: %s", session_key, type(exc).__name__, str(exc)[:160]
+                )
+                continue
 
             if response.content:
                 self.update_memory(update_content=response.content)
             else:
+                failed = True
                 logger.warning(f"session {session_key} Dream返回结果为空，跳过更新")
 
-        self.memory_store.update_dream_cursor(new_cursor=new_cursor)
+        # 任一 session 更新失败都不能推进全局游标，否则失败记录会被
+        # 永久跳过，下一轮无法恢复。
+        if not failed:
+            self.memory_store.update_dream_cursor(new_cursor=new_cursor)
 
-    def update_memory(
-            self,
-            update_content:str,
-            fsync:bool=False
-    ):
+    def update_memory(self, update_content: str, fsync: bool = False):
         """写入更新后的用户画像（memory.md）。
 
         Args:
             update_content: 新画像文本。
             fsync: 是否强制刷盘。
         """
-        self.memory_store._atomic_write(
-            self.memory_store.memory_file, update_content, fsync=fsync)
+        self.memory_store._atomic_write(self.memory_store.memory_file, update_content, fsync=fsync)

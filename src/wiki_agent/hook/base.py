@@ -51,6 +51,20 @@ class RunContext:
     """The underlying exception when ``error`` is set."""
 
 
+@dataclass(slots=True)
+class CommandProgress:
+    """统一的命令进度事件；业务命令只提供阶段和展示文字。"""
+
+    task_id: str
+    command: str
+    stage: str
+    current: int | None = None
+    total: int | None = None
+    message: str = ""
+    level: str = "info"
+    data: dict[str, Any] = field(default_factory=dict)
+
+
 # ────────────────────────────────────────────────────────────────
 #  AgentHook
 # ────────────────────────────────────────────────────────────────
@@ -126,6 +140,47 @@ class AgentHook:
         Args:
             context: 回合级上下文。
         """
+
+    async def on_command_start(
+        self,
+        context: RunContext,
+        command: str,
+        task_id: str,
+    ) -> None:
+        """命令开始执行。"""
+
+    async def on_command_progress(
+        self,
+        context: RunContext,
+        progress: CommandProgress,
+    ) -> None:
+        """命令阶段进度；message 可按命令自定义。"""
+
+    async def on_command_end(
+        self,
+        context: RunContext,
+        command: str,
+        task_id: str,
+        result: Any,
+    ) -> None:
+        """命令成功或业务层返回结果后的收尾通知。"""
+
+    async def on_command_error(
+        self,
+        context: RunContext,
+        command: str,
+        task_id: str,
+        error: Any,
+    ) -> None:
+        """命令抛出异常。"""
+
+    async def on_command_cancelled(
+        self,
+        context: RunContext,
+        command: str,
+        task_id: str,
+    ) -> None:
+        """命令被取消。"""
 
     # ── Iteration scope ────────────────────────────────────
 
@@ -293,7 +348,8 @@ class CompositeHook(AgentHook):
             except Exception:
                 logger.exception(
                     "AgentHook.%s 失败在 %s 中",
-                    getattr(method, "__name__", "?"), type(h).__name__,
+                    getattr(method, "__name__", "?"),
+                    type(h).__name__,
                 )
 
     # ── run ──
@@ -309,6 +365,21 @@ class CompositeHook(AgentHook):
 
     async def on_run_error(self, c: RunContext) -> None:
         await self._fanout(AgentHook.on_run_error, c)
+
+    async def on_command_start(self, c: RunContext, command: str, task_id: str) -> None:
+        await self._fanout(AgentHook.on_command_start, c, command, task_id)
+
+    async def on_command_progress(self, c: RunContext, progress: CommandProgress) -> None:
+        await self._fanout(AgentHook.on_command_progress, c, progress)
+
+    async def on_command_end(self, c: RunContext, command: str, task_id: str, result: Any) -> None:
+        await self._fanout(AgentHook.on_command_end, c, command, task_id, result)
+
+    async def on_command_error(self, c: RunContext, command: str, task_id: str, error: Any) -> None:
+        await self._fanout(AgentHook.on_command_error, c, command, task_id, error)
+
+    async def on_command_cancelled(self, c: RunContext, command: str, task_id: str) -> None:
+        await self._fanout(AgentHook.on_command_cancelled, c, command, task_id)
 
     # ── iteration ──
 
@@ -333,14 +404,10 @@ class CompositeHook(AgentHook):
     ) -> None:
         await self._fanout(AgentHook.on_tool_call_start, c, name, tid, args)
 
-    async def on_tool_result(
-        self, c: RunContext, name: str, tid: str, result: Any
-    ) -> None:
+    async def on_tool_result(self, c: RunContext, name: str, tid: str, result: Any) -> None:
         await self._fanout(AgentHook.on_tool_result, c, name, tid, result)
 
-    async def on_tool_error(
-        self, c: RunContext, name: str, tid: str, error: Any
-    ) -> None:
+    async def on_tool_error(self, c: RunContext, name: str, tid: str, error: Any) -> None:
         await self._fanout(AgentHook.on_tool_error, c, name, tid, error)
 
     # ── reasoning ──

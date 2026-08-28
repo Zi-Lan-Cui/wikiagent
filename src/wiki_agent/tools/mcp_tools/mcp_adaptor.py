@@ -16,6 +16,7 @@ from wiki_agent.tools.registry import ToolRegistry
 
 logger = get_logger("MCP")
 
+
 class MCPConnection:
     """
     给任务外部提供关闭连接的接口。因为stdio要求关闭任务的和连接的task要在一个task之内，所以需要使用这种方式包装owner
@@ -99,16 +100,10 @@ async def connect_mcp_servers(
                 read, write = await server_stack.enter_async_context(stdio_client(server_params))
 
             elif transport.type == "sse":
-                # mcp 1.x 的 sse_client 用 httpx + httpx-sse 的 aconnect_sse，
-                # 工厂返回普通 httpx.AsyncClient 即可。防御保留 httpx2
-                # 分支：pyproject 钉死 mcp<2（2.0.0 sse 关闭有上游 bug），
-                # 若手动升级 2.x，sse_client 会改用 httpx2 并调用 client.sse
-                try:
-                    import httpx2 as _sse_httpx
-                except ImportError:
-                    _sse_httpx = httpx
-
-                # 根据client的类型标识，工厂必须有以下参数，在流程中会自动往里面传入一些值，所以必须有
+                # mcp 1.x 的 sse_client 使用 httpx + httpx-sse 的
+                # aconnect_sse；项目已锁定 mcp<2，因此统一返回普通
+                # httpx.AsyncClient。升级 MCP 主版本时需单独验证关闭语义。
+                # 根据 client 的类型标识，工厂必须保留这些参数。
                 def httpx_client_factory(
                     headers: dict[str, str] | None = None,
                     timeout: Any | None = None,
@@ -122,7 +117,7 @@ async def connect_mcp_servers(
                         ),  # headers是client自己调用时注入，这个是自己配置输入
                     }
 
-                    return _sse_httpx.AsyncClient(
+                    return httpx.AsyncClient(
                         headers=merged_headers,
                         timeout=timeout,
                         auth=auth,
@@ -213,7 +208,9 @@ async def connect_mcp_servers(
                     while not close_requested.is_set():
                         await asyncio.sleep(10)
                         try:
-                            await asyncio.wait_for(session.ping(), timeout=5)
+                            # mcp 1.x 运行时提供 ping，但其类型桩未声明该方法；
+                            # 仅在此 SDK 兼容边界窄化为 Any，不放宽全局检查。
+                            await asyncio.wait_for(getattr(session, "ping")(), timeout=5)
                         except Exception:
                             dead.set()
                             return

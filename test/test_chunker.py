@@ -5,20 +5,17 @@ Run:
     .venv/bin/python -m pytest test/test_chunker.py -v
 """
 
-import pytest
-
 from wiki_agent.ingestion.chunker import (
     Chunker,
-    ChunkedFileProperties,
     StructuredChunker,
     TextChunker,
 )
 from wiki_agent.ingestion.converter.base import ConvertedFile
 
-
 # ════════════════════════════════════════════════════════════════
 #  工厂
 # ════════════════════════════════════════════════════════════════
+
 
 def _make_file(ext: str, content: str, **kwargs) -> ConvertedFile:
     return ConvertedFile(
@@ -33,6 +30,7 @@ def _make_file(ext: str, content: str, **kwargs) -> ConvertedFile:
 # ════════════════════════════════════════════════════════════════
 #  Dispatcher
 # ════════════════════════════════════════════════════════════════
+
 
 class TestDispatcher:
     def test_csv_routed_to_structured(self):
@@ -69,6 +67,7 @@ class TestDispatcher:
 #  TextChunker — 语义切分
 # ════════════════════════════════════════════════════════════════
 
+
 class TestTextChunker:
     def test_single_paragraph(self):
         ck = TextChunker(max_chunk_size=500)
@@ -79,13 +78,16 @@ class TestTextChunker:
     def test_section_boundaries(self):
         """# / ## 标题处应该切分。"""
         ck = TextChunker(max_chunk_size=200)
-        file = _make_file("md",
+        file = _make_file(
+            "md",
             "# Section One\n"
-            + "A" * 80 + "\n\n"
+            + "A" * 80
+            + "\n\n"
             + "## Section Two\n"
-            + "B" * 80 + "\n\n"
+            + "B" * 80
+            + "\n\n"
             + "# Section Three\n"
-            + "C" * 80
+            + "C" * 80,
         )
         chunks = ck.chunk(file)
         # 三个 section 应该在标题处分隔
@@ -94,11 +96,7 @@ class TestTextChunker:
     def test_short_sections_merged(self):
         """短于 max_chunk_size 的多个 section 合并为一个 chunk。"""
         ck = TextChunker(max_chunk_size=500)
-        file = _make_file("md",
-            "# S1\nShort.\n\n"
-            + "# S2\nAlso short.\n\n"
-            + "# S3\nAnd short."
-        )
+        file = _make_file("md", "# S1\nShort.\n\n" + "# S2\nAlso short.\n\n" + "# S3\nAnd short.")
         chunks = ck.chunk(file)
         # 三个短 section 应该累积成一个 chunk
         assert len(chunks) == 1
@@ -115,9 +113,11 @@ class TestTextChunker:
     def test_tail_merge(self):
         """尾部过短时合并到前一个 chunk。"""
         ck = TextChunker(max_chunk_size=200, min_chunk_size=20)
-        file = _make_file("md",
-            "A" * 180 + "\n\n"  # ~接近 max
-            + "B" * 5            # 极短尾
+        file = _make_file(
+            "md",
+            "A" * 180
+            + "\n\n"  # ~接近 max
+            + "B" * 5,  # 极短尾
         )
         chunks = ck.chunk(file)
         if len(chunks) >= 2:
@@ -141,6 +141,7 @@ class TestTextChunker:
 # ════════════════════════════════════════════════════════════════
 #  StructuredChunker
 # ════════════════════════════════════════════════════════════════
+
 
 class TestStructuredChunker:
     def test_csv_header_preserved(self):
@@ -199,6 +200,7 @@ class TestStructuredChunker:
 #  can_process 边界
 # ════════════════════════════════════════════════════════════════
 
+
 class TestCanProcess:
     def test_text_chunker_accepts_any_text_modality(self):
         ck = TextChunker()
@@ -219,8 +221,8 @@ class TestCanProcess:
     def test_structured_chunker_accepts_csv_json_jsonl(self):
         ck = StructuredChunker()
         assert ck.can_process(_make_file("csv", "a,b\n1,2"))
-        assert ck.can_process(_make_file("json", '{}'))
-        assert ck.can_process(_make_file("jsonl", '{}'))
+        assert ck.can_process(_make_file("json", "{}"))
+        assert ck.can_process(_make_file("jsonl", "{}"))
 
     def test_structured_chunker_rejects_txt(self):
         ck = StructuredChunker()
