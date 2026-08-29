@@ -30,6 +30,26 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --group dev
 
+      - name: Print CI environment
+        run: |
+          set -eux
+          echo "commit=$(git rev-parse HEAD)"
+          git status --short
+          python --version
+          uv --version
+          uv run ruff --version
+          uv run pyright --version
+          uv run pytest --version
+          echo '--- ruff configuration ---'
+          uv run ruff check --show-settings scripts/compile_folder.py | sed -n '1,200p'
+
+      - name: Verify tracked source and Ruff import rules
+        run: |
+          set -eux
+          test -f pyproject.toml
+          test -f scripts/compile_folder.py
+          uv run ruff check . --select I --output-format=concise
+
       - name: Check formatting
         run: uv run ruff format --check .
 
@@ -52,3 +72,12 @@ jobs:
           uv venv "$smoke_dir"
           uv pip install --python "$smoke_dir/bin/python" dist/*.whl
           "$smoke_dir/bin/wiki-agent" --help
+
+      - name: Collect failure diagnostics
+        if: failure()
+        run: |
+          set +e
+          echo "commit=$(git rev-parse HEAD)"
+          git status --short
+          uv run ruff check . --output-format=full
+          uv run pyright
