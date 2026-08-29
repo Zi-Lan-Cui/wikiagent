@@ -73,6 +73,35 @@ jobs:
           uv pip install --python "$smoke_dir/bin/python" dist/*.whl
           "$smoke_dir/bin/wiki-agent" --help
 
+          sample_wiki="$(mktemp -d)"
+          mkdir -p "$sample_wiki/concepts"
+          cat > "$sample_wiki/concepts/example.md" <<'EOF'
+          ---
+          type: concept
+          title: Example
+          summary: A sample page for the installation smoke test
+          goal: Verify that an installed package can scan a Wiki directory
+          related: []
+          ---
+
+          # Example
+
+          This synthetic page verifies the installed package without using a
+          project dataset or any personal notes.
+          EOF
+          "$smoke_dir/bin/python" - "$sample_wiki" <<'PY'
+          import sys
+          from pathlib import Path
+
+          from wiki_agent.compiler.wiki.quality import scan_wiki
+
+          issues = scan_wiki(Path(sys.argv[1]))
+          errors = [issue for issue in issues if issue.level == "error"]
+          if errors:
+              raise SystemExit("scan smoke test failed: " + "; ".join(map(str, errors)))
+          print(f"scan smoke test passed ({len(issues)} warnings/issues)")
+          PY
+
       - name: Collect failure diagnostics
         if: failure()
         run: |
