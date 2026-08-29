@@ -33,7 +33,9 @@ Thumbs.db
 
 # Runtime data
 workspace/
-wiki/
+# Runtime wiki output at the project root. Keep source packages such as
+# src/wiki_agent/compiler/wiki/ tracked.
+/wiki/
 *.log
 
 # Testing
@@ -47,3 +49,6 @@ htmlcov/
 # other
 docs/
 first_wiki/
+
+# personal document
+TODO.md
