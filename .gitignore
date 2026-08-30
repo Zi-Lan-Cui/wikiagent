@@ -15,10 +15,12 @@ pip-wheel-metadata/
 venv/
 
 # Environment variables
-env/
+env/*
 .env
 .env.*
 !.env.example
+!env/.env.example
+env/mcp.json
 
 # IDE
 .vscode/
