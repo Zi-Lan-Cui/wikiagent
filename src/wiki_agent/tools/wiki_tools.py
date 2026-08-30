@@ -15,6 +15,12 @@ from wiki_agent.tools.base import BaseTool
 
 logger = get_logger("WIKI_TOOLS")
 
+# Internal build artifacts and source provenance are implementation details,
+# not part of the user-facing knowledge base.  Keep these out of all three
+# navigation primitives so the model cannot accidentally treat logs/source
+# snapshots as facts.
+_HIDDEN_DIRS = frozenset({".logs", "sources"})
+
 
 # ════════════════════════════════════════════════════════════
 #  路径安全校验（三个工具共享）
@@ -44,6 +50,8 @@ def _safe_resolve(base: Path, rel: str, *, allow_root: bool = False) -> Path | N
     if allow_root and (not rel.strip() or rel.strip() == "."):
         return base
     if not parts or any(seg == ".." for seg in parts):
+        return None
+    if any(seg in _HIDDEN_DIRS for seg in parts):
         return None
     target = (base / p).resolve()
     if str(target).startswith(str(base)):
@@ -184,7 +192,10 @@ class ListDir(BaseTool):
                 f"offset 不能为负数：{offset}",
                 next_action="使用不小于 0 的 offset。",
             )
-        entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name))
+        entries = sorted(
+            (entry for entry in target.iterdir() if entry.name not in _HIDDEN_DIRS),
+            key=lambda p: (p.is_file(), p.name),
+        )
 
         if offset >= len(entries):
             if not entries:
@@ -293,6 +304,8 @@ class Grep(BaseTool):
             )
 
         for md in sorted(search_dir.rglob("*.md")):
+            if any(part in _HIDDEN_DIRS for part in md.relative_to(self._root).parts):
+                continue
             if len(results) >= max_results * 3:
                 break
             try:
