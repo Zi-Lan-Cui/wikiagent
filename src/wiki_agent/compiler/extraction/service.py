@@ -323,7 +323,10 @@ class Extractor:
         return slug.strip("-") or "untitled"
 
     def _summary_budget(self) -> int:
-        return max(
-            2_000,
-            self._model_context - self._system_tokens - self._output_tokens - self._safety_buffer,
+        available = (
+            self._model_context - self._system_tokens - self._output_tokens - self._safety_buffer
         )
+        # context_window 是请求可用的输入窗口，不应直接变成单次输出的
+        # max_tokens；输出上限由 extract_output_tokens 控制，避免向 provider
+        # 请求几十万 tokens。
+        return min(self._output_tokens, max(2_000, available))
