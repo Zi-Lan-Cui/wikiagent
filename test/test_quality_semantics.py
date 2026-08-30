@@ -162,7 +162,7 @@ def test_compile_command_calls_reusable_compile_entry(tmp_path: Path, monkeypatc
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    import scripts.compile_folder as compile_module
+    import scripts.compile_sources as compile_module
 
     source = tmp_path / "sources"
     source.mkdir()
@@ -175,7 +175,7 @@ def test_compile_command_calls_reusable_compile_entry(tmp_path: Path, monkeypatc
         called.update(path=path, project_root=project_root, wiki_dir=wiki_dir)
         return run_dir
 
-    monkeypatch.setattr(compile_module, "compile_folder", fake_compile)
+    monkeypatch.setattr(compile_module, "compile_sources", fake_compile)
 
     class _ReadFile:
         _root = wiki
