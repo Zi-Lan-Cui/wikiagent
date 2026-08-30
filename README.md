@@ -33,6 +33,18 @@ uv sync
 
 配置文件位于 `env/`。请在本地填写模型服务和路径配置，不要将包含密钥或个人路径的文件提交到仓库。
 
+首次配置可复制模板：
+
+```bash
+cp env/.env.example env/.env
+```
+
+所有可调运行参数（模型、reasoning、预算、并发、watch 时间窗和重试策略）都集中在这个文件中；
+`RootConfig` 只负责类型定义、优先级合并和启动校验。
+
+问答模型默认保留 reasoning。可通过 `LLM_THINKING=enabled|disabled` 控制；启用 reasoning 时，
+请同时保证 `AGENT_MAX_TOKENS` 足够覆盖思考和最终回答。编译阶段会按各阶段契约显式关闭 reasoning。
+
 ## 使用
 
 安装后可运行：
