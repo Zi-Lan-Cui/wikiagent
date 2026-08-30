@@ -5,6 +5,7 @@ import copy
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from openai.types.chat import ChatCompletionToolParam
 
@@ -474,6 +475,7 @@ class ReActAgent(BaseAgent):
         session_key: str,
         user_input: str,
         stream=False,
+        run_id: str | None = None,
     ):
         self._ensure_dream_task()
         # 锁覆盖整个 turn，避免两个 turn 基于同一旧 history 生成回答
@@ -485,6 +487,7 @@ class ReActAgent(BaseAgent):
                     session_key=session_key,
                     user_input=user_input,
                     stream=stream,
+                    run_id=run_id,
                 )
 
     @staticmethod
@@ -528,9 +531,13 @@ class ReActAgent(BaseAgent):
         session_key: str,
         user_input: str,
         stream: bool,
+        run_id: str | None = None,
     ):
         """带取消事务边界的一轮 Agent 执行。"""
-        run_ctx = RunContext(session_key=session_key)
+        run_ctx = RunContext(
+            session_key=session_key,
+            run_id=run_id or f"run_{uuid4().hex}",
+        )
         session: Session = self.session_manager.get_or_create(session_key=session_key)
         # closed 只表示上一轮 idle 收尾完成；用户重新输入时恢复活动态。
         session.status = "active"

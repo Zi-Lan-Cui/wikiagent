@@ -5,26 +5,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import time
-from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from wiki_agent.agent import ReActAgent
-from wiki_agent.config import load_config
+from wiki_agent.application import AppRuntime, WikiAgentService
 from wiki_agent.errors import RetryableError
-from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.log.logger import configure_logging
 from wiki_agent.render import TerminalRenderer
-from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
 
 console = Console()
-
-
-def _new_session_key() -> str:
-    return f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 
 def _footer(elapsed: float, total_tokens: int, win: int, cap: int) -> Panel:
@@ -34,7 +26,8 @@ def _footer(elapsed: float, total_tokens: int, win: int, cap: int) -> Panel:
     return Panel(text, border_style="cyan")
 
 
-async def _interactive_loop(agent: ReActAgent, session_key: str) -> None:
+async def _interactive_loop(service: WikiAgentService, session_key: str) -> None:
+    agent = service.runtime.agent
     console.print(Panel(f"模型: {agent.llm.model_id}\n会话: {session_key}", title="Wiki Agent"))
     dream_task = asyncio.create_task(agent._dream_loop(interval=agent.agent_config.dream_interval))
     try:
@@ -49,7 +42,7 @@ async def _interactive_loop(agent: ReActAgent, session_key: str) -> None:
                 break
             started = time.monotonic()
             try:
-                await agent.run(user_input=user_input, session_key=session_key, stream=True)
+                await service.send_message(session_id=session_key, text=user_input)
             except RetryableError as exc:
                 console.print(f"[red]调用失败（网络/限流）: {exc}[/]")
             except Exception as exc:
@@ -68,17 +61,10 @@ async def _interactive_loop(agent: ReActAgent, session_key: str) -> None:
         await asyncio.gather(dream_task, return_exceptions=True)
 
 
-async def _run(agent: ReActAgent, cfg, session_key: str) -> None:
-    connections = {}
-    if cfg.mcp.servers:
-        from wiki_agent.tools.mcp_tools.mcp_adaptor import connect_mcp_servers
-
-        connections = await connect_mcp_servers(cfg.mcp.servers, agent.tool_registry)
-    try:
-        await _interactive_loop(agent, session_key)
-    finally:
-        for connection in connections.values():
-            await connection.aclose()
+async def _run(service: WikiAgentService, session_key: str) -> None:
+    runtime = service.runtime
+    async with runtime:
+        await _interactive_loop(service, session_key)
 
 
 def main() -> None:
@@ -91,27 +77,22 @@ def main() -> None:
     parser.add_argument("--list", action="store_true", help="列出历史会话后退出")
     parser.add_argument("--debug", action="store_true", help="写入 debug.log 与 events.jsonl")
     args = parser.parse_args()
-    cfg = load_config(project_root=args.project_root, overrides={"logging": {"debug": args.debug}})
-    workspace, wiki = cfg.paths.resolved_workspace_dir(), cfg.paths.resolved_wiki_dir()
-    configure_logging(file_path=str(workspace / "debug.log") if cfg.logging.debug else None)
-    registry = ToolRegistry()
-    registry.register(ReadFile(wiki, workspace=workspace))
-    registry.register(ListDir(wiki))
-    registry.register(Grep(wiki))
-    agent = ReActAgent(
-        name="wiki-qa",
-        llm=create_llm(cfg.llm, cfg.retry),
-        vlm=create_vlm(cfg.vlm, cfg.retry),
-        tool_registry=registry,
-        workspace=workspace,
-        wiki_dir=wiki,
-        agent_config=cfg.agent,
-        compile_config=cfg.compile,
-        retry_config=cfg.retry,
+    runtime = AppRuntime.from_project_root(
+        args.project_root,
+        debug=args.debug,
         hooks=[TerminalRenderer(console)],
     )
+    configure_logging(
+        file_path=str(runtime.workspace / "debug.log") if runtime.config.logging.debug else None
+    )
+    service = WikiAgentService(runtime)
     if args.list:
-        for key in agent.session_manager.list_session_keys():
-            console.print(key)
+        for session in service.list_sessions():
+            console.print(f"{session.id}\t{session.title}")
         return
-    asyncio.run(_run(agent, cfg, args.resume or _new_session_key()))
+    if args.resume:
+        session_id = args.resume
+        service.get_session(session_id)
+    else:
+        session_id = service.create_session().id
+    asyncio.run(_run(service, session_id))
