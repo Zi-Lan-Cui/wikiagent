@@ -2,13 +2,13 @@
 
 > 主体链路已可用；以下聚焦真正未完成、需要验证或值得优化的事项。历史验收记录保留在下方归档区。
 
-## 📌 当前状态快照（2026-08-29）
+## 📌 当前状态快照（2026-08-30）
 
 - **核心链路已完成**：compile / watch / refine / surgery / ReAct QA；日志、事件流、trace、异常队列、页面质检和追加式流式渲染已落地。
 - **当前最高风险**：extract 没有来源保真校验，仍可能把低信息量或错误源文件编成知识页面。
 - **当前最高收益**：让 `schema.md` 成为目录路由、prompt、校验和扫描的单一权威，减少多处硬编码漂移。
 - **CLI 缺口**：`/debug` 尚未实现；`/compile`、`/refine`、`/queue`、`/resolve` 已实现。
-- **工程状态**：使用 `uv` 管理依赖与质量工具；Ruff、Pyright 均已全绿，完整测试已通过（`266 passed, 5 skipped`）。
+- **工程状态**：使用 `uv` 管理依赖与质量工具；本地与 GitHub Actions 的 Ruff、Pyright 均已全绿，完整测试已通过（`267 passed, 5 skipped`）。
 
 ## 🚀 最终交付收口（当前阶段）
 
@@ -16,11 +16,45 @@
 
 - [x] **消除唯一 Pyright 阻塞**：移除项目不需要的 `httpx2` 兼容分支，并为 MCP SDK 未声明的运行时 `ping()` 做窄化兼容；`uv run pyright` 已零错误（2026-08-29）。
 - [ ] **将 `docs/` 纳入版本控制**：从 `.gitignore` 移除 `docs/`；保留快速开始、系统设计、评测说明和最少 ADR，使代码与说明同版本演进。
-- [x] **建立最小 CI**：已新增 `.github/workflows/ci.yml`，GitHub Actions 在干净环境依次执行 `uv sync --locked --group dev`、Ruff format/lint、Pyright、Pytest、`uv build`，并安装 wheel 后运行 `wiki-agent --help`；本地已按同流程验证通过（2026-08-29）。
+- [x] **建立最小 CI**：已新增 `.github/workflows/ci.yml`，GitHub Actions 在干净环境依次执行 `uv sync --locked --group dev`、Ruff format/lint、Pyright、Pytest、`uv build`，并安装 wheel 后运行 `wiki-agent --help`；本地与远程 CI 均已通过（2026-08-30）。
 - [ ] **完成发布安装验收**：本地模拟干净环境安装构建出的 wheel；验证 CLI help、配置缺失时的明确报错，以及最小 compile/scan 流程。
 - [x] **确定评测资产边界**：仓库仅保留评测脚本和 `evals/templates/` 格式模板；真实 manifest、个人笔记、生成 Wiki 和大型 run 产物均由用户通过参数提供，不进入 CI（2026-08-29）。
+- [x] **评测框架收口**：评测命令按 `commands/core/judges` 分层，统一由 `evals/run.py` 启动；模板包含人工 `expected_verdict/annotation`，`run.py report` 支持跨组件汇总及混淆矩阵、precision、recall、F1（2026-08-29）。
 
-**下一步：推送后观察首次远程 CI。** 本地质量门禁与 wheel smoke test 已全绿；首次 GitHub Actions 运行后，若 runner 环境暴露平台差异，再针对性修正 workflow。
+**下一步：完成发布安装验收，并用用户自建 manifest 做一次端到端评测。** 重点验证真实数据下的
+结构门禁、人工真值统计和最终 report；暂不继续扩充历史数据集或临时评测脚本。
+
+## 🌐 Web 扩展准备（单用户单进程）
+
+> 目标：在不复制 CLI 业务逻辑的前提下，为未来网页界面和多用户升级建立稳定边界。
+> 当前部署约束为单用户、单进程、单 worker；暂不引入数据库、Redis 或多进程任务队列。
+
+### 推荐实施顺序
+
+- [x] **建立 Runtime 组合根**：已新增 `application/runtime.py`，集中编排配置、路径、LLM/VLM、ToolRegistry、Agent 和 MCP 生命周期；CLI 已改用 `AppRuntime`（2026-08-30）。
+- [x] **建立应用服务层（第一版）**：已新增 `WikiAgentService`，集中提供 session、消息和运行操作；返回稳定的 `SessionInfo`/`MessageResult`，并统一校验 session ID 和输入（2026-08-30）。后续接 Web 时再补事件流和取消接口。
+- [ ] **CLI 迁移到应用服务层**：CLI 仅负责参数解析、输入和终端渲染，确保现有交互行为不变。
+- [ ] **补服务层回归测试**：覆盖 session 创建/恢复/列表、消息发送、错误返回、不同 session 隔离及同一 session 并发锁。
+- [x] **统一运行事件模型**：已定义 `AgentEvent`，`RunContext` 提供 `run_id` 与递增序号，Hook 事件可被统一关联（2026-08-30）。
+- [x] **实现单进程事件发布器**：已新增 `EventPublisher`，以有界 `asyncio.Queue` 按 `run_id` 发布/订阅事件；暂不接 HTTP/SSE（2026-08-30）。
+- [x] **Service 接入事件流**：`WikiAgentService.stream_message()` 已负责创建 run、订阅事件、启动 Agent 并按序产出 `AgentEvent`；异常和取消会清理后台任务（2026-08-30）。
+- [x] **增加最小 Web API**：已引入 FastAPI/Uvicorn，实现 health、session CRUD、消息发送和 SSE 事件流测试入口；暂不接真实前端与认证（2026-08-30）。
+- [x] **增加 SSE 流式接口**：已将 `AgentEvent` 转换为浏览器可消费的 `text/event-stream`；断线恢复和持久化回放留待后续（2026-08-30）。
+- [x] **接入最小网页（测试版）**：已新增根目录 `frontend/` 原生 HTML/CSS/JS 页面，提供 session 列表、新建/切换会话和 SSE 流式回答；取消运行和历史消息回放留待后续（2026-08-30）。
+- [x] **展示当前 Wiki 目录（测试版）**：已增加只读 `/api/wiki/files` 和网页侧栏文件列表，显示相对路径与大小；不暴露绝对路径、不提供网页写操作（2026-08-30）。
+- [ ] **补长任务管理**：将 compile/refine/surgery 纳入统一任务状态和取消接口，复用现有 runs 日志与事件记录。
+
+### 多用户升级预留（暂不实施）
+
+- [ ] 为服务入口预留 `user_id`/用户上下文；第一版固定为 `default` 用户。
+- [ ] session、workspace、memory 和 runs 按用户隔离，禁止通过请求直接访问任意本地路径。
+- [ ] 需要多 worker 或多实例时，再将 JSONL session 迁移到 SQLite/共享存储，并增加跨进程锁。
+- [ ] 多用户上线前补认证、权限、审计和文件访问沙箱。
+
+### CI 收口记录（2026-08-30）
+
+- 远程 CI 首次失败根因为 `.gitignore` 的 `wiki/` 误忽略了 `src/wiki_agent/compiler/wiki/` 源码包。
+- 已改为只忽略根目录运行产物 `/wiki/`，并补提交缺失源码；随后远程 Ruff、Pyright、测试、构建和 CLI smoke test 全部通过。
 
 ### 本轮清理说明
 
@@ -41,6 +75,8 @@
 - [x] **提供正式安装型 CLI**：入口已迁至 `src/wiki_agent/cli.py`，`wiki-agent` 已在 `[project.scripts]` 注册；`scripts/` 只保留开发、运维脚本，评测脚本已归入 `evals/`（2026-08-28）。
 - [x] **修复配置加载语义**：`PathsConfig` 读取指定 `.env`；`load_config(overrides=...)` 已深合并，并有优先级与嵌套覆盖回归测试（2026-08-28）。
 - [x] **补配置边界校验**：LLM timeout、Agent 并发/ratio/上下文预算、Compile 预算、Watch 时间窗及 LLM/source retry 次数与退避均会 fail-fast；错误信息指向字段与范围（2026-08-28）。
+- [x] **收敛问答 reasoning 开关**：`LLMConfig.thinking` 由 `LLM_THINKING=enabled|disabled` 控制；默认保留 reasoning，禁用时统一注入兼容的 `thinking.disabled` 请求参数（2026-08-30）。
+- [ ] **继续收敛阶段调优参数**：将 compiler integration/surgery 中仍散落的阶段 token 预算、候选数量和正文截断阈值迁入 `CompileConfig`/专用配置；算法协议常量（目录白名单、正则）不迁入 env。
 
 ### P0：统一执行语义
 
@@ -53,6 +89,8 @@
 - [ ] **引入统一代码规范**：使用 ruff format + ruff check；首次格式化作为独立机械提交，后续由 CI/pre-commit 约束。
 - [ ] **渐进式类型检查**：先完成发布门禁要求的 Pyright 零错误；随后再提高 `config/compiler/tools/versioning` 等关键边界的严格级别，新增代码不扩大 `Any`、裸 `dict` 和未标注公共 API。
 - [ ] **明确评测资产的版本策略**：见“最终交付收口”。
+- [ ] **评测最终门禁**：统一 `report.json` 的退出码策略；空集、结构错误、judge error 必须失败，`review` 进入人工复核状态。
+- [ ] **评测真值校准**：为用户自建样本补齐 `expected_verdict`，统计误报/漏报、precision、recall、F1，并记录模型、配置和运行版本。
 
 ### P1：按职责拆分热点模块（按修改痛点渐进进行，不一次性重构）
 
