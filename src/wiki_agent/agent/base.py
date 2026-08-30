@@ -16,6 +16,7 @@ class BaseAgent(ABC):
         session_key: str,
         user_input: str,
         stream=False,
+        run_id: str | None = None,
     ):
         """执行 Agent 一轮对话。
 
@@ -25,6 +26,7 @@ class BaseAgent(ABC):
             session_key: 会话标识（持久化文件名）。
             user_input: 用户输入文本。
             stream: 为 True 时以流式模式调用 LLM。
+            run_id: 可选的回合标识，供事件订阅方关联事件。
 
         Returns:
             None。运行结果经 hook 事件对外发布。
@@ -33,6 +35,7 @@ class BaseAgent(ABC):
             session_key=session_key,
             user_input=user_input,
             stream=stream,
+            run_id=run_id,
         )
 
     @abstractmethod
@@ -41,5 +44,6 @@ class BaseAgent(ABC):
         session_key: str,
         user_input: str,
         stream=False,
+        run_id: str | None = None,
     ):
         pass

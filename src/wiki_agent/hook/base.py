@@ -32,6 +32,17 @@ class RunContext:
     session_key: str
     """The session this turn belongs to."""
 
+    run_id: str = ""
+    """Unique identifier for this Agent turn."""
+
+    sequence: int = 0
+    """Monotonic event sequence, incremented by event publishers."""
+
+    def next_sequence(self) -> int:
+        """Return the next event sequence number for this run."""
+        self.sequence += 1
+        return self.sequence
+
     final_content: str | None = None
     """Last assistant text response, if any."""
 
