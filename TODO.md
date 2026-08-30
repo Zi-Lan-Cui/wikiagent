@@ -411,7 +411,7 @@
   13. **source 扩展与筛选已完成**：重新按内容质量优先从 407 条笔记候选中选择 120 个真实 Markdown source，本地筛选保留 109 条、标记 11 条人工复核、无直接排除项；路径/分类/标题/字符数/SHA-256 和原因已登记。QA 候选生成器已用 3 个 source 试跑成功（9 条候选）；对 109 条可用 source 批量发送外部 LLM 生成 QA 仍需用户明确授权，之后人工抽样复核。
   14. **120 source 分批编译入口已完成**：新增 `scripts/compile_manifest.py`，按 batch 调用现有 `compile_folder`，每批独立 scan/diff/Git commit；状态文件原子写入并记录 run、commit、失败 source，支持 `--resume` 跳过已提交批次，支持 `--max-batches` 小规模试跑。**仍待执行**：使用真实笔记根目录进行 120 条全量分批编译和最终 eval 汇总。
   13. [x] 修复真实笔记 compile 暴露的 `.md` converter 问题：Markdown 直接读取不再依赖 MinerU；Pipeline 在空转换内容和空摘要时分别于 convert/extract 阶段阻断，避免标题驱动的幻觉页面；待重新进行真实黄金集评估。
-  14. [ ] 真实笔记 compile 评估发现：`compile_folder()` 默认只扫描 source 目录第一层；需要显式 recursive 配置后才能处理原始笔记的多层目录，且应保留目录相对路径用于来源和去重。
+  14. [ ] 真实笔记 compile 评估发现：`compile_sources()` 默认只扫描 source 目录第一层；需要显式 recursive 配置后才能处理原始笔记的多层目录，且应保留目录相对路径用于来源和去重。
   15. [x] 修复真实笔记 compile 暴露的中文路径问题：GitManager 的 status/name-status/staged 清单改用 `-z` 原始路径解析，并补 Unicode commit 回归；待真实 compile 复验。
 
 🍰 甜点（P2）:
@@ -484,7 +484,7 @@
 ### P1-D：超参数收编与验证
 
 - [x] 统一 `Extractor` 与 `CompilePipeline` 的 context 语义：由 `CompileConfig.context_window` 表示模型窗口，扣除 system/output/safety buffer 后计算阶段输入预算；保留显式覆盖，不在无法确认模型元数据时盲猜能力。
-- [x] 将 `CHUNK_SIZE`、`EXTRACT_CONCURRENCY` 从 `scripts/compile_folder.py` 移入 `CompileConfig`（`COMPILE_*` 环境变量）。
+- [x] 将 `CHUNK_SIZE`、`EXTRACT_CONCURRENCY` 从 `scripts/compile_sources.py` 移入 `CompileConfig`（`COMPILE_*` 环境变量）。
 - [x] 增加边界校验：chunk size、并发数、max_tokens/context、LLM timeout、watch 时间窗、ratio，以及 LLM/source retry 次数与退避（2026-08-28）。MCP timeout 仍待单独设计。
 - [x] 统一记录 Consolidator 压缩结果：耗时、调用次数、失败次数、压缩边界、阶段 token、cache 命中和失败原因；通过 `ConsolidationResult`、span 与 `compaction_result` 事件输出。
 - [ ] 记录运行指标：chunk token、并发等待、阶段 token、retry、timeout、length 截断、cache 命中、watch 积压。
@@ -509,6 +509,7 @@
 - [x] 只读工具可安全取消并对瞬态故障重试；幂等写入仅在本次参数含 operation/idempotency key 时重试；`CancelledError` 不计失败、不重试。
 - [x] 明确 circuit key（默认按工具，可配置为共享下游）、失败阈值、冷却时间和 half-open 探测；熔断只统计最终瞬态基础设施失败。
 - [ ] 真实不可逆外部写工具接入后，补执行前确认、取消后的未知状态查询、fallback/补偿或人工队列。
+- [x] 新增 `scripts/check_resume_live.py` 真实端到端验收入口：真实 source/LLM 编译、进程中断、state 检查和 `--resume` 完成性验证。
 
 ### P1-G：并发边界（服务化前置）
 
@@ -520,4 +521,15 @@
 
 - [x] RAG embedding/storage/chunker config 迁移：RAG 路径已删除，不再实施旧 from_env 迁移。
 - [ ] 若未来重新引入向量检索：另开设计任务，重新定义 chunk、overlap、embedding、storage 和配置边界。
+
+### P1-H：可恢复编译与提交粒度（当前收口）
+
+- [x] 为 manifest 编译记录 `manifest_hash`、source 路径/大小/SHA-256 指纹和 source 生命周期状态；状态文件原子写入并置于 Wiki 目录之外。
+- [x] `--resume` 在 manifest、source 列表、路径或内容变化时 fail-fast，并给出新增/删除/变更 source 的明确提示。
+- [x] 增加显式 `--reconcile`：按 source id 和内容指纹重建当前 batch 计划，保留未变化且已提交的 source，新增或变化的 source 回到 pending；删除 source 不自动删除 Wiki 页面。
+- [x] 将 `batch-size` 与 `commit-scope` 解耦：支持 `source`、`batch`（默认）和 `run` 三种 Git 提交边界；batch 仅表示执行分组和审计视图。
+- [x] compile_sources 增加 source checkpoint，记录 running/completed/failed/interrupted，取消时保留可恢复状态；`compile_folder.py` 保留兼容包装。
+- [x] 增加 `--status` 只读状态汇总，便于恢复前确认 source/batch 进度。
+- [x] 补充 source 内容变化、manifest reconcile、batch 重组和 resume 回归测试。
+- [x] 将恢复编排从脚本抽到 `compiler/workflows/run_state.py`；reconcile 明确只复用 source 完成状态，不复制可能已被 refine 改写的旧 Wiki 产物。
 ```
