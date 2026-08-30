@@ -19,6 +19,7 @@ def _write_env(root: Path) -> Path:
                 "WIKI_WORKSPACE_DIR=from-dotenv-workspace",
                 "COMPILE_CHUNK_SIZE=4096",
                 "RETRY_LLM_MAX_ATTEMPTS=4",
+                "LLM_THINKING=disabled",
             )
         ),
         encoding="utf-8",
@@ -29,8 +30,8 @@ def _write_env(root: Path) -> Path:
 def test_paths_config_reads_the_selected_env_file(tmp_path: Path) -> None:
     cfg = load_config(project_root=tmp_path, env_file=_write_env(tmp_path))
 
-    assert cfg.paths.resolved_wiki_dir() == Path("from-dotenv-wiki")
-    assert cfg.paths.resolved_workspace_dir() == Path("from-dotenv-workspace")
+    assert cfg.paths.resolved_wiki_dir() == tmp_path / "from-dotenv-wiki"
+    assert cfg.paths.resolved_workspace_dir() == tmp_path / "from-dotenv-workspace"
 
 
 def test_environment_and_overrides_take_precedence(monkeypatch, tmp_path: Path) -> None:
@@ -41,8 +42,21 @@ def test_environment_and_overrides_take_precedence(monkeypatch, tmp_path: Path) 
         overrides={"paths": {"wiki_dir": "from-override"}},
     )
 
-    assert cfg.paths.resolved_wiki_dir() == Path("from-override")
-    assert cfg.paths.resolved_workspace_dir() == Path("from-dotenv-workspace")
+    assert cfg.paths.resolved_wiki_dir() == tmp_path / "from-override"
+    assert cfg.paths.resolved_workspace_dir() == tmp_path / "from-dotenv-workspace"
+
+
+def test_absolute_paths_are_not_rebased(tmp_path: Path) -> None:
+    absolute_wiki = tmp_path / "absolute-wiki"
+    env = tmp_path / "absolute.env"
+    env.write_text(
+        f"LLM_API_KEY=key\nLLM_MODEL_ID=model\nWIKI_WIKI_DIR={absolute_wiki}\n",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(project_root=tmp_path / "project", env_file=env)
+
+    assert cfg.paths.resolved_wiki_dir() == absolute_wiki
 
 
 def test_nested_overrides_are_deep_merged(tmp_path: Path) -> None:
@@ -66,6 +80,7 @@ def test_retry_config_reads_env_and_allows_nested_override(tmp_path: Path) -> No
     assert cfg.retry.llm_max_attempts == 4
     assert cfg.retry.source_base_delay_seconds == 5
     assert cfg.retry.source_max_delay_seconds == 3_600
+    assert cfg.llm.thinking == "disabled"
 
 
 @pytest.mark.parametrize(

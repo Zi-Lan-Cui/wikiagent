@@ -33,6 +33,8 @@ class LLMConfig(BaseSettings):
     api_key: str = ""
     base_url: str = ""
     model_id: str = ""
+    thinking: Literal["enabled", "disabled"] = "enabled"
+    """是否启用模型 reasoning；通过 ``LLM_THINKING`` 控制。"""
     # 单次请求超时（秒）——reasoning 模型思考段长，
     # 120s 对 deepseek 思考链不够（两次 chunk 间隔超限即 ReadTimeout）
     timeout: float = 300.0
@@ -231,17 +233,25 @@ class PathsConfig(BaseSettings):
 
         Returns:
             显式配置的 wiki_dir；未配置时按 project_root/wiki 推导。
+
+            相对路径始终相对于 ``project_root``，这样从任意工作目录
+            启动（例如 ``uvicorn`` 或服务管理器）都使用同一份数据目录。
         """
-        return self.wiki_dir or (self.project_root / "wiki")
+        return self._resolve(self.wiki_dir, "wiki")
 
     def resolved_workspace_dir(self) -> Path:
         """返回解析后的工作区目录。
 
         Returns:
             显式配置的 workspace_dir；未配置时按
-            project_root/workspace 推导。
+            project_root/workspace 推导。相对路径始终相对于
+            ``project_root``。
         """
-        return self.workspace_dir or (self.project_root / "workspace")
+        return self._resolve(self.workspace_dir, "workspace")
+
+    def _resolve(self, configured: Path | None, default_name: str) -> Path:
+        path = configured or Path(default_name)
+        return path if path.is_absolute() else self.project_root / path
 
 
 # ════════════════════════════════════════════════════════════
