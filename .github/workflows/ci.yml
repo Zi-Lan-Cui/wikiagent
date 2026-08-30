@@ -41,13 +41,13 @@ jobs:
           uv run pyright --version
           uv run pytest --version
           echo '--- ruff configuration ---'
-          uv run ruff check --show-settings scripts/compile_folder.py | sed -n '1,200p'
+          uv run ruff check --show-settings scripts/compile_sources.py | sed -n '1,200p'
 
       - name: Verify tracked source and Ruff import rules
         run: |
           set -eux
           test -f pyproject.toml
-          test -f scripts/compile_folder.py
+          test -f scripts/compile_sources.py
           uv run ruff check . --select I --output-format=concise
 
       - name: Check formatting

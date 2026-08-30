@@ -131,8 +131,7 @@ class WikiAgentService:
         return [
             SessionMessage(role=message.role, content=message.content)
             for message in session.history
-            if message.role == "user"
-            or (message.role == "assistant" and message.content.strip())
+            if message.role == "user" or (message.role == "assistant" and message.content.strip())
         ]
 
     async def send_message(self, session_id: str, text: str) -> MessageResult:
@@ -255,8 +254,7 @@ class WikiAgentService:
         # refresh whenever a turn used tools.
         visible_message_count = sum(
             bool(
-                message.role == "user"
-                or (message.role == "assistant" and message.content.strip())
+                message.role == "user" or (message.role == "assistant" and message.content.strip())
             )
             for message in session.history
         )

@@ -49,7 +49,8 @@ htmlcov/
 .ruff_cache/
 
 # other
-docs/
+docs/*
+!docs/resume-design.md
 first_wiki/
 
 # personal document
