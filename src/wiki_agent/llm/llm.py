@@ -58,6 +58,12 @@ class LLMClient:
         self.api_key: str = config.api_key
         self.base_url: str = config.base_url
         self.model_id: str = config.model_id
+        # ``enabled`` is the provider default and sends no vendor-specific
+        # field; ``disabled`` uses the compatible-mode switch supported by the
+        # configured OpenAI-compatible endpoint.
+        self.default_extra_body = (
+            {"thinking": {"type": "disabled"}} if config.thinking == "disabled" else None
+        )
         # 注入 RootConfig.retry；默认保留给直接构造客户端的测试兼容路径。
         self.retry_config = retry_config or RetryConfig()
 
@@ -67,6 +73,10 @@ class LLMClient:
         self.async_client = openai.AsyncClient(
             api_key=self.api_key, base_url=self.base_url, timeout=config.timeout
         )
+
+    def _request_extra_body(self, extra_body: dict | None) -> dict | None:
+        """Return explicit request options or the configured reasoning policy."""
+        return self.default_extra_body if extra_body is None else extra_body
 
     def invoke(
         self,
@@ -98,7 +108,7 @@ class LLMClient:
                 tools=tools or [],
                 max_tokens=max_tokens,
                 temperature=temperature,
-                extra_body=extra_body,
+                extra_body=self._request_extra_body(extra_body),
             )
 
             llm_response = LLMResponse()
@@ -148,7 +158,7 @@ class LLMClient:
                 tools=tools or [],
                 max_tokens=max_tokens,
                 temperature=temperature,
-                extra_body=extra_body,
+                extra_body=self._request_extra_body(extra_body),
             )
             llm_response = LLMResponse()
             llm_response.finish_reason = response.choices[0].finish_reason
@@ -179,6 +189,7 @@ class LLMClient:
         max_tokens: int | None = None,
         temperature: float = 0.5,
         on_delta: Callable[[str], None] | Callable[[str], Awaitable[None]] | None = None,
+        extra_body: dict | None = None,
     ) -> LLMResponse:
         """基于回调的流式调用。
 
@@ -217,15 +228,10 @@ class LLMClient:
                 max_tokens=max_tokens,
                 stream=True,
                 stream_options={"include_usage": True},
+                extra_body=self._request_extra_body(extra_body),
             )
 
             async for chunk in async_stream_response:
-                delta = chunk.choices[0].delta
-                finish_reason = chunk.choices[0].finish_reason
-
-                if finish_reason:
-                    finish_reason_str = finish_reason
-
                 if chunk.usage:
                     usage_info = {
                         "prompt": chunk.usage.prompt_tokens,
@@ -235,6 +241,18 @@ class LLMClient:
                         "cache_hit": getattr(chunk.usage, "prompt_cache_hit_tokens", 0) or 0,
                         "cache_miss": getattr(chunk.usage, "prompt_cache_miss_tokens", 0) or 0,
                     }
+
+                # OpenAI-compatible providers may emit a final usage-only
+                # chunk with ``choices=[]`` when stream_options includes
+                # usage.  It is valid metadata, not a generation failure.
+                if not chunk.choices:
+                    continue
+
+                delta = chunk.choices[0].delta
+                finish_reason = chunk.choices[0].finish_reason
+
+                if finish_reason:
+                    finish_reason_str = finish_reason
 
                 if delta.content:
                     content_buffer += delta.content
@@ -292,6 +310,7 @@ class LLMClient:
         max_tokens: int | None = None,
         temperature: float = 0.5,
         on_delta: Callable[[str], None] | None = None,
+        extra_body: dict | None = None,
     ) -> LLMResponse:
         """基于回调的同步流式调用。
 
@@ -321,9 +340,15 @@ class LLMClient:
                 max_tokens=max_tokens,
                 stream=True,
                 stream_options={"include_usage": True},
+                extra_body=self._request_extra_body(extra_body),
             )
 
             for chunk in stream_response:
+                # Some compatible endpoints append a usage-only chunk with
+                # no choices.  Ignore it instead of indexing an empty list.
+                if not chunk.choices:
+                    continue
+
                 delta = chunk.choices[0].delta
                 finish_reason = chunk.choices[0].finish_reason
 
