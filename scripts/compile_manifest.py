@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """按 source manifest 分批编译 Wiki，并支持中断后恢复。
 
-这个入口是评测/大批量导入的编排层，不改变 ``compile_folder`` 的语义：
+这个入口是评测/大批量导入的编排层，不改变 ``compile_sources`` 的语义：
 每个 batch 仍然是一次独立的 scan + diff + Git commit。批次状态只记录在
 Wiki 外部的 state 文件中，因此不会成为 Wiki 内容的一部分。
 
@@ -24,8 +24,6 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,13 +31,20 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-# compile_folder 自己也会补 src 路径；这里显式补路径是为了让本脚本既能
+# compile_sources 自己也会补 src 路径；这里显式补路径是为了让本脚本既能
 # 作为 scripts/compile_manifest.py 运行，也能被测试导入。
-from scripts.compile_folder import compile_folder  # noqa: E402
+from scripts.compile_sources import compile_sources  # noqa: E402
+from wiki_agent.compiler.workflows import run_state as _run_state  # noqa: E402
 
+_new_state = _run_state.new_state
+_now = _run_state.now
+_read_json = _run_state.read_json
+_reconcile_state = _run_state.reconcile
+_sha256 = _run_state.sha256
+_validate_resume = _run_state.validate_resume
+_write_json_atomic = _run_state.write_json_atomic
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
+compile_folder = compile_sources  # 兼容测试和外部调用方的旧 monkeypatch 名称
 
 
 def load_manifest(path: Path) -> dict[str, Any]:
@@ -64,26 +69,6 @@ def split_sources(sources: list[dict[str, Any]], batch_size: int) -> list[list[d
     return [sources[i : i + batch_size] for i in range(0, len(sources), batch_size)]
 
 
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        delete=False,
-    ) as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-        temp = Path(handle.name)
-    temp.replace(path)
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _git_head(wiki_dir: Path) -> str:
     result = subprocess.run(
         ["git", "-C", str(wiki_dir), "rev-parse", "HEAD"],
@@ -98,7 +83,7 @@ def _init_git(wiki_dir: Path) -> None:
     wiki_dir.mkdir(parents=True, exist_ok=True)
     if (wiki_dir / ".git").exists():
         return
-    # compile_folder 的 run.log/events/run.json 在 Git commit 之后仍会继续
+    # compile_sources 的 run.log/events/run.json 在 Git commit 之后仍会继续
     # 更新；它们是审计产物，不应成为下一批 begin() 的 Wiki dirty 状态。
     # 只对本脚本新建的临时评测仓库写入，不修改用户已有仓库。
     (wiki_dir / ".gitignore").write_text(".logs/\n", encoding="utf-8")
@@ -125,7 +110,7 @@ def _materialize_batch(
     sources: list[dict[str, Any]],
     batch_dir: Path,
 ) -> None:
-    """将可能嵌套的笔记复制成 compile_folder 可读取的扁平目录。"""
+    """将可能嵌套的笔记复制成 compile_sources 可读取的扁平目录。"""
     batch_dir.mkdir(parents=True, exist_ok=True)
     for item in sources:
         source = (root / item["path"]).resolve()
@@ -161,45 +146,6 @@ def _failed_source_ids(run_dir: Path, sources: list[dict[str, Any]]) -> list[str
     return sorted(failed)
 
 
-def _new_state(
-    manifest: Path, root: Path, wiki_dir: Path, batch_size: int, batches: list[list[dict[str, Any]]]
-) -> dict[str, Any]:
-    return {
-        "version": 1,
-        "manifest": str(manifest.resolve()),
-        "root": str(root.resolve()),
-        "wiki_dir": str(wiki_dir.resolve()),
-        "batch_size": batch_size,
-        "created_at": _now(),
-        "updated_at": _now(),
-        "batches": [
-            {
-                "id": f"batch-{index:03d}",
-                "source_ids": [item["id"] for item in batch],
-                "status": "pending",
-                "run_dir": None,
-                "commit": None,
-                "failed_source_ids": [],
-                "error": None,
-            }
-            for index, batch in enumerate(batches, 1)
-        ],
-    }
-
-
-def _validate_resume(state: dict[str, Any], manifest: Path, root: Path, wiki_dir: Path) -> None:
-    expected = {
-        "manifest": str(manifest.resolve()),
-        "root": str(root.resolve()),
-        "wiki_dir": str(wiki_dir.resolve()),
-    }
-    for key, value in expected.items():
-        if state.get(key) != value:
-            raise ValueError(
-                f"resume 参数与 state 不一致: {key}: state={state.get(key)!r}, current={value!r}"
-            )
-
-
 async def run_batches(
     *,
     root: Path,
@@ -210,21 +156,53 @@ async def run_batches(
     work_dir: Path,
     resume: bool = False,
     max_batches: int | None = None,
+    reconcile: bool = False,
+    commit_scope: str = "batch",
 ) -> dict[str, Any]:
     payload = load_manifest(manifest)
     root = root.expanduser().resolve()
     wiki_dir = wiki_dir.expanduser().resolve()
-    batches = split_sources(payload["sources"], batch_size)
+    if commit_scope not in {"source", "batch", "run"}:
+        raise ValueError("commit-scope 必须是 source、batch 或 run")
+    requested_batches = (
+        split_sources(payload["sources"], batch_size) if batch_size else [payload["sources"]]
+    )
+    batches = (
+        [[item] for item in payload["sources"]]
+        if commit_scope == "source"
+        else [payload["sources"]]
+        if commit_scope == "run"
+        else requested_batches
+    )
+    manifest_hash = _sha256(manifest.resolve())
 
     if resume:
         if not state_path.is_file():
             raise FileNotFoundError(f"找不到 resume state: {state_path}")
         state = _read_json(state_path)
-        _validate_resume(state, manifest, root, wiki_dir)
-        if state.get("batch_size") != batch_size:
+        if reconcile:
+            state = _reconcile_state(
+                state,
+                manifest=manifest,
+                root=root,
+                wiki_dir=wiki_dir,
+                batch_size=batch_size,
+                commit_scope=commit_scope,
+                batches=batches,
+                manifest_hash=manifest_hash,
+            )
+            _write_json_atomic(state_path, state)
+        else:
+            _validate_resume(state, manifest, root, wiki_dir, batches, manifest_hash)
+        if not reconcile and state.get("batch_size") != batch_size:
             raise ValueError("resume 时不能修改 batch-size")
+        if not reconcile and state.get("commit_scope", "batch") != commit_scope:
+            raise ValueError("resume 时不能修改 commit-scope")
     else:
-        state = _new_state(manifest, root, wiki_dir, batch_size, batches)
+        state = _new_state(
+            manifest, root, wiki_dir, batch_size, batches, manifest_hash, commit_scope
+        )
+        state["commit_scope"] = commit_scope
         _write_json_atomic(state_path, state)
 
     if len(state.get("batches", [])) != len(batches):
@@ -241,17 +219,45 @@ async def run_batches(
         batch_dir = work_dir / record["id"] / "sources"
         _materialize_batch(root, source_batch, batch_dir)
         record.update({"status": "running", "started_at": _now(), "error": None})
+
+        async def checkpoint(source_name: str, status: str) -> None:
+            source_id = next(
+                (
+                    item["id"]
+                    for item in source_batch
+                    if f"{item['id']}__{Path(item['path']).name}" == source_name
+                ),
+                None,
+            )
+            if source_id is not None:
+                state["source_state"][source_id]["status"] = status
+                state["source_state"][source_id]["updated_at"] = _now()
+                _write_json_atomic(state_path, state)
+
         state["updated_at"] = _now()
         _write_json_atomic(state_path, state)
         try:
-            run_dir = await compile_folder(batch_dir, wiki_dir=wiki_dir)
+            run_dir = await compile_folder(
+                batch_dir, wiki_dir=wiki_dir, source_checkpoint=checkpoint
+            )
             run_record = _read_json(run_dir / "run.json")
             record["run_dir"] = str(run_dir)
             record["commit"] = run_record.get("commit")
             record["failed_source_ids"] = _failed_source_ids(run_dir, source_batch)
             record["finished_at"] = _now()
-            if run_record.get("status") == "committed":
+            if run_record.get("status") == "committed" and not record["failed_source_ids"]:
                 record["status"] = "committed"
+                for source_id in record["source_ids"]:
+                    state["source_state"][source_id].update(
+                        {"status": "committed", "completed_stage": "execute", "error": None}
+                    )
+            elif record["failed_source_ids"]:
+                record["status"] = "failed"
+                record["error"] = "source 失败: " + ", ".join(record["failed_source_ids"])
+                for source_id in record["failed_source_ids"]:
+                    state["source_state"][source_id].update(
+                        {"status": "failed", "error": "source ingest failure"}
+                    )
             else:
                 record["status"] = "failed"
                 record["error"] = f"run status: {run_record.get('status')}"
@@ -277,16 +283,28 @@ async def run_batches(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--root", type=Path, required=True, help="笔记根目录（manifest.path 相对于它）"
-    )
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--wiki-dir", type=Path, required=True)
+    parser.add_argument("--root", type=Path, help="笔记根目录（manifest.path 相对于它）")
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--wiki-dir", type=Path)
     parser.add_argument("--batch-size", type=int, default=20)
+    parser.add_argument(
+        "--commit-scope",
+        choices=("source", "batch", "run"),
+        default="batch",
+        help="Git 提交边界：每个 source、每个 batch，或整个 run",
+    )
     parser.add_argument("--state", type=Path, help="状态文件；默认写在 wiki-dir 的上级 .logs 外部")
     parser.add_argument("--work-dir", type=Path, help="批次临时 source 目录")
     parser.add_argument(
         "--resume", action="store_true", help="读取 state，跳过已经 committed 的批次"
+    )
+    parser.add_argument(
+        "--status", action="store_true", help="只读显示 state 中的 source/batch 状态"
+    )
+    parser.add_argument(
+        "--reconcile",
+        action="store_true",
+        help="允许 manifest/source 变化，按 source id/hash 重建恢复计划",
     )
     parser.add_argument("--max-batches", type=int, help="最多执行几个批次，便于先做小规模试跑")
     parser.add_argument(
@@ -296,6 +314,39 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _main(args: argparse.Namespace) -> int:
+    state = args.state
+    if args.status:
+        if state is None:
+            if args.wiki_dir is None:
+                raise SystemExit("--status 需要 --state，或同时提供 --wiki-dir 以推导状态文件")
+            state = args.wiki_dir.expanduser().resolve().parent / (
+                f"{args.wiki_dir.expanduser().resolve().name}.batch_state.json"
+            )
+        if not state.is_file():
+            raise SystemExit(f"找不到状态文件: {state}")
+        payload = _read_json(state)
+        source_counts: dict[str, int] = {}
+        for item in payload.get("source_state", {}).values():
+            status = str(item.get("status", "unknown"))
+            source_counts[status] = source_counts.get(status, 0) + 1
+        batch_counts: dict[str, int] = {}
+        for item in payload.get("batches", []):
+            status = str(item.get("status", "unknown"))
+            batch_counts[status] = batch_counts.get(status, 0) + 1
+        print(
+            json.dumps(
+                {"state": str(state), "sources": source_counts, "batches": batch_counts},
+                ensure_ascii=False,
+            )
+        )
+        return 0
+    missing = [
+        name
+        for name in ("--root", "--manifest", "--wiki-dir")
+        if getattr(args, name[2:].replace("-", "_"), None) is None
+    ]
+    if missing:
+        raise SystemExit(f"编译运行缺少参数: {', '.join(missing)}")
     wiki_dir = args.wiki_dir.expanduser().resolve()
     if args.init_git:
         _init_git(wiki_dir)
@@ -312,12 +363,14 @@ async def _main(args: argparse.Namespace) -> int:
         work_dir=work_dir,
         resume=args.resume,
         max_batches=args.max_batches,
+        reconcile=args.reconcile,
+        commit_scope=args.commit_scope,
     )
     counts: dict[str, int] = {}
     for batch in result["batches"]:
         counts[batch["status"]] = counts.get(batch["status"], 0) + 1
     print(json.dumps({"state": str(state), "batches": counts}, ensure_ascii=False))
-    return 0
+    return 1 if counts.get("failed") or counts.get("interrupted") else 0
 
 
 if __name__ == "__main__":
