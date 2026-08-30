@@ -2,13 +2,13 @@
 
 > 主体链路已可用；以下聚焦真正未完成、需要验证或值得优化的事项。历史验收记录保留在下方归档区。
 
-## 📌 当前状态快照（2026-08-30）
+## 📌 当前状态快照（2026-08-31）
 
 - **核心链路已完成**：compile / watch / refine / surgery / ReAct QA；日志、事件流、trace、异常队列、页面质检和追加式流式渲染已落地。
 - **当前最高风险**：extract 没有来源保真校验，仍可能把低信息量或错误源文件编成知识页面。
 - **当前最高收益**：让 `schema.md` 成为目录路由、prompt、校验和扫描的单一权威，减少多处硬编码漂移。
 - **CLI 缺口**：`/debug` 尚未实现；`/compile`、`/refine`、`/queue`、`/resolve` 已实现。
-- **工程状态**：使用 `uv` 管理依赖与质量工具；本地与 GitHub Actions 的 Ruff、Pyright 均已全绿，完整测试已通过（`267 passed, 5 skipped`）。
+- **工程状态**：使用 `uv` 管理依赖与质量工具；本地与 GitHub Actions 的 Ruff、Pyright 均已全绿，完整测试已通过（`271 passed, 5 skipped`）。
 
 ## 🚀 最终交付收口（当前阶段）
 
@@ -24,6 +24,14 @@
 **下一步：完成发布安装验收，并用用户自建 manifest 做一次端到端评测。** 重点验证真实数据下的
 结构门禁、人工真值统计和最终 report；暂不继续扩充历史数据集或临时评测脚本。
 
+### 近期收口记录（2026-08-31）
+
+- [x] **补会话历史 API**：新增 `GET /api/sessions/{session_id}/messages`，网页刷新或切换会话时恢复用户/助手消息；空的工具调用 assistant 消息不展示，但仍保留在 JSONL 上下文中。
+- [x] **统一会话标题**：首条用户问题自动截断为标题，保留显式自定义标题。
+- [x] **收紧 Wiki 读取边界**：`ReadFile`、`ListDir`、`Grep` 统一隐藏 `.logs/` 与 `sources/`；旧 session 中的历史引用不自动迁移，需新会话或后续清理。
+- [x] **修复流式响应与网页渲染**：兼容 provider 的空 `choices` usage chunk；SSE 事件完成后整体 Markdown 渲染。
+- [x] **分批提交当前改动**：运行时/Web、CLI、配置/LLM、工具/历史隔离、文档和环境模板分别提交，未纳入本地密钥与运行数据。
+
 ## 🌐 Web 扩展准备（单用户单进程）
 
 > 目标：在不复制 CLI 业务逻辑的前提下，为未来网页界面和多用户升级建立稳定边界。
@@ -33,14 +41,14 @@
 
 - [x] **建立 Runtime 组合根**：已新增 `application/runtime.py`，集中编排配置、路径、LLM/VLM、ToolRegistry、Agent 和 MCP 生命周期；CLI 已改用 `AppRuntime`（2026-08-30）。
 - [x] **建立应用服务层（第一版）**：已新增 `WikiAgentService`，集中提供 session、消息和运行操作；返回稳定的 `SessionInfo`/`MessageResult`，并统一校验 session ID 和输入（2026-08-30）。后续接 Web 时再补事件流和取消接口。
-- [ ] **CLI 迁移到应用服务层**：CLI 仅负责参数解析、输入和终端渲染，确保现有交互行为不变。
-- [ ] **补服务层回归测试**：覆盖 session 创建/恢复/列表、消息发送、错误返回、不同 session 隔离及同一 session 并发锁。
+- [x] **CLI 迁移到应用服务层**：CLI 仅负责参数解析、输入和终端渲染，确保现有交互行为不变（2026-08-30）。
+- [ ] **补服务层回归测试**：继续覆盖消息发送、错误返回、不同 session 隔离及同一 session 并发锁；基础标题/历史过滤测试已完成。
 - [x] **统一运行事件模型**：已定义 `AgentEvent`，`RunContext` 提供 `run_id` 与递增序号，Hook 事件可被统一关联（2026-08-30）。
 - [x] **实现单进程事件发布器**：已新增 `EventPublisher`，以有界 `asyncio.Queue` 按 `run_id` 发布/订阅事件；暂不接 HTTP/SSE（2026-08-30）。
 - [x] **Service 接入事件流**：`WikiAgentService.stream_message()` 已负责创建 run、订阅事件、启动 Agent 并按序产出 `AgentEvent`；异常和取消会清理后台任务（2026-08-30）。
-- [x] **增加最小 Web API**：已引入 FastAPI/Uvicorn，实现 health、session CRUD、消息发送和 SSE 事件流测试入口；暂不接真实前端与认证（2026-08-30）。
+- [x] **增加最小 Web API**：已引入 FastAPI/Uvicorn，实现 health、session、历史消息、消息发送和 SSE 事件流测试入口；暂不接认证（2026-08-30）。
 - [x] **增加 SSE 流式接口**：已将 `AgentEvent` 转换为浏览器可消费的 `text/event-stream`；断线恢复和持久化回放留待后续（2026-08-30）。
-- [x] **接入最小网页（测试版）**：已新增根目录 `frontend/` 原生 HTML/CSS/JS 页面，提供 session 列表、新建/切换会话和 SSE 流式回答；取消运行和历史消息回放留待后续（2026-08-30）。
+- [x] **接入最小网页（测试版）**：已新增根目录 `frontend/` 原生 HTML/CSS/JS 页面，提供 session 列表、新建/切换会话、历史消息回放、Markdown 和 SSE 流式回答；取消运行留待后续（2026-08-30）。
 - [x] **展示当前 Wiki 目录（测试版）**：已增加只读 `/api/wiki/files` 和网页侧栏文件列表，显示相对路径与大小；不暴露绝对路径、不提供网页写操作（2026-08-30）。
 - [ ] **补长任务管理**：将 compile/refine/surgery 纳入统一任务状态和取消接口，复用现有 runs 日志与事件记录。
 
