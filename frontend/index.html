@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>wiki-agent</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>wiki-agent</h1>
+          <button id="new-session" class="primary-button" type="button">＋ 新对话</button>
+        </div>
+        <div id="session-list" class="session-list" aria-label="历史会话"></div>
+        <div class="wiki-heading">当前 Wiki 文件</div>
+        <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="chat-header">
+          <div>
+            <p class="eyebrow">本地知识库助手</p>
+            <h2 id="session-title">选择一个会话</h2>
+          </div>
+          <span id="connection-status" class="status">准备就绪</span>
+        </header>
+
+        <section id="messages" class="messages" aria-live="polite">
+          <div class="empty-state">创建或选择一个会话，然后开始提问。</div>
+        </section>
+
+        <form id="message-form" class="composer">
+          <textarea id="message-input" rows="2" placeholder="询问你的知识库……" disabled></textarea>
+          <button id="send-button" class="primary-button" type="submit" disabled>发送</button>
+        </form>
+      </main>
+    </div>
+    <script src="/app.js?v=4" defer></script>
+  </body>
+</html>

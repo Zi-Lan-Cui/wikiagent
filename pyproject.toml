@@ -12,6 +12,8 @@ dependencies = [
     "rich>=13.0.0",
     "tiktoken>=0.5.0",
     "httpx>=0.27.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
     # mcp 2.0.0 的 sse_client 有上游 bug（关闭时 anyio cancel scope
     # 跨 task 退出 → "generator didn't stop after athrow()" 噪音）。
     # 钉在 1.x——SSE 独立实现无此问题；升级 2.x 需先验证关闭路径
