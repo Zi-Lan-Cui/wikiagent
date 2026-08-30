@@ -60,7 +60,7 @@ uv run wiki-agent --help
 将一个源目录编译成 Wiki：
 
 ```bash
-uv run python scripts/compile_folder.py /path/to/source-folder
+uv run python scripts/compile_sources.py /path/to/source-folder
 ```
 
 默认使用配置中的 Wiki 目录。运行结束后会生成页面、索引、来源记录和本次运行日志；如果某个文件失败，会记录在运行目录中，不会悄悄跳过。

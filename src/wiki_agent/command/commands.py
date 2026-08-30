@@ -473,14 +473,14 @@ class CompileCommand(Command):
             )
 
         # scripts 不是 wheel package，因此在源码工作区中显式加入项目根，
-        # 但编译逻辑仍只存在于 compile_folder() 一个入口。
+        # 但编译逻辑仍只存在于 compile_sources() 一个入口。
         import sys
 
         project_root = Path(__file__).resolve().parents[2]
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
         try:
-            from scripts.compile_folder import compile_folder
+            from scripts.compile_sources import compile_sources
 
             wiki = RefineCommand._wiki_dir(ctx) or (project_root / "wiki")
 
@@ -488,7 +488,7 @@ class CompileCommand(Command):
                 if ctx.reporter is not None:
                     await ctx.reporter.progress(stage, **kwargs)
 
-            run_dir = await compile_folder(
+            run_dir = await compile_sources(
                 args[0],
                 project_root=project_root,
                 wiki_dir=wiki,
