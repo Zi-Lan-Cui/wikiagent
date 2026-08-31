@@ -20,6 +20,7 @@ from wiki_agent.application import (
     WikiAgentService,
 )
 from wiki_agent.application.runtime import AppRuntime
+from wiki_agent.wiki import WikiPageNotFound
 
 
 class CreateSessionRequest(BaseModel):
@@ -63,6 +64,30 @@ def create_app(
     @app.get("/api/wiki/files")
     async def list_wiki_files() -> list[dict[str, Any]]:
         return [asdict(file) for file in service.list_wiki_files()]
+
+    @app.get("/api/queue")
+    async def list_failure_queue() -> list[dict[str, Any]]:
+        return service.list_failure_queue()
+
+    @app.get("/api/wiki/pages/{page_path:path}")
+    async def get_wiki_page(page_path: str) -> dict[str, Any]:
+        try:
+            return asdict(service.get_wiki_page(page_path))
+        except WikiPageNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/wiki/sources/{source_path:path}")
+    async def get_wiki_source(source_path: str) -> dict[str, Any]:
+        try:
+            return asdict(service.get_wiki_source(source_path))
+        except WikiPageNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/wiki/search")
+    async def search_wiki_pages(q: str, limit: int = 30) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 100:
+            raise HTTPException(status_code=400, detail="limit 必须在 1 到 100 之间")
+        return [asdict(page) for page in service.search_wiki_pages(q, limit=limit)]
 
     @app.post("/api/sessions", status_code=201)
     async def create_session(request: CreateSessionRequest) -> dict[str, Any]:

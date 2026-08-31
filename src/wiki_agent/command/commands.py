@@ -537,7 +537,7 @@ class WikiCommand(Command):
     """Wiki Git 历史、差异、回撤和 stale 锁人工处理入口。"""
 
     name = "wiki"
-    description = "Wiki 版本管理：history / diff <run_id> / rollback <run_id>"
+    description = "Wiki 页面与版本管理：open / search / history / diff / rollback"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
         from wiki_agent.versioning import WikiGitManager
@@ -545,9 +545,41 @@ class WikiCommand(Command):
         wiki = RefineCommand._wiki_dir(ctx)
         if wiki is None:
             return CommandResult(text="# /wiki 失败\n\n无法定位 wiki 目录。")
-        args = ctx.args.strip().split(maxsplit=1)
+        args = shlex.split(ctx.args.strip())
         action = args[0].lower() if args else "help"
         try:
+            if action == "open":
+                if len(args) != 2:
+                    return CommandResult(text="# /wiki open\n\n用法: `/wiki open <页面路径>`")
+                from wiki_agent.wiki import WikiPageNotFound, read_page
+
+                try:
+                    page = read_page(wiki, args[1])
+                except WikiPageNotFound:
+                    return CommandResult(text=f"找不到 Wiki 页面: `{args[1]}`")
+                return CommandResult(text=f"# {page.path}\n\n{page.content}")
+            if action == "search":
+                if len(args) < 2:
+                    return CommandResult(
+                        text="# /wiki search\n\n用法: `/wiki search <关键词> [limit]`"
+                    )
+                limit = 20
+                if args[-1].isdigit():
+                    limit = int(args[-1])
+                    query = " ".join(args[1:-1])
+                else:
+                    query = " ".join(args[1:])
+                if not query:
+                    return CommandResult(text="# /wiki search\n\n关键词不能为空。")
+                if not 1 <= limit <= 100:
+                    return CommandResult(text="`limit` 必须在 1 到 100 之间。")
+                from wiki_agent.wiki import search_pages
+
+                pages = search_pages(wiki, query, limit=limit)
+                if not pages:
+                    return CommandResult(text=f"# Wiki search\n\n没有找到包含 `{query}` 的页面。")
+                rows = "\n".join(f"- `{page.path}`" for page in pages)
+                return CommandResult(text=f"# Wiki search: {query}\n\n{rows}")
             manager = WikiGitManager(wiki, run_root=wiki / ".logs" / "runs", require_clean=False)
             if action == "history":
                 limit = int(args[1]) if len(args) > 1 else 20
@@ -624,7 +656,8 @@ class WikiCommand(Command):
             return CommandResult(
                 text=(
                     "# /wiki\n\n"
-                    "用法：`/wiki history` · `/wiki diff <run_id>` · "
+                    "用法：`/wiki open <页面路径>` · `/wiki search <关键词> [limit]` · "
+                    "`/wiki history` · `/wiki diff <run_id>` · "
                     "`/wiki rollback <run_id>` · `/wiki clear-stale` · "
                     "`/wiki abort-stale <run_id> [--confirm]`"
                 )

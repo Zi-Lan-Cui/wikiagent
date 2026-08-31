@@ -11,7 +11,9 @@ from uuid import uuid4
 
 from wiki_agent.application.events import AgentEvent
 from wiki_agent.application.runtime import AppRuntime
+from wiki_agent.queue import QueueStore
 from wiki_agent.session import Session
+from wiki_agent.wiki import WikiPage, read_page, read_source, search_pages
 
 
 class ServiceError(Exception):
@@ -116,6 +118,22 @@ class WikiAgentService:
                 )
             )
         return files
+
+    def list_failure_queue(self) -> list[dict[str, object]]:
+        """Return pending failures for the read-only Web queue view."""
+        return QueueStore(self.runtime.workspace).list()
+
+    def get_wiki_page(self, path: str) -> WikiPage:
+        """Read one public Wiki page using the shared safe resolver."""
+        return read_page(self.runtime.wiki_dir, path)
+
+    def get_wiki_source(self, path: str) -> WikiPage:
+        """Read one source through the Web-only read boundary."""
+        return read_source(self.runtime.wiki_dir, path)
+
+    def search_wiki_pages(self, query: str, *, limit: int = 30) -> list[WikiPage]:
+        """Search public Wiki page paths and contents."""
+        return search_pages(self.runtime.wiki_dir, query, limit=limit)
 
     def get_session(self, session_id: str) -> SessionInfo:
         """Load one persisted session or raise a boundary error."""
