@@ -517,6 +517,50 @@
 - [x] 当前必要保护：同一 Agent 进程内 session turn 锁、QueueStore 文件锁、WikiGitManager 运行锁。
 - [ ] 未来接入 FastAPI/多用户/多进程时再实现：跨进程 session checkpoint 锁、队列原子 claim、Consolidator 分布式锁、provider 限流。
 
+### P1-I：Web 错误队列可视化
+
+- [x] 增加只读 `/api/queue`，复用 QueueStore 的待处理失败记录。
+- [x] 前端展示错误事项、来源文件、阶段和错误摘要，并区分“可重试”和“待人工处理”。
+- [ ] 后续接入队列操作按钮：单项 retry、标记已处理、打开运行日志；操作仍复用现有 CLI/服务用例。
+
+### P1-J：Wiki 页面导航服务
+
+- [x] 新增统一安全页面解析与读取：规范化 `wiki/` 前缀、补 `.md`、阻止路径穿越及 `.logs`/`sources` 内部目录访问。
+- [x] `WikiAgentService` 暴露 `get_wiki_page`、`search_wiki_pages`，Web 提供 `/api/wiki/pages/{path}` 和 `/api/wiki/search`。
+- [x] 补充页面读取、搜索和安全边界回归测试。
+- [x] 前端 Markdown 内部链接点击后接入页面查看器；CLI 增加 `/wiki open`、`/wiki search` 交互入口。
+
+## 🚨 统一问题中心（当前实施主线）
+
+> 目标：用一条可审计、可操作的链路统一编译失败、运行失败、质量问题、问答纠错、内容冲突和 surgery 冲突。前端展示的是稳定的“问题卡片”，而不是直接解释各生产者写出的异构 JSON。
+
+### 设计边界
+
+- [ ] 新增 `wiki_agent.issues` 领域包：`IssueRecord` 负责持久化事实，`IssueCard` 负责面向用户的标题、摘要、状态、证据和可用操作；生产者不直接拼 UI 字段。
+- [ ] 状态统一为 `open / processing / blocked / resolved / dismissed`；“可重试”“待决策”“已过期”等作为服务端推导的 attention/action，不再由前端猜测。
+- [ ] 问题类型首版覆盖 `ingestion_failure`、`run_failure`、`quality_issue`、`content_correction`、`content_conflict`、`surgery_conflict`。
+- [ ] 使用 `workspace/issues.db`（SQLite）持久化问题、状态事件和操作审计；保留 `events.jsonl` 作为运行日志，不把完整 prompt/raw 响应复制进问题表。
+- [ ] 用 `kind + resource + stage + error_code + evidence_key` 生成 fingerprint 去重；重复问题累加次数和最近发生时间，不重复堆卡片。
+- [ ] 对外路径只返回 workspace/wiki 内相对路径；通过 event/artifact 引用查看完整诊断，禁止 API 暴露本机绝对路径。
+
+### 实施顺序
+
+- [ ] **M1 — 领域与存储**：实现类型模型、状态机、SQLite schema、事务更新、去重、事件审计、查询过滤和并发 claim。
+- [ ] **M2 — 旧数据迁移**：将 `queue.jsonl` 和 `memory/corrections.jsonl` 幂等迁移到问题库；正确推导 retry 过期/阻塞状态，保留原文件备份和迁移版本。
+- [ ] **M3 — 生产链路接入**：Compile/Refine/Watch/Scan/QA/Surgery 全部通过 `IssueService` 上报；补齐当前未入队的扫描告警、问答纠错/矛盾和运行级失败。
+- [ ] **M4 — 动作执行**：按类型注册 retry、accept、reject、keep-disputed、re-arbitrate、rescan、dismiss 等 handler；长操作先返回 task id，防止同一问题重复消费。
+- [ ] **M5 — API 与前端**：提供问题列表、详情和动作 API；侧栏只显示计数，独立问题面板支持筛选、证据、诊断、状态和类型专属操作。
+- [ ] **M6 — CLI 兼容与收口**：`/queue`、`/resolve`、`scripts/retry_failures.py` 改为调用统一服务；迁移稳定后停止旧 QueueStore/corrections JSONL 写入。
+- [ ] **M7 — 验收**：Web/CLI 看到同一组问题；过期项不可误显示为可重试；重复失败合并；操作全量审计；并发 retry 只执行一次；解决后自动关闭或明确转为 blocked。
+
+### 首版问题卡片字段
+
+- 公共信息：`id/kind/status/severity/title/summary/created_at/updated_at/occurrences`。
+- 来源定位：`run_id/session_id/mode/stage` 与经过脱敏的 `resource`。
+- 诊断证据：`error_code/error_class/detail/event_ref/artifact_ref/evidence`。
+- 重试状态：`policy/attempts/max_attempts/next_retry_at/expires_at/last_error`。
+- 解决记录：`available_actions/resolution/resolved_at`；可用操作只能由服务端根据当前状态生成。
+
 ### 已移除项处理
 
 - [x] RAG embedding/storage/chunker config 迁移：RAG 路径已删除，不再实施旧 from_env 迁移。
