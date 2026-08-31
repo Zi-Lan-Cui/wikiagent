@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/style.css?v=12" />
   </head>
   <body>
     <div class="app-shell">
@@ -14,8 +14,14 @@
           <button id="new-session" class="primary-button" type="button">＋ 新对话</button>
         </div>
         <div id="session-list" class="session-list" aria-label="历史会话"></div>
-        <div class="wiki-heading">当前 Wiki 文件</div>
-        <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
+        <details class="sidebar-section">
+          <summary><span>当前 Wiki 文件</span><span class="summary-action">浏览 <b class="section-chevron">›</b></span></summary>
+          <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
+        </details>
+        <details class="sidebar-section queue-section">
+          <summary><span>错误队列</span><span class="summary-action"><b id="queue-count" class="section-count">0</b> 查看 <b class="section-chevron">›</b></span></summary>
+          <div id="failure-queue" class="failure-queue" aria-label="待处理错误"></div>
+        </details>
       </aside>
 
       <main class="chat-panel">
@@ -24,11 +30,31 @@
             <p class="eyebrow">本地知识库助手</p>
             <h2 id="session-title">选择一个会话</h2>
           </div>
-          <span id="connection-status" class="status">准备就绪</span>
+          <div class="header-actions">
+            <span id="connection-status" class="status">准备就绪</span>
+          </div>
         </header>
 
         <section id="messages" class="messages" aria-live="polite">
           <div class="empty-state">创建或选择一个会话，然后开始提问。</div>
+        </section>
+
+        <section id="wiki-viewer" class="wiki-viewer" hidden aria-live="polite">
+          <div class="wiki-viewer-toolbar">
+            <div class="wiki-history-controls" role="group" aria-label="Wiki 浏览历史">
+              <button id="wiki-history-back" class="wiki-nav-button" type="button" aria-label="后退" title="后退 (Alt+←)" disabled>←</button>
+              <button id="wiki-history-forward" class="wiki-nav-button" type="button" aria-label="前进" title="前进 (Alt+→)" disabled>→</button>
+            </div>
+            <button id="wiki-close" class="wiki-close-button" type="button" title="返回会话 (Esc)">返回会话</button>
+          </div>
+          <header class="wiki-page-header">
+            <span id="wiki-viewer-path" class="wiki-viewer-path"></span>
+            <h3 id="wiki-page-title"></h3>
+            <p id="wiki-summary" class="wiki-summary"></p>
+            <div id="wiki-basic" class="wiki-meta-basic" aria-label="页面基础信息"></div>
+            <div id="wiki-metadata" class="wiki-metadata" aria-label="页面元信息"></div>
+          </header>
+          <article id="wiki-content" class="wiki-content markdown"></article>
         </section>
 
         <form id="message-form" class="composer">
@@ -37,6 +63,6 @@
         </form>
       </main>
     </div>
-    <script src="/app.js?v=4" defer></script>
+    <script src="/app.js?v=16" defer></script>
   </body>
 </html>
