@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=12" />
+    <link rel="stylesheet" href="/style.css?v=18" />
   </head>
   <body>
     <div class="app-shell">
@@ -18,10 +18,10 @@
           <summary><span>当前 Wiki 文件</span><span class="summary-action">浏览 <b class="section-chevron">›</b></span></summary>
           <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
         </details>
-        <details class="sidebar-section queue-section">
-          <summary><span>错误队列</span><span class="summary-action"><b id="queue-count" class="section-count">0</b> 查看 <b class="section-chevron">›</b></span></summary>
-          <div id="failure-queue" class="failure-queue" aria-label="待处理错误"></div>
-        </details>
+        <button id="issue-center-open" class="sidebar-destination" type="button">
+          <span><b>工作台</b><small>运行任务、问题与质量提醒</small></span>
+          <span class="summary-action"><b id="queue-count" class="section-count">0</b><b class="section-chevron">›</b></span>
+        </button>
       </aside>
 
       <main class="chat-panel">
@@ -45,7 +45,7 @@
               <button id="wiki-history-back" class="wiki-nav-button" type="button" aria-label="后退" title="后退 (Alt+←)" disabled>←</button>
               <button id="wiki-history-forward" class="wiki-nav-button" type="button" aria-label="前进" title="前进 (Alt+→)" disabled>→</button>
             </div>
-            <button id="wiki-close" class="wiki-close-button" type="button" title="返回会话 (Esc)">返回会话</button>
+            <button id="wiki-close" class="wiki-close-button" type="button" title="直接返回当前会话 (Esc)">返回会话</button>
           </div>
           <header class="wiki-page-header">
             <span id="wiki-viewer-path" class="wiki-viewer-path"></span>
@@ -57,12 +57,77 @@
           <article id="wiki-content" class="wiki-content markdown"></article>
         </section>
 
+        <section id="issue-center" class="issue-center" hidden aria-live="polite">
+          <header class="issue-center-header">
+            <div>
+              <p class="eyebrow">知识库运行与维护</p>
+              <h2>工作台</h2>
+              <p>分别查看后台任务和需要处理的问题。</p>
+            </div>
+            <button id="issue-center-close" class="ghost-button" type="button">返回会话</button>
+          </header>
+          <div class="workbench-tabs" role="tablist" aria-label="工作台视图">
+            <button id="workbench-tab-tasks" type="button" role="tab" aria-controls="workbench-tasks-panel">
+              运行任务 <span id="workbench-task-tab-count">0</span>
+            </button>
+            <button id="workbench-tab-issues" class="active" type="button" role="tab" aria-controls="workbench-issues-panel" aria-selected="true">
+              问题处理 <span id="workbench-issue-tab-count">0</span>
+            </button>
+          </div>
+          <section id="workbench-tasks-panel" class="workbench-panel task-panel" role="tabpanel" hidden>
+            <section class="issue-task-queue" aria-labelledby="issue-task-heading">
+              <header>
+                <div>
+                  <h3 id="issue-task-heading">运行队列</h3>
+                  <p>等待任务会按顺序执行，避免同时修改 Wiki。</p>
+                </div>
+                <span id="issue-task-count" class="issue-task-count">0 个活动任务</span>
+              </header>
+              <div id="issue-task-list" class="issue-task-list" aria-live="polite"></div>
+            </section>
+          </section>
+          <section id="workbench-issues-panel" class="workbench-panel issue-panel" role="tabpanel">
+            <div class="issue-filters" aria-label="问题筛选">
+              <label>状态
+                <select id="issue-status-filter">
+                  <option value="open,blocked,processing">未结束</option>
+                  <option value="open">待处理</option>
+                  <option value="blocked">等待决策</option>
+                  <option value="processing">处理中</option>
+                  <option value="resolved,dismissed">已结束</option>
+                  <option value="">全部</option>
+                </select>
+              </label>
+              <label>类型
+                <select id="issue-kind-filter">
+                  <option value="">全部类型</option>
+                  <option value="ingestion_failure">资料处理失败</option>
+                  <option value="content_correction">用户纠错</option>
+                  <option value="content_conflict">内容冲突</option>
+                  <option value="quality_issue">质量问题</option>
+                  <option value="surgery_conflict">结构冲突</option>
+                  <option value="run_failure">运行失败</option>
+                </select>
+              </label>
+              <button id="retry-eligible" class="bulk-retry" type="button" disabled>
+                一键重试 <span id="retry-eligible-count">0</span>
+              </button>
+            </div>
+            <div class="issue-workspace">
+              <div id="issue-list" class="issue-list" aria-label="问题列表"></div>
+              <article id="issue-detail" class="issue-detail">
+                <div class="issue-detail-empty">选择一个问题查看证据与可用操作。</div>
+              </article>
+            </div>
+          </section>
+        </section>
+
         <form id="message-form" class="composer">
           <textarea id="message-input" rows="2" placeholder="询问你的知识库……" disabled></textarea>
           <button id="send-button" class="primary-button" type="submit" disabled>发送</button>
         </form>
       </main>
     </div>
-    <script src="/app.js?v=16" defer></script>
+    <script src="/app.js?v=27" defer></script>
   </body>
 </html>

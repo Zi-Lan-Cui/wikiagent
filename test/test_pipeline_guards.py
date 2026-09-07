@@ -6,7 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from wiki_agent.compiler.models import Disposition, ExtractResult, IntegrationPlan, PageTarget
+from wiki_agent.compiler.models import (
+    AnalysisResult,
+    Disposition,
+    ExtractResult,
+    IntegrationPlan,
+    PageTarget,
+    SearchResult,
+)
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.ingestion.converter.base import ConvertedFile
@@ -71,6 +78,91 @@ def test_empty_extract_summary_fails_before_plan(tmp_path):
         asyncio.run(_pipeline(Converter(), Extractor())._ingest_one(_raw(tmp_path)))
     assert caught.value.stage == IngestStage.EXTRACT
     assert caught.value.error_code == "empty_extract_summary"
+
+
+def test_pipeline_reports_current_stage_before_work_starts(tmp_path):
+    stages: list[str] = []
+
+    class Converter:
+        async def convert(self, _):
+            return ConvertedFile(
+                content="# 有内容\n正文",
+                name="中文笔记.md",
+                ext="md",
+                path=str(tmp_path / "中文笔记.md"),
+                modality="rich",
+            )
+
+    class Extractor:
+        async def extract(self, _):
+            return ExtractResult(source_identity="中文笔记.md", document_summary="")
+
+    pipeline = _pipeline(Converter(), Extractor())
+    pipeline._on_progress = stages.append
+
+    with pytest.raises(IngestError):
+        asyncio.run(pipeline._ingest_one(_raw(tmp_path)))
+
+    assert stages == ["convert", "extract"]
+
+
+def test_pipeline_preserves_structured_execute_error(tmp_path: Path):
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    (wiki / "index.md").write_text("", encoding="utf-8")
+
+    class Converter:
+        async def convert(self, _):
+            return ConvertedFile(
+                content="# 有内容\n正文",
+                name="中文笔记.md",
+                ext="md",
+                path=str(tmp_path / "中文笔记.md"),
+                modality="rich",
+            )
+
+    class Extractor:
+        async def extract(self, _):
+            return ExtractResult(source_identity="中文笔记.md", document_summary="摘要")
+
+    expected = IngestError(
+        IngestStage.EXECUTE,
+        "1 个页面生成失败",
+        raw='[{"path":"concepts/example.md","error":"bad page"}]',
+        error_code="page_generation_failed",
+        error_class="transient",
+        retry_policy="auto_retry",
+    )
+
+    class Integrator:
+        async def search(self, *_):
+            return SearchResult()
+
+        async def analyze(self, *_):
+            return AnalysisResult(source_identity="中文笔记.md")
+
+        async def plan(self, *_args, **_kwargs):
+            return IntegrationPlan(
+                page_targets=[PageTarget("concepts/example.md", "Example", Disposition.NEW)]
+            )
+
+        async def execute(self, *_):
+            raise expected
+
+    pipeline = _pipeline(Converter(), Extractor())
+    pipeline._wiki_dir = wiki
+    pipeline._integrator = Integrator()
+    pipeline._index_reader = None
+    pipeline._ensure_index = lambda: None
+    pipeline._read_optional = lambda _name: ""
+    pipeline._current_page = lambda _raw: ""
+
+    with pytest.raises(IngestError) as caught:
+        asyncio.run(pipeline._ingest_one(_raw(tmp_path)))
+
+    assert caught.value is expected
+    assert caught.value.raw == expected.raw
+    assert caught.value.error_code == "page_generation_failed"
 
 
 def test_index_entry_contains_goal(tmp_path):

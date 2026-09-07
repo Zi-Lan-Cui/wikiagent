@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from wiki_agent.compiler.wiki.quality import scan_source, scan_wiki
+from wiki_agent.wiki.quality import scan_source, scan_wiki
 
 
 def _source_page() -> str:
@@ -25,7 +25,7 @@ def test_source_text_that_looks_like_python_is_not_a_wikilink_error(tmp_path: Pa
     sources.mkdir()
     (sources / "data-cleaning.md").write_text(_source_page(), encoding="utf-8")
 
-    issues = scan_source(tmp_path, source_name="数据清洗.md")
+    issues = scan_source(tmp_path, source_name="数据清洗.md", source_records_dir=sources)
     assert not [issue for issue in issues if issue.level == "error"]
 
     issues = scan_wiki(tmp_path)
@@ -55,6 +55,7 @@ related: []
     issues = scan_source(
         tmp_path,
         source_name="数据清洗.md",
+        source_records_dir=tmp_path / "sources",
         generated_paths=["concepts/cleaning.md"],
     )
     assert any(issue.level == "error" and "wikilink" in issue.message for issue in issues)

@@ -21,13 +21,13 @@ from wiki_agent.compiler.models import (
 )
 from wiki_agent.compiler.prompts import compile as cp
 from wiki_agent.compiler.prompts import refine as rp
-from wiki_agent.compiler.wiki.rules import _check_page_output
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.compiler.workflows.refine import (
     build_index_excluding_self,
     refine_pages,
 )
 from wiki_agent.message import LLMResponse
+from wiki_agent.wiki.rules import _check_page_output
 
 # ════════════════════════════════════════════════════════════
 #  unit: prompt 契约与校验

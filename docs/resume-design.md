@@ -51,7 +51,7 @@ pending → running → committed
 ## 入口与验收
 
 - `compile_manifest.py`：状态创建、指纹校验、source 恢复和 batch 重建。
-- `compile_sources.py`：阶段 checkpoint、取消记录和幂等 source 写入；`compile_folder.py` 仅为旧调用保留兼容包装。
+- `wiki_agent.application.compile_service`：阶段 checkpoint、取消记录和幂等 source 写入；`scripts/compile_sources.py` 仅负责启动。
 - `GitManager`：active/interrupted/committed/aborted 生命周期与 stale lock 防护。
 - CLI/Web：状态查询、resume、reconcile、cancel、abort。
 - 测试：中断恢复、增删改文件、batch-size 变化、manifest 变化、锁恢复和重复执行。

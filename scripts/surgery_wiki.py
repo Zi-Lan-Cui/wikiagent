@@ -15,7 +15,6 @@ from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from wiki_agent.compiler.surgery import (
     _index_overview,
@@ -26,13 +25,13 @@ from wiki_agent.compiler.surgery import (
     recheck,
     resolve_conflicts,
 )
-from wiki_agent.compiler.wiki.quality import format_scan_report, scan_wiki
 from wiki_agent.config import load_config
+from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues.producers import report_quality_findings, report_surgery_conflicts
 from wiki_agent.llm.factory import create_llm
 from wiki_agent.log import begin_trace, configure_logging, setup_event_log
 from wiki_agent.versioning import WikiGitManager
-
-WIKI_DIR = PROJECT_ROOT / "wiki"
+from wiki_agent.wiki.quality import format_scan_report, scan_wiki
 
 
 async def main(dry_run: bool = False, yes: bool = False):
@@ -42,16 +41,19 @@ async def main(dry_run: bool = False, yes: bool = False):
         dry_run: 到消解为止，不动手。
         yes: 跳过确认，直接执行。
     """
-    run_dir = WIKI_DIR / ".logs" / "runs" / f"surgery_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    cfg = load_config(project_root=PROJECT_ROOT)
+    wiki_dir = cfg.paths.resolved_wiki_dir().resolve()
+    runs_dir = cfg.paths.resolved_runs_dir().resolve()
+    run_dir = runs_dir / f"surgery_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(file_path=str(run_dir / "run.log"))
     setup_event_log(run_dir / "events.jsonl")
     begin_trace(trace_id=f"surgery_{run_dir.name}")
 
-    print(f"═══ 1. 粗提（LLM 见全库 index，{len(_index_overview(WIKI_DIR).splitlines())} 页）═══")
-    cfg = load_config(project_root=PROJECT_ROOT)
+    print(f"═══ 1. 粗提（LLM 见全库 index，{len(_index_overview(wiki_dir).splitlines())} 页）═══")
+    issue_service = IssueService(IssueStore(cfg.paths.resolved_workspace_dir()))
     llm = create_llm(cfg.llm, cfg.retry)
-    proposals = await propose_from_index(llm, WIKI_DIR)
+    proposals = await propose_from_index(llm, wiki_dir)
     if not proposals:
         print("无提议——结构健康。")
         return
@@ -59,7 +61,7 @@ async def main(dry_run: bool = False, yes: bool = False):
         print(f"  [{p.op}] {p.pages} — {p.reason}")
 
     print("\n═══ 2. 精选复判（每条带页面全文 + 引用证据）═══")
-    confirmed, rejected = await recheck(llm, WIKI_DIR, proposals)
+    confirmed, rejected = await recheck(llm, wiki_dir, proposals)
     for prop, reason in rejected:
         print(f"  ✗ 否决 [{prop.op}] {prop.pages} — {reason[:100]}")
     if not confirmed:
@@ -70,13 +72,13 @@ async def main(dry_run: bool = False, yes: bool = False):
         print(f"  ✓ {p.op:18s} {p.pages} → {p.target} | {p.reason}")
 
     print("\n═══ 3. 依赖分析与冲突消解 ═══")
-    pages = _load_pages(WIKI_DIR)
+    pages = _load_pages(wiki_dir)
     clean, conflicts = resolve_conflicts(confirmed, pages)
     if conflicts:
         print(f"  确定性消解后仍冲突 {len(conflicts)} 组——LLM 复裁:")
         for c in conflicts:
             print(f"    {c.kind}: {c.detail}")
-        arb = await re_arbitrate(llm, WIKI_DIR, conflicts)
+        arb = await re_arbitrate(llm, wiki_dir, conflicts)
         for p in arb.resolved:
             print(f"    复裁 → [{p.op}] {p.pages} → {p.target}")
         clean.extend(arb.resolved)
@@ -105,24 +107,14 @@ async def main(dry_run: bool = False, yes: bool = False):
                 ),
                 encoding="utf-8",
             )
-            # 统一队列——/queue 可见，不再藏在时间戳目录里
-            # 路径注入（config 解析的 workspace，不重推导）
-            from wiki_agent.queue import QueueStore
-
-            qstore = QueueStore(cfg.paths.resolved_workspace_dir())
-            for c in arb.unresolved:
-                qstore.append(
-                    "surgery_conflict",
-                    kind=c.kind,
-                    detail=c.detail,
-                    proposals=[
-                        {"op": p.op, "pages": p.pages, "target": p.target, "reason": p.reason}
-                        for p in c.proposals
-                    ],
-                )
+            report_surgery_conflicts(
+                issue_service,
+                arb.unresolved,
+                origin={"mode": "surgery", "run_id": run_dir.name},
+            )
             print(
                 f"  ⚠ {len(arb.unresolved)} 组冲突无法仲裁——"
-                f"已记录 pending_decisions.json + 统一队列（/queue 可见）"
+                f"已记录 pending_decisions.json + 问题中心"
             )
     print(f"  消解后有效提议: {len(clean)} 条")
     if not clean:
@@ -148,10 +140,10 @@ async def main(dry_run: bool = False, yes: bool = False):
         print(f"\n═══ 4. 执行（--yes，{len(accepted)} 条全部执行）═══")
 
     print("\n═══ 5. 执行（备份 → 原子动作）═══")
-    git_manager = WikiGitManager(WIKI_DIR, run_root=WIKI_DIR / ".logs" / "runs")
+    git_manager = WikiGitManager(wiki_dir, run_root=runs_dir)
     git_run = git_manager.begin(run_dir.name, mode="surgery")
     try:
-        result = execute(WIKI_DIR, accepted)
+        result = execute(wiki_dir, accepted)
     except asyncio.CancelledError as exc:
         git_manager.abort(git_run, reason=f"surgery cancelled: {exc}")
         raise
@@ -160,7 +152,12 @@ async def main(dry_run: bool = False, yes: bool = False):
         raise
 
     print("\n═══ 6. 扫描报告 ═══")
-    issues = scan_wiki(WIKI_DIR)
+    issues = scan_wiki(wiki_dir)
+    report_quality_findings(
+        issue_service,
+        issues,
+        origin={"mode": "surgery", "run_id": run_dir.name},
+    )
     print(format_scan_report(issues))
     errors = [issue for issue in issues if issue.level == "error"]
     if errors or result.skipped:
