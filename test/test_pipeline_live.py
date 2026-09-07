@@ -89,6 +89,7 @@ def test_real_llm_pipeline_reports_plan_and_files(case):
 
         with tempfile.TemporaryDirectory(prefix="wiki-agent-live-") as raw_tmp:
             wiki = Path(raw_tmp) / "wiki"
+            source_records = Path(raw_tmp) / "workspace" / "provenance" / "sources"
             wiki.mkdir()
             (wiki / "index.md").write_text(case["index"], encoding="utf-8")
             if case.get("existing_page"):
@@ -111,7 +112,7 @@ def test_real_llm_pipeline_reports_plan_and_files(case):
             )
             extractor = Extractor(
                 llm,
-                wiki_dir=wiki,
+                source_records_dir=source_records,
                 save_source_page=True,
                 max_concurrency=1,
             )
@@ -137,11 +138,11 @@ def test_real_llm_pipeline_reports_plan_and_files(case):
             )
             source_files = (
                 sorted(
-                    str(path.relative_to(wiki))
-                    for path in (wiki / "sources").glob("**/*.md")
+                    str(path.relative_to(source_records))
+                    for path in source_records.glob("**/*.md")
                     if path.is_file()
                 )
-                if (wiki / "sources").exists()
+                if source_records.exists()
                 else []
             )
 

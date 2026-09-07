@@ -133,8 +133,8 @@ class DataLoader:
         paths = [base / Path(f) for f in files]
         return self._load_from_paths(paths)
 
-    # 递归扫描默认排除的目录——历史运行档案/版本控制/虚拟环境
-    # 不是源材料（.logs/runs 里有几百个历史页面副本，吃进去会污染 wiki）
+    # 递归扫描默认排除的目录——历史运行档案/版本控制/虚拟环境。
+    # 外部 source 根可能包含旧版 .logs，仍需防御性排除。
     _EXCLUDED_DIRS = {
         ".git",
         ".venv",

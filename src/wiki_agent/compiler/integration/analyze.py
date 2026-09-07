@@ -7,12 +7,12 @@ from pathlib import Path
 from wiki_agent.compiler.integration.checks import _check_analyze_json
 from wiki_agent.compiler.integration.parse import _extract_headings, _parse_analysis
 from wiki_agent.compiler.models import _NO_THINKING, AnalysisResult, ExtractResult, SearchResult
-from wiki_agent.compiler.wiki.frontmatter import split_frontmatter
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
 from wiki_agent.message import Message
+from wiki_agent.wiki.frontmatter import split_frontmatter
 
 logger = get_logger("STAGES")
 

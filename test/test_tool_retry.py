@@ -138,22 +138,27 @@ def test_wiki_tools_return_actionable_input_errors(tmp_path):
     assert "code: invalid_pattern" in grep_result
 
 
-def test_internal_logs_and_source_pages_are_not_readable(tmp_path):
+def test_internal_logs_sources_and_git_files_are_not_readable(tmp_path):
     (tmp_path / ".logs" / "runs").mkdir(parents=True)
     (tmp_path / ".logs" / "runs" / "run.md").write_text("internal", encoding="utf-8")
     (tmp_path / "sources").mkdir()
     (tmp_path / "sources" / "source.md").write_text("provenance", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "internal.md").write_text("git internals", encoding="utf-8")
     (tmp_path / "concepts").mkdir()
     (tmp_path / "concepts" / "page.md").write_text("public", encoding="utf-8")
 
     read_logs = asyncio.run(_execute(ReadFile(tmp_path), file_path=".logs/runs/run.md"))
     read_sources = asyncio.run(_execute(ReadFile(tmp_path), file_path="sources/source.md"))
+    read_git = asyncio.run(_execute(ReadFile(tmp_path), file_path=".git/internal.md"))
     listed = asyncio.run(_execute(ListDir(tmp_path), dir_path=""))
     searched = asyncio.run(_execute(Grep(tmp_path), pattern="internal"))
 
     assert "code: invalid_path" in read_logs
     assert "code: invalid_path" in read_sources
+    assert "code: invalid_path" in read_git
     assert ".logs" not in listed
+    assert ".git" not in listed
     assert "sources" not in listed
     assert "run.md" not in searched
 

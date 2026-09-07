@@ -17,6 +17,7 @@ from wiki_agent.consolidator import Consolidator
 from wiki_agent.context import ContextBuilder, ContextGovernor
 from wiki_agent.errors import RetryableError
 from wiki_agent.hook import AgentHook, CompositeHook, RunContext
+from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.llm import LLMClient
 from wiki_agent.log import begin_trace, emit_event, get_logger, span
 from wiki_agent.memory import Dreamer, MemoryStore
@@ -423,6 +424,7 @@ class ReActAgent(BaseAgent):
         agent_config=None,
         compile_config: CompileConfig | None = None,
         retry_config: RetryConfig | None = None,
+        issue_service: IssueService | None = None,
     ):
         super().__init__(name=name, workspace=workspace)
         self.llm = llm
@@ -436,14 +438,13 @@ class ReActAgent(BaseAgent):
         self.session_manager = SessionManager(workspace=workspace)
         self.tool_registry = tool_registry
         self.memory_store = MemoryStore(workspace=workspace)
-        # 纠错记录工具——agent 主动调用把 wiki 纠错落进待修清单。
-        # agent 自己接线（memory_store 是 agent 的构造产物，
-        # CLI 的 tool_registry 在 agent 之前构造，绑不上）
-        self.tool_registry.register(RecordCorrection(self.memory_store))
+        self.issue_service = issue_service or IssueService(IssueStore(workspace))
+        self.tool_registry.register(RecordCorrection(self.issue_service))
         self.context_builder = ContextBuilder(
             system_prompt=self.SYSTEM_PROMPT,
             tool_registry=tool_registry,
             memory_store=self.memory_store,
+            issue_service=self.issue_service,
             # wiki 目录显式传入（CLI 从配置解析）——build 时读
             # purpose/schema/index 组装环境块
             wiki_dir=wiki_dir,

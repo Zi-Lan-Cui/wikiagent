@@ -16,10 +16,10 @@ from wiki_agent.compiler.surgery.models import Proposal, SurgeryResult
 from wiki_agent.compiler.surgery.resolve import _src_of, _validate_operation_sequence
 from wiki_agent.compiler.surgery.rewrite import _plain_source_links, _rewrite_source_links
 from wiki_agent.compiler.surgery.transaction import _backup, _restore_group, _snapshot_group
-from wiki_agent.compiler.wiki.frontmatter import split_frontmatter
-from wiki_agent.compiler.wiki.normalize import extract_related, normalize_page
 from wiki_agent.errors import translate_generic_error
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.normalize import extract_related, normalize_page
 
 logger = get_logger("SURGERY")
 

@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 
 from wiki_agent.context import ContextBuilder
+from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues.producers import report_correction
 from wiki_agent.memory import MemoryStore
 from wiki_agent.message import Message
 from wiki_agent.session import Session
@@ -29,11 +31,13 @@ def _make_env(tmp: Path) -> tuple[ContextBuilder, Path]:
         encoding="utf-8",
     )
     store = MemoryStore(workspace=tmp)
+    issue_service = IssueService(IssueStore(tmp))
     builder = ContextBuilder(
         system_prompt=_TEMPLATE,
         tool_registry=ToolRegistry(),
         memory_store=store,
         wiki_dir=wiki,
+        issue_service=issue_service,
     )
     return builder, wiki
 
@@ -64,8 +68,11 @@ def test_build_includes_wiki_context():
 def test_build_includes_corrections():
     tmp = Path(tempfile.mkdtemp())
     builder, _ = _make_env(tmp)
-    builder.memory_store.append_correction(
-        text="[concepts/lambda.md] 示例代码有误", session_key="s1"
+    report_correction(
+        builder.issue_service,
+        text="示例代码有误",
+        page="concepts/lambda.md",
+        session_id="s1",
     )
     messages = _build_messages(builder)
     assert "示例代码有误" not in messages[0].content

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from wiki_agent.log import get_logger
 from wiki_agent.tools.base import BaseTool
+from wiki_agent.wiki.paths import HIDDEN_DIRS, safe_resolve
 
 logger = get_logger("WIKI_TOOLS")
 
@@ -19,44 +20,11 @@ logger = get_logger("WIKI_TOOLS")
 # not part of the user-facing knowledge base.  Keep these out of all three
 # navigation primitives so the model cannot accidentally treat logs/source
 # snapshots as facts.
-_HIDDEN_DIRS = frozenset({".logs", "sources"})
 
 
 # ════════════════════════════════════════════════════════════
 #  路径安全校验（三个工具共享）
 # ════════════════════════════════════════════════════════════
-
-
-def _safe_resolve(base: Path, rel: str, *, allow_root: bool = False) -> Path | None:
-    """把相对路径安全解析到 base 根下。
-
-    两层防护:
-    1. 段检查（语义层）——拒绝绝对路径和任何 ``..`` 段；
-       ``allow_root=True`` 时额外允许空串和 ``.``（表示根目录本身）。
-    2. resolve + startswith（防御层）——兜底，绝对不可能出根。
-
-    Args:
-        base: 允许访问的根目录。
-        rel: 相对路径。
-        allow_root: 允许空串/``.``（表示根目录本身）。
-
-    Returns:
-        解析后的绝对路径；非法路径返回 None。
-    """
-    p = Path(rel)
-    if p.is_absolute():
-        return None
-    parts = p.parts
-    if allow_root and (not rel.strip() or rel.strip() == "."):
-        return base
-    if not parts or any(seg == ".." for seg in parts):
-        return None
-    if any(seg in _HIDDEN_DIRS for seg in parts):
-        return None
-    target = (base / p).resolve()
-    if str(target).startswith(str(base)):
-        return target
-    return None
 
 
 class ReadFile(BaseTool):
@@ -98,8 +66,8 @@ class ReadFile(BaseTool):
             解析后的绝对路径；非法路径返回 None。
         """
         if self._workspace and file_path.startswith("tmp/"):
-            return _safe_resolve(self._workspace, file_path)
-        return _safe_resolve(self._root, file_path)
+            return safe_resolve(self._workspace, file_path)
+        return safe_resolve(self._root, file_path)
 
     async def execute_once(self, file_path: str) -> str:
         target = self._resolve(file_path)
@@ -173,7 +141,7 @@ class ListDir(BaseTool):
         Returns:
             格式化列表文本（含翻页提示）。
         """
-        target = _safe_resolve(self._root, dir_path, allow_root=True)
+        target = safe_resolve(self._root, dir_path, allow_root=True)
         if target is None:
             return self.error_result(
                 "invalid_path",
@@ -193,7 +161,7 @@ class ListDir(BaseTool):
                 next_action="使用不小于 0 的 offset。",
             )
         entries = sorted(
-            (entry for entry in target.iterdir() if entry.name not in _HIDDEN_DIRS),
+            (entry for entry in target.iterdir() if entry.name not in HIDDEN_DIRS),
             key=lambda p: (p.is_file(), p.name),
         )
 
@@ -272,7 +240,7 @@ class Grep(BaseTool):
         """
         import re as _re
 
-        search_dir = _safe_resolve(self._root, in_dir, allow_root=True)
+        search_dir = safe_resolve(self._root, in_dir, allow_root=True)
         if search_dir is None:
             return self.error_result(
                 "invalid_path",
@@ -304,7 +272,7 @@ class Grep(BaseTool):
             )
 
         for md in sorted(search_dir.rglob("*.md")):
-            if any(part in _HIDDEN_DIRS for part in md.relative_to(self._root).parts):
+            if any(part in HIDDEN_DIRS for part in md.relative_to(self._root).parts):
                 continue
             if len(results) >= max_results * 3:
                 break

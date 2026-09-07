@@ -1,0 +1,187 @@
+"""Problem-center HTTP adapter integration tests."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import cast
+
+import httpx
+
+from wiki_agent.application.runtime import AppRuntime
+from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
+from wiki_agent.log import emit_event
+from wiki_agent.web.app import create_app
+
+
+class _Runtime:
+    def __init__(self, root: Path):
+        self.workspace = root / "workspace"
+        self.wiki_dir = root / "wiki"
+        self.wiki_dir.mkdir()
+        self.issue_store = IssueStore(self.workspace)
+        self.issue_service = IssueService(self.issue_store)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return None
+
+
+def test_web_lifespan_writes_structured_event_log(tmp_path: Path):
+    runtime = _Runtime(tmp_path)
+    app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
+
+    async def run():
+        async with app.router.lifespan_context(app):
+            emit_event("web_test_event", detail="recorded")
+
+    asyncio.run(run())
+
+    event_log = runtime.workspace / "logs" / "web-events.jsonl"
+    assert event_log.is_file()
+    assert '"event": "web_test_event"' in event_log.read_text(encoding="utf-8")
+
+
+def test_issue_api_lists_decides_and_reports_summary(tmp_path: Path):
+    runtime = _Runtime(tmp_path)
+    source = tmp_path / "private-notes" / "example.md"
+    source.parent.mkdir()
+    source.write_text("# Original source\n\nprivate path stays server-side", encoding="utf-8")
+    issue = runtime.issue_service.report(
+        IssueDraft(
+            kind=IssueKind.CONTENT_CONFLICT,
+            title="页面说法冲突",
+            summary="A 与 B 无法同时成立",
+            resource={"type": "input_file", "path": "example.md"},
+            context={"source_path": str(source)},
+        )
+    )
+    app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            assert (await client.get("/api/issues/summary")).json() == {
+                "active": 1,
+                "retryable": 0,
+            }
+            listed = (await client.get("/api/issues")).json()
+            assert [item["id"] for item in listed] == [issue.id]
+            assert str(tmp_path) not in str(listed)
+            resource = (await client.get(f"/api/issues/{issue.id}/resource")).json()
+            assert resource["path"] == "sources/example.md"
+            assert "Original source" in resource["content"]
+            decided = await client.post(
+                f"/api/issues/{issue.id}/actions/keep_disputed",
+                json={"payload": {}},
+            )
+            assert decided.status_code == 200
+            assert decided.json()["status"] == "blocked"
+
+    asyncio.run(run())
+
+
+def test_long_issue_action_returns_pollable_task(tmp_path: Path):
+    runtime = _Runtime(tmp_path)
+    issue = runtime.issue_service.report(
+        IssueDraft(
+            kind=IssueKind.QUALITY_ISSUE,
+            title="页面质量告警",
+            summary="需要重新扫描",
+            resource={"type": "wiki_page", "path": "concepts/example.md"},
+        )
+    )
+    app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                f"/api/issues/{issue.id}/actions/rescan",
+                json={"payload": {}},
+            )
+            assert response.status_code == 202
+            task_id = response.json()["id"]
+            queued = (await client.get("/api/issue-tasks")).json()
+            assert queued[0]["id"] == task_id
+            assert queued[0]["resource"] == "concepts/example.md"
+            task = {}
+            for _ in range(20):
+                task = (await client.get(f"/api/issue-tasks/{task_id}")).json()
+                if task["status"] in {"completed", "failed"}:
+                    break
+                await asyncio.sleep(0.01)
+            assert task["status"] == "completed"
+            assert task["result"]["status"] == "resolved"
+
+    asyncio.run(run())
+
+
+def test_missing_retry_source_is_blocked_before_task_creation(tmp_path: Path):
+    runtime = _Runtime(tmp_path)
+    issue = runtime.issue_service.report(
+        IssueDraft(
+            kind=IssueKind.INGESTION_FAILURE,
+            title="missing.md 处理失败",
+            summary="原始来源已丢失",
+            origin={"mode": "compile"},
+            resource={"type": "input_file", "path": "missing.md"},
+            context={"source_path": str(tmp_path / "missing.md")},
+        )
+    )
+    app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                f"/api/issues/{issue.id}/actions/retry",
+                json={"payload": {}},
+            )
+            assert response.status_code == 409
+            assert "原始来源已不存在" in response.json()["detail"]
+            assert (await client.get("/api/issue-tasks")).json() == []
+            card = (await client.get(f"/api/issues/{issue.id}")).json()
+            assert card["status"] == "blocked"
+            retry = next(action for action in card["available_actions"] if action["id"] == "retry")
+            assert "原始来源已不存在" in retry["disabled_reason"]
+
+    asyncio.run(run())
+
+
+def test_bulk_retry_enqueues_available_manual_sources(tmp_path: Path):
+    runtime = _Runtime(tmp_path)
+    source = tmp_path / "notes" / "available.md"
+    source.parent.mkdir()
+    source.write_text("# available", encoding="utf-8")
+    expired = (datetime.now() - timedelta(hours=1)).isoformat()
+    runtime.issue_service.report(
+        IssueDraft(
+            kind=IssueKind.INGESTION_FAILURE,
+            status=IssueStatus.BLOCKED,
+            title="available.md 处理失败",
+            summary="临时失败",
+            origin={"mode": "compile"},
+            resource={"type": "input_file", "path": source.name},
+            retry={"policy": "manual", "expires_at": expired},
+            context={"source_path": str(source)},
+        )
+    )
+    app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post("/api/issues/actions/retry-eligible")
+            assert response.status_code == 202
+            assert response.json()["count"] == 1
+            assert response.json()["tasks"][0]["status"] == "queued"
+
+    asyncio.run(run())

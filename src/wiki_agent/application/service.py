@@ -7,13 +7,20 @@ import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from wiki_agent.application.events import AgentEvent
 from wiki_agent.application.runtime import AppRuntime
-from wiki_agent.queue import QueueStore
+from wiki_agent.issues import IssueCard, IssueKind, IssueStatus
 from wiki_agent.session import Session
-from wiki_agent.wiki import WikiPage, read_page, read_source, search_pages
+from wiki_agent.wiki import (
+    WikiPage,
+    read_authorized_source,
+    read_page,
+    read_source,
+    search_pages,
+)
 
 
 class ServiceError(Exception):
@@ -119,9 +126,47 @@ class WikiAgentService:
             )
         return files
 
-    def list_failure_queue(self) -> list[dict[str, object]]:
-        """Return pending failures for the read-only Web queue view."""
-        return QueueStore(self.runtime.workspace).list()
+    def list_issues(
+        self,
+        *,
+        statuses: set[IssueStatus] | None = None,
+        kinds: set[IssueKind] | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[IssueCard]:
+        """Return sanitized issue cards shared by all adapters."""
+        return self.runtime.issue_service.list(
+            statuses=statuses,
+            kinds=kinds,
+            limit=limit,
+            offset=offset,
+        )
+
+    def get_issue(self, issue_id: str) -> IssueCard:
+        return self.runtime.issue_service.get(issue_id)
+
+    def get_issue_resource(self, issue_id: str) -> WikiPage:
+        """Read the resource bound to an issue without exposing its private path."""
+        issue = self.runtime.issue_store.require(issue_id)
+        public_path = str(issue.resource.get("path") or issue.resource.get("label") or "")
+        source_path = issue.context.get("source_path")
+        if isinstance(source_path, str) and source_path.strip():
+            target = Path(source_path)
+            if not target.is_absolute():
+                target = self.runtime.config.paths.project_root / target
+            try:
+                relative = target.resolve().relative_to(self.runtime.wiki_dir.resolve())
+            except ValueError:
+                return read_authorized_source(target, label=public_path)
+            return read_page(self.runtime.wiki_dir, relative.as_posix())
+        if issue.resource.get("type") == "wiki_page":
+            return read_page(self.runtime.wiki_dir, public_path)
+        return read_source(self.runtime.source_records_dir, public_path)
+
+    def count_active_issues(self) -> int:
+        return self.runtime.issue_service.count(
+            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED, IssueStatus.PROCESSING}
+        )
 
     def get_wiki_page(self, path: str) -> WikiPage:
         """Read one public Wiki page using the shared safe resolver."""
@@ -129,7 +174,7 @@ class WikiAgentService:
 
     def get_wiki_source(self, path: str) -> WikiPage:
         """Read one source through the Web-only read boundary."""
-        return read_source(self.runtime.wiki_dir, path)
+        return read_source(self.runtime.source_records_dir, path)
 
     def search_wiki_pages(self, query: str, *, limit: int = 30) -> list[WikiPage]:
         """Search public Wiki page paths and contents."""
