@@ -182,7 +182,7 @@ def _check_plan_json(
             return False, (
                 f"page_targets[{i}].wiki_path 目录非法: {path!r}。"
                 f"只允许 concepts/ entities/ topics/ 三个内容目录"
-                f"（sources/ 由系统维护，禁止生成）。"
+                f"（sources/ 不属于 Wiki 内容目录，禁止生成）。"
             )
         if path in seen_paths:
             return False, f"page_targets[{i}].wiki_path 重复: {path}。同一页面只能出现一次。"

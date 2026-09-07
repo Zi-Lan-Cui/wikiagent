@@ -5,7 +5,12 @@ const state = {
   view: "chat",
   wikiHistory: [],
   wikiHistoryIndex: -1,
+  wikiReturnView: "chat",
   wikiRequestId: 0,
+  issues: [],
+  activeIssue: null,
+  issueTasks: [],
+  workbenchTab: "issues",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -15,8 +20,20 @@ const input = $("message-input");
 const sendButton = $("send-button");
 const status = $("connection-status");
 const wikiFiles = $("wiki-files");
-const failureQueue = $("failure-queue");
 const queueCount = $("queue-count");
+const issueCenter = $("issue-center");
+const issueList = $("issue-list");
+const issueDetail = $("issue-detail");
+const issueTaskList = $("issue-task-list");
+const issueTaskCount = $("issue-task-count");
+const workbenchTasksPanel = $("workbench-tasks-panel");
+const workbenchIssuesPanel = $("workbench-issues-panel");
+const workbenchTaskTab = $("workbench-tab-tasks");
+const workbenchIssueTab = $("workbench-tab-issues");
+const workbenchTaskTabCount = $("workbench-task-tab-count");
+const workbenchIssueTabCount = $("workbench-issue-tab-count");
+const retryEligibleButton = $("retry-eligible");
+const retryEligibleCount = $("retry-eligible-count");
 const wikiViewer = $("wiki-viewer");
 const wikiContent = $("wiki-content");
 const wikiViewerPath = $("wiki-viewer-path");
@@ -193,8 +210,16 @@ function sourceUrl(path) {
 }
 
 function updateWikiNavigation() {
-  wikiHistoryBack.disabled = state.wikiHistoryIndex <= 0;
+  // At the first document, Back restores the view that opened the viewer.
+  wikiHistoryBack.disabled = state.wikiHistoryIndex < 0;
   wikiHistoryForward.disabled = state.wikiHistoryIndex >= state.wikiHistory.length - 1;
+  const backLabel = state.wikiHistoryIndex <= 0
+    ? state.wikiReturnView === "issues" ? "返回工作台" : "返回会话"
+    : "上一页";
+  wikiHistoryBack.title = `${backLabel} (Alt+←)`;
+  wikiHistoryBack.setAttribute("aria-label", backLabel);
+  wikiHistoryForward.title = "下一页 (Alt+→)";
+  wikiHistoryForward.setAttribute("aria-label", "下一页");
 }
 
 function rememberWikiScroll() {
@@ -206,22 +231,63 @@ function showWikiViewer() {
   state.view = "wiki";
   chatHeader.hidden = true;
   messages.hidden = true;
+  issueCenter.hidden = true;
   $("message-form").hidden = true;
   wikiViewer.hidden = false;
 }
 
-function closeWikiPage() {
+function closeWikiPage(destination = state.wikiReturnView || "chat") {
   rememberWikiScroll();
-  state.view = "chat";
-  wikiViewer.hidden = true;
-  chatHeader.hidden = false;
-  messages.hidden = false;
-  $("message-form").hidden = false;
+  if (destination === "issues") restoreIssueView();
+  else restoreChatView();
+  state.wikiReturnView = "chat";
   wikiMetadata.replaceChildren();
   wikiBasic.replaceChildren();
   wikiSummary.textContent = "";
   const session = state.sessions.find((item) => item.id === state.activeSession);
   $("session-title").textContent = session?.title || state.activeSession || "选择一个会话";
+}
+
+function restoreChatView() {
+  state.view = "chat";
+  wikiViewer.hidden = true;
+  issueCenter.hidden = true;
+  chatHeader.hidden = false;
+  messages.hidden = false;
+  $("message-form").hidden = false;
+}
+
+function showIssueCenter() {
+  rememberWikiScroll();
+  restoreIssueView({ refresh: true });
+}
+
+function selectWorkbenchTab(tab) {
+  state.workbenchTab = tab === "tasks" ? "tasks" : "issues";
+  const showTasks = state.workbenchTab === "tasks";
+  workbenchTasksPanel.hidden = !showTasks;
+  workbenchIssuesPanel.hidden = showTasks;
+  workbenchTaskTab.classList.toggle("active", showTasks);
+  workbenchIssueTab.classList.toggle("active", !showTasks);
+  workbenchTaskTab.setAttribute("aria-selected", String(showTasks));
+  workbenchIssueTab.setAttribute("aria-selected", String(!showTasks));
+}
+
+function restoreIssueView({ refresh = false } = {}) {
+  state.view = "issues";
+  chatHeader.hidden = true;
+  messages.hidden = true;
+  wikiViewer.hidden = true;
+  $("message-form").hidden = true;
+  issueCenter.hidden = false;
+  selectWorkbenchTab(state.workbenchTab);
+  if (refresh) {
+    Promise.all([refreshIssues(), refreshIssueTasks()]).catch((error) => setStatus(error.message));
+  }
+}
+
+function closeIssueCenter() {
+  restoreChatView();
 }
 
 async function loadWikiEntry(entry) {
@@ -237,7 +303,12 @@ async function loadWikiEntry(entry) {
   wikiContent.innerHTML = "<p class=wiki-loading>正在加载页面……</p>";
   setStatus("正在打开 Wiki 页面……");
   try {
-    const response = await fetch(kind === "source" ? sourceUrl(path) : pageUrl(path));
+    const url = kind === "issue-resource"
+      ? `/api/issues/${encodeURIComponent(entry.issueId)}/resource`
+      : kind === "source"
+        ? sourceUrl(path)
+        : pageUrl(path);
+    const response = await fetch(url);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || "无法读取 Wiki 页面");
     if (requestId !== state.wikiRequestId) return;
@@ -255,10 +326,11 @@ async function loadWikiEntry(entry) {
   }
 }
 
-function openWikiPage(path, kind = "page") {
+function openWikiPage(path, kind = "page", issueId = null) {
   const continuingNavigation = state.view === "wiki" && state.wikiHistoryIndex >= 0;
   if (continuingNavigation) rememberWikiScroll();
-  const entry = { path, kind, scrollTop: 0 };
+  else state.wikiReturnView = state.view === "issues" ? "issues" : "chat";
+  const entry = { path, kind, issueId, scrollTop: 0 };
   if (continuingNavigation) {
     state.wikiHistory = state.wikiHistory.slice(0, state.wikiHistoryIndex + 1);
     state.wikiHistory.push(entry);
@@ -270,9 +342,18 @@ function openWikiPage(path, kind = "page") {
   return loadWikiEntry(entry);
 }
 
+function openIssueResource(issue) {
+  const path = issue.resource?.path || issue.resource?.label || issue.title;
+  return openWikiPage(path, "issue-resource", issue.id);
+}
+
 function navigateWikiHistory(offset) {
   const nextIndex = state.wikiHistoryIndex + offset;
-  if (nextIndex < 0 || nextIndex >= state.wikiHistory.length) return;
+  if (nextIndex < 0) {
+    closeWikiPage(state.wikiReturnView);
+    return;
+  }
+  if (nextIndex >= state.wikiHistory.length) return;
   rememberWikiScroll();
   state.wikiHistoryIndex = nextIndex;
   loadWikiEntry(state.wikiHistory[nextIndex]);
@@ -401,28 +482,409 @@ async function refreshWikiFiles() {
   }
 }
 
-async function refreshFailureQueue() {
-  const response = await fetch("/api/queue");
-  if (!response.ok) throw new Error("无法读取错误队列");
-  const items = await response.json();
-  queueCount.textContent = items.length;
-  queueCount.classList.toggle("has-errors", items.length > 0);
-  failureQueue.replaceChildren();
-  if (!items.length) {
+const issueKindLabels = {
+  ingestion_failure: "资料处理失败",
+  run_failure: "运行失败",
+  quality_issue: "质量问题",
+  content_correction: "用户纠错",
+  content_conflict: "内容冲突",
+  surgery_conflict: "结构冲突",
+};
+const issueStatusLabels = {
+  open: "待处理",
+  processing: "处理中",
+  blocked: "等待决策",
+  resolved: "已解决",
+  dismissed: "已忽略",
+};
+const issueAttentionLabels = {
+  retryable: "可重试",
+  source_unavailable: "来源不可用",
+  decision_required: "等待决策",
+  processing: "处理中",
+};
+
+function issueDisplayState(issue) {
+  return {
+    label: issueAttentionLabels[issue.attention] || issueStatusLabels[issue.status] || issue.status,
+    className: issueAttentionLabels[issue.attention]
+      ? `attention-${issue.attention}`
+      : `status-${issue.status}`,
+  };
+}
+
+function formatIssueTime(value, { compact = false } = {}) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: compact ? undefined : "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function issueMetaRow(label, value) {
+  if (value === undefined || value === null || value === "") return null;
+  const row = document.createElement("div");
+  row.className = "issue-meta-row";
+  const term = document.createElement("b");
+  term.textContent = label;
+  const content = document.createElement("span");
+  content.textContent = String(value);
+  row.append(term, content);
+  return row;
+}
+
+function renderIssueDetail(issue) {
+  issueDetail.replaceChildren();
+  if (!issue) {
     const empty = document.createElement("div");
-    empty.className = "queue-empty";
-    empty.textContent = "没有待处理错误";
-    failureQueue.appendChild(empty);
+    empty.className = "issue-detail-empty";
+    empty.textContent = "选择一个问题查看证据与可用操作。";
+    issueDetail.appendChild(empty);
     return;
   }
-  for (const item of items) {
-    const node = document.createElement("div");
-    node.className = "queue-item";
-    const retryable = item.retry_policy === "auto_retry" || item.retry_policy === "retry_once";
-    node.innerHTML = `<strong></strong><span class="queue-badge ${retryable ? "retry" : "manual"}">${retryable ? "可重试" : "待处理"}</span><small></small>`;
-    node.querySelector("strong").textContent = item.file || item.source || item.type || "未知错误";
-    node.querySelector("small").textContent = item.error || item.detail || item.stage || item.type || "";
-    failureQueue.appendChild(node);
+  const header = document.createElement("header");
+  header.className = "issue-detail-header";
+  const heading = document.createElement("div");
+  const kicker = document.createElement("span");
+  kicker.className = `issue-kind severity-${issue.severity}`;
+  kicker.textContent = issueKindLabels[issue.kind] || issue.kind;
+  const title = document.createElement("h3");
+  title.textContent = issue.title;
+  const summary = document.createElement("p");
+  summary.textContent = issue.summary;
+  heading.append(kicker, title, summary);
+  const badge = document.createElement("span");
+  const displayState = issueDisplayState(issue);
+  badge.className = `issue-status ${displayState.className}`;
+  badge.textContent = displayState.label;
+  header.append(heading, badge);
+  issueDetail.appendChild(header);
+
+  const meta = document.createElement("section");
+  meta.className = "issue-detail-section issue-meta";
+  const path = issue.resource?.path || issue.resource?.label;
+  [
+    issueMetaRow("资源", path),
+    issueMetaRow("阶段", issue.diagnostics?.stage || issue.origin?.stage),
+    issueMetaRow("模式", issue.origin?.mode),
+    issueMetaRow("错误码", issue.diagnostics?.error_code),
+    issueMetaRow("发生次数", issue.occurrences),
+    issueMetaRow("重试次数", issue.retry?.attempts),
+    issueMetaRow("首次发现", formatIssueTime(issue.created_at)),
+    issueMetaRow("最近更新", formatIssueTime(issue.updated_at)),
+  ].filter(Boolean).forEach((row) => meta.appendChild(row));
+  if (meta.children.length) issueDetail.appendChild(meta);
+
+  const pageFailures = Array.isArray(issue.diagnostics?.failures)
+    ? issue.diagnostics.failures
+    : [];
+  if (pageFailures.length) {
+    const failures = document.createElement("section");
+    failures.className = "issue-detail-section";
+    failures.innerHTML = "<h4>失败页面</h4>";
+    const list = document.createElement("div");
+    list.className = "issue-failure-list";
+    for (const failure of pageFailures) {
+      const row = document.createElement("article");
+      row.className = "issue-failure-item";
+      const path = document.createElement("strong");
+      path.textContent = failure.path || "未命名页面";
+      const reason = document.createElement("p");
+      reason.textContent = failure.reason || "未记录具体原因";
+      row.append(path, reason);
+      list.appendChild(row);
+    }
+    failures.appendChild(list);
+    issueDetail.appendChild(failures);
+  }
+
+  const detailText = issue.diagnostics?.detail || issue.retry?.last_error;
+  if (detailText) {
+    const diagnostics = document.createElement("section");
+    diagnostics.className = "issue-detail-section";
+    diagnostics.innerHTML = "<h4>诊断</h4>";
+    const pre = document.createElement("pre");
+    pre.textContent = detailText;
+    diagnostics.appendChild(pre);
+    issueDetail.appendChild(diagnostics);
+  }
+  if (issue.evidence?.length) {
+    const evidence = document.createElement("section");
+    evidence.className = "issue-detail-section";
+    evidence.innerHTML = "<h4>证据</h4>";
+    const list = document.createElement("ul");
+    for (const item of issue.evidence) {
+      const row = document.createElement("li");
+      row.textContent = item.claim || item.path || item.key || JSON.stringify(item);
+      list.appendChild(row);
+    }
+    evidence.appendChild(list);
+    issueDetail.appendChild(evidence);
+  }
+
+  const actions = document.createElement("footer");
+  actions.className = "issue-actions";
+  for (const action of issue.available_actions || []) {
+    if ((action.id === "open_resource" && !path) || action.id === "open_log") continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `issue-action ${action.style === "primary" ? "primary" : ""}`;
+    button.textContent = action.label;
+    button.disabled = Boolean(action.disabled_reason);
+    button.title = action.disabled_reason || "";
+    button.addEventListener("click", async () => {
+      try {
+        await executeIssueAction(issue, action);
+      } catch (error) {
+        setStatus(error.message || `${action.label}失败`);
+        await Promise.all([refreshIssues(), refreshIssueTasks()]);
+      }
+    });
+    actions.appendChild(button);
+  }
+  if (actions.children.length) issueDetail.appendChild(actions);
+}
+
+function selectIssue(issueId) {
+  state.activeIssue = issueId;
+  renderIssueList();
+  renderIssueDetail(state.issues.find((item) => item.id === issueId));
+}
+
+function activeTaskIssueIds() {
+  return new Set(
+    state.issueTasks
+      .filter((task) => ["queued", "running"].includes(task.status))
+      .map((task) => task.issue_id),
+  );
+}
+
+function visibleIssues() {
+  const active = activeTaskIssueIds();
+  return state.issues.filter((issue) => !active.has(issue.id));
+}
+
+function reconcileActiveIssue() {
+  const visible = visibleIssues();
+  if (!visible.some((item) => item.id === state.activeIssue)) {
+    state.activeIssue = visible[0]?.id || null;
+  }
+}
+
+function renderIssueList() {
+  issueList.replaceChildren();
+  const visible = visibleIssues();
+  if (!visible.length) {
+    const empty = document.createElement("div");
+    empty.className = "issue-list-empty";
+    empty.textContent = "当前筛选下没有问题。";
+    issueList.appendChild(empty);
+    return;
+  }
+  for (const issue of visible) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `issue-card ${issue.id === state.activeIssue ? "active" : ""}`;
+    const top = document.createElement("span");
+    top.className = "issue-card-topline";
+    const kind = document.createElement("b");
+    kind.textContent = issueKindLabels[issue.kind] || issue.kind;
+    const badge = document.createElement("small");
+    const displayState = issueDisplayState(issue);
+    badge.className = displayState.className;
+    badge.textContent = displayState.label;
+    top.append(kind, badge);
+    const title = document.createElement("strong");
+    title.textContent = issue.title;
+    const summary = document.createElement("span");
+    summary.className = "issue-card-summary";
+    summary.textContent = issue.summary;
+    const occurred = document.createElement("time");
+    occurred.className = "issue-card-time";
+    occurred.dateTime = issue.created_at;
+    occurred.textContent = `发现于 ${formatIssueTime(issue.created_at, { compact: true })}`;
+    button.append(top, title, summary, occurred);
+    button.addEventListener("click", () => selectIssue(issue.id));
+    issueList.appendChild(button);
+  }
+}
+
+const taskStatusLabels = {
+  queued: "等待中",
+  running: "进行中",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+const taskActionLabels = { retry: "重试来源", rescan: "重新扫描" };
+
+function upsertIssueTask(task) {
+  const index = state.issueTasks.findIndex((item) => item.id === task.id);
+  if (index >= 0) state.issueTasks[index] = task;
+  else state.issueTasks.unshift(task);
+}
+
+function renderIssueTasks() {
+  issueTaskList.replaceChildren();
+  const active = state.issueTasks.filter((task) => ["queued", "running"].includes(task.status));
+  issueTaskCount.textContent = `${active.length} 个活动任务`;
+  workbenchTaskTabCount.textContent = String(active.length);
+  issueTaskCount.classList.toggle("active", active.length > 0);
+  if (!active.length) {
+    const empty = document.createElement("p");
+    empty.className = "issue-task-empty";
+    empty.textContent = "当前没有后台任务。";
+    issueTaskList.appendChild(empty);
+    return;
+  }
+  for (const task of active) {
+    const row = document.createElement("article");
+    row.className = `issue-task task-${task.status}`;
+    const marker = document.createElement("span");
+    marker.className = "issue-task-marker";
+    marker.setAttribute("aria-hidden", "true");
+    const main = document.createElement("div");
+    main.className = "issue-task-main";
+    const title = document.createElement("strong");
+    title.textContent = task.resource || task.title || "未命名资源";
+    const stage = document.createElement("span");
+    const stagePosition = task.stage_index > 0
+      ? ` ${task.stage_index}/${task.stage_total}`
+      : "";
+    stage.textContent = ["queued", "running"].includes(task.status)
+      ? `当前阶段${stagePosition} · ${task.current_stage || "等待更新"}`
+      : task.current_stage || "等待更新";
+    main.append(title, stage);
+    if (["queued", "running"].includes(task.status)) {
+      const progress = document.createElement("div");
+      progress.className = "issue-task-progress";
+      const fill = document.createElement("span");
+      const ratio = task.stage_total > 0 ? task.stage_index / task.stage_total : 0;
+      fill.style.width = `${Math.max(3, Math.min(100, ratio * 100))}%`;
+      progress.appendChild(fill);
+      main.appendChild(progress);
+    }
+    const context = document.createElement("div");
+    context.className = "issue-task-context";
+    const action = document.createElement("span");
+    action.textContent = taskActionLabels[task.action] || task.action;
+    context.appendChild(action);
+    if (task.source_stage) {
+      const original = document.createElement("span");
+      original.textContent = `原失败阶段：${task.source_stage}`;
+      context.appendChild(original);
+    }
+    const badge = document.createElement("span");
+    badge.className = `issue-task-status task-${task.status}`;
+    badge.textContent = taskStatusLabels[task.status] || task.status;
+    row.append(marker, main, context, badge);
+    if (task.error) {
+      row.title = task.error;
+      const error = document.createElement("p");
+      error.className = "issue-task-error";
+      error.textContent = task.error;
+      main.appendChild(error);
+    }
+    issueTaskList.appendChild(row);
+  }
+}
+
+async function refreshIssueTasks() {
+  const response = await fetch("/api/issue-tasks?limit=100");
+  if (!response.ok) throw new Error("无法读取运行队列");
+  state.issueTasks = await response.json();
+  reconcileActiveIssue();
+  renderIssueTasks();
+  renderIssueList();
+  renderIssueDetail(state.issues.find((item) => item.id === state.activeIssue));
+}
+
+async function refreshIssues() {
+  const statusFilter = $("issue-status-filter")?.value || "open,blocked,processing";
+  const kindFilter = $("issue-kind-filter")?.value || "";
+  const params = new URLSearchParams({ status: statusFilter });
+  if (kindFilter) params.set("kind", kindFilter);
+  const [response, summaryResponse] = await Promise.all([
+    fetch(`/api/issues?${params}`),
+    fetch("/api/issues/summary"),
+  ]);
+  if (!response.ok || !summaryResponse.ok) throw new Error("无法读取问题列表");
+  state.issues = await response.json();
+  const summary = await summaryResponse.json();
+  const activeCount = summary.active || 0;
+  const retryableCount = summary.retryable || 0;
+  retryEligibleCount.textContent = String(retryableCount);
+  retryEligibleButton.disabled = retryableCount === 0;
+  workbenchIssueTabCount.textContent = String(activeCount);
+  queueCount.textContent = activeCount;
+  queueCount.classList.toggle("has-errors", activeCount > 0);
+  reconcileActiveIssue();
+  renderIssueList();
+  renderIssueDetail(state.issues.find((item) => item.id === state.activeIssue));
+}
+
+async function retryEligibleIssues() {
+  const count = Number(retryEligibleCount.textContent || 0);
+  if (!count) return;
+  if (!window.confirm(`将 ${count} 个来源有效的失败项加入串行重试队列，是否继续？`)) return;
+  retryEligibleButton.disabled = true;
+  setStatus("正在创建批量重试任务……");
+  const response = await fetch("/api/issues/actions/retry-eligible", { method: "POST" });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || "无法创建批量重试任务");
+  for (const task of payload.tasks || []) upsertIssueTask(task);
+  renderIssueTasks();
+  selectWorkbenchTab("tasks");
+  setStatus(payload.count ? `已加入 ${payload.count} 个重试任务` : "当前没有可重试项");
+  await Promise.all([refreshIssues(), refreshIssueTasks()]);
+}
+
+async function executeIssueAction(issue, action) {
+  if (action.id === "open_resource") {
+    openIssueResource(issue);
+    return;
+  }
+  if (action.requires_confirmation && !window.confirm(`确定要“${action.label}”吗？`)) return;
+  setStatus(`正在${action.label}……`);
+  const response = await fetch(`/api/issues/${issue.id}/actions/${action.id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload: {} }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `${action.label}失败`);
+  }
+  if (response.status === 202) {
+    const task = await response.json();
+    upsertIssueTask(task);
+    renderIssueTasks();
+    selectWorkbenchTab("tasks");
+    await waitForIssueTask(task.id, action.label);
+  }
+  setStatus("就绪");
+  await Promise.all([refreshIssues(), refreshIssueTasks()]);
+}
+
+async function waitForIssueTask(taskId, label) {
+  while (true) {
+    await new Promise((resolve) => window.setTimeout(resolve, 600));
+    const response = await fetch(`/api/issue-tasks/${taskId}`);
+    if (!response.ok) throw new Error(`无法读取${label}任务状态`);
+    const task = await response.json();
+    upsertIssueTask(task);
+    renderIssueTasks();
+    if (task.status === "completed") return task;
+    if (["failed", "cancelled"].includes(task.status)) {
+      throw new Error(task.error || `${label}失败`);
+    }
+    setStatus(`${label}进行中……`);
   }
 }
 
@@ -446,7 +908,7 @@ async function createSession() {
 }
 
 async function selectSession(id) {
-  closeWikiPage();
+  closeWikiPage("chat");
   state.activeSession = id;
   const session = state.sessions.find((item) => item.id === id);
   $("session-title").textContent = session?.title || id;
@@ -495,8 +957,30 @@ wikiContent.addEventListener("click", (event) => {
 });
 wikiHistoryBack.addEventListener("click", () => navigateWikiHistory(-1));
 wikiHistoryForward.addEventListener("click", () => navigateWikiHistory(1));
-$("wiki-close").addEventListener("click", closeWikiPage);
+$("wiki-close").addEventListener("click", () => closeWikiPage("chat"));
+$("issue-center-open").addEventListener("click", showIssueCenter);
+$("issue-center-close").addEventListener("click", closeIssueCenter);
+workbenchTaskTab.addEventListener("click", () => {
+  selectWorkbenchTab("tasks");
+  refreshIssueTasks().catch((error) => setStatus(error.message));
+});
+workbenchIssueTab.addEventListener("click", () => {
+  selectWorkbenchTab("issues");
+  refreshIssues().catch((error) => setStatus(error.message));
+});
+$("issue-status-filter").addEventListener("change", () => refreshIssues().catch((error) => setStatus(error.message)));
+$("issue-kind-filter").addEventListener("change", () => refreshIssues().catch((error) => setStatus(error.message)));
+retryEligibleButton.addEventListener("click", () => {
+  retryEligibleIssues().catch(async (error) => {
+    setStatus(error.message || "批量重试失败");
+    await Promise.all([refreshIssues(), refreshIssueTasks()]);
+  });
+});
 document.addEventListener("keydown", (event) => {
+  if (state.view === "issues" && event.key === "Escape") {
+    closeIssueCenter();
+    return;
+  }
   if (state.view !== "wiki") return;
   if (event.altKey && event.key === "ArrowLeft") {
     event.preventDefault();
@@ -505,7 +989,7 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     navigateWikiHistory(1);
   } else if (event.key === "Escape") {
-    closeWikiPage();
+    closeWikiPage("chat");
   }
 });
 
@@ -561,7 +1045,7 @@ async function sendMessage(text) {
     setStatus("就绪");
     await refreshSessions();
     await refreshWikiFiles();
-    await refreshFailureQueue();
+    await refreshIssues();
   } catch (error) {
     answer.remove();
     addMessage("error", error.message || "请求失败");
@@ -587,10 +1071,16 @@ $("message-form").addEventListener("submit", (event) => {
   try {
     await refreshSessions();
     await refreshWikiFiles();
-    await refreshFailureQueue();
+    await Promise.all([refreshIssues(), refreshIssueTasks()]);
     if (state.sessions.length) await selectSession(state.sessions[0].id);
     else await createSession();
   } catch (error) {
     setStatus(error.message || "连接失败");
   }
 })();
+
+window.setInterval(() => {
+  if (state.view === "issues") {
+    Promise.all([refreshIssues(), refreshIssueTasks()]).catch(() => {});
+  }
+}, 1500);

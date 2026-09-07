@@ -1,15 +1,15 @@
 """消费端——单 worker 从队列取任务，串行执行。
 
-串行是硬需求: ingest 与 sources 清理都读写 wiki（index.md / sources/），
+串行是硬需求: ingest 会更新 wiki 与工作区溯源存档，
 并发会互相覆盖（幽灵 index 的教训）。队列吸收突发，worker 一个一个来。
 
 队列元素两种:
     ("ingest", Path)   — 文件变更，走 ingest_one
-    ("delete", name)   — 源文件删除，走 sources 页清理（本模块实现）
+    ("delete", name)   — 源文件删除，清理工作区溯源记录（本模块实现）
 
 源文件删除清理规则（纯代码确定性，无 LLM）:
-    - 页面 sources 只含被删文件 → 删除页面 + 全库正文引用换别名
-    - 页面 sources 还含其他文件 → 保留页面，仅移除该条目
+    - 溯源记录只含被删文件 → 删除记录 + 清理旧式正文引用
+    - 溯源记录还含其他文件 → 保留记录，仅移除该条目
 """
 
 from __future__ import annotations
@@ -18,17 +18,15 @@ import asyncio
 import re
 from pathlib import Path
 
-from wiki_agent.compiler.wiki.frontmatter import split_frontmatter
+from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
-from wiki_agent.errors import IngestError
+from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.ingestion.data_loader import DataLoader
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.watch.state import WatchState
+from wiki_agent.wiki.frontmatter import split_frontmatter
 
 logger = get_logger("WATCH_CONSUMER")
-
-
-# frontmatter 切分统一走 parse.split_frontmatter（全项目唯一实现）
 
 
 def _clean_body_links(wiki: Path, slug: str) -> int:
@@ -70,11 +68,19 @@ class WatchConsumer:
         state: WatchState,
         *,
         wiki_dir: str | Path,
+        source_records_dir: str | Path | None = None,
+        failure_handler: SourceFailureHandler | None = None,
     ):
         self._queue = queue
         self._pipeline = pipeline
         self._state = state
         self._wiki_dir = Path(wiki_dir)
+        self._source_records_dir = (
+            Path(source_records_dir)
+            if source_records_dir is not None
+            else self._wiki_dir.parent / "workspace" / "provenance" / "sources"
+        )
+        self._failure_handler = failure_handler
 
     async def run(self) -> None:
         """主循环——取任务、按类型分发、回写状态。"""
@@ -94,13 +100,13 @@ class WatchConsumer:
                 self._queue.task_done()
 
     def _process_delete(self, name: str) -> None:
-        """源文件删除 → sources 页清理（wiki 写操作，消费者职责）。
+        """源文件删除 → 溯源存档清理（消费者职责）。
 
         Args:
             name: 被删源文件名。
         """
         wiki = self._wiki_dir
-        src_dir = wiki / "sources"
+        src_dir = self._source_records_dir
         if not src_dir.is_dir():
             return
         for page in sorted(src_dir.glob("*.md")):
@@ -148,6 +154,12 @@ class WatchConsumer:
         if not summary.files:
             logger.warning("  跳过 %s: 加载为空", name)
             emit_event("watch_skipped", file=name, reason="load_empty")
+            if self._failure_handler is not None:
+                self._failure_handler.handle(
+                    IngestError(IngestStage.LOAD, "文件加载为空", source=name),
+                    source=name,
+                    source_path=path,
+                )
             return
         raw_file = summary.files[0]
 
@@ -164,6 +176,8 @@ class WatchConsumer:
                 cause=type(e.cause).__name__ if e.cause else None,
                 raw=e.raw,
             )
+            if self._failure_handler is not None:
+                self._failure_handler.handle(e, source=name, source_path=path)
             return
 
         # 状态回写: ingest 完成才更新（失败保留 pending，下次变更再触发）

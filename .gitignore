@@ -35,6 +35,8 @@ Thumbs.db
 
 # Runtime data
 workspace/
+# User-provided raw materials (may contain private documents).
+/sources/
 # Default in-memory session checkpoint created by local CLI/tests.
 :memory:.ses
 # Runtime wiki output at the project root. Keep source packages such as

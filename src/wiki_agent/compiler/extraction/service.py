@@ -7,7 +7,7 @@
   - 均匀分配: chunk 少、上下文窗口大时，每个 chunk 独立并行摘要
   - 滚动压缩: chunk 多时，逐 chunk 累积 global digest
 
-完成后自动保存源文档摘要页到 wiki/sources/。
+完成后自动保存源文档摘要到 workspace/provenance/sources/。
 
 已完成:
   ✅ 均匀分配模式——每个 chunk 独立异步摘要
@@ -16,7 +16,7 @@
   ✅ ``SourceChunk`` 携带 heading_path、index/total、source_name 等元信息
   ✅ prompt 中包含 chunk 位置信息（标题路径、序号）
   ✅ 所有 LLM 调用通过 async_invoke_with_retry 包装
-  ✅ 源文档摘要页自动保存到 wiki/sources/
+  ✅ 源文档摘要自动保存到 workspace/provenance/sources/
 
 未完成:
   - [ ] 自适应 model_context: 当前硬编码 60k
@@ -63,7 +63,7 @@ class Extractor:
         *,
         model_context: int = _DEFAULT_MODEL_CONTEXT,
         max_concurrency: int = 5,
-        wiki_dir: str | Path | None = None,
+        source_records_dir: str | Path | None = None,
         save_source_page: bool = True,
         prompts=_compile_prompts,
         system_tokens: int = _SYSTEM_TOKENS,
@@ -76,7 +76,7 @@ class Extractor:
         self._output_tokens = output_tokens
         self._safety_buffer = safety_buffer
         self._semaphore = asyncio.Semaphore(max_concurrency)
-        self._wiki_dir = Path(wiki_dir) if wiki_dir else None
+        self._source_records_dir = Path(source_records_dir) if source_records_dir else None
         # compile/watch 存档源摘要页；refine 输入就是 wiki 页面，再存 = 自我复制
         self._save_sources = save_source_page
         # prompt 模块（compile/refine）——模式差异由 pipeline 注入
@@ -88,7 +88,7 @@ class Extractor:
         """从 ``SourceDocument`` 提取知识。
 
         自动选择均匀分配或滚动压缩策略。
-        完成后自动保存源文档摘要页到 wiki/sources/。
+        完成后自动保存源文档摘要到 workspace/provenance/sources/。
 
         Args:
             source: 结构化源文档（chunks + 元信息）。
@@ -230,7 +230,7 @@ class Extractor:
         return result
 
     def _save_source_page(self, source: SourceDocument, result: ExtractResult) -> None:
-        """自动保存源文档摘要页到 wiki/sources/。
+        """自动保存源文档摘要到工作区溯源存档。
 
         由代码维护，不依赖 LLM plan 阶段。
         摘要为空时不写——避免 LLM 空响应生成空白 source 页。
@@ -239,7 +239,7 @@ class Extractor:
             source: 源文档。
             result: 摘要结果。
         """
-        if self._wiki_dir is None:
+        if self._source_records_dir is None:
             return
         raw_summary = result.document_summary.strip()
         if not raw_summary:
@@ -247,7 +247,7 @@ class Extractor:
             return
 
         slug = self._slugify_source(source.name)
-        page_dir = self._wiki_dir / "sources"
+        page_dir = self._source_records_dir
         page_dir.mkdir(parents=True, exist_ok=True)
         page_path = page_dir / f"{slug}.md"
 

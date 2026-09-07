@@ -1,4 +1,4 @@
-"""单文件编译流水线——compile_folder 与 watch 消费者共用的领域入口。
+"""单文件编译流水线——批量编译与 watch 消费者共用的领域入口。
 
 一个源文件 → convert → chunk → extract → search → analyze → plan → execute → index。
 阶段失败以 ``IngestError(stage=...)`` 冒出，边界自行处置（跳过/记录/重试）——
@@ -70,6 +70,7 @@ class CompilePipeline:
         llm: LLMClient,
         vlm,
         wiki_dir: str | Path,
+        source_records_dir: str | Path | None = None,
         chunk_size: int | None = None,
         model_context: int | None = None,
         extract_concurrency: int | None = None,
@@ -77,6 +78,7 @@ class CompilePipeline:
         mode: str = "compile",
         index_reader: Callable[[Path], str] | None = None,
         save_sources: bool | None = None,
+        on_progress: Callable[[str], None] | None = None,
     ):
         """初始化流水线。
 
@@ -91,14 +93,20 @@ class CompilePipeline:
             llm: LLM 客户端。
             vlm: VLM 客户端（图片 caption）。
             wiki_dir: wiki 根目录。
+            source_records_dir: 工作区中的来源摘要存档目录。
             chunk_size: 分块大小（字符）。
             model_context: extract 阶段的模型上下文窗口。
             extract_concurrency: extract 并发数。
             mode: "compile" 或 "refine"。
             index_reader: 自定义 index 读取钩子。
             save_sources: 是否写 sources 页（覆盖模式默认）。
+            on_progress: 阶段切换回调，接收稳定的英文阶段代码。
         """
         self._wiki_dir = Path(wiki_dir)
+        self._source_records_dir = (
+            Path(source_records_dir) if source_records_dir is not None else None
+        )
+        self._on_progress = on_progress
         if mode not in ("compile", "refine"):
             raise ValueError(f"未知模式: {mode!r}——compile / refine")
         self._mode = mode
@@ -143,7 +151,7 @@ class CompilePipeline:
             llm,
             model_context=model_context,
             max_concurrency=extract_concurrency,
-            wiki_dir=str(self._wiki_dir),
+            source_records_dir=self._source_records_dir,
             save_source_page=self._save_sources,
             prompts=self._prompts,
             system_tokens=budget.extract_system_tokens,
@@ -178,8 +186,11 @@ class CompilePipeline:
         outcome = IngestOutcome(source=raw_file.name)
 
         # 1. Convert
+        self._notify_progress(IngestStage.CONVERT)
         try:
             cf = await self._converter.convert(raw_file)
+        except IngestError:
+            raise
         except WikiAgentError as e:
             raise IngestError(IngestStage.CONVERT, str(e), source=raw_file.name, cause=e) from e
         except Exception as e:
@@ -206,6 +217,7 @@ class CompilePipeline:
             ck_list = [_FallbackChunk(content=cf.content)]
 
         # 3. Extract
+        self._notify_progress(IngestStage.EXTRACT)
         sd = SourceDocument(
             name=cf.name,
             ext=cf.ext,
@@ -215,6 +227,8 @@ class CompilePipeline:
         try:
             outcome.extract = await self._extractor.extract(sd)
             logger.info("  摘要: %d chars", len(outcome.extract.document_summary))
+        except IngestError:
+            raise
         except WikiAgentError as e:
             raise IngestError(IngestStage.EXTRACT, str(e), source=raw_file.name, cause=e) from e
         except Exception as e:
@@ -247,6 +261,7 @@ class CompilePipeline:
         # 契约: ingest_one 只抛 IngestError——search/analyze/plan 的
         # 未预期异常（retry 的 RuntimeError、代码 bug）在此包装，
         # 边界只需一个 except 就能完整收集。IngestError 原样透传（保 stage）。
+        self._notify_progress(IngestStage.SEARCH)
         try:
             search_result = await self._integrator.search(outcome.extract, index_content)
         except IngestError:
@@ -257,6 +272,7 @@ class CompilePipeline:
             ) from e
         logger.info("  search: %d 个候选", len(search_result.rel_paths))
         outcome.search = search_result
+        self._notify_progress(IngestStage.ANALYZE)
         try:
             outcome.analysis = await self._integrator.analyze(outcome.extract, search_result)
         except IngestError:
@@ -265,6 +281,7 @@ class CompilePipeline:
             raise IngestError(
                 IngestStage.ANALYZE, f"未分类: {e}", source=raw_file.name, cause=e
             ) from e
+        self._notify_progress(IngestStage.PLAN)
         try:
             # planner 自己知道要不要 current_page（needs_current_page）——
             # pipeline 无条件传，模式知识不泄漏到这里
@@ -289,12 +306,15 @@ class CompilePipeline:
             outcome.noop = True
             logger.info("  plan: 无页面操作")
             return outcome
+        self._notify_progress(IngestStage.EXECUTE)
         try:
             outcome.pages_written = [
                 t.wiki_path
                 for t in await self._integrator.execute(outcome.plan, outcome.extract)
                 if (self._wiki_dir / _normalize(t.wiki_path)).exists()
             ]
+        except IngestError:
+            raise
         except WikiAgentError as e:
             raise IngestError(IngestStage.EXECUTE, str(e), source=raw_file.name, cause=e) from e
         except Exception as e:
@@ -306,6 +326,11 @@ class CompilePipeline:
         return outcome
 
     # ── 内部 ──────────────────────────────────────────────
+
+    def _notify_progress(self, stage: IngestStage) -> None:
+        callback = getattr(self, "_on_progress", None)
+        if callback is not None:
+            callback(stage.value)
 
     def _current_page(self, raw_file) -> str:
         """refine 模式的当前页面 slug——compile 模式留空。
@@ -371,7 +396,7 @@ class CompilePipeline:
             slug = pt.wiki_path.replace("wiki/", "").replace(".md", "")
             if f"[[{slug}]]" in existing or slug not in written_slugs:
                 continue
-            from wiki_agent.compiler.wiki.frontmatter import parse_frontmatter
+            from wiki_agent.wiki.frontmatter import parse_frontmatter
 
             fm = parse_frontmatter(self._wiki_dir / _normalize(pt.wiki_path))
             page_type = fm.get("type", "")

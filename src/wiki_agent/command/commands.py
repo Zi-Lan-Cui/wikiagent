@@ -257,25 +257,22 @@ class HelpCommand(Command):
 
 
 class ResolveCommand(Command):
-    """QA 矛盾裁决——corrections.md 的逐条处置。
-
-    /resolve                列出纠错条目（带序号）
-    /resolve accept <n>     确认待修——用户对，纠错保留待修清单
-    /resolve reject <n>     驳回——wiki 对，用户观点从清单移除
-    /resolve keep <n>       存疑——保留但不处理，标记 [存疑]
-
-    与 /queue 的分工: /queue 看全局待处理（含纠错聚合），
-    /resolve 专门裁决纠错条目。事件流（history.jsonl/events）
-    仍是事实源——裁决只改清单状态，不抹历史。
-    """
+    """裁决问题库中的用户纠错。"""
 
     name = "resolve"
     description = "裁决 QA 纠错条目（accept 确认待修 / reject 驳回 / keep 存疑）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        store = ctx.agent.memory_store
+        from wiki_agent.application.issue_actions import resolve_correction_issue
+        from wiki_agent.issues import IssueKind, IssueStatus
+
+        service = ctx.agent.issue_service
         args = ctx.args.strip()
-        corrections = store.get_corrections()
+        corrections = service.list(
+            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
+            kinds={IssueKind.CONTENT_CORRECTION},
+            limit=1000,
+        )
 
         parts = args.split(maxsplit=1)
         action = parts[0].lower() if parts else ""
@@ -287,44 +284,25 @@ class ResolveCommand(Command):
                 return CommandResult(
                     text="# /resolve\n\n用法: `/resolve accept|reject|keep <序号>`"
                 )
-            if action == "reject":
-                ok = store.remove_correction(idx)
-            elif action == "accept":
-                ok = store.mark_correction(idx, "[已确认待修]")
-            else:
-                ok = store.mark_correction(idx, "[存疑]")
-            if not ok:
+            if not 0 <= idx < len(corrections):
                 return CommandResult(text="# /resolve\n\n序号无效。")
-            if action == "accept":
-                record = store.get_correction(idx)
-                if record:
-                    from wiki_agent.queue import QueueStore
-
-                    queue = QueueStore(getattr(ctx.agent, "workspace", store.workspace))
-                    exists = any(
-                        item.get("type") == "wiki_issue"
-                        and item.get("correction_id") == record.get("id")
-                        for item in queue.list()
-                    )
-                    if not exists:
-                        queue.append(
-                            "wiki_issue",
-                            source="wiki",
-                            kind="correction",
-                            source_kind="wiki_page" if record.get("page") else "unknown",
-                            file=record.get("page", ""),
-                            correction_id=record.get("id", ""),
-                            issue=record.get("text", ""),
-                            status="pending",
-                        )
+            issue_action = {
+                "accept": "accept",
+                "reject": "reject",
+                "keep": "keep_uncertain",
+            }[action]
+            try:
+                resolve_correction_issue(service, corrections[idx].id, issue_action)
+            except (LookupError, RuntimeError, ValueError) as exc:
+                return CommandResult(text=f"# /resolve\n\n裁决失败：{exc}")
             verb = {"accept": "✅ 已确认待修", "reject": "🚫 已驳回", "keep": "❓ 标记存疑"}[action]
             return CommandResult(text=f"# /resolve\n\n{verb}: 第 {parts[1]} 条")
 
         if not corrections:
             return CommandResult(text="# /resolve\n\n没有待裁决的纠错条目。")
         lines = ["# 纠错条目裁决", ""]
-        for i, corr in enumerate(corrections, 1):
-            lines.append(f"{i}. {corr}")
+        for i, correction in enumerate(corrections, 1):
+            lines.append(f"{i}. {correction.summary}")
         lines.append("")
         lines.append(
             "`/resolve accept <n>` 确认待修 · `/resolve reject <n>` 驳回 · `/resolve keep <n>` 存疑"
@@ -333,37 +311,38 @@ class ResolveCommand(Command):
 
 
 class QueueCommand(Command):
-    """统一异常队列——待处理事项的人机接口。
-
-    /queue            列出全部待处理项（ingest 失败/手术冲突/纠错）
-    /queue done <id>  处理完成，移除该项
-    纠错项的处理走 /resolve（接受/驳回/留观），/queue 只聚合展示。
-    """
+    """统一问题中心的 CLI 适配器。"""
 
     name = "queue"
-    description = "查看待处理异常队列（/queue done <id> 移除已处理项）"
+    description = "查看问题中心（/queue retry <id> / done <id>）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.queue import QueueStore
+        from wiki_agent.issues import IssueStatus
 
-        store = QueueStore(ctx.agent.workspace)
+        issue_service = ctx.agent.issue_service
         args = ctx.args.strip()
 
         if args.startswith("done "):
             item_id = args[5:].strip()
-            if not store.remove(item_id):
-                return CommandResult(text=f"# 队列\n\n未找到: {item_id}")
-            return CommandResult(text=f"# 队列\n\n✅ 已移除: {item_id}")
+            try:
+                issue_service.apply_simple_action(item_id, "dismiss")
+            except (LookupError, ValueError):
+                return CommandResult(text=f"# 问题中心\n\n未找到或无法忽略: {item_id}")
+            return CommandResult(text=f"# 问题中心\n\n✅ 已忽略: {item_id}")
 
         if args == "retry-all" or args.startswith("retry "):
             from wiki_agent.compiler.workflows.retry import retry_source_failures
 
             if args == "retry-all":
-                item_id = None
+                issue_id = None
             else:
-                item_id = args[6:].strip()
-                if not item_id:
-                    return CommandResult(text="# /queue retry\n\n用法: `/queue retry <queue_id>`")
+                issue_id = args[6:].strip()
+                if not issue_id:
+                    return CommandResult(text="# /queue retry\n\n用法: `/queue retry <issue_id>`")
+                try:
+                    issue_service.store.require(issue_id)
+                except LookupError:
+                    return CommandResult(text=f"# source 失败重试\n\n未找到: {issue_id}")
             wiki_dir = RefineCommand._wiki_dir(ctx)
             if wiki_dir is None:
                 return CommandResult(
@@ -371,13 +350,15 @@ class QueueCommand(Command):
                 )
             try:
                 result = await retry_source_failures(
-                    store,
+                    issue_service.store,
                     llm=ctx.agent.llm,
                     vlm=ctx.agent.vlm,
                     wiki_dir=wiki_dir,
+                    source_records_dir=ctx.agent.workspace / "provenance" / "sources",
+                    run_root=ctx.agent.workspace / "runs",
                     compile_config=ctx.agent.compile_config,
                     retry_config=ctx.agent.retry_config,
-                    item_id=item_id,
+                    issue_id=issue_id,
                 )
             except Exception as exc:
                 return CommandResult(
@@ -388,43 +369,39 @@ class QueueCommand(Command):
             for item in result["results"]:
                 lines.append(f"- `{item['id']}`: {item['status']}")
             if result.get("committed"):
-                lines.append("\n✅ 重试成功，Git 已提交，成功项已从队列移除。")
+                for outcome in result["results"]:
+                    if outcome["status"] == "succeeded":
+                        current = issue_service.store.require(outcome["id"])
+                        if current.status in {IssueStatus.OPEN, IssueStatus.BLOCKED}:
+                            issue_service.store.transition(
+                                current.id,
+                                IssueStatus.RESOLVED,
+                                resolution={"action": "source_retry"},
+                                event="source_retry_committed",
+                            )
+                lines.append("\n✅ 重试成功，Git 已提交。")
             elif result.get("rolled_back"):
-                lines.append("\n⚠️ 本次未提交，Wiki 已回撤，队列项已保留。")
+                lines.append("\n⚠️ 本次未提交，Wiki 已回撤，问题仍保留。")
             elif result.get("message"):
                 lines.append(f"\n{result['message']}")
             return CommandResult(text="\n".join(lines))
 
-        items = store.list()
-        # corrections 聚合视图——corrections.md 也是待处理事项
-        corrections = ctx.agent.memory_store.get_corrections()
-
-        lines = ["# 待处理队列", ""]
-        if not items and not corrections:
-            lines.append("✅ 队列为空——没有待处理事项。")
-            return CommandResult(text="\n".join(lines))
-
-        type_names = {
-            "ingest_failure": "ingest 失败",
-            "wiki_issue": "Wiki 内容问题",
-            "surgery_conflict": "手术冲突",
-            "correction": "wiki 纠错",
-        }
-        lines.append(f"共 **{len(items) + len(corrections)}** 项待处理:\n")
-
-        for item in items:
-            t_raw = item.get("type") or ""
-            t = type_names.get(t_raw, t_raw)
-            extra = item.get("file") or item.get("detail") or ""
+        cards = issue_service.list(
+            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED, IssueStatus.PROCESSING}
+        )
+        lines = ["# 问题中心", ""]
+        if not cards:
+            return CommandResult(text="# 问题中心\n\n✅ 没有待处理问题。")
+        lines.append(f"共 **{len(cards)}** 项待处理:\n")
+        for card in cards:
             lines.append(
-                f"- `{item['id']}` [{t}] {extra} "
-                f"({str(item.get('error') or item.get('stage') or '')[:80]})"
+                f"- `{card.id}` [{card.kind}/{card.status}] **{card.title}** — {card.summary[:100]}"
             )
-        for corr in corrections:
-            lines.append(f"- [correction] {corr}")
-
         lines.append("")
-        lines.append("处理方式: `/queue done <id>` 移除已处理项；纠错项用 `/resolve` 裁决。")
+        lines.append(
+            "处理方式: `/queue retry <issue_id>` 重试资料处理失败项；"
+            "`/queue done <issue_id>` 忽略；纠错也可用 `/resolve` 裁决。"
+        )
         return CommandResult(text="\n".join(lines))
 
 
@@ -435,7 +412,7 @@ class ScanCommand(Command):
     description = "扫描 Wiki 质量并自动清理完全重复页面"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.compiler.wiki.quality import (
+        from wiki_agent.wiki.quality import (
             cleanup_exact_duplicates,
             format_scan_report,
             scan_wiki,
@@ -447,6 +424,15 @@ class ScanCommand(Command):
 
         removed = cleanup_exact_duplicates(wiki)
         issues = scan_wiki(wiki)
+        issue_service = getattr(ctx.agent, "issue_service", None)
+        if issue_service is not None:
+            from wiki_agent.issues.producers import report_quality_findings
+
+            report_quality_findings(
+                issue_service,
+                issues,
+                origin={"mode": "cli", "trigger": "scan_command"},
+            )
         report = format_scan_report(issues)
         if removed:
             lines = ["## 自动清理完全重复页面", ""]
@@ -467,20 +453,17 @@ class CompileCommand(Command):
             args = shlex.split(ctx.args.strip())
         except ValueError as exc:
             return CommandResult(text=f"# /compile 参数错误\n\n{exc}")
-        if len(args) != 1:
+        if len(args) > 1:
             return CommandResult(
-                text=("# /compile\n\n用法: `/compile <source_dir>`\n路径包含空格时请使用引号。")
+                text=(
+                    "# /compile\n\n用法: `/compile [source_dir]`\n"
+                    "省略目录时使用 WIKI_SOURCE_DIR；路径包含空格时请使用引号。"
+                )
             )
 
-        # scripts 不是 wheel package，因此在源码工作区中显式加入项目根，
-        # 但编译逻辑仍只存在于 compile_sources() 一个入口。
-        import sys
-
-        project_root = Path(__file__).resolve().parents[2]
-        if str(project_root) not in sys.path:
-            sys.path.insert(0, str(project_root))
+        project_root = ctx.agent.workspace.resolve().parent
         try:
-            from scripts.compile_sources import compile_sources
+            from wiki_agent.application.compile_service import compile_sources
 
             wiki = RefineCommand._wiki_dir(ctx) or (project_root / "wiki")
 
@@ -489,7 +472,7 @@ class CompileCommand(Command):
                     await ctx.reporter.progress(stage, **kwargs)
 
             run_dir = await compile_sources(
-                args[0],
+                args[0] if args else None,
                 project_root=project_root,
                 wiki_dir=wiki,
                 progress=report,
@@ -580,7 +563,9 @@ class WikiCommand(Command):
                     return CommandResult(text=f"# Wiki search\n\n没有找到包含 `{query}` 的页面。")
                 rows = "\n".join(f"- `{page.path}`" for page in pages)
                 return CommandResult(text=f"# Wiki search: {query}\n\n{rows}")
-            manager = WikiGitManager(wiki, run_root=wiki / ".logs" / "runs", require_clean=False)
+            manager = WikiGitManager(
+                wiki, run_root=ctx.agent.workspace / "runs", require_clean=False
+            )
             if action == "history":
                 limit = int(args[1]) if len(args) > 1 else 20
                 rows = manager.history(limit)
@@ -704,12 +689,11 @@ class RefineCommand(Command):
         """
         from datetime import datetime
 
-        from wiki_agent.compiler.wiki.quality import format_scan_report, scan_wiki
         from wiki_agent.compiler.workflows.failures import SourceFailureHandler
         from wiki_agent.compiler.workflows.ingest import CompilePipeline
         from wiki_agent.compiler.workflows.refine import refine_all, refine_pages
-        from wiki_agent.queue import QueueStore
         from wiki_agent.versioning import WikiGitManager
+        from wiki_agent.wiki.quality import format_scan_report, scan_wiki
 
         # wiki 目录从 ReadFile 工具拿（root 就是 wiki 根）
         wiki = self._wiki_dir(ctx)
@@ -741,10 +725,11 @@ class RefineCommand(Command):
                 llm=ctx.agent.llm,
                 vlm=ctx.agent.vlm,
                 wiki_dir=wiki,
+                source_records_dir=ctx.agent.workspace / "provenance" / "sources",
                 mode="refine",
                 compile_config=ctx.agent.compile_config,
             )
-            failure_handler = SourceFailureHandler(QueueStore(ctx.agent.workspace), mode="refine")
+            failure_handler = SourceFailureHandler(ctx.agent.issue_service, mode="refine")
             try:
                 stats = await refine_all(
                     pipeline,
@@ -779,6 +764,15 @@ class RefineCommand(Command):
             if conflicts:
                 arb = await re_arbitrate(ctx.agent.llm, wiki, conflicts)
                 clean.extend(arb.resolved)
+                issue_service = getattr(ctx.agent, "issue_service", None)
+                if issue_service is not None and arb.unresolved:
+                    from wiki_agent.issues.producers import report_surgery_conflicts
+
+                    report_surgery_conflicts(
+                        issue_service,
+                        arb.unresolved,
+                        origin={"mode": "refine", "trigger": "refine_command"},
+                    )
             lines.append("")
             lines.append(
                 f"结构手术: {len(proposals)} 粗提 → {len(confirmed)} 确认 → {len(clean)} 有效"
@@ -802,6 +796,15 @@ class RefineCommand(Command):
             lines.append(f"结构手术跳过: {type(e).__name__}: {str(e)[:100]}")
 
         issues = scan_wiki(wiki)
+        issue_service = getattr(ctx.agent, "issue_service", None)
+        if issue_service is not None:
+            from wiki_agent.issues.producers import report_quality_findings
+
+            report_quality_findings(
+                issue_service,
+                issues,
+                origin={"mode": "refine", "trigger": "refine_command"},
+            )
         lines.append("")
         lines.append(format_scan_report(issues))
 

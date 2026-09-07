@@ -1,13 +1,10 @@
 import asyncio
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from scripts import compile_manifest
+from wiki_agent.application import batch_compile as compile_manifest
 
 
 def test_split_sources_is_stable_and_validates_size():
@@ -51,7 +48,7 @@ def test_run_batches_records_commit_and_resume_skips_committed(tmp_path: Path, m
         )
         return run_dir
 
-    monkeypatch.setattr(compile_manifest, "compile_folder", fake_compile)
+    monkeypatch.setattr(compile_manifest, "compile_sources", fake_compile)
     state_path = tmp_path / "state.json"
     work_dir = tmp_path / "work"
 
@@ -99,7 +96,7 @@ def test_run_batches_persists_failure_before_propagating(tmp_path: Path, monkeyp
     async def failing_compile(*args, **kwargs):
         raise RuntimeError("simulated failure")
 
-    monkeypatch.setattr(compile_manifest, "compile_folder", failing_compile)
+    monkeypatch.setattr(compile_manifest, "compile_sources", failing_compile)
     state_path = tmp_path / "state.json"
     with pytest.raises(RuntimeError, match="simulated failure"):
         asyncio.run(
@@ -137,7 +134,7 @@ def test_run_with_failed_source_is_not_marked_committed(tmp_path: Path, monkeypa
         )
         return run_dir
 
-    monkeypatch.setattr(compile_manifest, "compile_folder", fake_compile)
+    monkeypatch.setattr(compile_manifest, "compile_sources", fake_compile)
     state = asyncio.run(
         compile_manifest.run_batches(
             root=root,
@@ -169,7 +166,7 @@ def test_resume_rejects_changed_source_content(tmp_path: Path, monkeypatch):
         (run_dir / "run.json").write_text(json.dumps({"status": "committed"}), encoding="utf-8")
         return run_dir
 
-    monkeypatch.setattr(compile_manifest, "compile_folder", fake_compile)
+    monkeypatch.setattr(compile_manifest, "compile_sources", fake_compile)
     state_path = tmp_path / "state.json"
     asyncio.run(
         compile_manifest.run_batches(

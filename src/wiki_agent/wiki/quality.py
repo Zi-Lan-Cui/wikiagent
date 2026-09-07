@@ -24,8 +24,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from wiki_agent.compiler.wiki.frontmatter import split_frontmatter
-from wiki_agent.compiler.wiki.rules import (
+from wiki_agent.log import emit_event, get_logger
+from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.rules import (
     _WIKILINK_RE,
     _body_without_title,
     _check_page_body,
@@ -34,7 +35,6 @@ from wiki_agent.compiler.wiki.rules import (
     _extract_body,
     iter_text_outside_code,
 )
-from wiki_agent.log import emit_event, get_logger
 
 logger = get_logger("QUALITY")
 
@@ -63,7 +63,7 @@ _PLACEHOLDER_VALUES = {
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # 内容页面所在的子目录（scan_wiki 扫描范围）
-_CONTENT_DIRS = ("concepts", "entities", "topics", "sources")
+_CONTENT_DIRS = ("concepts", "entities", "topics")
 
 
 @dataclass
@@ -249,17 +249,18 @@ def scan_source(
     wiki_dir: str | Path,
     *,
     source_name: str,
+    source_records_dir: str | Path | None = None,
     generated_paths: list[str] | None = None,
 ) -> list[Issue]:
-    """只检查一个 source 本轮产生的档案页和知识页。
+    """只检查一个 source 本轮产生的溯源存档和知识页。
 
     ``scan_wiki`` 负责批次收尾的全库关系检查；此方法用于 source 完成
     后的局部闸门，错误可以归属到 source 队列，不影响其他 source。
     """
     wiki = Path(wiki_dir)
     issues: list[Issue] = []
-    source_dir = wiki / "sources"
-    if source_dir.is_dir():
+    source_dir = Path(source_records_dir) if source_records_dir is not None else None
+    if source_dir is not None and source_dir.is_dir():
         for page in sorted(source_dir.glob("*.md")):
             try:
                 content = page.read_text(encoding="utf-8")
@@ -267,7 +268,7 @@ def scan_source(
                 continue
             if source_name not in content:
                 continue
-            issues.extend(check_source_output(content, path=str(page.relative_to(wiki))))
+            issues.extend(check_source_output(content, path=f"sources/{page.name}"))
 
     for rel in generated_paths or []:
         page = wiki / rel
@@ -358,19 +359,13 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
         except Exception as exc:
             all_issues.append(Issue("error", rel, f"读取失败: {exc}"))
             continue
-        if rel.startswith("sources/"):
-            all_issues.extend(check_source_output(content, path=rel))
-        else:
-            all_issues.extend(
-                check_page_quality(
-                    content,
-                    path=rel,
-                    valid_slugs=valid_slugs,
-                )
+        all_issues.extend(
+            check_page_quality(
+                content,
+                path=rel,
+                valid_slugs=valid_slugs,
             )
-        # sources 档案页 related 恒空（设计内: 档案不参与交叉引用），跳过
-        if rel.startswith("sources/"):
-            continue
+        )
         # related 由 normalize 定稿链注入——缺失/空说明页面没走完整流水线
         m = re.search(r"(?m)^\s*related\s*:\s*(.*)$", content)
         if not m:
@@ -392,13 +387,10 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
                 )
             )
 
-    # 孤岛检测：index 是导航入口，不算语义入链；sources 页面按设计
-    # 通过 sources 元数据关联，也不要求被正文 wikilink 指向。
+    # 孤岛检测：index 是导航入口，不算语义入链。
     incoming: dict[str, set[str]] = {slug: set() for slug in valid_slugs}
     for page in pages:
         rel = str(page.relative_to(wiki))
-        if rel.startswith("sources/"):
-            continue
         try:
             content = page.read_text(encoding="utf-8")
         except OSError:
@@ -421,8 +413,6 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
 
     for page in pages:
         rel = str(page.relative_to(wiki))
-        if rel.startswith("sources/"):
-            continue
         slug = rel.removesuffix(".md")
         if not incoming[slug]:
             all_issues.append(
@@ -459,7 +449,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
             Issue(
                 "warning",
                 f.name,
-                "根目录多余 .md 文件——内容页应在 concepts/entities/topics/sources 下",
+                "根目录多余 .md 文件——内容页应在 concepts/entities/topics 下",
             )
         )
 
@@ -469,8 +459,8 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
             all_issues.append(Issue("error", "index.md", f"幽灵条目: [[{slug}]] 指向不存在的页面"))
 
     # 3c. 非标准内容目录——LLM 路由违规产物（实测 languages/ tools/）。
-    #     四个内容目录之外的 .md 子目录在扫描与 search 中完全隐形
-    known_dirs = set(_CONTENT_DIRS) | {".logs", ".watch"}
+    #     三个内容目录之外的 .md 子目录在扫描与 search 中完全隐形。
+    known_dirs = set(_CONTENT_DIRS)
     for sub in sorted(wiki.iterdir()):
         if sub.is_dir() and sub.name not in known_dirs:
             mds = list(sub.rglob("*.md"))
@@ -518,7 +508,7 @@ def _find_duplicate_issues(wiki: Path, pages: list[Path]) -> list[Issue]:
 def cleanup_exact_duplicates(wiki_dir: str | Path) -> list[tuple[str, str]]:
     """删除完全相同的知识页，返回 ``(保留页, 删除页)``。
 
-    只处理 concepts/entities/topics；sources 档案页永不自动删除。
+    只处理 concepts/entities/topics；工作区溯源记录不在扫描范围内。
     保留路径按目录优先级（concepts→entities→topics）再按字典序决定。
     删除前把正文中的 wikilink 指向保留页，避免制造新的死链。
     """
