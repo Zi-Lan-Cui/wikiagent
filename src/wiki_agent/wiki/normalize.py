@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import re
 
-from wiki_agent.compiler.wiki.quality import Issue, check_page_quality
-from wiki_agent.compiler.wiki.rules import _iter_code_runs, iter_text_outside_code
 from wiki_agent.log import get_logger
+from wiki_agent.wiki.quality import Issue, check_page_quality
+from wiki_agent.wiki.rules import _iter_code_runs, iter_text_outside_code
 
 logger = get_logger("NORMALIZE")
 

@@ -90,7 +90,7 @@ class FileWatcher:
         self._root = Path(source_dir).resolve()
         self._queue = queue
         self._state = state
-        # 源文件删除检测需要 wiki 目录（sources 页清理）——不传则只 drop state
+        # 源文件删除检测需要 Wiki 目录（清理旧式来源引用）——不传则只 drop state
         self._wiki_dir = Path(wiki_dir) if wiki_dir else None
         self._settle = settle_window
         self._stability = stability_delay

@@ -93,7 +93,7 @@ jobs:
           import sys
           from pathlib import Path
 
-          from wiki_agent.compiler.wiki.quality import scan_wiki
+          from wiki_agent.wiki.quality import scan_wiki
 
           issues = scan_wiki(Path(sys.argv[1]))
           errors = [issue for issue in issues if issue.level == "error"]

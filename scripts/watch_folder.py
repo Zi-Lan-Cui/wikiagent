@@ -14,34 +14,39 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# 项目 src 加入 sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import load_config
+from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.log import begin_trace, configure_logging, setup_event_log
 from wiki_agent.watch.consumer import WatchConsumer
 from wiki_agent.watch.state import WatchState
 from wiki_agent.watch.watcher import FileWatcher
 
-WIKI_DIR = PROJECT_ROOT / "wiki"
 
-
-async def main(source_dir: str):
+async def main(source_dir: str | None = None):
     """watch 主流程——初始化 → 启动 reconcile → 常驻运行。
 
     Args:
         source_dir: 源文件夹路径。
     """
-    source_path = Path(source_dir).resolve()
+    cfg = load_config(project_root=PROJECT_ROOT)
+    source_path = (
+        Path(source_dir).expanduser().resolve()
+        if source_dir is not None
+        else cfg.paths.resolved_source_dir().resolve()
+    )
+    wiki_dir = cfg.paths.resolved_wiki_dir().resolve()
+    source_records_dir = cfg.paths.resolved_source_records_dir().resolve()
     if not source_path.is_dir():
-        print(f"源目录不存在: {source_dir}")
+        print(f"源目录不存在: {source_path}")
         sys.exit(1)
 
     # ── 运行目录（与 compile 一致的 run 容器）────────────────
-    run_dir = WIKI_DIR / ".logs" / "runs" / f"watch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_dir = cfg.paths.resolved_runs_dir() / f"watch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(file_path=str(run_dir / "run.log"))
     setup_event_log(run_dir / "events.jsonl")
@@ -49,25 +54,41 @@ async def main(source_dir: str):
     begin_trace(trace_id=f"watch_{run_dir.name}")
 
     # ── 初始化 ─────────────────────────────────────────────
-    cfg = load_config(project_root=PROJECT_ROOT)
     llm = create_llm(cfg.llm, cfg.retry)
     vlm = create_vlm(cfg.vlm, cfg.retry)
 
-    pipeline = CompilePipeline(llm=llm, vlm=vlm, wiki_dir=WIKI_DIR, compile_config=cfg.compile)
-    state = WatchState(WIKI_DIR / ".watch" / "state.json")
+    pipeline = CompilePipeline(
+        llm=llm,
+        vlm=vlm,
+        wiki_dir=wiki_dir,
+        source_records_dir=source_records_dir,
+        compile_config=cfg.compile,
+    )
+    state = WatchState(cfg.paths.resolved_watch_dir() / "state.json")
     queue: asyncio.Queue = asyncio.Queue()
 
     watcher = FileWatcher(
         source_path,
         queue,
         state,
-        wiki_dir=WIKI_DIR,
+        wiki_dir=wiki_dir,
         settle_window=cfg.watch.settle_window,
         stability_delay=cfg.watch.stability_delay,
         fallback_interval=cfg.watch.fallback_interval,
         similarity_threshold=cfg.watch.similarity_threshold,
     )
-    consumer = WatchConsumer(queue, pipeline, state, wiki_dir=WIKI_DIR)
+    failures = SourceFailureHandler(
+        IssueService(IssueStore(cfg.paths.resolved_workspace_dir())),
+        mode="watch",
+    )
+    consumer = WatchConsumer(
+        queue,
+        pipeline,
+        state,
+        wiki_dir=wiki_dir,
+        source_records_dir=source_records_dir,
+        failure_handler=failures,
+    )
 
     print(f"watch 模式启动: {source_path}")
     print("检测: inotify 事件驱动（去抖 2s + 稳定性复读 2s） + 60s 回退全量扫描兜底")
@@ -80,10 +101,7 @@ async def main(source_dir: str):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(f"用法: {sys.argv[0]} <源文件夹路径>")
-        sys.exit(1)
     try:
-        asyncio.run(main(sys.argv[1]))
+        asyncio.run(main(sys.argv[1] if len(sys.argv) > 1 else None))
     except KeyboardInterrupt:
         print("\nwatch 停止")

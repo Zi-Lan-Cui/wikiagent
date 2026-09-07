@@ -6,7 +6,7 @@
 import tempfile
 from pathlib import Path
 
-from wiki_agent.compiler.wiki.quality import scan_wiki
+from wiki_agent.wiki.quality import scan_wiki
 
 
 def _make_wiki(tmp: Path) -> Path:

@@ -2,7 +2,7 @@
 
 用法:
     uv run python scripts/retry_failures.py
-    uv run python scripts/retry_failures.py <queue_id>
+    uv run python scripts/retry_failures.py <issue_id>
 """
 
 from __future__ import annotations
@@ -11,34 +11,25 @@ import asyncio
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
-
-from wiki_agent.compiler.workflows.retry import retry_source_failures
-from wiki_agent.config import load_config
-from wiki_agent.llm.factory import create_llm, create_vlm
-from wiki_agent.queue import QueueStore
+from wiki_agent.application.issue_actions import IssueActionExecutor
+from wiki_agent.application.runtime import AppRuntime
 
 
 async def main(selected: str | None = None) -> None:
-    cfg = load_config(project_root=PROJECT_ROOT)
-    result = await retry_source_failures(
-        QueueStore(cfg.paths.resolved_workspace_dir()),
-        llm=create_llm(cfg.llm, cfg.retry),
-        vlm=create_vlm(cfg.vlm, cfg.retry),
-        wiki_dir=PROJECT_ROOT / "wiki",
-        compile_config=cfg.compile,
-        retry_config=cfg.retry,
-        item_id=selected,
-    )
-    for item in result["results"]:
-        print(f"{item['id']}: {item['status']}")
-    if result.get("rolled_back"):
-        print("本次重试未提交，Wiki 已回撤，队列项保留。")
-    elif result.get("committed"):
-        print("本次重试已提交。")
-    elif result.get("message"):
-        print(result["message"])
+    runtime = AppRuntime.from_project_root(Path.cwd())
+    executor = IssueActionExecutor(runtime)
+    issue_ids = [selected] if selected else executor.retry_batch_candidates()
+    if not issue_ids:
+        print("没有可重试的问题。")
+        return
+    async with runtime:
+        for issue_id in issue_ids:
+            try:
+                await executor.execute(issue_id, "retry")
+            except Exception as exc:
+                print(f"{issue_id}: failed — {type(exc).__name__}: {exc}")
+            else:
+                print(f"{issue_id}: succeeded")
 
 
 if __name__ == "__main__":

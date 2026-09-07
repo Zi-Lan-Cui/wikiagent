@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from wiki_agent.tools.wiki_tools import _safe_resolve
+from wiki_agent.wiki.paths import safe_resolve
 
 
 class WikiPageNotFound(FileNotFoundError):
@@ -58,7 +58,7 @@ def _normalize(path: str) -> str:
 
 def read_page(root: Path, path: str) -> WikiPage:
     relative = _normalize(path)
-    target = _safe_resolve(root.resolve(), relative)
+    target = safe_resolve(root.resolve(), relative)
     if target is None or target.suffix.lower() != ".md" or not target.is_file():
         raise WikiPageNotFound(f"Wiki 页面不存在或不可访问: {path}")
     content = target.read_text(encoding="utf-8")
@@ -71,16 +71,39 @@ def read_page(root: Path, path: str) -> WikiPage:
     )
 
 
-def read_source(root: Path, path: str) -> WikiPage:
-    """Read one source document through the dedicated read-only boundary."""
+def read_source(source_records_root: Path, path: str) -> WikiPage:
+    """Read one generated source record through the dedicated read-only boundary."""
     relative = _normalize(path.removeprefix("sources/"))
-    source_root = (root / "sources").resolve()
-    target = _safe_resolve(source_root, relative)
+    source_root = source_records_root.resolve()
+    target = safe_resolve(source_root, relative)
     if target is None or target.suffix.lower() != ".md" or not target.is_file():
         raise WikiPageNotFound(f"来源文件不存在或不可访问: {path}")
     content = target.read_text(encoding="utf-8")
     return WikiPage(
         path=f"sources/{target.relative_to(source_root).as_posix()}",
+        content=content,
+        size=target.stat().st_size,
+        updated_at=datetime.fromtimestamp(target.stat().st_mtime, UTC).isoformat(),
+        metadata=_frontmatter(content),
+    )
+
+
+def read_authorized_source(path: Path, *, label: str = "") -> WikiPage:
+    """Read an exact source path already authorized by an application record.
+
+    The path is never accepted from an HTTP route.  Callers must obtain it
+    from trusted server-side state, such as an issue's private context.
+    """
+    try:
+        target = path.resolve(strict=True)
+    except OSError as exc:
+        raise WikiPageNotFound(f"来源文件不存在或不可访问: {label or path.name}") from exc
+    if target.suffix.lower() != ".md" or not target.is_file():
+        raise WikiPageNotFound(f"来源文件不存在或不可访问: {label or path.name}")
+    content = target.read_text(encoding="utf-8")
+    public_name = Path(label).name if label else target.name
+    return WikiPage(
+        path=f"sources/{public_name}",
         content=content,
         size=target.stat().st_size,
         updated_at=datetime.fromtimestamp(target.stat().st_mtime, UTC).isoformat(),

@@ -12,6 +12,7 @@ system prompt 四块（build 阶段的核心扩展）:
 
 from pathlib import Path
 
+from wiki_agent.issues import IssueKind, IssueService, IssueStatus
 from wiki_agent.memory import MemoryStore
 from wiki_agent.message import Message
 from wiki_agent.session import Session
@@ -26,12 +27,14 @@ class ContextBuilder:
         system_prompt: str,
         tool_registry: ToolRegistry,
         memory_store: MemoryStore,
+        issue_service: IssueService | None = None,
         wiki_dir: str | Path | None = None,
         agent_config=None,
     ):
         self.system_prompt = system_prompt
         self.tool_registry = tool_registry
         self.memory_store = memory_store
+        self.issue_service = issue_service
         self.wiki_dir = Path(wiki_dir) if wiki_dir else None
         # 截断上限从 agent_config 取（E3 收编）——None 时用默认
         cfg = agent_config
@@ -111,7 +114,19 @@ class ContextBuilder:
         Returns:
             纠错清单文本（超长截断）；无纠错时返回占位文案。
         """
-        items = self.memory_store.get_corrections()
+        items = []
+        if self.issue_service is not None:
+            cards = self.issue_service.list(
+                statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
+                kinds={IssueKind.CONTENT_CORRECTION},
+                limit=100,
+            )
+            items = [
+                f"[{card.resource.get('path')}] {card.summary}"
+                if card.resource.get("path")
+                else card.summary
+                for card in cards
+            ]
         if not items:
             return "（暂无待处理纠错）"
         text = "\n".join(items)

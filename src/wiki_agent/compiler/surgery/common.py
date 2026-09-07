@@ -12,8 +12,8 @@ from pathlib import Path
 
 from wiki_agent.compiler.integration.parse import _strip_fence
 from wiki_agent.compiler.surgery.models import _CONTENT_DIRS, Proposal
-from wiki_agent.compiler.wiki.frontmatter import split_frontmatter
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.wiki.frontmatter import split_frontmatter
 
 logger = get_logger("SURGERY")
 

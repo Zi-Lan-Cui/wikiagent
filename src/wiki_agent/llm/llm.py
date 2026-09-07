@@ -8,8 +8,10 @@ from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolPara
 
 from wiki_agent.config import LLMConfig, RetryConfig
 from wiki_agent.errors import translate_openai_error
+from wiki_agent.llm.rate_limit import RequestLimiter
 from wiki_agent.log import get_logger
 from wiki_agent.message import LLMResponse, Message, ToolCall
+from wiki_agent.utils.helpers import estimate_text_tokens
 
 logger = get_logger("LLMCLIENT")
 
@@ -47,7 +49,12 @@ def _parse_tool_calls(openai_calls) -> list[ToolCall]:
 
 
 class LLMClient:
-    def __init__(self, config: LLMConfig, retry_config: RetryConfig | None = None):
+    def __init__(
+        self,
+        config: LLMConfig,
+        retry_config: RetryConfig | None = None,
+        request_limiter: RequestLimiter | None = None,
+    ):
         """初始化 LLM 客户端。
 
         构造即完整——配置注入后立刻可用，无中间态。
@@ -66,6 +73,11 @@ class LLMClient:
         )
         # 注入 RootConfig.retry；默认保留给直接构造客户端的测试兼容路径。
         self.retry_config = retry_config or RetryConfig()
+        self.request_limiter = request_limiter or RequestLimiter(
+            max_concurrency=config.max_concurrency,
+            requests_per_minute=config.requests_per_minute,
+            tokens_per_minute=config.tokens_per_minute,
+        )
 
         self.client = openai.Client(
             api_key=self.api_key, base_url=self.base_url, timeout=config.timeout
@@ -73,12 +85,46 @@ class LLMClient:
         self.async_client = openai.AsyncClient(
             api_key=self.api_key, base_url=self.base_url, timeout=config.timeout
         )
+        logger.info(
+            "请求限流器已启用: concurrency=%d rpm=%d tpm=%d",
+            config.max_concurrency,
+            config.requests_per_minute,
+            config.tokens_per_minute,
+        )
+
+    @staticmethod
+    def _estimate_request_tokens(
+        messages: list[Message],
+        tools: list[ChatCompletionToolParam] | None,
+        max_tokens: int | None,
+    ) -> int:
+        """为 TPM 限制预留输入和最大输出预算。"""
+        text = "".join(message.text_schema for message in messages)
+        if tools:
+            text += json.dumps(tools, ensure_ascii=False, default=str)
+        # 图像的 token 算法由 provider 决定；每张预留固定额，
+        # 避免将 base64 字节数误计为文本 token。
+        image_budget = sum(len(message.images) for message in messages) * 1_024
+        return max(1, estimate_text_tokens(text) + image_budget + (max_tokens or 0))
 
     def _request_extra_body(self, extra_body: dict | None) -> dict | None:
         """Return explicit request options or the configured reasoning policy."""
         return self.default_extra_body if extra_body is None else extra_body
 
     def invoke(
+        self,
+        messages: list[Message],
+        tools: list[ChatCompletionToolParam] | None = None,
+        max_tokens: int | None = None,
+        temperature: float = 0.5,
+        extra_body: dict | None = None,
+    ) -> LLMResponse:
+        """在全局请求预算内执行同步调用。"""
+        estimated_tokens = self._estimate_request_tokens(messages, tools, max_tokens)
+        with self.request_limiter.slot(estimated_tokens):
+            return self._invoke(messages, tools, max_tokens, temperature, extra_body)
+
+    def _invoke(
         self,
         messages: list[Message],
         tools: list[ChatCompletionToolParam] | None = None,
@@ -136,6 +182,19 @@ class LLMClient:
         temperature: float = 0.5,
         extra_body: dict | None = None,
     ) -> LLMResponse:
+        """在全局请求预算内执行异步调用。"""
+        estimated_tokens = self._estimate_request_tokens(messages, tools, max_tokens)
+        async with self.request_limiter.async_slot(estimated_tokens):
+            return await self._async_invoke(messages, tools, max_tokens, temperature, extra_body)
+
+    async def _async_invoke(
+        self,
+        messages: list[Message],
+        tools: list[ChatCompletionToolParam] | None = None,
+        max_tokens: int | None = None,
+        temperature: float = 0.5,
+        extra_body: dict | None = None,
+    ) -> LLMResponse:
         """异步非流式调用。
 
         Args:
@@ -183,6 +242,22 @@ class LLMClient:
             raise translate_openai_error(e) from e
 
     async def async_stream(
+        self,
+        messages: list[Message],
+        tools: list[ChatCompletionToolParam] | None = None,
+        max_tokens: int | None = None,
+        temperature: float = 0.5,
+        on_delta: Callable[[str], None] | Callable[[str], Awaitable[None]] | None = None,
+        extra_body: dict | None = None,
+    ) -> LLMResponse:
+        """在全局请求预算内执行异步流式调用。"""
+        estimated_tokens = self._estimate_request_tokens(messages, tools, max_tokens)
+        async with self.request_limiter.async_slot(estimated_tokens):
+            return await self._async_stream(
+                messages, tools, max_tokens, temperature, on_delta, extra_body
+            )
+
+    async def _async_stream(
         self,
         messages: list[Message],
         tools: list[ChatCompletionToolParam] | None = None,
@@ -304,6 +379,20 @@ class LLMClient:
         )
 
     def stream(
+        self,
+        messages: list[Message],
+        tools: list[ChatCompletionToolParam] | None = None,
+        max_tokens: int | None = None,
+        temperature: float = 0.5,
+        on_delta: Callable[[str], None] | None = None,
+        extra_body: dict | None = None,
+    ) -> LLMResponse:
+        """在全局请求预算内执行同步流式调用。"""
+        estimated_tokens = self._estimate_request_tokens(messages, tools, max_tokens)
+        with self.request_limiter.slot(estimated_tokens):
+            return self._stream(messages, tools, max_tokens, temperature, on_delta, extra_body)
+
+    def _stream(
         self,
         messages: list[Message],
         tools: list[ChatCompletionToolParam] | None = None,

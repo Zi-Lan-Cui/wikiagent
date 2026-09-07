@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from wiki_agent.compiler.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.frontmatter import split_frontmatter
 
 # ════════════════════════════════════════════════════════════
 #  共享检测原子——quality 的 scan 与 normalize 的修复都建在这些原子上

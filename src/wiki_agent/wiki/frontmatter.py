@@ -1,6 +1,6 @@
-"""frontmatter 解析——wiki 页面头部的唯一实现（无 LLM，底层）。
+"""frontmatter 解析——Wiki 页面头部的唯一实现（无 LLM，底层）。
 
-全项目唯一实现（surgery/consumer/pipeline 曾各有副本——2026-08-17 收敛）。
+供编译、维护和导航共用。
 """
 
 from __future__ import annotations
@@ -11,8 +11,7 @@ from pathlib import Path
 def split_frontmatter(content: str) -> tuple[dict, str]:
     """切分 frontmatter——返回 (字段 dict, 正文)。
 
-    全项目唯一实现（surgery/consumer/pipeline 曾各有副本——
-    2026-08-17 收敛）。正文不 strip：调用方各自决定尾部处理
+    正文不 strip：调用方各自决定尾部处理
     （surgery 拼接要保留原文形态）。
 
     简单解析语义: 逐行 partition(": ")——不做完整 YAML

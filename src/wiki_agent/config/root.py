@@ -38,11 +38,21 @@ class LLMConfig(BaseSettings):
     # 单次请求超时（秒）——reasoning 模型思考段长，
     # 120s 对 deepseek 思考链不够（两次 chunk 间隔超限即 ReadTimeout）
     timeout: float = 300.0
+    max_concurrency: int = 4
+    requests_per_minute: int = 60
+    tokens_per_minute: int = 500_000
 
     @model_validator(mode="after")
-    def _check_timeout(self) -> LLMConfig:
+    def _check_limits(self) -> LLMConfig:
+        prefix = str(self.model_config.get("env_prefix", "LLM_")).rstrip("_")
         if self.timeout <= 0:
-            raise ValueError("LLM_TIMEOUT 必须大于 0 秒")
+            raise ValueError(f"{prefix}_TIMEOUT 必须大于 0 秒")
+        if self.max_concurrency < 1:
+            raise ValueError(f"{prefix}_MAX_CONCURRENCY 必须至少为 1")
+        if self.requests_per_minute < 0 or self.tokens_per_minute < 0:
+            raise ValueError(
+                f"{prefix}_REQUESTS_PER_MINUTE 和 {prefix}_TOKENS_PER_MINUTE 不能为负数"
+            )
         return self
 
 
@@ -225,8 +235,30 @@ class PathsConfig(BaseSettings):
 
     project_root: Path = Path(".")
     env_file: Path = Path("env/.env")
+    source_dir: Path | None = None
     wiki_dir: Path | None = None
     workspace_dir: Path | None = None
+
+    @model_validator(mode="after")
+    def validate_storage_boundaries(self) -> PathsConfig:
+        """拒绝相互重叠的数据根，避免来源、产物和运行状态混写。"""
+        roots = {
+            "WIKI_SOURCE_DIR": self.resolved_source_dir().resolve(),
+            "WIKI_WIKI_DIR": self.resolved_wiki_dir().resolve(),
+            "WIKI_WORKSPACE_DIR": self.resolved_workspace_dir().resolve(),
+        }
+        items = list(roots.items())
+        for index, (left_name, left) in enumerate(items):
+            for right_name, right in items[index + 1 :]:
+                if left == right or left.is_relative_to(right) or right.is_relative_to(left):
+                    raise ValueError(
+                        f"{left_name} 与 {right_name} 必须是互不包含的独立目录: {left} / {right}"
+                    )
+        return self
+
+    def resolved_source_dir(self) -> Path:
+        """返回用户原始资料根目录，默认与 wiki/workspace 平级。"""
+        return self._resolve(self.source_dir, "sources")
 
     def resolved_wiki_dir(self) -> Path:
         """返回解析后的 wiki 目录。
@@ -248,6 +280,18 @@ class PathsConfig(BaseSettings):
             ``project_root``。
         """
         return self._resolve(self.workspace_dir, "workspace")
+
+    def resolved_source_records_dir(self) -> Path:
+        """返回系统生成的来源摘要存档目录。"""
+        return self.resolved_workspace_dir() / "provenance" / "sources"
+
+    def resolved_runs_dir(self) -> Path:
+        """返回编译、精炼、重试和手术的运行存档根目录。"""
+        return self.resolved_workspace_dir() / "runs"
+
+    def resolved_watch_dir(self) -> Path:
+        """返回 watch 持久化状态目录。"""
+        return self.resolved_workspace_dir() / "watch"
 
     def _resolve(self, configured: Path | None, default_name: str) -> Path:
         path = configured or Path(default_name)

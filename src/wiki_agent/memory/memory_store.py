@@ -1,6 +1,5 @@
 import json
 import os
-import uuid
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -15,13 +14,8 @@ from wiki_agent.utils import helpers
 
 # cursor 和 dream cursor 分别记录 history 长度和压缩进度。
 
-# ── 两条落账管道（互不交叉）──────────────────────────────────
-# 1. 画像管道:   append_history → Dreamer.dream（LLM 加工）→ memory.md
-#    对话摘要是"画像原料"——冗长重复，需要 LLM 汇总重写。
-# 2. 纠错管道:   append_correction → corrections.md（代码直接追加）
-#    wiki 纠错是"终态事实"——自然语言一句话，不需要加工；
-#    再让 LLM 重写是风险（丢页面名/细节）不是收益。
-#    corrections.md 是待修清单，消费端（refine/surgery 前）读取。
+# 画像管道: append_history → Dreamer.dream（LLM 加工）→ memory.md。
+# Wiki 纠错属于问题域，由 IssueStore 持久化。
 
 logger = get_logger("MEMORY")
 
@@ -61,16 +55,6 @@ class MemoryStore:
     @property
     def memory_file(self) -> Path:
         return self.memory_dir / "memory.md"
-
-    @property
-    def corrections_file(self) -> Path:
-        """wiki 纠错的人类可读视图。"""
-        return self.memory_dir / "corrections.md"
-
-    @property
-    def corrections_jsonl_file(self) -> Path:
-        """wiki 纠错的机器真相源。"""
-        return self.memory_dir / "corrections.jsonl"
 
     # ── cursor 读写 ──────────────────────────────────────────
 
@@ -204,167 +188,6 @@ class MemoryStore:
             return self.memory_file.read_text(encoding="utf-8")
         except (FileNotFoundError, ValueError):
             return ""
-
-    # ── 纠错清单（独立管道，不经 Dreamer）────────────────────
-
-    def append_correction(
-        self, text: str, page: str = "", session_key: str = "", fsync: bool = False
-    ):
-        """追加一条结构化 wiki 纠错，并刷新 Markdown 视图。
-
-        text 是 LLM 用自然语言总结的纠错事实，不再经过 LLM 重写。
-        调用点: /fix 命令或 hook 捕获（即时落账，不等 dream 周期）。
-
-        Args:
-            text: 纠错内容（自然语言）。
-            session_key: 来源会话标识（可空）。
-            fsync: 是否强制刷盘。
-        """
-        record = {
-            "id": f"corr_{uuid.uuid4().hex[:12]}",
-            "created_at": datetime.now().isoformat(),
-            "session_key": session_key,
-            "page": page.strip(),
-            "text": text.strip(),
-            "status": "pending",
-        }
-        records = self.get_correction_records()
-        records.append(record)
-        self._write_correction_records(records, fsync=fsync)
-
-    def get_correction_records(self) -> list[dict]:
-        """读取结构化纠错；旧版 corrections.md 会懒迁移。"""
-        try:
-            return [
-                json.loads(line)
-                for line in self.corrections_jsonl_file.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-        except FileNotFoundError:
-            pass
-        except (ValueError, json.JSONDecodeError):
-            logger.warning("纠错 JSONL 损坏，回退读取 corrections.md")
-
-        try:
-            lines = [
-                line.strip()
-                for line in self.corrections_file.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-        except (FileNotFoundError, ValueError):
-            return []
-        records = []
-        for line in lines:
-            status = "pending"
-            for marker, value in (("[已确认待修] ", "accepted"), ("[存疑] ", "uncertain")):
-                if line.startswith(marker):
-                    status = value
-                    line = line[len(marker) :]
-            records.append(
-                {
-                    "id": f"corr_{uuid.uuid4().hex[:12]}",
-                    "created_at": "",
-                    "session_key": "",
-                    "page": "",
-                    "text": line,
-                    "status": status,
-                }
-            )
-        self._write_correction_records(records)
-        return records
-
-    def get_correction(self, index: int) -> dict | None:
-        records = self.get_correction_records()
-        return records[index] if 0 <= index < len(records) else None
-
-    def _write_correction_records(self, records: list[dict], *, fsync: bool = False) -> None:
-        payload = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
-        self._atomic_write(self.corrections_jsonl_file, payload, fsync=fsync)
-        lines = []
-        for record in records:
-            marker = {"accepted": "[已确认待修] ", "uncertain": "[存疑] "}.get(
-                record.get("status", ""), ""
-            )
-            page = f"[{record['page']}] " if record.get("page") else ""
-            stamp = f" [{record['created_at']}]" if record.get("created_at") else ""
-            session = f" [{record['session_key']}]" if record.get("session_key") else ""
-            lines.append(
-                f"- {record['id']}{stamp}{session} {marker}{page}{record.get('text', '').strip()}".rstrip()
-            )
-        self._atomic_write(
-            self.corrections_file, "\n".join(lines) + ("\n" if lines else ""), fsync=fsync
-        )
-
-    def get_corrections(self) -> list[str]:
-        """读取待修清单。
-
-        Returns:
-            逐条纠错文本列表；文件缺失/损坏返回空列表。
-        """
-        records = self.get_correction_records()
-        lines = []
-        for record in records:
-            marker = {"accepted": "[已确认待修] ", "uncertain": "[存疑] "}.get(
-                record.get("status", ""), ""
-            )
-            page = f"[{record['page']}] " if record.get("page") else ""
-            session = f" [{record['session_key']}]" if record.get("session_key") else ""
-            lines.append(
-                f"- {record['id']}{session} {marker}{page}{record.get('text', '').strip()}".rstrip()
-            )
-        return lines
-
-    # ── 裁决操作（/resolve 用）──────────────────────────────
-
-    def _rewrite_corrections(self, lines: list[str]) -> None:
-        """整写 corrections.md——条目量小，重写即事务。
-
-        Args:
-            lines: 要写入的行列表。
-        """
-        # 兼容旧内部调用；新代码应修改结构化 records。
-        self._atomic_write(self.corrections_file, "".join(line + "\n" for line in lines))
-
-    def remove_correction(self, index: int) -> bool:
-        """移除第 index 条（0-based）——驳回语义（wiki 对，用户观点弃）。
-
-        Args:
-            index: 条目下标（0-based）。
-
-        Returns:
-            True 表示移除成功；下标越界返回 False。
-        """
-        records = self.get_correction_records()
-        if not (0 <= index < len(records)):
-            return False
-        removed = records.pop(index)
-        self._write_correction_records(records)
-        logger.info("纠错驳回 [%d]: %s", index, removed.get("text", "")[:60])
-        return True
-
-    def mark_correction(self, index: int, marker: str) -> bool:
-        """给第 index 条加状态标记（行首）——accept/keep 语义。
-
-        幂等（已带标记则替换）。
-
-        Args:
-            index: 条目下标（0-based）。
-            marker: "[已确认待修]" / "[存疑]" 等；空串清除标记。
-
-        Returns:
-            True 表示操作成功；下标越界返回 False。
-        """
-        records = self.get_correction_records()
-        if not (0 <= index < len(records)):
-            return False
-        records[index]["status"] = {
-            "[已确认待修]": "accepted",
-            "[存疑]": "uncertain",
-            "": "pending",
-        }.get(marker.strip(), marker.strip())
-        self._write_correction_records(records)
-        logger.info("纠错标记 [%d]: %s", index, marker)
-        return True
 
 
 class Dreamer:

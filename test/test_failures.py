@@ -1,152 +1,159 @@
-"""compile/refine 共用 source 级失败处理测试。"""
+"""Source failure reporting and retry policy tests."""
+
+from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from wiki_agent.compiler.workflows.failures import SourceFailureConsumer, SourceFailureHandler
+from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.errors import IngestError, IngestStage, RetryableError
-from wiki_agent.queue import QueueStore
+from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
 
 
-def test_source_failure_handler_unifies_queue_record(tmp_path: Path):
-    queue = QueueStore(tmp_path)
-    handler = SourceFailureHandler(queue, mode="compile")
-    error = IngestError(
-        IngestStage.PLAN,
-        "plan 输出校验失败",
-        source="note.md",
-        raw='{"bad": true}',
-    )
-
-    recorded = handler.handle(
-        error,
+def _reported_failure(tmp_path: Path, *, error: IngestError | None = None):
+    store = IssueStore(tmp_path)
+    handler = SourceFailureHandler(IssueService(store), mode="compile")
+    handler.handle(
+        error
+        or IngestError(
+            IngestStage.PLAN,
+            "plan 输出校验失败",
+            source="note.md",
+            raw='{"bad": true}',
+            error_class="transient",
+            retry_policy="auto_retry",
+        ),
         source="note.md",
         source_path=tmp_path / "note.md",
     )
+    return store, store.list()[0]
 
-    assert recorded is error
-    items = queue.list()
-    assert len(items) == 1
-    assert items[0]["type"] == "ingest_failure"
-    assert items[0]["mode"] == "compile"
-    assert items[0]["file"] == "note.md"
-    assert items[0]["stage"] == "plan"
-    assert items[0]["error_code"] == "ingest_error"
-    assert items[0]["error_class"] == "unknown"
-    assert items[0]["status"] == "pending"
+
+def test_source_failure_handler_writes_only_issue_store(tmp_path: Path):
+    store, issue = _reported_failure(tmp_path)
+
+    assert issue.kind == IssueKind.INGESTION_FAILURE
+    assert issue.origin == {"mode": "compile", "reported_by": "compile", "stage": "plan"}
+    assert issue.resource["path"] == "note.md"
+    assert issue.diagnostics["error_code"] == "ingest_error"
+    assert issue.retry["attempts"] == 1
+    assert not (tmp_path / "queue.jsonl").exists()
 
 
 def test_failure_handler_classifies_retryable_error(tmp_path: Path):
-    queue = QueueStore(tmp_path)
-    handler = SourceFailureHandler(queue, mode="compile")
-    handler.handle(
-        IngestError(
-            IngestStage.EXTRACT, "timeout", source="note.md", cause=RetryableError("timeout")
+    _, issue = _reported_failure(
+        tmp_path,
+        error=IngestError(
+            IngestStage.EXTRACT,
+            "timeout",
+            source="note.md",
+            cause=RetryableError("timeout"),
         ),
-        source="note.md",
     )
-    item = queue.list()[0]
-    assert item["error_class"] == "transient"
-    assert item["retry_policy"] == "auto_retry"
+    assert issue.diagnostics["error_class"] == "transient"
+    assert issue.retry["policy"] == "auto_retry"
 
 
-def test_ingest_error_can_carry_retry_policy_without_cause():
-    error = IngestError(
-        IngestStage.PLAN,
-        "模型输出不符合协议",
-        error_code="output_validation",
-        error_class="transient",
-        retry_policy="auto_retry",
-    )
-    assert error.error_code == "output_validation"
-    assert error.error_class == "transient"
-    assert error.retry_policy == "auto_retry"
-
-
-def test_source_failure_consumer_removes_success_and_marks_manual(tmp_path: Path):
-    queue = QueueStore(tmp_path)
-    queue.append("ingest_failure", retry_policy="auto_retry", attempts=1)
-    queue.append("ingest_failure", retry_policy="manual", attempts=1)
-    items = queue.list()
-
-    async def process(item):
-        if item["retry_policy"] == "auto_retry":
-            return
-        raise AssertionError("manual item 不应进入 processor")
-
-    consumer = SourceFailureConsumer(queue, process)
-    first = asyncio.run(consumer.consume(items[0]))
-    second = asyncio.run(consumer.consume(items[1]))
-    assert first["status"] == "succeeded"
-    assert second["status"] == "manual"
-    assert len(queue.list()) == 1
-
-
-def test_source_failure_consumer_defers_until_next_retry(tmp_path: Path):
-    queue = QueueStore(tmp_path)
-    queue.append(
-        "ingest_failure",
-        retry_policy="auto_retry",
-        attempts=1,
-        next_retry_at=(datetime.now() + timedelta(hours=1)).isoformat(),
-    )
-    item = queue.list()[0]
+def test_consumer_succeeds_and_persists_attempt(tmp_path: Path):
+    store, issue = _reported_failure(tmp_path)
     called = False
 
-    async def process(_item):
+    async def process(_issue):
         nonlocal called
         called = True
 
-    result = asyncio.run(SourceFailureConsumer(queue, process).consume(item))
-    assert result["status"] == "deferred"
-    assert called is False
+    result = asyncio.run(SourceFailureConsumer(store, process).consume(issue, force=True))
+    assert result["status"] == "succeeded"
+    assert called
+    assert store.require(issue.id).retry["attempts"] == 2
 
 
-def test_source_failure_consumer_sets_exponential_backoff(tmp_path: Path):
-    queue = QueueStore(tmp_path)
-    queue.append(
-        "ingest_failure",
-        retry_policy="auto_retry",
-        attempts=1,
-        next_retry_at="",
-    )
-    item = queue.list()[0]
+def test_consumer_defers_and_backoffs_in_issue_store(tmp_path: Path):
+    store, issue = _reported_failure(tmp_path)
+    future = (datetime.now() + timedelta(hours=1)).isoformat()
+    store.update_payloads(issue.id, retry={**issue.retry, "next_retry_at": future})
+    issue = store.require(issue.id)
 
-    async def process(_item):
+    async def process(_issue):
         raise RuntimeError("still unavailable")
 
-    result = asyncio.run(
+    deferred = asyncio.run(SourceFailureConsumer(store, process).consume(issue))
+    assert deferred["status"] == "deferred"
+
+    failed = asyncio.run(
         SourceFailureConsumer(
-            queue,
+            store,
             process,
             base_delay_seconds=10,
             max_delay_seconds=100,
-        ).consume(item)
+        ).consume(issue, force=True)
     )
-    stored = queue.get(item["id"])
-    assert result["status"] == "failed"
-    assert stored["status"] == "pending"
-    assert stored["attempts"] == 2
-    assert stored["next_retry_at"]
+    updated = store.require(issue.id)
+    assert failed["status"] == "failed"
+    assert updated.retry["attempts"] == 2
+    assert updated.retry["next_retry_at"]
 
 
-def test_expired_retry_item_becomes_manual(tmp_path: Path):
-    queue = QueueStore(tmp_path)
-    queue.append(
-        "ingest_failure",
-        retry_policy="auto_retry",
-        attempts=1,
-        retry_expires_at=(datetime.now() - timedelta(seconds=1)).isoformat(),
+def test_consumer_preserves_page_reasons_without_raw_output(tmp_path: Path):
+    store, issue = _reported_failure(tmp_path)
+
+    async def process(_issue):
+        raise IngestError(
+            IngestStage.EXECUTE,
+            "1 个页面生成失败",
+            raw=json.dumps(
+                [{"path": "concepts/example.md", "error": "缺少 title", "raw": "private"}]
+            ),
+            error_code="page_generation_failed",
+            error_class="transient",
+            retry_policy="auto_retry",
+        )
+
+    result = asyncio.run(SourceFailureConsumer(store, process).consume(issue, force=True))
+    assert result["diagnostics"]["failures"] == [
+        {"path": "concepts/example.md", "reason": "缺少 title"}
+    ]
+    assert "private" not in json.dumps(store.require(issue.id).diagnostics, ensure_ascii=False)
+
+
+def test_expired_issue_becomes_blocked(tmp_path: Path):
+    store, issue = _reported_failure(tmp_path)
+    store.update_payloads(
+        issue.id,
+        retry={**issue.retry, "expires_at": (datetime.now() - timedelta(seconds=1)).isoformat()},
     )
-    item = queue.list()[0]
-    called = False
-
-    async def process(_item):
-        nonlocal called
-        called = True
-
-    result = asyncio.run(SourceFailureConsumer(queue, process).consume(item))
+    result = asyncio.run(
+        SourceFailureConsumer(store, lambda _: None).consume(store.require(issue.id))
+    )
     assert result["status"] == "manual"
-    assert queue.get(item["id"])["status"] == "manual"
-    assert called is False
+    assert store.require(issue.id).status == IssueStatus.BLOCKED
+
+
+def test_retry_resolves_stale_refine_path_from_current_wiki(tmp_path: Path):
+    wiki = tmp_path / "wiki"
+    page = wiki / "concepts" / "move-semantics.md"
+    page.parent.mkdir(parents=True)
+    page.write_text("# Move semantics", encoding="utf-8")
+    store = IssueStore(tmp_path)
+    issue = store.report(
+        IssueDraft(
+            kind=IssueKind.INGESTION_FAILURE,
+            title="move-semantics.md 处理失败",
+            summary="临时失败",
+            origin={"mode": "refine"},
+            resource={"type": "wiki_page", "path": "move-semantics.md"},
+            context={"source_path": "/tmp/deleted/concepts/move-semantics.md"},
+        )
+    )
+    assert resolve_retry_source(store.require(issue.id), wiki) == page.resolve()
+
+
+def test_retry_rejects_missing_original_compile_source(tmp_path: Path):
+    _, issue = _reported_failure(tmp_path)
+    with pytest.raises(SourceUnavailableError, match="原始来源已不存在"):
+        resolve_retry_source(issue, tmp_path / "wiki")

@@ -2,13 +2,13 @@
 
 > 主体链路已可用；以下聚焦真正未完成、需要验证或值得优化的事项。历史验收记录保留在下方归档区。
 
-## 📌 当前状态快照（2026-08-31）
+## 📌 当前状态快照（2026-09-01）
 
 - **核心链路已完成**：compile / watch / refine / surgery / ReAct QA；日志、事件流、trace、异常队列、页面质检和追加式流式渲染已落地。
 - **当前最高风险**：extract 没有来源保真校验，仍可能把低信息量或错误源文件编成知识页面。
 - **当前最高收益**：让 `schema.md` 成为目录路由、prompt、校验和扫描的单一权威，减少多处硬编码漂移。
 - **CLI 缺口**：`/debug` 尚未实现；`/compile`、`/refine`、`/queue`、`/resolve` 已实现。
-- **工程状态**：使用 `uv` 管理依赖与质量工具；本地与 GitHub Actions 的 Ruff、Pyright 均已全绿，完整测试已通过（`271 passed, 5 skipped`）。
+- **工程状态**：使用 `uv` 管理依赖与质量工具；本地与 GitHub Actions 的 Ruff、Pyright 均已全绿，完整测试已通过（`293 passed, 5 skipped`）。
 
 ## 🚀 最终交付收口（当前阶段）
 
@@ -302,8 +302,8 @@
 | ~~吞错点清理~~               | ~~中~~ | -    | ✅ 已完成——qdrant 裸 except、consolidator 估算失败带类型日志                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | HandleableError 实战应用      | 低      | ⭐⭐ | 类型与 source 队列分类已保留，但当前没有真实 handler 场景；遇到可修复外部资源时再接入 handler 执行，不提前造场景                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | retry_with_backoff 接入 IO 层 | 低      | ⭐⭐ | 通用重试壳已就绪，MinerU 转换/存储写入等 IO 点遇到偶发超时再接入                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 重试失败文件功能              | ~~低~~ | ✅ | 已由 `queue.jsonl` + `SourceFailureConsumer` + `retry_service` 实现；失败项按 source 重跑，支持 `/queue retry <id>`、`/queue retry-all`、退避和 manual 状态。events.jsonl 仍保留审计事实。 |
-| ~~统一决策队列~~             | -       | -    | ✅**已实现（2026-08-16）**——workspace/queue.jsonl（QueueStore append/list/remove）+ `/queue` 命令（列出/done 移除/corrections 聚合视图）。接入：compile/refine 的 ingest_failure + surgery 冲突（原 pending_decisions.json 同时保留作 run 容器档案）；watch 不接（状态机制自然重试，接队列会重复堆积）。单真相源原则继承：events.jsonl 是"发生了什么"（永不删），queue 是"待用户处理"（处理完移除）。`/resolve` 裁决 QA 纠错三态（accept 确认待修 / reject 驳回 / keep 存疑）——MemoryStore.remove_correction/mark_correction 幂等标记。**剩余**：refine/surgery 消费 [已确认待修] 条目的编译侧闭环 |
+| 重试失败文件功能              | ~~低~~ | ✅ | `IssueStore` + `SourceFailureConsumer` 负责 source 重跑、退避、诊断与状态审计；CLI/Web 共用同一问题记录。events.jsonl 仅保留运行事件。 |
+| ~~统一决策队列~~             | -       | -    | ✅ 已由统一问题中心取代：失败、纠错、质量提醒和冲突统一进入 `state.db`，不再双写文件队列。 |
 
 ---
 
@@ -341,7 +341,7 @@
   - 追加式流式渲染 + 工具行 flush 交错（增量即最终，无预览/擦除/重渲染）
   - 压缩双阈值（trigger 0.8 / target 0.5）
   - agent 审计修复（2026-08-15，问答主攻前）：A1 governor snip 消息顺序反转（逆序收集未恢复——LLM 读到倒序对话，test_governor 6 项回归）；A3 consolidate 前置 guard（窗口内超预算跳过 replay 压缩，主策略循环仍推进）；Session.clear 删除 + add_messages 改 extend；ensure_dir 对文件占位返回 None + save_checkpoint 防 UnboundLocalError；test_session 重写 8 项
-  - **记忆机制问答化 + build 扩展**（C1 审计结论落地）：纠错管道（RecordCorrection → corrections.jsonl 结构化真相 + corrections.md 人类视图）；`/resolve accept` 转 `wiki_issue` 队列；ContextBuilder 将待处理纠错作为 history 之后的动态消息注入，不改变稳定 system prompt；ReActAgent 显式 wiki_dir 参数；test_corrections + test_context_builder 回归。**注意 prompt cache 交互**：稳定 system 前缀保持不变，纠错变化只影响末尾动态消息
+  - **记忆机制问答化 + build 扩展**：RecordCorrection 直接生成 `content_correction` Issue；ContextBuilder 从问题库读取活动纠错并作为动态消息注入，不改变稳定 system prompt。
   - 状态 hook（on_status → CliHook 渲染）
   - 路径安全（_safe_resolve 双防护，三个工具统一）
   - 转存机制（相对路径指针 + 导航三件套豁免）
@@ -377,7 +377,7 @@
   - 检测分层收敛（页面判定唯一化：check_page_quality 直接调 _check_page_output 闸门，Issue 组装留在 quality；原子下沉 checks——fence 状态机/_extract_body/_body_without_title/_WIKILINK_RE 共享正则；分层 checks（原子+check 回调）← quality（scan/Issue 报告）← normalize（修复+定稿兜底），依赖单向无环。quality 独有：正文过短 warning——闸门二元判定不查长度。scan 缺 goal 现在报 error 与闸门一致，refine 一圈补齐）
   - 全量重建三修（首次全量跑暴露：① I5 实锤——深嵌套 JSON 缺尾 }，repair 进 _strip_fence ② importance 枚举加"重要"（LLM 高频自然词）③ _check_analyze_json 加 extra_refs——LLM 用真实 slug 自称比 current-doc 自然，refine 高频违规。sources 档案页静态 goal+related:[]——scan 判定对全页面统一）
   - 渲染层重构（TerminalRenderer 单实体直接继承 AgentHook，render/ 文件夹；hook 事件唯一出口 on_stream_delta/on_run_start/on_tool_start/on_tool_result；transient Live + flush 时间序交错 + capture 绕法；test_terminal_renderer 5 项）
-  - 统一异常队列（/queue 命令：queue.jsonl append/list/remove + corrections 聚合视图；/resolve 裁决 QA 纠错三态 accept/reject/keep 幂等标记；events.jsonl 永不删 vs queue 处理完移除——单真相源原则）
+  - 统一问题中心（IssueStore 单一事实源；/queue 与 /resolve 是相同服务的 CLI 适配器）
   - 上下文治理 TTL + inflight 双维度驱逐（时间维度：可重取工具白名单 TTL 过期清除让模型重取；空间维度：snip 后仍超预算硬截断换占位符——零 LLM 成本；test_governor 18 项）
   - 全项目代码审查报告（docs/CODE_REVIEW_20260816.md：11 章逐文件审查 + 处置批次——S 清单 8 项完成 7.5（S2 尾部剩 invoke/stream 存留 + __main__ 调试块）、E 清单 9 项完成 7（剩 E6 并发清单/E8 extract 保真校验）；超参数盘点 §11.7 含实测数据附录；休眠区移除 + 测试 142→156 项全绿）
   - 注释清理（2026-08-17 逐文件审查：删除纯复述/过时注释约 30 处，保留意图/踩坑/协议注释；修复 consolidator 历史缩进；回归全绿）
@@ -451,7 +451,7 @@
 - [x] 区分压缩状态与当前回答：压缩 checkpoint 成功后取消回答不回撤；checkpoint 未成功才恢复内存状态，避免内存/磁盘分叉和重复压缩。
 - [x] 为工具定义 `read_only/idempotent_write/irreversible` 分类；只读工具可自动重试，幂等写入要求 operation key，不可逆工具不自动重试。补偿队列仍待真实不可逆外部工具接入后实现。
 - [x] 修复 `Consolidator` 压缩失败游标：archive 无结果时不推进 `last_consolidated`，只记 warning；本轮交给 ContextGovernor 截断，避免摘要未更新却跳过历史。
-- [x] 明确当前并发边界：单进程 Agent、同一 session 进程内串行、失败队列单消费者；`SessionManager` 使用进程内 `asyncio.Lock`，`QueueStore` 使用文件锁保护队列文件。
+- [x] 明确当前并发边界：单进程 Agent、同一 session 进程内串行；Issue 操作由 SQLite 原子 claim 防止重复消费。
 - [x] session idle 收尾：默认空闲 15 分钟后标记 closed，压缩旧消息、保留最近 6 条上下文尾巴，将收尾摘要落入 MemoryStore 并触发 Dream；新输入自动重新激活 session。Dream 失败不推进 dream cursor。
 - [x] stale Git lock/run：已完成 stale lock 检测、`/wiki clear-stale` 人工清理、`/wiki abort-stale <run_id> [--confirm]` 确认回撤并标记 aborted，以及 Wiki `history/diff/rollback`；仍需补真实 CLI Ctrl-C/任务取消端到端测试。
 
@@ -514,12 +514,12 @@
 ### P1-G：并发边界（服务化前置）
 
 - [x] 当前 CLI 边界：不支持多个进程同时驱动同一 session，也不运行多个 source 队列消费者；不为尚不存在的部署形态引入复杂协调器。
-- [x] 当前必要保护：同一 Agent 进程内 session turn 锁、QueueStore 文件锁、WikiGitManager 运行锁。
+- [x] 当前必要保护：同一 Agent 进程内 session turn 锁、IssueStore 事务、WikiGitManager 运行锁。
 - [ ] 未来接入 FastAPI/多用户/多进程时再实现：跨进程 session checkpoint 锁、队列原子 claim、Consolidator 分布式锁、provider 限流。
 
 ### P1-I：Web 错误队列可视化
 
-- [x] 增加只读 `/api/queue`，复用 QueueStore 的待处理失败记录。
+- [x] 提供问题中心 API，统一查询与操作 IssueStore 中的活动问题。
 - [x] 前端展示错误事项、来源文件、阶段和错误摘要，并区分“可重试”和“待人工处理”。
 - [ ] 后续接入队列操作按钮：单项 retry、标记已处理、打开运行日志；操作仍复用现有 CLI/服务用例。
 
@@ -536,22 +536,22 @@
 
 ### 设计边界
 
-- [ ] 新增 `wiki_agent.issues` 领域包：`IssueRecord` 负责持久化事实，`IssueCard` 负责面向用户的标题、摘要、状态、证据和可用操作；生产者不直接拼 UI 字段。
-- [ ] 状态统一为 `open / processing / blocked / resolved / dismissed`；“可重试”“待决策”“已过期”等作为服务端推导的 attention/action，不再由前端猜测。
-- [ ] 问题类型首版覆盖 `ingestion_failure`、`run_failure`、`quality_issue`、`content_correction`、`content_conflict`、`surgery_conflict`。
-- [ ] 使用 `workspace/issues.db`（SQLite）持久化问题、状态事件和操作审计；保留 `events.jsonl` 作为运行日志，不把完整 prompt/raw 响应复制进问题表。
-- [ ] 用 `kind + resource + stage + error_code + evidence_key` 生成 fingerprint 去重；重复问题累加次数和最近发生时间，不重复堆卡片。
-- [ ] 对外路径只返回 workspace/wiki 内相对路径；通过 event/artifact 引用查看完整诊断，禁止 API 暴露本机绝对路径。
+- [x] 新增 `wiki_agent.issues` 领域包：`IssueRecord` 负责持久化事实，`IssueCard` 负责面向用户的标题、摘要、状态、证据和可用操作；生产者不直接拼 UI 字段。
+- [x] 状态统一为 `open / processing / blocked / resolved / dismissed`；“可重试”“待决策”“已过期”等由服务端投影推导。
+- [x] 问题类型首版覆盖 `ingestion_failure`、`run_failure`、`quality_issue`、`content_correction`、`content_conflict`、`surgery_conflict`。
+- [x] 使用统一 `workspace/state.db`（SQLite）持久化问题、状态事件和操作审计；连接、事务和 WAL 设置由 `StateDatabase` 统一管理。
+- [x] 按领域身份生成 fingerprint 去重；重复问题累加次数和最近发生时间。
+- [x] `IssueCard` 隐藏执行 context 并脱敏绝对路径，API 仅返回可公开的相对定位信息。
 
 ### 实施顺序
 
-- [ ] **M1 — 领域与存储**：实现类型模型、状态机、SQLite schema、事务更新、去重、事件审计、查询过滤和并发 claim。
-- [ ] **M2 — 旧数据迁移**：将 `queue.jsonl` 和 `memory/corrections.jsonl` 幂等迁移到问题库；正确推导 retry 过期/阻塞状态，保留原文件备份和迁移版本。
-- [ ] **M3 — 生产链路接入**：Compile/Refine/Watch/Scan/QA/Surgery 全部通过 `IssueService` 上报；补齐当前未入队的扫描告警、问答纠错/矛盾和运行级失败。
-- [ ] **M4 — 动作执行**：按类型注册 retry、accept、reject、keep-disputed、re-arbitrate、rescan、dismiss 等 handler；长操作先返回 task id，防止同一问题重复消费。
-- [ ] **M5 — API 与前端**：提供问题列表、详情和动作 API；侧栏只显示计数，独立问题面板支持筛选、证据、诊断、状态和类型专属操作。
-- [ ] **M6 — CLI 兼容与收口**：`/queue`、`/resolve`、`scripts/retry_failures.py` 改为调用统一服务；迁移稳定后停止旧 QueueStore/corrections JSONL 写入。
-- [ ] **M7 — 验收**：Web/CLI 看到同一组问题；过期项不可误显示为可重试；重复失败合并；操作全量审计；并发 retry 只执行一次；解决后自动关闭或明确转为 blocked。
+- [x] **M1 — 领域与存储**：已实现类型模型、状态机、SQLite schema、事务更新、去重、事件审计、查询过滤和并发 claim。
+- [x] **M2 — 旧数据迁移**：迁移仅由一次性 `python -m wiki_agent.application.migrate_state` 命令执行；正常启动不再扫描旧数据。
+- [x] **M3 — 生产链路接入**：Compile/Refine/Watch/Scan/QA/Surgery 已接入 `IssueService`；Agent fatal run 通过 Hook 统一上报，用户纠错在工具落账时同步生成问题。
+- [ ] **M4 — 动作执行（主要完成）**：retry、accept、reject、keep-disputed、rescan、dismiss 已有真实 handler；重试/扫描返回可轮询 task id，重启会将中断动作恢复为 blocked。**尚缺 surgery 的人工方案选择/再仲裁 handler**，前端不会暴露尚未实现的假按钮。
+- [x] **M5 — API 与前端**：已提供列表、汇总、详情、动作和后台任务 API；侧栏仅显示活动计数，独立问题面板展示筛选、证据、诊断和类型专属操作。
+- [x] **M6 — CLI 与存储收口**：`/queue`、`/resolve`、重试脚本和 Web 都只调用 IssueService；QueueStore 与 correction JSONL 运行时已删除。
+- [x] **M7 — 验收**：Web/CLI 共用同一问题库；过期推导、重复合并、操作审计、并发 claim、中断恢复和状态收口均有回归测试（2026-09-01，完整套件 `293 passed, 5 skipped`）。
 
 ### 首版问题卡片字段
 
@@ -572,8 +572,27 @@
 - [x] `--resume` 在 manifest、source 列表、路径或内容变化时 fail-fast，并给出新增/删除/变更 source 的明确提示。
 - [x] 增加显式 `--reconcile`：按 source id 和内容指纹重建当前 batch 计划，保留未变化且已提交的 source，新增或变化的 source 回到 pending；删除 source 不自动删除 Wiki 页面。
 - [x] 将 `batch-size` 与 `commit-scope` 解耦：支持 `source`、`batch`（默认）和 `run` 三种 Git 提交边界；batch 仅表示执行分组和审计视图。
-- [x] compile_sources 增加 source checkpoint，记录 running/completed/failed/interrupted，取消时保留可恢复状态；`compile_folder.py` 保留兼容包装。
+- [x] compile application service 增加 source checkpoint，记录 running/completed/failed/interrupted，取消时保留可恢复状态；旧 `compile_folder.py` 已删除。
 - [x] 增加 `--status` 只读状态汇总，便于恢复前确认 source/batch 进度。
 - [x] 补充 source 内容变化、manifest reconcile、batch 重组和 resume 回归测试。
 - [x] 将恢复编排从脚本抽到 `compiler/workflows/run_state.py`；reconcile 明确只复用 source 完成状态，不复制可能已被 refine 改写的旧 Wiki 产物。
+
+### P1-K：存储边界迁移（2026-09-05）
+
+- [x] 建立互不包含的三根目录契约：`sources/` 保存用户原始资料，`wiki/` 只保存生成知识页，`workspace/` 保存运行状态与内部记录。
+- [x] 新增 `WIKI_SOURCE_DIR`，并对 source/wiki/workspace 路径重叠做启动期 fail-fast 校验。
+- [x] 将来源摘要迁至 `workspace/provenance/sources/`，将 compile/refine/retry/watch/surgery 运行目录迁至 `workspace/runs/`。
+- [x] 编译、增量监测、失败重试、来源查看、局部质量检查和 manifest 恢复链路统一使用新目录。
+- [x] `wiki/` 扫描范围收紧为 `concepts/entities/topics`，非标准 Markdown 子目录会报告路由违规。
+- [x] 完整质量检查通过后，在独立 Wiki 仓库提交旧 `sources/` 的删除记录（`5f10e91`），保持版本工作区可继续运行。
 ```
+## 统一任务调度（当前阶段）
+
+详细方案见 [docs/job-queue-plan.md](docs/job-queue-plan.md)。当前目标是将 watcher、CLI、Web 重试和 refine 收归持久化 Job 调度，同时保持 Issue 作为问题来源、Event 作为通知、WatchState 作为文件游标。
+
+- [ ] 在 `state.db` 建立 Job 表与状态迁移
+- [ ] 实现统一 JobService/WorkCoordinator 与可恢复 Worker
+- [ ] 让 watcher 只提交 Job，移除独立执行队列
+- [ ] 将 Web/CLI 重试接入统一 Job 服务
+- [ ] 工作台读取持久化 Job，补齐阶段、错误、重试和恢复展示
+- [ ] 增加幂等、重启恢复和并发认领测试

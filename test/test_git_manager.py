@@ -65,6 +65,43 @@ def _repo(tmp_path: Path) -> tuple[Path, Path]:
     return repo, wiki
 
 
+def test_initializes_a_standalone_repository_when_wiki_is_not_managed(tmp_path: Path):
+    wiki = tmp_path / "notes"
+    wiki.mkdir()
+    (wiki / "index.md").write_text("# Notes\n", encoding="utf-8")
+
+    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
+
+    assert manager.repo_root == wiki
+    assert (wiki / ".git").is_dir()
+    assert manager.status() == []
+    assert (
+        subprocess.run(
+            ["git", "log", "-1", "--pretty=%s"],
+            cwd=wiki,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        == "wiki: initialize repository"
+    )
+
+
+def test_ignored_wiki_uses_a_nested_repository(tmp_path: Path):
+    repo = tmp_path / "project"
+    wiki = repo / "wiki"
+    wiki.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / ".gitignore").write_text("/wiki/\n", encoding="utf-8")
+    (wiki / "index.md").write_text("# Private notes\n", encoding="utf-8")
+
+    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
+
+    assert manager.repo_root == wiki
+    assert (wiki / ".git").is_dir()
+    assert manager.status() == []
+
+
 def test_commit_and_rollback_create_revert_commit(tmp_path: Path):
     repo, wiki = _repo(tmp_path)
     manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
@@ -98,9 +135,13 @@ def test_abort_restores_tracked_and_removes_new_files(tmp_path: Path):
     run = manager.begin("r2", mode="surgery")
     (wiki / "index.md").write_text("broken\n", encoding="utf-8")
     (wiki / "new.md").write_text("untracked page\n", encoding="utf-8")
+    unicode_page = wiki / "sources" / "数据类型及色彩空间变换.md"
+    unicode_page.parent.mkdir()
+    unicode_page.write_text("untracked unicode page\n", encoding="utf-8")
     manager.abort(run, reason="scan error")
     assert (wiki / "index.md").read_text(encoding="utf-8") == "old\n"
     assert not (wiki / "new.md").exists()
+    assert not unicode_page.exists()
     assert run.status == "aborted"
 
 

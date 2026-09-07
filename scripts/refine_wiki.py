@@ -11,55 +11,54 @@
 import argparse
 import asyncio
 import json
-import sys
 from datetime import datetime
 from pathlib import Path
 
-# 项目 src 加入 sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from wiki_agent.compiler.wiki.quality import format_scan_report, scan_wiki
 from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.compiler.workflows.refine import refine_all, refine_pages
 from wiki_agent.config import load_config
+from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.log import begin_trace, configure_logging, setup_event_log
-from wiki_agent.queue import QueueStore
 from wiki_agent.versioning import WikiGitManager
-
-WIKI_DIR = PROJECT_ROOT / "wiki"
+from wiki_agent.wiki.quality import format_scan_report, scan_wiki
 
 
 async def main(
-    wiki_dir: Path = WIKI_DIR, project_root: Path = PROJECT_ROOT, limit: int | None = None
+    wiki_dir: Path | None = None, project_root: Path = PROJECT_ROOT, limit: int | None = None
 ):
     """refine 主流程——备份 → 逐页精炼 → 扫描报告。"""
     # ── 运行容器（runs/refine_<ts>——与 compile 容器区分）──────
-    wiki_dir = Path(wiki_dir).resolve()
     project_root = Path(project_root).resolve()
+    cfg = load_config(project_root=project_root)
+    wiki_dir = (
+        Path(wiki_dir).resolve()
+        if wiki_dir is not None
+        else cfg.paths.resolved_wiki_dir().resolve()
+    )
+    runs_dir = cfg.paths.resolved_runs_dir().resolve()
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = wiki_dir / ".logs" / "runs" / f"refine_{run_id}"
+    run_dir = runs_dir / f"refine_{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Git dirty 检查必须发生在本次 run.log/events.jsonl 创建之前；否则
     # refine 自己的审计文件会被误判为用户修改。
-    git_manager = WikiGitManager(wiki_dir, run_root=wiki_dir / ".logs" / "runs")
+    git_manager = WikiGitManager(wiki_dir, run_root=runs_dir)
     git_run = git_manager.begin(run_id, mode="refine")
 
     configure_logging(file_path=str(run_dir / "run.log"))
     setup_event_log(run_dir / "events.jsonl")
     begin_trace(trace_id=f"refine_{run_dir.name}")
 
-    cfg = load_config(project_root=project_root)
     llm = create_llm(cfg.llm, cfg.retry)
     vlm = create_vlm(cfg.vlm, cfg.retry)
 
-    # 统一队列——失败事项的人机接口（处理完移除，事件流仍是事实源）。
-    # 路径注入（config 解析的 workspace，不重推导）
-    queue = QueueStore(cfg.paths.resolved_workspace_dir())
-    failure_handler = SourceFailureHandler(queue, mode="refine")
+    issue_service = IssueService(IssueStore(cfg.paths.resolved_workspace_dir()))
+    failure_handler = SourceFailureHandler(issue_service, mode="refine")
 
     pages = refine_pages(wiki_dir)
     if limit is not None:
@@ -67,7 +66,7 @@ async def main(
     if not pages:
         print("无页面可 refine")
         return
-    print(f"refine 输入: {len(pages)} 个页面 (concepts/entities/topics，sources 与系统文件排除)")
+    print(f"refine 输入: {len(pages)} 个页面 (concepts/entities/topics)")
 
     pipeline = CompilePipeline(
         llm=llm,
@@ -191,6 +190,11 @@ async def main(
 
     # 收尾: 全库扫描报告
     issues = scan_wiki(wiki_dir)
+    report_quality_findings(
+        issue_service,
+        issues,
+        origin={"mode": "refine", "run_id": run_dir.name},
+    )
     errors = [i for i in issues if i.level == "error"]
     warns = [i for i in issues if i.level == "warning"]
     print(f"  扫描: {len(errors)} 错误, {len(warns)} 警告")
@@ -211,7 +215,7 @@ async def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--wiki-dir", type=Path, default=WIKI_DIR)
+    parser.add_argument("--wiki-dir", type=Path, default=None)
     parser.add_argument("--project-root", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()

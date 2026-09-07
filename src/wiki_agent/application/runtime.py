@@ -10,6 +10,8 @@ from wiki_agent.agent import ReActAgent
 from wiki_agent.application.events import EventPublisher
 from wiki_agent.config import RootConfig, load_config
 from wiki_agent.hook import AgentHook
+from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
 
@@ -23,9 +25,16 @@ class AppRuntime:
 
     def __init__(self, config: RootConfig, *, hooks: list[AgentHook] | None = None) -> None:
         self.config = config
+        self.source_dir = config.paths.resolved_source_dir()
         self.workspace = config.paths.resolved_workspace_dir()
         self.wiki_dir = config.paths.resolved_wiki_dir()
+        self.source_records_dir = config.paths.resolved_source_records_dir()
+        self.runs_dir = config.paths.resolved_runs_dir()
+        self.issue_store = IssueStore(self.workspace)
+        self.issue_service = IssueService(self.issue_store)
+        self.interrupted_issue_actions = self.issue_store.recover_interrupted_actions()
         self.event_publisher = EventPublisher()
+        self.issue_reporter = IssueReporterHook(self.issue_service)
         self.tool_registry = ToolRegistry()
         self.tool_registry.register(ReadFile(self.wiki_dir, workspace=self.workspace))
         self.tool_registry.register(ListDir(self.wiki_dir))
@@ -40,7 +49,8 @@ class AppRuntime:
             agent_config=config.agent,
             compile_config=config.compile,
             retry_config=config.retry,
-            hooks=[self.event_publisher, *(hooks or [])],
+            issue_service=self.issue_service,
+            hooks=[self.event_publisher, self.issue_reporter, *(hooks or [])],
         )
         self._mcp_connections: dict[str, Any] = {}
         self._started = False

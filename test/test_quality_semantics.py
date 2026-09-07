@@ -4,10 +4,10 @@ import asyncio
 from pathlib import Path
 
 from wiki_agent.command.commands import CommandContext, CompileCommand, ScanCommand
-from wiki_agent.compiler.wiki.normalize import inject_title_from_h1
-from wiki_agent.compiler.wiki.quality import cleanup_exact_duplicates, scan_wiki
 from wiki_agent.hook import AgentHook
 from wiki_agent.session import Session
+from wiki_agent.wiki.normalize import inject_title_from_h1
+from wiki_agent.wiki.quality import cleanup_exact_duplicates, scan_wiki
 
 
 def _page(
@@ -159,10 +159,7 @@ goal: 页面目标
 
 
 def test_compile_command_calls_reusable_compile_entry(tmp_path: Path, monkeypatch):
-    import sys
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    import scripts.compile_sources as compile_module
+    import wiki_agent.application.compile_service as compile_module
 
     source = tmp_path / "sources"
     source.mkdir()
@@ -186,6 +183,7 @@ def test_compile_command_calls_reusable_compile_entry(tmp_path: Path, monkeypatc
 
     class _Agent:
         tool_registry = _Registry()
+        workspace = tmp_path / "workspace"
 
     result = asyncio.run(
         CompileCommand().execute(

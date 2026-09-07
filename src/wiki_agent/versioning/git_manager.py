@@ -43,16 +43,103 @@ class WikiGitManager:
         require_clean: bool = True,
     ):
         self.wiki_dir = Path(wiki_dir).resolve()
-        self.repo_root = self._git_path("rev-parse", "--show-toplevel")
-        self.repo_root = Path(self.repo_root).resolve()
+        self.wiki_dir.mkdir(parents=True, exist_ok=True)
+        self.repo_root = self._resolve_repository()
         try:
             self.scope = self.wiki_dir.relative_to(self.repo_root)
         except ValueError as exc:
             raise GitScopeError(f"Wiki 目录不在 Git 仓库内: {self.wiki_dir}") from exc
-        self.run_root = Path(run_root).resolve() if run_root else (self.wiki_dir / ".logs" / "runs")
+        self.run_root = (
+            Path(run_root).resolve() if run_root else self.wiki_dir.parent / "workspace" / "runs"
+        )
         self.require_clean = require_clean
         self._lock_path = self.repo_root / ".git" / "wiki-agent.lock"
         self._lock_owned = False
+
+    def _resolve_repository(self) -> Path:
+        """Reuse a repository that owns the Wiki, or initialize one locally.
+
+        A parent repository does not own an ignored, entirely untracked Wiki.
+        In that case a nested repository keeps private knowledge history
+        independent from the application source repository.
+        """
+        discovered = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=self.wiki_dir,
+            capture_output=True,
+            text=True,
+        )
+        if discovered.returncode == 0:
+            repo_root = Path(discovered.stdout.strip()).resolve()
+            if repo_root == self.wiki_dir or self._parent_repository_owns_wiki(repo_root):
+                return repo_root
+        return self._initialize_wiki_repository()
+
+    def _parent_repository_owns_wiki(self, repo_root: Path) -> bool:
+        try:
+            scope = self.wiki_dir.relative_to(repo_root)
+        except ValueError:
+            return False
+        tracked = subprocess.run(
+            ["git", "ls-files", "--", str(scope)],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if tracked.returncode == 0 and tracked.stdout.strip():
+            return True
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", "--", str(scope)],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        return ignored.returncode != 0
+
+    def _initialize_wiki_repository(self) -> Path:
+        initialized = subprocess.run(
+            ["git", "init", "-q"],
+            cwd=self.wiki_dir,
+            capture_output=True,
+            text=True,
+        )
+        if initialized.returncode:
+            raise GitManagerError((initialized.stderr or initialized.stdout).strip())
+        self._ensure_git_identity()
+        for args in (
+            ("add", "--all", "--", "."),
+            ("commit", "--allow-empty", "-qm", "wiki: initialize repository"),
+        ):
+            result = subprocess.run(
+                ["git", *args],
+                cwd=self.wiki_dir,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode:
+                raise GitManagerError((result.stderr or result.stdout).strip())
+        emit_event("wiki_repository_initialized", wiki_dir=str(self.wiki_dir))
+        return self.wiki_dir
+
+    def _ensure_git_identity(self) -> None:
+        defaults = {"user.name": "wiki-agent", "user.email": "wiki-agent@localhost"}
+        for key, value in defaults.items():
+            existing = subprocess.run(
+                ["git", "config", "--get", key],
+                cwd=self.wiki_dir,
+                capture_output=True,
+                text=True,
+            )
+            if existing.returncode == 0 and existing.stdout.strip():
+                continue
+            configured = subprocess.run(
+                ["git", "config", key, value],
+                cwd=self.wiki_dir,
+                capture_output=True,
+                text=True,
+            )
+            if configured.returncode:
+                raise GitManagerError((configured.stderr or configured.stdout).strip())
 
     # ── Git 基础操作 ─────────────────────────────────────
 
@@ -394,9 +481,8 @@ class WikiGitManager:
                 run.metadata.update(metadata or {})
                 self._write_run(run)
                 return run
-            # 只暂存 begin 后记录的 Wiki 变更。run.json、diff.patch、
-            # scan_report 等审计文件位于 Wiki/.logs 下，但不属于 Wiki
-            # 变更清单，不能因后续生成而混入本次 commit。
+            # 只暂存 begin 后记录的 Wiki 变更；工作区审计文件不在
+            # Wiki 仓库内，也不能因后续生成而混入本次 commit。
             self._git("add", "--", *run.changed_files)
             staged = [
                 path
@@ -451,9 +537,19 @@ class WikiGitManager:
                 self._scope_arg(),
             )
             # 只删除本次 scope 内、Git 未跟踪的文件；不调用无范围 git clean。
-            untracked = self._git(
-                "ls-files", "--others", "--exclude-standard", "--", self._scope_arg()
-            ).stdout.splitlines()
+            # 使用 NUL 分隔，避免中文等路径被 core.quotePath 转义后无法定位。
+            untracked = [
+                path
+                for path in self._git(
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                    "--",
+                    self._scope_arg(),
+                ).stdout.split("\0")
+                if path
+            ]
             for path in untracked:
                 target = (Path(self.repo_root) / path).resolve()
                 if target.is_file() and target.is_relative_to(self.wiki_dir):

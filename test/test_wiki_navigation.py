@@ -4,7 +4,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from wiki_agent.wiki import WikiPageNotFound, read_page, read_source, search_pages
+from wiki_agent.wiki import (
+    WikiPageNotFound,
+    read_authorized_source,
+    read_page,
+    read_source,
+    search_pages,
+)
 
 
 def test_read_page_normalizes_path_and_blocks_internal_files(tmp_path: Path):
@@ -14,6 +20,8 @@ def test_read_page_normalizes_path_and_blocks_internal_files(tmp_path: Path):
     )
     (tmp_path / ".logs").mkdir()
     (tmp_path / ".logs" / "run.md").write_text("secret", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "internal.md").write_text("git internals", encoding="utf-8")
 
     page = read_page(tmp_path, "wiki/concepts/decorators")
     assert page.path == "concepts/decorators.md"
@@ -21,6 +29,8 @@ def test_read_page_normalizes_path_and_blocks_internal_files(tmp_path: Path):
     assert page.metadata == {"type": "concept", "tags": ["python", "meta"]}
     with pytest.raises(WikiPageNotFound):
         read_page(tmp_path, ".logs/run.md")
+    with pytest.raises(WikiPageNotFound):
+        read_page(tmp_path, ".git/internal.md")
     with pytest.raises(WikiPageNotFound):
         read_page(tmp_path, "../secret.md")
 
@@ -41,12 +51,23 @@ def test_source_reader_has_a_separate_read_only_boundary(tmp_path: Path):
     with pytest.raises(WikiPageNotFound):
         read_page(tmp_path, "sources/reference.md")
 
-    source = read_source(tmp_path, "reference.md")
+    source = read_source(source_dir, "reference.md")
     assert source.path == "sources/reference.md"
     assert source.content == "# Original reference"
 
     with pytest.raises(WikiPageNotFound):
-        read_source(tmp_path, "../reference.md")
+        read_source(source_dir, "../reference.md")
+
+
+def test_authorized_source_uses_public_label_without_exposing_path(tmp_path: Path):
+    private = tmp_path / "outside" / "private-name.md"
+    private.parent.mkdir()
+    private.write_text("# Private source", encoding="utf-8")
+
+    source = read_authorized_source(private, label="source-001.md")
+
+    assert source.path == "sources/source-001.md"
+    assert source.content == "# Private source"
 
 
 def test_wiki_command_open_and_search(tmp_path: Path):

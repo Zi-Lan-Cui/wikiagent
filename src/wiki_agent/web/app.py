@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -19,7 +19,17 @@ from wiki_agent.application import (
     SessionNotFoundError,
     WikiAgentService,
 )
+from wiki_agent.application.issue_actions import IssueActionExecutor
+from wiki_agent.application.issue_tasks import IssueTaskManager
 from wiki_agent.application.runtime import AppRuntime
+from wiki_agent.compiler.workflows.retry import SourceUnavailableError
+from wiki_agent.issues import (
+    IssueAlreadyClaimedError,
+    IssueKind,
+    IssueNotFoundError,
+    IssueStatus,
+)
+from wiki_agent.log import setup_event_log
 from wiki_agent.wiki import WikiPageNotFound
 
 
@@ -29,6 +39,10 @@ class CreateSessionRequest(BaseModel):
 
 class MessageRequest(BaseModel):
     text: str = Field(min_length=1, max_length=100_000)
+
+
+class IssueActionRequest(BaseModel):
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 def create_app(
@@ -43,11 +57,21 @@ def create_app(
     """
     app_runtime = runtime or AppRuntime.from_project_root(project_root or Path.cwd())
     service = WikiAgentService(app_runtime)
+    issue_actions = IssueActionExecutor(app_runtime)
+    issue_actions.reconcile_retry_sources()
+    issue_tasks = IssueTaskManager(issue_actions)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        async with app_runtime:
-            yield
+        setup_event_log(app_runtime.workspace / "logs" / "web-events.jsonl")
+        try:
+            async with app_runtime:
+                try:
+                    yield
+                finally:
+                    await issue_tasks.close()
+        finally:
+            setup_event_log(None)
 
     app = FastAPI(title="wiki-agent", version="0.1.0", lifespan=lifespan)
     app.state.runtime = app_runtime
@@ -65,9 +89,107 @@ def create_app(
     async def list_wiki_files() -> list[dict[str, Any]]:
         return [asdict(file) for file in service.list_wiki_files()]
 
+    @app.get("/api/issues")
+    async def list_issues(
+        status: str = "open,blocked,processing",
+        kind: str = "",
+        limit: int = 200,
+        offset: int = 0,
+        include_active_tasks: bool = False,
+    ) -> list[dict[str, Any]]:
+        try:
+            statuses = {IssueStatus(value) for value in status.split(",") if value}
+            kinds = {IssueKind(value) for value in kind.split(",") if value} or None
+            cards = service.list_issues(
+                statuses=statuses or None,
+                kinds=kinds,
+                limit=limit,
+                offset=offset,
+            )
+            if not include_active_tasks:
+                active_issue_ids = issue_tasks.active_issue_ids()
+                cards = [card for card in cards if card.id not in active_issue_ids]
+            return [asdict(card) for card in cards]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/issues/summary")
+    async def issue_summary() -> dict[str, int]:
+        active_task_issues = issue_tasks.active_issue_ids()
+        active_issues = service.list_issues(
+            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED, IssueStatus.PROCESSING},
+            limit=1000,
+        )
+        return {
+            "active": sum(card.id not in active_task_issues for card in active_issues),
+            "retryable": len(
+                issue_actions.retry_batch_candidates(exclude_issue_ids=active_task_issues)
+            ),
+        }
+
+    @app.post("/api/issues/actions/retry-eligible", status_code=202)
+    async def retry_eligible_issues() -> dict[str, Any]:
+        try:
+            issue_ids = issue_actions.prepare_retry_batch(
+                exclude_issue_ids=issue_tasks.active_issue_ids()
+            )
+            tasks = [issue_tasks.start(issue_id, "retry") for issue_id in issue_ids]
+            return {"count": len(tasks), "tasks": [asdict(task) for task in tasks]}
+        except (IssueAlreadyClaimedError, SourceUnavailableError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/issues/{issue_id}")
+    async def get_issue(issue_id: str) -> dict[str, Any]:
+        try:
+            return asdict(service.get_issue(issue_id))
+        except IssueNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
+
+    @app.get("/api/issues/{issue_id}/resource")
+    async def get_issue_resource(issue_id: str) -> dict[str, Any]:
+        try:
+            return asdict(service.get_issue_resource(issue_id))
+        except IssueNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
+        except WikiPageNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/issues/{issue_id}/actions/{action}", response_model=None)
+    async def execute_issue_action(issue_id: str, action: str, request: IssueActionRequest) -> Any:
+        try:
+            if action in {"retry", "rescan"}:
+                issue_actions.validate(issue_id, action)
+                task = issue_tasks.start(issue_id, action, request.payload)
+                return JSONResponse(status_code=202, content=asdict(task))
+            return asdict(await issue_actions.execute(issue_id, action, request.payload))
+        except IssueNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
+        except IssueAlreadyClaimedError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except SourceUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/issue-tasks/{task_id}")
+    async def get_issue_task(task_id: str) -> dict[str, Any]:
+        try:
+            return asdict(issue_tasks.get(task_id))
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}") from exc
+
+    @app.get("/api/issue-tasks")
+    async def list_issue_tasks(limit: int = 100) -> list[dict[str, Any]]:
+        try:
+            return [asdict(task) for task in issue_tasks.list(limit=limit)]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/queue")
-    async def list_failure_queue() -> list[dict[str, Any]]:
-        return service.list_failure_queue()
+    async def list_failure_queue_compatibility() -> list[dict[str, Any]]:
+        """Compatibility alias while the old queue UI is being retired."""
+        cards = service.list_issues(statuses={IssueStatus.OPEN, IssueStatus.BLOCKED})
+        return [asdict(card) for card in cards]
 
     @app.get("/api/wiki/pages/{page_path:path}")
     async def get_wiki_page(page_path: str) -> dict[str, Any]:
