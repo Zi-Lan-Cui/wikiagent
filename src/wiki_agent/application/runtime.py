@@ -8,6 +8,7 @@ from typing import Any
 
 from wiki_agent.agent import ReActAgent
 from wiki_agent.application.events import EventPublisher
+from wiki_agent.application.job_service import JobService
 from wiki_agent.config import RootConfig, load_config
 from wiki_agent.hook import AgentHook
 from wiki_agent.issues import IssueService, IssueStore
@@ -31,6 +32,7 @@ class AppRuntime:
         self.source_records_dir = config.paths.resolved_source_records_dir()
         self.runs_dir = config.paths.resolved_runs_dir()
         self.issue_store = IssueStore(self.workspace)
+        self.job_service = JobService(self.workspace)
         self.issue_service = IssueService(self.issue_store)
         self.interrupted_issue_actions = self.issue_store.recover_interrupted_actions()
         self.event_publisher = EventPublisher()
