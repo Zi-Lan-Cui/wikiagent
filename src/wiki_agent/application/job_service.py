@@ -35,6 +35,17 @@ class JobService:
             idempotency_key=idempotency_key,
         )
 
+    def submit_watch_change(self, resource: str, *, deleted: bool = False) -> Job:
+        """Submit a watcher change using a stable idempotency key."""
+        kind = "delete" if deleted else "compile"
+        return self.submit(
+            kind=kind,
+            resource=resource,
+            mode="watch",
+            payload={"deleted": deleted},
+            idempotency_key=f"watch:{kind}:{resource}",
+        )
+
     def list(self, *, limit: int = 100) -> list[Job]:
         return self.store.list(limit=limit)
 

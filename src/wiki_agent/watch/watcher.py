@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import Callable
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -86,6 +87,7 @@ class FileWatcher:
         stability_delay: float = _STABILITY_DELAY,
         fallback_interval: float = _FALLBACK_INTERVAL,
         similarity_threshold: float = _MIN_SIMILARITY,
+        submit_job: Callable[[str, bool], object] | None = None,
     ):
         self._root = Path(source_dir).resolve()
         self._queue = queue
@@ -96,6 +98,9 @@ class FileWatcher:
         self._stability = stability_delay
         self._fallback = fallback_interval
         self._threshold = similarity_threshold
+        # Optional durable dispatcher. When supplied, detected changes are
+        # recorded as Jobs instead of being delivered to the legacy queue.
+        self._submit_job = submit_job
 
         # 每路径去抖定时器——新事件重置旧定时器（编辑器多事件合并为一次检查）
         self._timers: dict[str, asyncio.TimerHandle] = {}
@@ -243,7 +248,10 @@ class FileWatcher:
 
         self._finalize_change(st, content2, digest2)
         self._state.save()
-        await self._queue.put(p)
+        if self._submit_job is not None:
+            self._submit_job(str(p), False)
+        else:
+            await self._queue.put(p)
         logger.info("  变更入队: %s", p.name)
         return [str(p)]
 
@@ -271,7 +279,10 @@ class FileWatcher:
             self._state.set(str(path), st)
 
             if self._pass_change_gate(st, content, digest):
-                await self._queue.put(path)
+                if self._submit_job is not None:
+                    self._submit_job(str(path), False)
+                else:
+                    await self._queue.put(path)
                 queued.append(str(path))
                 logger.info("  变更入队: %s", path.name)
 
@@ -343,7 +354,10 @@ class FileWatcher:
         """
         name = Path(path).name
         self._state.drop(path)
-        await self._queue.put(("delete", name))
+        if self._submit_job is not None:
+            self._submit_job(name, True)
+        else:
+            await self._queue.put(("delete", name))
         logger.info("  源文件删除检测: %s", name)
         return [f"delete:{name}"]
 
