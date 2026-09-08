@@ -24,10 +24,10 @@ from wiki_agent.compiler.surgery.models import (
     Conflict,
     Proposal,
 )
+from wiki_agent.conversation import Message
 from wiki_agent.errors import translate_generic_error
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.message import Message
 
 logger = get_logger("SURGERY")
 

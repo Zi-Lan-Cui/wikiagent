@@ -1,1 +1,4 @@
-from wiki_agent.memory.memory_store import Dreamer, MemoryStore
+from wiki_agent.memory.dreamer import Dreamer
+from wiki_agent.memory.store import MemoryStore
+
+__all__ = ["Dreamer", "MemoryStore"]

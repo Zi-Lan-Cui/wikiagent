@@ -87,7 +87,9 @@ def create_app(
             if job.kind == "issue_action" and job.status in {"queued", "running"}
         }
 
-    def submit_issue_job(issue_id: str, action: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def submit_issue_job(
+        issue_id: str, action: str, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         _ensure_worker()
         job = job_service.submit_issue_action(issue_id, action, payload)
         return asdict(job)
@@ -96,10 +98,18 @@ def create_app(
         item = asdict(job)
         issue = service.get_issue(job.resource)
         resource = str(issue.resource.get("path") or issue.resource.get("label") or job.resource)
-        item.update({"issue_id": job.resource, "action": job.mode, "title": issue.title,
-                     "resource": resource,
-                     "current_stage": job.stage or ("等待执行" if job.status == "queued" else ""),
-                     "stage_code": job.stage, "stage_index": 0, "stage_total": 0})
+        item.update(
+            {
+                "issue_id": job.resource,
+                "action": job.mode,
+                "title": issue.title,
+                "resource": resource,
+                "current_stage": job.stage or ("等待执行" if job.status == "queued" else ""),
+                "stage_code": job.stage,
+                "stage_index": 0,
+                "stage_total": 0,
+            }
+        )
         if item["status"] == "succeeded":
             item["status"] = "completed"
         if job.status == "succeeded":
@@ -181,9 +191,7 @@ def create_app(
     @app.post("/api/issues/actions/retry-eligible", status_code=202)
     async def retry_eligible_issues() -> dict[str, Any]:
         try:
-            issue_ids = issue_actions.prepare_retry_batch(
-                exclude_issue_ids=_active_issue_ids()
-            )
+            issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_active_issue_ids())
             tasks = [submit_issue_job(issue_id, "retry") for issue_id in issue_ids]
             return {"count": len(tasks), "tasks": tasks}
         except (IssueAlreadyClaimedError, SourceUnavailableError, ValueError) as exc:

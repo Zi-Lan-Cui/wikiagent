@@ -16,8 +16,8 @@ from pathlib import Path
 
 from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
+from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.ingestion.data_loader import DataLoader
 from wiki_agent.log import emit_event, get_logger
 
 logger = get_logger("REFINE")

@@ -79,8 +79,8 @@ def test_wiki_command_open_and_search(tmp_path: Path):
         def get(self, name):
             return SimpleNamespace(_root=wiki) if name == "ReadFile" else None
 
-    from wiki_agent.command.commands import CommandContext, WikiCommand
-    from wiki_agent.session import Session
+    from wiki_agent.agent.commands import CommandContext, WikiCommand
+    from wiki_agent.conversation import Session
 
     context = CommandContext(
         raw="/wiki open decorators.md",

@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 from uuid import uuid4
 
-from wiki_agent.hook import CommandProgress, RunContext
+from wiki_agent.events import CommandProgress, RunContext
 from wiki_agent.log import emit_event, get_logger
 
 if TYPE_CHECKING:
     from wiki_agent.agent import ReActAgent
-    from wiki_agent.session import Session
+    from wiki_agent.conversation import Session
 
 logger = get_logger("COMMAND")
 
@@ -457,7 +457,7 @@ class CompileCommand(Command):
             return CommandResult(
                 text=(
                     "# /compile\n\n用法: `/compile [source_dir]`\n"
-                    "省略目录时使用 WIKI_SOURCE_DIR；路径包含空格时请使用引号。"
+                    "省略目录时使用 WIKI_MATERIALS_DIR；路径包含空格时请使用引号。"
                 )
             )
 

@@ -13,8 +13,8 @@ from wiki_agent.versioning import GitWorkspaceDirty, WikiGitManager
 def test_tool_tasks_are_cancelled_and_joined():
     """Agent 取消时，显式创建的并发工具 Task 不留在后台。"""
     from wiki_agent.agent.react import ReActRunner
-    from wiki_agent.hook import AgentHook, RunContext
-    from wiki_agent.message import ToolCall
+    from wiki_agent.conversation import ToolCall
+    from wiki_agent.events import AgentHook, RunContext
 
     started = asyncio.Event()
     cancelled = asyncio.Event()

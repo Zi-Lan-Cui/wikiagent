@@ -39,7 +39,7 @@ async def main(source_dir: str | None = None):
     source_path = (
         Path(source_dir).expanduser().resolve()
         if source_dir is not None
-        else cfg.paths.resolved_source_dir().resolve()
+        else cfg.paths.resolved_materials_dir().resolve()
     )
     wiki_dir = cfg.paths.resolved_wiki_dir().resolve()
     source_records_dir = cfg.paths.resolved_source_records_dir().resolve()
