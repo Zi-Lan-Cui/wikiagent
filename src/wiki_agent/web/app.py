@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -74,15 +75,52 @@ def create_app(
         )
 
     job_worker.register("issue_action", handle_issue_job)
+    worker_task = None
+
+    def _ensure_worker() -> None:
+        nonlocal worker_task
+        if worker_task is None or worker_task.done():
+            worker_task = asyncio.create_task(job_worker.run(), name="wiki-agent:job-worker")
+
+    def _active_issue_ids() -> set[str]:
+        return {
+            job.resource
+            for job in job_service.list(limit=1000)
+            if job.kind == "issue_action" and job.status in {"queued", "running"}
+        }
+
+    def submit_issue_job(issue_id: str, action: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        _ensure_worker()
+        job = job_service.submit_issue_action(issue_id, action, payload)
+        return asdict(job)
+
+    def _job_task(job) -> dict[str, Any]:
+        item = asdict(job)
+        issue = service.get_issue(job.resource)
+        resource = str(issue.resource.get("path") or issue.resource.get("label") or job.resource)
+        item.update({"issue_id": job.resource, "action": job.mode, "title": issue.title,
+                     "resource": resource,
+                     "current_stage": job.stage or ("等待执行" if job.status == "queued" else ""),
+                     "stage_code": job.stage, "stage_index": 0, "stage_total": 0})
+        if item["status"] == "succeeded":
+            item["status"] = "completed"
+        if job.status == "succeeded":
+            item["result"] = asdict(service.get_issue(job.resource))
+        return item
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         setup_event_log(app_runtime.workspace / "logs" / "web-events.jsonl")
         try:
             async with app_runtime:
+                _ensure_worker()
                 try:
                     yield
                 finally:
+                    job_worker.stop()
+                    if worker_task is not None:
+                        worker_task.cancel()
+                        await asyncio.gather(worker_task, return_exceptions=True)
                     await issue_tasks.close()
         finally:
             setup_event_log(None)
@@ -123,15 +161,15 @@ def create_app(
                 offset=offset,
             )
             if not include_active_tasks:
-                active_issue_ids = issue_tasks.active_issue_ids()
-                cards = [card for card in cards if card.id not in active_issue_ids]
+                active_ids = _active_issue_ids()
+                cards = [card for card in cards if card.id not in active_ids]
             return [asdict(card) for card in cards]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/issues/summary")
     async def issue_summary() -> dict[str, int]:
-        active_task_issues = issue_tasks.active_issue_ids()
+        active_task_issues = _active_issue_ids()
         active_issues = service.list_issues(
             statuses={IssueStatus.OPEN, IssueStatus.BLOCKED, IssueStatus.PROCESSING},
             limit=1000,
@@ -147,10 +185,10 @@ def create_app(
     async def retry_eligible_issues() -> dict[str, Any]:
         try:
             issue_ids = issue_actions.prepare_retry_batch(
-                exclude_issue_ids=issue_tasks.active_issue_ids()
+                exclude_issue_ids=_active_issue_ids()
             )
-            tasks = [issue_tasks.start(issue_id, "retry") for issue_id in issue_ids]
-            return {"count": len(tasks), "tasks": [asdict(task) for task in tasks]}
+            tasks = [submit_issue_job(issue_id, "retry") for issue_id in issue_ids]
+            return {"count": len(tasks), "tasks": tasks}
         except (IssueAlreadyClaimedError, SourceUnavailableError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -175,8 +213,8 @@ def create_app(
         try:
             if action in {"retry", "rescan"}:
                 issue_actions.validate(issue_id, action)
-                task = issue_tasks.start(issue_id, action, request.payload)
-                return JSONResponse(status_code=202, content=asdict(task))
+                task = submit_issue_job(issue_id, action, request.payload)
+                return JSONResponse(status_code=202, content=task)
             return asdict(await issue_actions.execute(issue_id, action, request.payload))
         except IssueNotFoundError as exc:
             raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
@@ -192,12 +230,16 @@ def create_app(
         try:
             return asdict(issue_tasks.get(task_id))
         except LookupError as exc:
-            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}") from exc
+            try:
+                return _job_task(job_service.store.get(task_id))
+            except LookupError:
+                raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}") from exc
 
     @app.get("/api/issue-tasks")
     async def list_issue_tasks(limit: int = 100) -> list[dict[str, Any]]:
         try:
-            return [asdict(task) for task in issue_tasks.list(limit=limit)]
+            jobs = [job for job in job_service.list(limit=limit) if job.kind == "issue_action"]
+            return [_job_task(job) for job in jobs] + [asdict(task) for task in issue_tasks.list(limit=limit)]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
