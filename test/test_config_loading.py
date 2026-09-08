@@ -15,7 +15,7 @@ def _write_env(root: Path) -> Path:
             (
                 "LLM_API_KEY=from-env-file",
                 "LLM_MODEL_ID=test-model",
-                "WIKI_SOURCE_DIR=from-dotenv-sources",
+                "WIKI_MATERIALS_DIR=from-dotenv-materials",
                 "WIKI_WIKI_DIR=from-dotenv-wiki",
                 "WIKI_WORKSPACE_DIR=from-dotenv-workspace",
                 "COMPILE_CHUNK_SIZE=4096",
@@ -39,7 +39,7 @@ def test_paths_config_reads_the_selected_env_file(tmp_path: Path) -> None:
 
     assert cfg.paths.resolved_wiki_dir() == tmp_path / "from-dotenv-wiki"
     assert cfg.paths.resolved_workspace_dir() == tmp_path / "from-dotenv-workspace"
-    assert cfg.paths.resolved_source_dir() == tmp_path / "from-dotenv-sources"
+    assert cfg.paths.resolved_materials_dir() == tmp_path / "from-dotenv-materials"
     assert cfg.paths.resolved_source_records_dir() == (
         tmp_path / "from-dotenv-workspace" / "provenance" / "sources"
     )
@@ -76,7 +76,7 @@ def test_storage_roots_must_not_overlap(tmp_path: Path) -> None:
         load_config(
             project_root=tmp_path,
             env_file=_write_env(tmp_path),
-            overrides={"paths": {"source_dir": "wiki/sources", "wiki_dir": "wiki"}},
+            overrides={"paths": {"materials_dir": "wiki/materials", "wiki_dir": "wiki"}},
         )
 
 

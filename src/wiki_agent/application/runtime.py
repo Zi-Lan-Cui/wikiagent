@@ -7,10 +7,9 @@ from types import TracebackType
 from typing import Any
 
 from wiki_agent.agent import ReActAgent
-from wiki_agent.application.events import EventPublisher
 from wiki_agent.application.job_service import JobService
 from wiki_agent.config import RootConfig, load_config
-from wiki_agent.hook import AgentHook
+from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.llm.factory import create_llm, create_vlm
@@ -26,7 +25,7 @@ class AppRuntime:
 
     def __init__(self, config: RootConfig, *, hooks: list[AgentHook] | None = None) -> None:
         self.config = config
-        self.source_dir = config.paths.resolved_source_dir()
+        self.materials_dir = config.paths.resolved_materials_dir()
         self.workspace = config.paths.resolved_workspace_dir()
         self.wiki_dir = config.paths.resolved_wiki_dir()
         self.source_records_dir = config.paths.resolved_source_records_dir()

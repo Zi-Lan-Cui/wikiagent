@@ -1,4 +1,4 @@
-"""SQLite connection and transaction ownership for application state."""
+"""Shared SQLite connection and transaction ownership."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-class StateDatabase:
+class Database:
     """Own ``workspace/state.db`` and provide consistent SQLite settings."""
 
     def __init__(self, workspace: str | Path):

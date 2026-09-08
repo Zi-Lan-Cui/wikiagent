@@ -27,7 +27,7 @@ class _FailLLM:
     async def async_invoke(
         self, messages, tools=None, max_tokens=None, temperature=0.5, extra_body=None
     ):
-        from wiki_agent.message import LLMResponse
+        from wiki_agent.conversation import LLMResponse
 
         return LLMResponse(content="---\n# 只有标题\n", finish_reason="stop")
 
@@ -40,7 +40,7 @@ class _GoodLLM:
     async def async_invoke(
         self, messages, tools=None, max_tokens=None, temperature=0.5, extra_body=None
     ):
-        from wiki_agent.message import LLMResponse
+        from wiki_agent.conversation import LLMResponse
 
         return LLMResponse(
             content=(

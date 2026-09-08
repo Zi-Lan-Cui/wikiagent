@@ -12,9 +12,8 @@ import json
 import tempfile
 from pathlib import Path
 
+from wiki_agent.conversation import Message, Session, SessionManager
 from wiki_agent.memory import MemoryStore
-from wiki_agent.message import Message
-from wiki_agent.session import Session, SessionManager
 
 
 def test_session_init_defaults():

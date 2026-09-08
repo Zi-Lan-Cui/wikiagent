@@ -12,8 +12,8 @@ from pathlib import Path
 from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import load_config
+from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.ingestion.data_loader import DataLoader
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.llm.factory import create_llm, create_vlm
@@ -69,7 +69,7 @@ async def compile_sources(
     这是可复用的函数入口；脚本入口和 CLI `/compile` 都调用它。
 
     Args:
-        source_dir: 源文件夹路径；省略时使用 ``WIKI_SOURCE_DIR``。
+        source_dir: 原始资料文件夹；省略时使用 ``WIKI_MATERIALS_DIR``。
     """
     project_root = (project_root or Path.cwd()).resolve()
     cfg = load_config(project_root=project_root)
@@ -84,7 +84,7 @@ async def compile_sources(
     source_path = (
         Path(source_dir).expanduser().resolve()
         if source_dir is not None
-        else cfg.paths.resolved_source_dir().resolve()
+        else cfg.paths.resolved_materials_dir().resolve()
     )
     if not source_path.is_dir():
         raise FileNotFoundError(f"源目录不存在: {source_path}")

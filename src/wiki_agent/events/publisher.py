@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from wiki_agent.hook import AgentHook, CommandProgress, RunContext
+from wiki_agent.events.hooks import AgentHook, CommandProgress, RunContext
 
 
 @dataclass(frozen=True, slots=True)

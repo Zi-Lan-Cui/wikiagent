@@ -20,10 +20,10 @@ from pathlib import Path
 
 from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
+from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.ingestion.data_loader import DataLoader
+from wiki_agent.jobs import Job
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.state import Job
 from wiki_agent.watch.state import WatchState
 from wiki_agent.wiki.frontmatter import split_frontmatter
 

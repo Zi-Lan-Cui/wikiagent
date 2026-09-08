@@ -5,12 +5,12 @@ Run:
     .venv/bin/python -m pytest test/test_chunker.py -v
 """
 
-from wiki_agent.ingestion.chunker import (
+from wiki_agent.documents.chunkers import (
     Chunker,
     StructuredChunker,
     TextChunker,
 )
-from wiki_agent.ingestion.converter.base import ConvertedFile
+from wiki_agent.documents.converters.base import ConvertedFile
 
 # ════════════════════════════════════════════════════════════════
 #  工厂

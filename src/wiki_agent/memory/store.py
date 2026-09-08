@@ -4,10 +4,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from wiki_agent.llm import LLMClient
-from wiki_agent.log import get_logger
-from wiki_agent.message import Message
-from wiki_agent.session import Session
+from wiki_agent.conversation import Session
 from wiki_agent.utils import helpers
 
 # 单用户模式：所有 session 共享同一个 history 文件，按 session.key 分组压缩更新 memory。
@@ -16,8 +13,6 @@ from wiki_agent.utils import helpers
 
 # 画像管道: append_history → Dreamer.dream（LLM 加工）→ memory.md。
 # Wiki 纠错属于问题域，由 IssueStore 持久化。
-
-logger = get_logger("MEMORY")
 
 
 class MemoryStore:
@@ -188,93 +183,3 @@ class MemoryStore:
             return self.memory_file.read_text(encoding="utf-8")
         except (FileNotFoundError, ValueError):
             return ""
-
-
-class Dreamer:
-    _DREAM_PROMPT = """
-        你是一名语言大师，擅长根据记录更新用户的画像，分析用户的爱好，价值观等能描述用户的信息，
-        并根据已有的记录信息，对记录进行完整的重写，新的重写涵盖更丰富完整的用户描述。
-
-        # 注意
-        1. 不能简单增加文字，而是进行汇总，重新整理
-        2. 只更新与用户相关内容，不关心助手
-        3. 如果记录中记录了无关信息，则在更新中移除
-
-        需要处理的历史:
-        {history}
-
-        已有的描述：
-        {memory}
-    """
-
-    def __init__(
-        self,
-        workspace: Path,
-        memory_store: MemoryStore,
-    ):
-        self.workspace = workspace
-        self.memory_store = memory_store
-
-    def build_dream_prompt(self, history: str, memory: str) -> str:
-        """组装 dream 提示词。
-
-        Args:
-            history: 待处理历史文本。
-            memory: 现有用户画像。
-
-        Returns:
-            格式化后的提示词文本。
-        """
-        return self._DREAM_PROMPT.format(history=history, memory=memory)
-
-    async def dream(self, llm: LLMClient):
-        """单用户 dream——获取所有未处理的历史，更新 memory。
-
-        Args:
-            llm: LLM 客户端（生成更新后的画像）。
-        """
-        grouped_history = self.memory_store.get_unprocessed_history()
-        memory = self.memory_store.get_memory_text()
-        new_cursor = self.memory_store.get_cursor()
-
-        failed = False
-        for session_key, history in grouped_history.items():
-            # 逐行拼接（换行分隔）——连续 JSON 对象粘连会让 LLM
-            # 解析靠自然能力猜边界；每行一条是 JSONL 本来的形态
-            text_history = "\n".join([json.dumps(record) for record in history])
-
-            update_messages = [
-                Message(
-                    role="system",
-                    content=self.build_dream_prompt(history=text_history, memory=memory),
-                )
-            ]
-
-            try:
-                response = await llm.async_invoke(messages=update_messages)
-            except Exception as exc:
-                failed = True
-                logger.warning(
-                    "session %s Dream失败: %s: %s", session_key, type(exc).__name__, str(exc)[:160]
-                )
-                continue
-
-            if response.content:
-                self.update_memory(update_content=response.content)
-            else:
-                failed = True
-                logger.warning(f"session {session_key} Dream返回结果为空，跳过更新")
-
-        # 任一 session 更新失败都不能推进全局游标，否则失败记录会被
-        # 永久跳过，下一轮无法恢复。
-        if not failed:
-            self.memory_store.update_dream_cursor(new_cursor=new_cursor)
-
-    def update_memory(self, update_content: str, fsync: bool = False):
-        """写入更新后的用户画像（memory.md）。
-
-        Args:
-            update_content: 新画像文本。
-            fsync: 是否强制刷盘。
-        """
-        self.memory_store._atomic_write(self.memory_store.memory_file, update_content, fsync=fsync)

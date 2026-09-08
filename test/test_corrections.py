@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from wiki_agent.command.commands import CommandContext, ResolveCommand
+from wiki_agent.agent.commands import CommandContext, ResolveCommand
+from wiki_agent.conversation import Session
 from wiki_agent.issues import IssueKind, IssueService, IssueStatus, IssueStore
 from wiki_agent.issues.producers import report_correction
-from wiki_agent.session import Session
 from wiki_agent.tools import RecordCorrection, ToolRegistry
 
 

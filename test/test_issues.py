@@ -15,7 +15,7 @@ import pytest
 from wiki_agent.application.issue_actions import IssueActionExecutor, resolve_correction_issue
 from wiki_agent.application.issue_tasks import IssueTaskManager
 from wiki_agent.application.runtime import AppRuntime
-from wiki_agent.hook import RunContext
+from wiki_agent.events import RunContext
 from wiki_agent.issues import (
     IssueAlreadyClaimedError,
     IssueDraft,

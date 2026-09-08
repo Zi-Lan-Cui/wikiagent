@@ -38,7 +38,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text
 
-from wiki_agent.hook.base import AgentHook, CommandProgress, RunContext
+from wiki_agent.events import AgentHook, CommandProgress, RunContext
 
 # ── 样式 ──────────────────────────────────────────────────
 TOOL_ICONS: dict[str, str] = {

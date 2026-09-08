@@ -26,7 +26,7 @@ from wiki_agent.compiler.workflows.refine import (
     build_index_excluding_self,
     refine_pages,
 )
-from wiki_agent.message import LLMResponse
+from wiki_agent.conversation import LLMResponse
 from wiki_agent.wiki.rules import _check_page_output
 
 # ════════════════════════════════════════════════════════════
@@ -373,7 +373,7 @@ def _run_refine_ingest(plan_json: str):
     llm = ScriptedLLM(plan_json)
     pipeline = CompilePipeline(llm=llm, vlm=object(), wiki_dir=wiki, mode="refine")
 
-    from wiki_agent.ingestion.data_loader import DataLoader
+    from wiki_agent.documents.loader import DataLoader
 
     loader = DataLoader()
     summary = loader.load([wiki / "concepts" / "x.md"])

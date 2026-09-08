@@ -133,7 +133,7 @@ class FileWatcher:
         Returns:
             True 表示扩展名受支持。
         """
-        from wiki_agent.ingestion.data_loader import DataLoader
+        from wiki_agent.documents.loader import DataLoader
 
         return Path(path).suffix.lower() in DataLoader.ext_to_modality
 
@@ -303,7 +303,7 @@ class FileWatcher:
         Returns:
             文件路径列表。
         """
-        from wiki_agent.ingestion.data_loader import DataLoader
+        from wiki_agent.documents.loader import DataLoader
 
         supported = DataLoader.ext_to_modality
         files: list[Path] = []
@@ -343,7 +343,7 @@ class FileWatcher:
     async def _emit_delete(self, path: str) -> list[str]:
         """删除事件共享实现——drop state + ("delete", name) 入队。
 
-        事件路径（单路径检查发现消失）与回退路径（state/磁盘 diff）
+        事件路径（单路径检查发现消失）与回退路径（持久化快照/磁盘 diff）
         都走这里——删除语义只有一处。
 
         Args:

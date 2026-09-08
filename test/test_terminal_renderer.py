@@ -9,7 +9,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from wiki_agent.hook.base import RunContext
+from wiki_agent.events import RunContext
 from wiki_agent.render.terminal_renderer import TerminalRenderer
 
 

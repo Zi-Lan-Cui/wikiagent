@@ -10,19 +10,17 @@ from uuid import uuid4
 from openai.types.chat import ChatCompletionToolParam
 
 from wiki_agent.agent.base import BaseAgent
-from wiki_agent.command import create_command_router
+from wiki_agent.agent.commands import create_command_router
 from wiki_agent.config import AgentConfig as AgentCfg
 from wiki_agent.config import CompileConfig, RetryConfig
-from wiki_agent.consolidator import Consolidator
-from wiki_agent.context import ContextBuilder, ContextGovernor
+from wiki_agent.context import Consolidator, ContextBuilder, ContextGovernor
+from wiki_agent.conversation import LLMResponse, Message, Session, SessionManager
 from wiki_agent.errors import RetryableError
-from wiki_agent.hook import AgentHook, CompositeHook, RunContext
+from wiki_agent.events import AgentHook, CompositeHook, RunContext
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.llm import LLMClient
 from wiki_agent.log import begin_trace, emit_event, get_logger, span
 from wiki_agent.memory import Dreamer, MemoryStore
-from wiki_agent.message import LLMResponse, Message
-from wiki_agent.session import Session, SessionManager
 from wiki_agent.tools import RecordCorrection, ToolRegistry
 
 # ════════════════════════════════════════════════════════════════

@@ -11,11 +11,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from wiki_agent.consolidator import Consolidator
-from wiki_agent.context import ContextBuilder
+from wiki_agent.context import Consolidator, ContextBuilder
+from wiki_agent.conversation import LLMResponse, Message, Session
 from wiki_agent.memory import MemoryStore
-from wiki_agent.message import LLMResponse, Message
-from wiki_agent.session import Session
 from wiki_agent.tools import ToolRegistry
 
 

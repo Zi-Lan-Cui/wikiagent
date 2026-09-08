@@ -10,10 +10,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from wiki_agent.application.events import AgentEvent
 from wiki_agent.application.runtime import AppRuntime
+from wiki_agent.conversation import Session
+from wiki_agent.events import AgentEvent
 from wiki_agent.issues import IssueCard, IssueKind, IssueStatus
-from wiki_agent.session import Session
 from wiki_agent.wiki import (
     WikiPage,
     read_authorized_source,

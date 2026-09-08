@@ -235,7 +235,7 @@ class PathsConfig(BaseSettings):
 
     project_root: Path = Path(".")
     env_file: Path = Path("env/.env")
-    source_dir: Path | None = None
+    materials_dir: Path | None = None
     wiki_dir: Path | None = None
     workspace_dir: Path | None = None
 
@@ -243,7 +243,7 @@ class PathsConfig(BaseSettings):
     def validate_storage_boundaries(self) -> PathsConfig:
         """拒绝相互重叠的数据根，避免来源、产物和运行状态混写。"""
         roots = {
-            "WIKI_SOURCE_DIR": self.resolved_source_dir().resolve(),
+            "WIKI_MATERIALS_DIR": self.resolved_materials_dir().resolve(),
             "WIKI_WIKI_DIR": self.resolved_wiki_dir().resolve(),
             "WIKI_WORKSPACE_DIR": self.resolved_workspace_dir().resolve(),
         }
@@ -256,9 +256,9 @@ class PathsConfig(BaseSettings):
                     )
         return self
 
-    def resolved_source_dir(self) -> Path:
+    def resolved_materials_dir(self) -> Path:
         """返回用户原始资料根目录，默认与 wiki/workspace 平级。"""
-        return self._resolve(self.source_dir, "sources")
+        return self._resolve(self.materials_dir, "materials")
 
     def resolved_wiki_dir(self) -> Path:
         """返回解析后的 wiki 目录。

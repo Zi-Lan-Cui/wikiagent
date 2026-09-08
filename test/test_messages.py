@@ -1,11 +1,11 @@
-"""Test cases for wiki_agent.message — Message, ToolCall, LLMResponse, ChatHistory.
+"""Test cases for wiki_agent.conversation — Message, ToolCall, LLMResponse, ChatHistory.
 
 Run:
     cd /path/to/wiki-agent
     uv run pytest test/test_messages.py -v
 """
 
-from wiki_agent.message import (
+from wiki_agent.conversation import (
     LLMResponse,
     Message,
     ToolCall,

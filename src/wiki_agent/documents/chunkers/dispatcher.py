@@ -5,10 +5,10 @@
 
 from __future__ import annotations
 
-from wiki_agent.ingestion.chunker.base import BaseChunker, ChunkedFileProperties
-from wiki_agent.ingestion.chunker.structured_chunker import StructuredChunker
-from wiki_agent.ingestion.chunker.text_chunker import TextChunker
-from wiki_agent.ingestion.converter.base import ConvertedFile
+from wiki_agent.documents.chunkers.base import BaseChunker, ChunkedFileProperties
+from wiki_agent.documents.chunkers.structured_chunker import StructuredChunker
+from wiki_agent.documents.chunkers.text_chunker import TextChunker
+from wiki_agent.documents.converters.base import ConvertedFile
 from wiki_agent.log import get_logger
 
 logger = get_logger("CHUNKER_DISPATCHER")

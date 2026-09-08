@@ -6,8 +6,8 @@ import json
 from typing import Any
 
 from wiki_agent.compiler.integration.parse import _strip_fence
+from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
-from wiki_agent.message import Message
 
 REFINE_JUDGE_SYSTEM = """你是 Wiki 页面 refine 的语义评审员。你要比较同一个页面 refine 前后的内容，并判断这次更新是否真正完成页面使命，而不是只做表面改写。
 

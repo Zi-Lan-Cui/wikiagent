@@ -7,11 +7,10 @@ import tempfile
 from pathlib import Path
 
 from wiki_agent.context import ContextBuilder
+from wiki_agent.conversation import Message, Session
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.producers import report_correction
 from wiki_agent.memory import MemoryStore
-from wiki_agent.message import Message
-from wiki_agent.session import Session
 from wiki_agent.tools import ToolRegistry
 
 _TEMPLATE = (

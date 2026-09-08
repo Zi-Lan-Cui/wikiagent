@@ -7,10 +7,10 @@ import openai
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
 from wiki_agent.config import LLMConfig, RetryConfig
+from wiki_agent.conversation import LLMResponse, Message, ToolCall
 from wiki_agent.errors import translate_openai_error
 from wiki_agent.llm.rate_limit import RequestLimiter
 from wiki_agent.log import get_logger
-from wiki_agent.message import LLMResponse, Message, ToolCall
 from wiki_agent.utils.helpers import estimate_text_tokens
 
 logger = get_logger("LLMCLIENT")

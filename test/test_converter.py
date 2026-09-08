@@ -3,8 +3,8 @@
 import asyncio
 from pathlib import Path
 
-from wiki_agent.ingestion.converter.mineru_converter import MinerUConverter
-from wiki_agent.ingestion.data_loader import FileModality, RawFileProperties
+from wiki_agent.documents.converters.mineru_converter import MinerUConverter
+from wiki_agent.documents.loader import FileModality, RawFileProperties
 
 
 def test_markdown_converted_by_direct_read(tmp_path: Path):

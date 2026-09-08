@@ -12,10 +12,9 @@ system prompt 四块（build 阶段的核心扩展）:
 
 from pathlib import Path
 
+from wiki_agent.conversation import Message, Session
 from wiki_agent.issues import IssueKind, IssueService, IssueStatus
 from wiki_agent.memory import MemoryStore
-from wiki_agent.message import Message
-from wiki_agent.session import Session
 from wiki_agent.tools import ToolRegistry
 
 
