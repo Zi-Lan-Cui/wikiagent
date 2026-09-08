@@ -23,6 +23,7 @@ from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.ingestion.data_loader import DataLoader
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.state import Job
 from wiki_agent.watch.state import WatchState
 from wiki_agent.wiki.frontmatter import split_frontmatter
 
@@ -190,3 +191,13 @@ class WatchConsumer:
         self._state.set(str(path), st)
         self._state.save()
         logger.info("  ✓ %s 完成 (%d 页面)", name, len(outcome.pages_written))
+
+    async def handle_job(self, job: Job, progress) -> None:
+        """Execute a persisted watch Job through the existing domain logic."""
+        progress("load")
+        if job.kind == "delete":
+            self._process_delete(job.resource)
+            return
+        if job.kind != "compile":
+            raise ValueError(f"unsupported watch job: {job.kind}")
+        await self._process_ingest(Path(job.resource), DataLoader())

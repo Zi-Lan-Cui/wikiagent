@@ -16,6 +16,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+from wiki_agent.application.job_service import JobService
+from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import load_config
@@ -65,6 +67,7 @@ async def main(source_dir: str | None = None):
         compile_config=cfg.compile,
     )
     state = WatchState(cfg.paths.resolved_watch_dir() / "state.json")
+    job_service = JobService(cfg.paths.resolved_workspace_dir())
     queue: asyncio.Queue = asyncio.Queue()
 
     watcher = FileWatcher(
@@ -76,19 +79,25 @@ async def main(source_dir: str | None = None):
         stability_delay=cfg.watch.stability_delay,
         fallback_interval=cfg.watch.fallback_interval,
         similarity_threshold=cfg.watch.similarity_threshold,
+        submit_job=lambda resource, deleted: job_service.submit_watch_change(
+            resource, deleted=deleted
+        ),
     )
     failures = SourceFailureHandler(
         IssueService(IssueStore(cfg.paths.resolved_workspace_dir())),
         mode="watch",
     )
     consumer = WatchConsumer(
-        queue,
+        asyncio.Queue(),
         pipeline,
         state,
         wiki_dir=wiki_dir,
         source_records_dir=source_records_dir,
         failure_handler=failures,
     )
+    worker = JobWorker(job_service)
+    worker.register("compile", consumer.handle_job)
+    worker.register("delete", consumer.handle_job)
 
     print(f"watch 模式启动: {source_path}")
     print("检测: inotify 事件驱动（去抖 2s + 稳定性复读 2s） + 60s 回退全量扫描兜底")
@@ -97,7 +106,7 @@ async def main(source_dir: str | None = None):
     # 启动 reconcile: 先扫一轮存量变化（无变更则静默）
     await watcher._poll_once()
 
-    await asyncio.gather(watcher.run(), consumer.run())
+    await asyncio.gather(watcher.run(), worker.run())
 
 
 if __name__ == "__main__":

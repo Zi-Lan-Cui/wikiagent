@@ -78,6 +78,13 @@ class JobStore:
                 ).fetchone()
                 if existing is not None:
                     return self._row(existing)
+                # A completed job must not block a later revision of the same
+                # resource; retain the historical row but release its active
+                # deduplication key.
+                db.execute(
+                    "UPDATE jobs SET idempotency_key = NULL WHERE idempotency_key = ?",
+                    (idempotency_key,),
+                )
             job_id = f"job_{uuid4().hex}"
             db.execute(
                 """INSERT INTO jobs
