@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, Field
 
-from wiki_agent.ingestion.converter.base import ConvertedFile
+from wiki_agent.documents.converters.base import ConvertedFile
 
 # ════════════════════════════════════════════════════════════════
 #  ChunkedFileProperties — 统一输出

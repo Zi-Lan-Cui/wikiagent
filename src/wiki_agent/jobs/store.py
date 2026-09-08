@@ -3,38 +3,23 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from wiki_agent.state.database import StateDatabase
+from wiki_agent.jobs.models import Job
+from wiki_agent.persistence import Database
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-@dataclass(frozen=True, slots=True)
-class Job:
-    id: str
-    kind: str
-    resource: str
-    mode: str
-    status: str
-    stage: str
-    attempts: int
-    error: str
-    payload: dict[str, object]
-    created_at: str
-    updated_at: str
-
-
 class JobStore:
     """SQLite-backed job state; the database is the source of truth."""
 
     def __init__(self, workspace: str | Path):
-        self.database = StateDatabase(workspace)
+        self.database = Database(workspace)
         self._initialize()
 
     def _initialize(self) -> None:
@@ -90,7 +75,16 @@ class JobStore:
                 """INSERT INTO jobs
                 (id, kind, resource, mode, status, payload_json, created_at, updated_at, idempotency_key)
                 VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)""",
-                (job_id, kind, resource, mode, json.dumps(payload or {}, ensure_ascii=False), now, now, idempotency_key),
+                (
+                    job_id,
+                    kind,
+                    resource,
+                    mode,
+                    json.dumps(payload or {}, ensure_ascii=False),
+                    now,
+                    now,
+                    idempotency_key,
+                ),
             )
             return self.get(job_id, db=db)
 
@@ -126,7 +120,14 @@ class JobStore:
             )
             return self.get(row["id"], db=db)
 
-    def update(self, job_id: str, *, status: str | None = None, stage: str | None = None, error: str | None = None) -> Job:
+    def update(
+        self,
+        job_id: str,
+        *,
+        status: str | None = None,
+        stage: str | None = None,
+        error: str | None = None,
+    ) -> Job:
         fields, values = [], []
         for name, value in (("status", status), ("stage", stage), ("error", error)):
             if value is not None:
@@ -142,15 +143,29 @@ class JobStore:
         cutoff = datetime.now(UTC).timestamp() - max_age_seconds
         with self.database.transaction(immediate=True) as db:
             rows = db.execute("SELECT id, updated_at FROM jobs WHERE status='running'").fetchall()
-            stale = [row["id"] for row in rows if datetime.fromisoformat(row["updated_at"]).timestamp() < cutoff]
+            stale = [
+                row["id"]
+                for row in rows
+                if datetime.fromisoformat(row["updated_at"]).timestamp() < cutoff
+            ]
             for job_id in stale:
-                db.execute("UPDATE jobs SET status='queued', updated_at=? WHERE id=?", (_now(), job_id))
+                db.execute(
+                    "UPDATE jobs SET status='queued', updated_at=? WHERE id=?", (_now(), job_id)
+                )
         return len(stale)
 
     @staticmethod
     def _row(row) -> Job:
         return Job(
-            id=row["id"], kind=row["kind"], resource=row["resource"], mode=row["mode"],
-            status=row["status"], stage=row["stage"], attempts=row["attempts"], error=row["error"],
-            payload=json.loads(row["payload_json"]), created_at=row["created_at"], updated_at=row["updated_at"],
+            id=row["id"],
+            kind=row["kind"],
+            resource=row["resource"],
+            mode=row["mode"],
+            status=row["status"],
+            stage=row["stage"],
+            attempts=row["attempts"],
+            error=row["error"],
+            payload=json.loads(row["payload_json"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )

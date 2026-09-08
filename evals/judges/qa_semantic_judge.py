@@ -6,8 +6,8 @@ import json
 from typing import Any
 
 from wiki_agent.compiler.integration.parse import _strip_fence
+from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
-from wiki_agent.message import Message
 
 QA_JUDGE_SYSTEM = """你是本地 Wiki Agent 的问答质量评审员。
 只依据题目、给出的证据页面和工具轨迹评估回答，不使用外部知识补全。

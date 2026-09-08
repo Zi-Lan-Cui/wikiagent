@@ -18,9 +18,9 @@ import pytest
 from wiki_agent.compiler.models import SourceChunk
 from wiki_agent.compiler.prompts import compile as prompts
 from wiki_agent.config import load_config
+from wiki_agent.conversation import Message
 from wiki_agent.llm.factory import create_llm
 from wiki_agent.llm.retry import async_invoke_with_retry
-from wiki_agent.message import Message
 
 ROOT = Path(__file__).resolve().parents[1]
 

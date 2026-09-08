@@ -8,11 +8,11 @@ from wiki_agent.compiler.integration.checks import _check_json_array
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import _parse_search_result
 from wiki_agent.compiler.models import _NO_THINKING, ExtractResult, SearchResult
+from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.message import Message
 
 logger = get_logger("STAGES")
 

@@ -14,7 +14,7 @@ from wiki_agent.compiler.workflows.failures import SourceFailureConsumer
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.compiler.workflows.refine import build_index_excluding_self
 from wiki_agent.config import CompileConfig, RetryConfig
-from wiki_agent.ingestion.data_loader import DataLoader
+from wiki_agent.documents.loader import DataLoader
 from wiki_agent.issues import IssueKind, IssueRecord, IssueStatus, IssueStore
 from wiki_agent.log import emit_event
 from wiki_agent.versioning import WikiGitManager

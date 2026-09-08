@@ -7,8 +7,8 @@
 import asyncio
 from types import SimpleNamespace
 
+from wiki_agent.conversation import LLMResponse, Message
 from wiki_agent.llm.retry import async_invoke_with_retry
-from wiki_agent.message import LLMResponse, Message
 
 
 class _ScriptedClient:

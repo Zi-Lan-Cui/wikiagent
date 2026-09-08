@@ -10,8 +10,8 @@ import json
 from typing import Any
 
 from wiki_agent.compiler.integration.parse import _strip_fence
+from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
-from wiki_agent.message import Message
 
 JUDGE_SYSTEM = """你是知识库编译质量评审员。你要评估一个源文档经过 extract、search、analyze、plan 后生成 Wiki 页面是否忠实、相关、组织合理。
 

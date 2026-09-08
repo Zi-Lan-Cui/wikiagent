@@ -1,6 +1,5 @@
 from wiki_agent.application.service import WikiAgentService
-from wiki_agent.message import Message
-from wiki_agent.session import Session
+from wiki_agent.conversation import Message, Session
 
 
 def test_title_from_query_normalizes_and_truncates() -> None:

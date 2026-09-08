@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wiki_agent.state import Job, JobStore
+from wiki_agent.jobs import Job, JobStore
 
 
 class JobService:
@@ -46,7 +46,9 @@ class JobService:
             idempotency_key=f"watch:{kind}:{resource}",
         )
 
-    def submit_issue_action(self, issue_id: str, action: str, payload: dict[str, object] | None = None) -> Job:
+    def submit_issue_action(
+        self, issue_id: str, action: str, payload: dict[str, object] | None = None
+    ) -> Job:
         return self.submit(
             kind="issue_action",
             resource=issue_id,

@@ -8,8 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from wiki_agent.context.context_governor import ContextGovernor
-from wiki_agent.message import Message, ToolCall
-from wiki_agent.session import Session
+from wiki_agent.conversation import Message, Session, ToolCall
 
 
 def _gov() -> ContextGovernor:

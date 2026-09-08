@@ -24,10 +24,10 @@ from wiki_agent.compiler.models import (
     SourceDocument,
 )
 from wiki_agent.config import CompileConfig
+from wiki_agent.documents.chunkers import Chunker, StructuredChunker, TextChunker
+from wiki_agent.documents.converters import Converter, MinerUConverter
+from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.errors import IngestError, IngestStage, WikiAgentError
-from wiki_agent.ingestion.chunker import Chunker, StructuredChunker, TextChunker
-from wiki_agent.ingestion.converter import Converter, MinerUConverter
-from wiki_agent.ingestion.data_loader import RawFileProperties
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.log import get_logger, span
 

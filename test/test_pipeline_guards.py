@@ -15,9 +15,9 @@ from wiki_agent.compiler.models import (
     SearchResult,
 )
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
+from wiki_agent.documents.converters.base import ConvertedFile
+from wiki_agent.documents.loader import FileModality, RawFileProperties
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.ingestion.converter.base import ConvertedFile
-from wiki_agent.ingestion.data_loader import FileModality, RawFileProperties
 
 
 def _raw(tmp_path: Path) -> RawFileProperties:
