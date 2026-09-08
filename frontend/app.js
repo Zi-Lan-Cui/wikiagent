@@ -796,7 +796,7 @@ function renderIssueTasks() {
 }
 
 async function refreshIssueTasks() {
-  const response = await fetch("/api/issue-tasks?limit=100");
+  const response = await fetch("/api/jobs?limit=100");
   if (!response.ok) throw new Error("无法读取运行队列");
   state.issueTasks = await response.json();
   reconcileActiveIssue();

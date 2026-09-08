@@ -21,7 +21,6 @@ from wiki_agent.application import (
     WikiAgentService,
 )
 from wiki_agent.application.issue_actions import IssueActionExecutor
-from wiki_agent.application.issue_tasks import IssueTaskManager
 from wiki_agent.application.job_service import JobService
 from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.runtime import AppRuntime
@@ -62,7 +61,6 @@ def create_app(
     service = WikiAgentService(app_runtime)
     issue_actions = IssueActionExecutor(app_runtime)
     issue_actions.reconcile_retry_sources()
-    issue_tasks = IssueTaskManager(issue_actions)
     job_service = getattr(app_runtime, "job_service", JobService(app_runtime.workspace))
     job_worker = JobWorker(job_service)
 
@@ -121,7 +119,6 @@ def create_app(
                     if worker_task is not None:
                         worker_task.cancel()
                         await asyncio.gather(worker_task, return_exceptions=True)
-                    await issue_tasks.close()
         finally:
             setup_event_log(None)
 
@@ -228,25 +225,22 @@ def create_app(
     @app.get("/api/issue-tasks/{task_id}")
     async def get_issue_task(task_id: str) -> dict[str, Any]:
         try:
-            return asdict(issue_tasks.get(task_id))
+            return _job_task(job_service.store.get(task_id))
         except LookupError as exc:
-            try:
-                return _job_task(job_service.store.get(task_id))
-            except LookupError:
-                raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}") from exc
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}") from exc
 
     @app.get("/api/issue-tasks")
     async def list_issue_tasks(limit: int = 100) -> list[dict[str, Any]]:
         try:
             jobs = [job for job in job_service.list(limit=limit) if job.kind == "issue_action"]
-            return [_job_task(job) for job in jobs] + [asdict(task) for task in issue_tasks.list(limit=limit)]
+            return [_job_task(job) for job in jobs]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/jobs")
     async def list_jobs(limit: int = 100) -> list[dict[str, Any]]:
         try:
-            return [asdict(job) for job in job_service.list(limit=limit)]
+            return [_job_task(job) for job in job_service.list(limit=limit)]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
