@@ -46,6 +46,15 @@ class JobService:
             idempotency_key=f"watch:{kind}:{resource}",
         )
 
+    def submit_issue_action(self, issue_id: str, action: str, payload: dict[str, object] | None = None) -> Job:
+        return self.submit(
+            kind="issue_action",
+            resource=issue_id,
+            mode=action,
+            payload=payload,
+            idempotency_key=f"issue-action:{issue_id}:{action}",
+        )
+
     def list(self, *, limit: int = 100) -> list[Job]:
         return self.store.list(limit=limit)
 

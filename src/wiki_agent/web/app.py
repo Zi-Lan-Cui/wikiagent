@@ -21,6 +21,8 @@ from wiki_agent.application import (
 )
 from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.issue_tasks import IssueTaskManager
+from wiki_agent.application.job_service import JobService
+from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError
 from wiki_agent.issues import (
@@ -60,6 +62,18 @@ def create_app(
     issue_actions = IssueActionExecutor(app_runtime)
     issue_actions.reconcile_retry_sources()
     issue_tasks = IssueTaskManager(issue_actions)
+    job_service = getattr(app_runtime, "job_service", JobService(app_runtime.workspace))
+    job_worker = JobWorker(job_service)
+
+    async def handle_issue_job(job, progress):
+        await issue_actions.execute(
+            job.resource,
+            job.mode,
+            job.payload,
+            progress=progress,
+        )
+
+    job_worker.register("issue_action", handle_issue_job)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -76,6 +90,8 @@ def create_app(
     app = FastAPI(title="wiki-agent", version="0.1.0", lifespan=lifespan)
     app.state.runtime = app_runtime
     app.state.service = service
+    app.state.job_service = job_service
+    app.state.job_worker = job_worker
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
@@ -182,6 +198,13 @@ def create_app(
     async def list_issue_tasks(limit: int = 100) -> list[dict[str, Any]]:
         try:
             return [asdict(task) for task in issue_tasks.list(limit=limit)]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/jobs")
+    async def list_jobs(limit: int = 100) -> list[dict[str, Any]]:
+        try:
+            return [asdict(job) for job in job_service.list(limit=limit)]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
