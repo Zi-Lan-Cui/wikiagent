@@ -1,11 +1,10 @@
 import time
 from dataclasses import dataclass, field
 
-from wiki_agent.context import ContextBuilder
+from wiki_agent.context.context_builder import ContextBuilder
+from wiki_agent.conversation import Message, Session
 from wiki_agent.llm import LLMClient
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.message import Message
-from wiki_agent.session import Session
 from wiki_agent.utils import helpers
 
 logger = get_logger("CONSOLIDATOR")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from wiki_agent.hook import AgentHook, RunContext
+from wiki_agent.events import AgentHook, RunContext
 from wiki_agent.issues.producers import report_run_failure
 from wiki_agent.issues.service import IssueService
 

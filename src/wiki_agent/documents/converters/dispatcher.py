@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from wiki_agent.ingestion.converter.base import BaseConverter, ConvertedFile
-from wiki_agent.ingestion.converter.mineru_converter import MinerUConverter
-from wiki_agent.ingestion.data_loader import RawFileProperties
+from wiki_agent.documents.converters.base import BaseConverter, ConvertedFile
+from wiki_agent.documents.converters.mineru_converter import MinerUConverter
+from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.log import get_logger
 
 logger = get_logger("CONVERTER")

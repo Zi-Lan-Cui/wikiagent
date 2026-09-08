@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from wiki_agent.application.job_service import JobService
-from wiki_agent.state import Job
+from wiki_agent.jobs import Job
 
 JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[None]]
 

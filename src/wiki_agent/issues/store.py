@@ -1,4 +1,4 @@
-"""Transactional issue persistence in the application state database."""
+"""Transactional persistence for user-visible issues."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from wiki_agent.issues.models import (
     IssueStatus,
     JsonObject,
 )
-from wiki_agent.state import StateDatabase
+from wiki_agent.persistence import Database
 
 _SCHEMA_VERSION = "1"
 
@@ -54,7 +54,7 @@ class IssueStore:
     """Own the issue database and all lifecycle transactions."""
 
     def __init__(self, workspace: str | Path):
-        self.database = StateDatabase(workspace)
+        self.database = Database(workspace)
         self.workspace = self.database.workspace
         self.path = self.database.path
         self._initialize()

@@ -21,7 +21,7 @@ from evals.core.qa_harness import load_cases, load_manifest, score_answer, summa
 from evals.judges.qa_semantic_judge import judge_qa_case
 from wiki_agent.agent import ReActAgent
 from wiki_agent.config import load_config
-from wiki_agent.hook import AgentHook, RunContext
+from wiki_agent.events import AgentHook, RunContext
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
 

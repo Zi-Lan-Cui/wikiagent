@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from wiki_agent.ingestion.data_loader import RawFileProperties
+from wiki_agent.documents.loader import RawFileProperties
 
 # ════════════════════════════════════════════════════════════════
 #  ConvertedFile — 统一输出

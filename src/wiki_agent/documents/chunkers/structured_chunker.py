@@ -32,8 +32,8 @@ import json
 from collections.abc import Sequence
 from datetime import datetime
 
-from wiki_agent.ingestion.chunker.base import BaseChunker, ChunkedFileProperties
-from wiki_agent.ingestion.converter.base import ConvertedFile
+from wiki_agent.documents.chunkers.base import BaseChunker, ChunkedFileProperties
+from wiki_agent.documents.converters.base import ConvertedFile
 from wiki_agent.log import get_logger
 
 logger = get_logger("STRUCTURED_CHUNKER")

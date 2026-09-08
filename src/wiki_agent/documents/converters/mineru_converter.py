@@ -30,11 +30,11 @@ from pathlib import Path
 from mineru.cli.common import do_parse as _mineru_do_parse
 from mineru.cli.common import read_fn as _mineru_read_fn
 
-from wiki_agent.ingestion.converter.base import BaseConverter, ConvertedFile
-from wiki_agent.ingestion.data_loader import RawFileProperties
+from wiki_agent.conversation import Message
+from wiki_agent.documents.converters.base import BaseConverter, ConvertedFile
+from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.log import get_logger
-from wiki_agent.message import Message
 
 logger = get_logger("MINERU_CONVERTER")
 

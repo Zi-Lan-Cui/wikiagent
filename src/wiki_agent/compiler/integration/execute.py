@@ -17,11 +17,11 @@ from wiki_agent.compiler.models import (
     IntegrationPlan,
     PageTarget,
 )
+from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.message import Message
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.normalize import extract_related, fix_wikilinks, normalize_page
 from wiki_agent.wiki.rules import _check_page_output

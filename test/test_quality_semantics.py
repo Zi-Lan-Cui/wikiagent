@@ -3,9 +3,9 @@
 import asyncio
 from pathlib import Path
 
-from wiki_agent.command.commands import CommandContext, CompileCommand, ScanCommand
-from wiki_agent.hook import AgentHook
-from wiki_agent.session import Session
+from wiki_agent.agent.commands import CommandContext, CompileCommand, ScanCommand
+from wiki_agent.conversation import Session
+from wiki_agent.events import AgentHook
 from wiki_agent.wiki.normalize import inject_title_from_h1
 from wiki_agent.wiki.quality import cleanup_exact_duplicates, scan_wiki
 
@@ -218,7 +218,7 @@ def test_command_progress_uses_shared_hook_protocol():
 
     hooks = Hooks()
     reporter = __import__(
-        "wiki_agent.command.commands", fromlist=["CommandReporter"]
+        "wiki_agent.agent.commands", fromlist=["CommandReporter"]
     ).CommandReporter(hooks, Session("hook-test"), "compile", "compile_1")
 
     async def scenario():
