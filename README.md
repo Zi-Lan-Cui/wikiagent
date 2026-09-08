@@ -45,7 +45,7 @@ cp env/.env.example env/.env
 数据目录采用明确的三分结构，三个根目录必须互不包含：
 
 ```text
-sources/                    用户提供的原始资料
+materials/                  用户提供的原始资料
 wiki/                       仅保存可发布的生成知识页
 workspace/
 ├── provenance/sources/     系统生成的来源摘要与溯源记录
@@ -54,7 +54,7 @@ workspace/
 └── ...                     会话、队列和问题记录
 ```
 
-可分别通过 `WIKI_SOURCE_DIR`、`WIKI_WIKI_DIR` 和 `WIKI_WORKSPACE_DIR` 配置；相对路径均以项目根目录为基准。
+可分别通过 `WIKI_MATERIALS_DIR`、`WIKI_WIKI_DIR` 和 `WIKI_WORKSPACE_DIR` 配置；相对路径均以项目根目录为基准。
 
 问答模型默认保留 reasoning。可通过 `LLM_THINKING=enabled|disabled` 控制；启用 reasoning 时，
 请同时保证 `AGENT_MAX_TOKENS` 足够覆盖思考和最终回答。编译阶段会按各阶段契约显式关闭 reasoning。
@@ -77,7 +77,7 @@ uv run wiki-agent --help
 uv run python scripts/compile_sources.py /path/to/source-folder
 ```
 
-省略源目录时使用 `WIKI_SOURCE_DIR`。知识页写入 `wiki/`，来源记录和运行日志写入 `workspace/`；如果某个文件失败，会记录在运行目录中，不会悄悄跳过。
+省略资料目录时使用 `WIKI_MATERIALS_DIR`。知识页写入 `wiki/`，来源记录和运行日志写入 `workspace/`；如果某个文件失败，会记录在运行目录中，不会悄悄跳过。
 
 ### 2. 持续监测
 
@@ -87,7 +87,7 @@ uv run python scripts/compile_sources.py /path/to/source-folder
 uv run python scripts/watch_folder.py /path/to/source-folder
 ```
 
-同样可以省略目录并使用 `WIKI_SOURCE_DIR`。watch 会检测新增和修改的文件，并只重新处理有实际变化的内容。使用 `Ctrl-C` 停止即可，下一次启动会继续根据状态文件检查变化。
+同样可以省略目录并使用 `WIKI_MATERIALS_DIR`。watch 会检测新增和修改的文件，并只重新处理有实际变化的内容。使用 `Ctrl-C` 停止即可，下一次启动会继续根据持久化快照检查变化。
 
 ### 3. 优化已有 Wiki
 
@@ -170,12 +170,12 @@ uv build
 ## 项目结构
 
 ```text
-src/wiki_agent/   核心运行时代码
+src/wiki_agent/   核心运行时代码（按业务领域组织）
 scripts/          编译、watch、refine 等运维入口
 evals/            评测入口、模板和结果汇总
 test/             自动化测试
 docs/             设计记录
-sources/          默认原始资料目录（可配置，也可使用外部目录）
+materials/        默认原始资料目录（可配置，也可使用外部目录）
 wiki/             仅包含生成知识页与索引
 workspace/        运行状态、日志、溯源记录和会话数据
 ```
