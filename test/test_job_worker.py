@@ -32,3 +32,11 @@ def test_worker_persists_unknown_kind_as_failure(tmp_path):
     result = service.store.get(job.id)
     assert result.status == "failed"
     assert "未注册" in result.error
+
+
+def test_completed_watch_job_does_not_block_later_revision(tmp_path):
+    service = JobService(tmp_path)
+    first = service.submit_watch_change("/tmp/note.md")
+    service.store.update(first.id, status="succeeded")
+    second = service.submit_watch_change("/tmp/note.md")
+    assert second.id != first.id
