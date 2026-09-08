@@ -1,6 +1,7 @@
 """Application composition and use-case boundaries."""
 
 from wiki_agent.application.events import AgentEvent, EventPublisher
+from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.application.service import (
     InvalidInputError,
@@ -17,6 +18,7 @@ __all__ = [
     "AppRuntime",
     "AgentEvent",
     "EventPublisher",
+    "JobWorker",
     "InvalidInputError",
     "MessageResult",
     "SessionMessage",
