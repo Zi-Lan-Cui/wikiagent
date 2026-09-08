@@ -593,6 +593,7 @@
 - [ ] 在 `state.db` 建立 Job 表与状态迁移
 - [ ] 实现统一 JobService/WorkCoordinator 与可恢复 Worker
 - [ ] 让 watcher 只提交 Job，移除独立执行队列
-- [ ] 将 Web/CLI 重试接入统一 Job 服务
-- [ ] 工作台读取持久化 Job，补齐阶段、错误、重试和恢复展示
+- [x] 将 Web 重试、rescan 和一键重试接入统一 Job 服务
+- [x] 工作台读取持久化 Job，补齐阶段、错误、重试和恢复展示
+- [ ] 将 CLI 入口接入统一 Job 服务
 - [ ] 增加幂等、重启恢复和并发认领测试
