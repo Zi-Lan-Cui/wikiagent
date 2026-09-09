@@ -119,18 +119,49 @@ def test_qa_hard_contract_accepts_one_of_equivalent_unknown_markers():
 
 def test_qa_judge_schema_requires_all_dimensions():
     good = {
-        key: {"score": 4, "evidence": [], "issues": []}
+        key: {"verdict": "pass", "evidence": [], "issues": []}
         for key in (
             "answer_correctness",
             "answer_completeness",
-            "evidence_grounding",
             "uncertainty_handling",
-            "cross_page_reasoning",
             "conversation_consistency",
         )
     }
-    good.update({"unsupported_claims": [], "confidence": 0.9, "verdict": "pass", "summary": "ok"})
+    good.update(
+        {
+            "grounding": {"claims": [{"claim": "c", "verdict": "supported", "evidence": "e"}]},
+            "citation_support": {
+                "citations": [{"citation": "concepts/x.md", "verdict": "supported", "note": ""}]
+            },
+            "unsupported_claims": [],
+            "unknown_reasons": [],
+            "verdict": "pass",
+            "summary": "ok",
+        }
+    )
     assert check_qa_judge_json(json.dumps(good))[0]
+    bad = json.loads(json.dumps(good))
+    bad["grounding"]["claims"] = [{"claim": "c", "verdict": "maybe"}]  # 非三元
+    assert not check_qa_judge_json(json.dumps(bad))[0]
+
+
+def test_qa_citation_recall_flags_unexpected_no_cite():
+    """有 expected_pages 却引用了别的页 → 召回率<1 且计 issue。"""
+    case = _case(
+        id="proc",
+        must_include=("进程",),
+        expected_pages=("concepts/process.md",),
+    )
+    score = score_answer(
+        case,
+        {"answer": "进程是程序的执行。", "tool_calls": [{"name": "ReadFile"}],
+         "citations": ["concepts/other.md"]},
+        existing_pages={"concepts/process.md", "concepts/other.md"},
+    )
+    assert "expected_page_not_cited" in score.issues
+    assert score.citation_recall == 0.0
+    assert score.citation_precision == 1.0
+    assert "concepts/process.md" in score.uncited_expected
 
 
 def test_qa_summary_is_not_semantic_pass():

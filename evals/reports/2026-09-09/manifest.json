@@ -1,0 +1,10 @@
+{
+  "date": "2026-09-09",
+  "dataset_id": "wiki-seed-v3",
+  "case_count": 42,
+  "positive_count": 30,
+  "negative_count": 12,
+  "references_pass": true,
+  "has_agreement": false,
+  "has_snapshot": false
+}

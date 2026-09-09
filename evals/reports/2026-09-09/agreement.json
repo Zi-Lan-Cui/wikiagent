@@ -1,0 +1,275 @@
+{
+  "component": "semantic_judge",
+  "cases": [
+    {
+      "id": "wiki-001",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-002",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-003",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-004",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-005",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-006",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-007",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-008",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-009",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-010",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-011",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-012",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-013",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-014",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-015",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-016",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-017",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-018",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-019",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-020",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-021",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-022",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-023",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-024",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-025",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-026",
+      "verdict": "fail",
+      "expected_verdict": "pass",
+      "judge_verdict": "fail"
+    },
+    {
+      "id": "wiki-027",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-028",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-029",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "wiki-030",
+      "verdict": "pass",
+      "expected_verdict": "pass",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "adv-drop_page-wiki-001",
+      "verdict": "pass",
+      "expected_verdict": "fail",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "adv-strip_provenance-wiki-001",
+      "verdict": "pass",
+      "expected_verdict": "fail",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "adv-fabricate_claim-wiki-001",
+      "verdict": "fail",
+      "expected_verdict": "fail",
+      "judge_verdict": "fail"
+    },
+    {
+      "id": "adv-drop_page-wiki-002",
+      "verdict": "pass",
+      "expected_verdict": "fail",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "adv-strip_provenance-wiki-002",
+      "verdict": "pass",
+      "expected_verdict": "fail",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "adv-fabricate_claim-wiki-002",
+      "verdict": "fail",
+      "expected_verdict": "fail",
+      "judge_verdict": "fail"
+    },
+    {
+      "id": "adv-drop_page-wiki-003",
+      "verdict": "pass",
+      "expected_verdict": "fail",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "adv-strip_provenance-wiki-003",
+      "verdict": "pass",
+      "expected_verdict": "fail",
+      "judge_verdict": "pass"
+    },
+    {
+      "id": "adv-fabricate_claim-wiki-003",
+      "verdict": "fail",
+      "expected_verdict": "fail",
+      "judge_verdict": "fail"
+    },
+    {
+      "id": "adv-refuse_violation-wiki-neg-001",
+      "verdict": "fail",
+      "expected_verdict": "fail",
+      "judge_verdict": "fail"
+    },
+    {
+      "id": "adv-refuse_violation-wiki-neg-002",
+      "verdict": "fail",
+      "expected_verdict": "fail",
+      "judge_verdict": "fail"
+    },
+    {
+      "id": "adv-refuse_violation-wiki-neg-003",
+      "verdict": "pass",
+      "expected_verdict": "fail",
+      "judge_verdict": "pass"
+    }
+  ],
+  "summary": {
+    "cases": 42,
+    "actual": {
+      "pass": 36,
+      "fail": 6
+    },
+    "labeled_cases": 42,
+    "confusion_matrix": {
+      "pass->pass": 29,
+      "pass->fail": 1,
+      "fail->pass": 7,
+      "fail->fail": 5
+    },
+    "precision": 0.8095238095238095,
+    "recall": 0.8095238095238095,
+    "f1": 0.8095238095238095
+  },
+  "status": "fail"
+}

@@ -43,6 +43,9 @@ class QAScore:
     missing_citations: tuple[str, ...]
     side_effect_free: bool
     issues: tuple[str, ...]
+    uncited_expected: tuple[str, ...] = ()
+    citation_precision: float | None = None
+    citation_recall: float | None = None
 
 
 def load_manifest(path: Path = DEFAULT_MANIFEST) -> dict[str, Any]:
@@ -95,8 +98,19 @@ def score_answer(
     missing_tools = tuple(x for x in case.required_tools if x not in tool_names)
     forbidden_used = tuple(x for x in case.forbidden_tools if x in tool_names)
     missing_citations = ()
+    citation_precision = None
+    citation_recall = None
+    uncited_expected = ()
     if existing_pages is not None:
-        missing_citations = tuple(x for x in citations if x not in existing_pages)
+        # 引用精确率：答案引用且真实存在的页 / 总引用数
+        if citations:
+            citation_precision = len(citations & existing_pages) / len(citations)
+            missing_citations = tuple(sorted(citations - existing_pages))
+        # 引用召回率：应引的 expected_pages 中被引用到的比例（仅在有 expected 时）
+        if case.expected_pages:
+            expected = set(case.expected_pages)
+            uncited_expected = tuple(sorted(expected - citations))
+            citation_recall = len(expected & citations) / len(expected)
     answer_present = bool(answer.strip())
     side_effect_free = not forbidden_used
     issues: list[str] = []
@@ -114,6 +128,8 @@ def score_answer(
         issues.append("forbidden_side_effect_tool_used")
     if missing_citations:
         issues.append("citation_page_not_found")
+    if uncited_expected:
+        issues.append("expected_page_not_cited")
     total = len(case.must_include) + (1 if case.must_include_any else 0)
     covered = total - len(missing) - len(missing_any)
     coverage = covered / total if total else 1.0
@@ -130,10 +146,17 @@ def score_answer(
         missing_citations,
         side_effect_free,
         tuple(issues),
+        uncited_expected=uncited_expected,
+        citation_precision=citation_precision,
+        citation_recall=citation_recall,
     )
 
 
 def summarize(scores: list[QAScore]) -> dict[str, Any]:
+    def _mean(values: list[float | None]) -> float | None:
+        present = [v for v in values if v is not None]
+        return sum(present) / len(present) if present else None
+
     return {
         "cases": len(scores),
         "passed": sum(x.passed for x in scores),
@@ -141,4 +164,6 @@ def summarize(scores: list[QAScore]) -> dict[str, Any]:
         "answer_present": sum(x.answer_present for x in scores),
         "mean_coverage": sum(x.coverage for x in scores) / len(scores) if scores else 0.0,
         "side_effect_free": sum(x.side_effect_free for x in scores),
+        "citation_precision": _mean([x.citation_precision for x in scores]),
+        "citation_recall": _mean([x.citation_recall for x in scores]),
     }
