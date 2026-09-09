@@ -7,15 +7,19 @@ from evals.judges.semantic_judge import check_judge_json
 
 
 def _valid():
-    item = {"score": 4, "evidence": ["有证据"], "issues": []}
     return {
-        "source_fidelity": item,
-        "search_relevance": item,
-        "analysis_quality": item,
-        "plan_quality": item,
-        "page_quality": item,
-        "unsupported_claims": [],
-        "confidence": 0.8,
+        "grounding": {
+            "claims": [
+                {
+                    "claim": "事实",
+                    "verdict": "supported",
+                    "evidence": "有证据",
+                    "critical": True,
+                }
+            ]
+        },
+        "coverage": {"facts": [{"fact_id": "fact-01", "verdict": "covered", "evidence": "有证据"}]},
+        "unknown_reasons": [],
         "verdict": "pass",
         "summary": "通过",
     }
@@ -28,9 +32,9 @@ def test_judge_schema_accepts_json_fence():
     assert ok, reason
 
 
-def test_judge_schema_rejects_bad_score():
+def test_judge_schema_rejects_bad_binary_verdict():
     data = _valid()
-    data["plan_quality"]["score"] = 6
+    data["grounding"]["claims"][0]["verdict"] = "maybe"
     ok, reason = check_judge_json(__import__("json").dumps(data))
     assert not ok
-    assert "score" in reason
+    assert "verdict" in reason
