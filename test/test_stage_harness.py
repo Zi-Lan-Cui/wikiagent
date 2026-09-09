@@ -4,19 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from evals.core.harness import GoldenCase
 from evals.core.stage_harness import score_run, summarize
-
-
-def _case() -> GoldenCase:
-    return GoldenCase(
-        id="case",
-        cluster="cluster",
-        source="notes/input.md",
-        sha256="",
-        must_include=["fact"],
-        must_not_invent=[],
-    )
 
 
 def test_stage_harness_scores_valid_chain(tmp_path: Path):
@@ -71,11 +59,13 @@ def test_stage_harness_scores_valid_chain(tmp_path: Path):
         encoding="utf-8",
     )
 
-    result = score_run(run, tmp_path, [_case()])[0]
+    result = score_run(run, tmp_path)[0]
     assert result.search.passed
     assert result.analyze.passed
     assert result.plan.passed
     assert summarize([result])["plan"]["pass_rate"] == 1.0
+    # 阶段契约是诊断、非门控（原则2）
+    assert result.search.gating is False
 
 
 def test_stage_harness_rejects_ghost_and_duplicate_targets(tmp_path: Path):
@@ -105,6 +95,6 @@ def test_stage_harness_rejects_ghost_and_duplicate_targets(tmp_path: Path):
         encoding="utf-8",
     )
 
-    result = score_run(run, tmp_path, [_case()])[0]
+    result = score_run(run, tmp_path)[0]
     assert not result.search.passed
     assert not result.plan.passed

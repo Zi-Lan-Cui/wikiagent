@@ -41,6 +41,11 @@ def score_refine_run(run_dir: Path, wiki_dir: Path) -> list[RefineCaseScore]:
             if isinstance(t, dict)
         ]
         current = source.removesuffix(".md")
+        noop = (
+            before.is_file()
+            and after.is_file()
+            and before.read_bytes() == after.read_bytes()
+        )
         failures: list[str] = []
         checks = {
             "source_recorded": bool(source),
@@ -54,6 +59,8 @@ def score_refine_run(run_dir: Path, wiki_dir: Path) -> list[RefineCaseScore]:
             # refine 的 source 是知识页本身；不应在该页面 artifact 下出现
             # 新的 sources 产物。已有 sources 档案页可以继续保留。
             "no_source_artifact": not (folder / "sources").exists(),
+            # 诚实 no-op：无变化就应当没有 update 目标；声称更新却没改 = 谎报/半成品
+            "noop_honest": (not noop) or (not target_paths),
         }
         if meta.get("status") == "failed" and after.exists():
             checks["failed_has_no_after"] = False
@@ -68,6 +75,7 @@ def score_refine_run(run_dir: Path, wiki_dir: Path) -> list[RefineCaseScore]:
             "no_duplicate_targets": "plan 含重复目标",
             "no_source_artifact": "refine 产物中出现了 sources 页面",
             "failed_has_no_after": "失败页面存在 refine 后快照，疑似半成品",
+            "noop_honest": "refine 未改变页面却仍声称有 update 目标（谎报/半成品）",
         }
         failures.extend(messages[k] for k, ok in checks.items() if not ok)
         results.append(
