@@ -8,11 +8,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-from evals.core.harness import GoldenCase, load_cases, score_summary
 
 _VALID_DIRS = ("concepts/", "entities/", "topics/")
 _VALID_RELATIONS = {"duplicate", "extends", "related", "contradicts", "unrelated"}
@@ -26,13 +24,14 @@ class StageScore:
     checks: dict[str, bool]
     metrics: dict[str, int | float]
     failures: list[str]
+    # 阶段契约是诊断信号（原则2：评结果非路径），默认不 gate 最终结果。
+    gating: bool = False
 
 
 @dataclass
 class CaseStageScore:
     case_id: str
     source: str
-    summary: Any
     search: StageScore
     analyze: StageScore
     plan: StageScore
@@ -187,28 +186,28 @@ def _score_plan(data: dict[str, Any], wiki_dir: Path) -> StageScore:
     )
 
 
-def score_run(
-    run_dir: Path, wiki_dir: Path, cases: list[GoldenCase] | None = None
-) -> list[CaseStageScore]:
-    """评分一次 compile run 的 search/analyze/plan 产物。"""
+def score_run(run_dir: Path, wiki_dir: Path) -> list[CaseStageScore]:
+    """评分一次 compile run 的 search/analyze/plan 阶段契约（从 artifacts 目录自发现）。
+
+    阶段契约是【诊断】（gating=False）：报告问题但不 gate 最终结果（原则2）。
+    """
     artifacts = run_dir / "artifacts"
     results: list[CaseStageScore] = []
-    for case in cases or load_cases():
-        folder = artifacts / Path(case.source).name
-        extract = (
-            (folder / "extract.json").read_text(encoding="utf-8")
-            if (folder / "extract.json").exists()
-            else ""
-        )
+    if not artifacts.is_dir():
+        return results
+    for folder in sorted(artifacts.iterdir()):
+        if not folder.is_dir():
+            continue
+        source = folder.name
         search = _load_json(folder / "search.json", {"_missing": True, "rel_paths": []})
         analyze = _load_json(folder / "analyze.json", {"_missing": True})
+        if isinstance(analyze, dict) and not analyze.get("source"):
+            analyze["source"] = source
         plan = _load_json(folder / "plan.json", {"_missing": True, "page_targets": []})
-        summary = score_summary(case, extract)
         results.append(
             CaseStageScore(
-                case_id=case.id,
-                source=case.source,
-                summary=asdict(summary),
+                case_id=source,
+                source=source,
                 search=_score_search(search, wiki_dir),
                 analyze=_score_analyze(analyze, search),
                 plan=_score_plan(plan, wiki_dir),
@@ -221,19 +220,14 @@ def summarize(results: list[CaseStageScore]) -> dict[str, Any]:
     def stage(name: str) -> dict[str, Any]:
         values = [getattr(r, name) for r in results]
         return {
+            "gating": values[0].gating if values else False,
             "passed": sum(v.passed for v in values),
             "total": len(values),
             "pass_rate": sum(v.passed for v in values) / len(values) if values else 0.0,
         }
 
-    summary_passed = sum(r.summary["passed"] for r in results)
     return {
         "cases": len(results),
-        "summary": {
-            "passed": summary_passed,
-            "total": len(results),
-            "pass_rate": summary_passed / len(results) if results else 0.0,
-        },
         "search": stage("search"),
         "analyze": stage("analyze"),
         "plan": stage("plan"),
