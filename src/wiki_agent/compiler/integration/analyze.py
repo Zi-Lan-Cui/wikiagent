@@ -58,9 +58,9 @@ class Analyzer:
         Raises:
             IngestError: 校验穷尽后仍失败。
         """
-        if not result.rel_paths:
-            return AnalysisResult(source_identity=extract.source_identity)
-
+        # 空候选也走完整分析——候选页面只影响 relationship 段，不影响
+        # 文档内部知识结构的自由分析（entities/concepts/呼应/对比）。
+        # 早退会让 plan 失去决策依据，且使首跑结果依赖文件顺序。
         outlines: list[str] = []
         for path in result.rel_paths:
             content = await self._read_page(path)
