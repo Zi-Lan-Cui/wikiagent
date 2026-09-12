@@ -224,12 +224,14 @@ def inject_metadata(
     source_identity: str,
     today: str,
     existing: dict | None,
+    page_type: str = "",
 ) -> str:
-    """注入 created/updated/sources 到 frontmatter——系统权威字段，无视 LLM。
+    """注入 created/updated/sources/type 到 frontmatter——系统权威字段，无视 LLM。
 
     - created: 新页面用 today，已有页面保留旧的
     - updated: 始终改为 today
     - sources: 追加 source_identity（去重）
+    - type: page_type 非空时强制覆盖——路由与类型是 plan 的单一权威决策
 
     防御: LLM 偶发输出空 frontmatter（``---\\n---``）或连续 frontmatter，
     先合并再注入——否则第二段会被误当正文，产生双重 frontmatter。
@@ -239,6 +241,7 @@ def inject_metadata(
         source_identity: 源文档标识（追加进 sources）。
         today: 当天日期（updated 用）。
         existing: 已有页面 frontmatter（保留旧 created/sources）。
+        page_type: plan 决策的页面类型（new 页面）；空串不改动。
 
     Returns:
         注入元数据后的内容。
@@ -285,6 +288,13 @@ def inject_metadata(
         )
     else:
         new_fm += f"\nsources: [{sources_str}]"
+    # type: plan 决策的单一权威——generate 写的 type 只是占位，
+    # 以系统注入为准（空串=update 目标，沿用已有页面 type 不动）
+    if page_type:
+        if "type:" in new_fm:
+            new_fm = re.sub(r"^type:.*$", f"type: {page_type}", new_fm, flags=re.MULTILINE)
+        else:
+            new_fm += f"\ntype: {page_type}"
 
     return f"---\n{new_fm}{rest}"
 
@@ -302,12 +312,13 @@ def normalize_page(
     source_identity: str = "",
     today: str = "",
     existing: dict | None = None,
+    page_type: str = "",
 ) -> tuple[str, list[Issue]]:
     """页面规范化——完整处理链的唯一入口。
 
     fix（修 LLM 脏）→ inject（系统权威）→ check（最后闸门）:
     1. fix_markdown_fence → fix_wikilinks
-    2. inject_metadata → extract_related
+    2. inject_metadata（含 plan 决策的 page_type 覆盖）→ extract_related
     3. check_page_quality（quality 模块）
 
     Args:
@@ -317,6 +328,9 @@ def normalize_page(
         source_identity: 源文档标识。
         today: 当天日期。
         existing: 已有页面 frontmatter。
+        page_type: plan 决策的页面类型（new 页面）。非空时强制覆盖
+            frontmatter 的 type——路由与类型是 plan 的单一权威决策，
+            generate 的 type 只是占位，以系统注入为准。
 
     Returns:
         (规范化后的 content, issues)。issues 含 error 时调用方拒绝落盘。
@@ -332,6 +346,7 @@ def normalize_page(
         source_identity=source_identity,
         today=today,
         existing=existing,
+        page_type=page_type,
     )
     content = extract_related(content, valid_slugs=valid_slugs)
 

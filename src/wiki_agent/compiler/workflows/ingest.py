@@ -314,6 +314,17 @@ class CompilePipeline:
                 if (self._wiki_dir / _normalize(t.wiki_path)).exists()
             ]
         except IngestError:
+            # execute 部分成功：失败 source 的存活页面仍要进 index。
+            # 若跳过，磁盘有 index 无的页面（幽灵页）对 search/analyze
+            # 不可见，后续编译无法命中——历史缺陷：部分失败的 source
+            # 全部页面漏索引，重试补页也修不回（index 只追加不重建）。
+            written = [
+                t.wiki_path
+                for t in outcome.plan.page_targets
+                if (self._wiki_dir / _normalize(t.wiki_path)).exists()
+            ]
+            if written:
+                self._append_index(outcome.plan, written)
             raise
         except WikiAgentError as e:
             raise IngestError(IngestStage.EXECUTE, str(e), source=raw_file.name, cause=e) from e
