@@ -165,6 +165,126 @@ def test_pipeline_preserves_structured_execute_error(tmp_path: Path):
     assert caught.value.error_code == "page_generation_failed"
 
 
+def test_empty_search_candidates_still_reach_plan(tmp_path):
+    """空候选（冷启动）不得让 pipeline 跳过 analyze→plan。
+
+    回归: 首跑时 index 无候选页，pipeline 曾返回空分析并跳过 plan，
+    导致结果依赖文件顺序、首篇永远 noop。修复后 analyze 收到空
+    候选也执行，plan 拿到分析文本后自主决策。
+    """
+    class Converter:
+        async def convert(self, _):
+            return ConvertedFile(
+                content="# 有内容\n正文",
+                name="中文笔记.md",
+                ext="md",
+                path=str(tmp_path / "中文笔记.md"),
+                modality="rich",
+            )
+
+    class Extractor:
+        async def extract(self, _):
+            return ExtractResult(source_identity="中文笔记.md", document_summary="摘要")
+
+    class Integrator:
+        async def search(self, *_):
+            return SearchResult()  # 冷启动: 无候选
+
+        async def analyze(self, *_):
+            # 不再早退——即使无候选也应产出分析文本
+            return AnalysisResult(source_identity="中文笔记.md", analysis_text="分析文本")
+
+        def __init__(self):
+            self.planned = False
+
+        async def plan(self, *_args, **_kwargs):
+            self.planned = True
+            return IntegrationPlan(
+                page_targets=[PageTarget("concepts/example.md", "Example", Disposition.NEW)]
+            )
+
+        async def execute(self, *_):
+            return [PageTarget("concepts/example.md", "Example", Disposition.NEW)]
+
+    (tmp_path / "index.md").write_text("", encoding="utf-8")
+    pipeline = _pipeline(Converter(), Extractor())
+    pipeline._wiki_dir = tmp_path
+    pipeline._integrator = Integrator()
+    pipeline._ensure_index = lambda: None
+    pipeline._read_optional = lambda _name: ""
+    pipeline._current_page = lambda _raw: ""
+    pipeline._append_index = lambda _plan, _written: None
+    pipeline._index_reader = None
+
+    asyncio.run(pipeline._ingest_one(_raw(tmp_path)))
+
+    assert pipeline._integrator.planned
+
+
+def test_partial_execute_failure_still_indexes_written_pages(tmp_path):
+    """execute 部分成功：失败 source 的存活页面必须进 index。
+
+    回归: execute 多目标并行生成，部分页面失败会抛 IngestError 并
+    跳过 _append_index——成功落盘的页面因此变成幽灵页（磁盘有、
+    index 无），对后续 search/analyze 不可见。
+    """
+    (tmp_path / "index.md").write_text("", encoding="utf-8")
+    (tmp_path / "concepts").mkdir()
+
+    class Converter:
+        async def convert(self, _):
+            return ConvertedFile(
+                content="# 有内容\n正文",
+                name="中文笔记.md",
+                ext="md",
+                path=str(tmp_path / "中文笔记.md"),
+                modality="rich",
+            )
+
+    class Extractor:
+        async def extract(self, _):
+            return ExtractResult(source_identity="中文笔记.md", document_summary="摘要")
+
+    class Integrator:
+        async def search(self, *_):
+            return SearchResult()
+
+        async def analyze(self, *_):
+            return AnalysisResult(source_identity="中文笔记.md", analysis_text="分析")
+
+        async def plan(self, *_args, **_kwargs):
+            return IntegrationPlan(
+                page_targets=[PageTarget("concepts/example.md", "Example", Disposition.NEW)]
+            )
+
+        async def execute(self, *_):
+            # 页面先落盘，随后整体抛错——模拟部分成功
+            page = tmp_path / "concepts" / "example.md"
+            page.write_text(
+                "---\n"
+                "type: concept\n"
+                "title: Example\n"
+                "summary: 示例页\n"
+                "goal: 示例\n"
+                "sources: [中文笔记.md]\n"
+                "---\n# Example\n正文内容\n"
+            )
+            raise IngestError(IngestStage.EXECUTE, "1 个页面生成失败", source="中文笔记.md")
+
+    pipeline = _pipeline(Converter(), Extractor())
+    pipeline._wiki_dir = tmp_path
+    pipeline._integrator = Integrator()
+    pipeline._ensure_index = lambda: None
+    pipeline._read_optional = lambda _name: ""
+    pipeline._current_page = lambda _raw: ""
+    pipeline._index_reader = None
+
+    with pytest.raises(IngestError):
+        asyncio.run(pipeline._ingest_one(_raw(tmp_path)))
+
+    assert "[[concepts/example]]" in (tmp_path / "index.md").read_text(encoding="utf-8")
+
+
 def test_index_entry_contains_goal(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir()

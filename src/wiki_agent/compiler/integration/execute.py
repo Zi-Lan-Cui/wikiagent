@@ -162,6 +162,7 @@ class Executor:
                     source_identity=source,
                     today=today,
                     existing=existing_fm,
+                    page_type=target.page_type,
                 )
                 for issue in issues:
                     if issue.level == "error":
