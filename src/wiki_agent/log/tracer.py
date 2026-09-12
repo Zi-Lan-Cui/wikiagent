@@ -21,6 +21,10 @@ _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "wiki_trace_id",
     default=None,
 )
+_span_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "wiki_span_id",
+    default=None,
+)
 
 
 def current_trace_id() -> str | None:
@@ -30,6 +34,15 @@ def current_trace_id() -> str | None:
         当前 trace_id；未开启 trace 时返回 None。
     """
     return _trace_id_var.get()
+
+
+def current_span_id() -> str | None:
+    """返回当前 context 的 span_id。
+
+    Returns:
+        当前 span_id；不在 span 内时返回 None。
+    """
+    return _span_id_var.get()
 
 
 def begin_trace(trace_id: str | None = None) -> str:
@@ -59,7 +72,7 @@ class span:
           然后 re-raise（span 只观察，不吞异常）
     """
 
-    __slots__ = ("_event", "_attrs", "_started", "_status", "_error")
+    __slots__ = ("_event", "_attrs", "_started", "_status", "_error", "_span_id", "_token", "_prev_span_id")
 
     def __init__(self, event: str, **attrs: Any):
         """初始化 span。
@@ -73,9 +86,24 @@ class span:
         self._started = 0.0
         self._status = "ok"
         self._error: str | None = None
+        self._span_id = ""
+        self._token = None
+        self._prev_span_id: str | None = None
 
     async def __aenter__(self) -> span:
         self._started = time.perf_counter()
+        self._span_id = f"span_{time.perf_counter_ns():x}"
+        self._prev_span_id = _span_id_var.get()
+        self._token = _span_id_var.set(self._span_id)
+
+        from wiki_agent.log.events import emit_event
+
+        emit_event(
+            "span_started",
+            span=self._event,
+            span_id=self._span_id,
+            parent_span_id=self._prev_span_id,
+        )
         return self
 
     # ── 观测属性写入接口（替代直接访问 _attrs 的跨模块耦合）──
@@ -107,10 +135,15 @@ class span:
 
         emit_event(
             self._event,
+            span_id=self._span_id,
             dur_ms=round(dur_ms, 1),
             status=self._status,
             **({"error": self._error} if self._error else {}),
             **self._attrs,
         )
+        if self._token is not None:
+            _span_id_var.reset(self._token)
+        if self._prev_span_id is not None:
+            _span_id_var.set(self._prev_span_id)
         # 不吞异常——返回 None 即让异常照常传播（类型检查据此不误判可抑制）
         return
