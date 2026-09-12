@@ -1,0 +1,20 @@
+{
+  "source": "note-saga-compensation.md",
+  "target": {
+    "wiki_path": "concepts/idempotency-key.md",
+    "title": "idempotency-key.md",
+    "disposition": "update",
+    "page_type": "",
+    "reason": "补充幂等键在Saga补偿场景下的具体应用约束。在现有幂等键页面的'应用场景'或'使用约束'章节中，补充：1）Saga模式中补偿操作必须使用独立幂等键，不能与原操作共用幂等键；2）这是Saga三条关键纪律之一，确保补偿操作的幂等性。这实质性补充了幂等键在分布式事务场景下的应用维度。",
+    "references": [
+      {
+        "slug": "entities/saga-pattern",
+        "reason": "Saga模式是幂等键独立使用约束的来源场景"
+      },
+      {
+        "slug": "concepts/compensation-operation",
+        "reason": "补偿操作的幂等性要求直接依赖幂等键机制"
+      }
+    ]
+  }
+}

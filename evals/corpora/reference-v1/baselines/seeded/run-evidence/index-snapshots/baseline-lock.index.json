@@ -1,0 +1,4 @@
+{
+  "source": "baseline-lock.md",
+  "index_content": "## 已有页面 Index（references 的 slug 必须从中选取或为本次 new 页面）\n---\ntype: index\ntitle: \"Reference Eval Empty Baseline\"\nsummary: \"Expert Reference 评测的空白 Wiki 基线。\"\ngoal: \"为新建型 case 提供相同且可重置的初始状态。\"\nsources: []\nrelated: []\n---\n\n# Reference Eval Empty Baseline\n\n本页只声明评测基线，不提供任何领域知识。\n"
+}

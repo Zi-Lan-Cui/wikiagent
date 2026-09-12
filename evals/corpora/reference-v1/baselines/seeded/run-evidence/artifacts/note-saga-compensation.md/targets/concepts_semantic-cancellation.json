@@ -1,0 +1,11 @@
+{
+  "source": "note-saga-compensation.md",
+  "target": {
+    "wiki_path": "concepts/semantic-cancellation.md",
+    "title": "semantic-cancellation.md",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取语义抵消作为补偿操作的核心语义特性创建独立页。文档提供了至少两个独立事实：1）补偿操作的语义是'语义抵消'而非物理撤销；2）具体示例包括库存扣减的补偿是'回补'、支付预下单的补偿是'释放冻结'。现有页面无法承载，因为语义抵消是理解补偿操作设计的关键概念，具有独立的定义和示例。",
+    "references": []
+  }
+}

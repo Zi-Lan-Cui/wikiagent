@@ -1,0 +1,20 @@
+{
+  "source": "note-timeout-degradation.md",
+  "page_targets": [
+    {
+      "wiki_path": "concepts/retry-mechanism.md",
+      "title": "重试机制",
+      "disposition": "update",
+      "page_type": "",
+      "reason": "补充deadline场景下重试行为的具体案例：1. 在'超时与预算'小节中，增加deadline传递如何将重试次数从静态配置值变为动态值（受剩余预算约束）的说明；2. 增加监控维度：区分'次数上限拦截'与'预算拦截'两种重试终止原因；3. 补充deadline传递缺口与重试框架缺口的关联说明。"
+    },
+    {
+      "wiki_path": "concepts/global-retry-budget.md",
+      "title": "全局重试预算",
+      "disposition": "update",
+      "page_type": "",
+      "reason": "补充与链路级deadline预算的协同视角：在现有内容中增加一小节，说明两种预算机制的互补关系——deadline预算（时间维度，逐层透传剩余时间约束单次调用重试）与全局重试预算（次数/流量维度，宏观约束重试总量），并提及两者在工程实践中需要协同设计。"
+    }
+  ],
+  "raw": "{\"page_targets\": [{\"wiki_path\": \"wiki/concepts/retry-mechanism.md\", \"title\": \"重试机制\", \"disposition\": \"update\", \"reason\": \"补充deadline场景下重试行为的具体案例：1. 在'超时与预算'小节中，增加deadline传递如何将重试次数从静态配置值变为动态值（受剩余预算约束）的说明；2. 增加监控维度：区分'次数上限拦截'与'预算拦截'两种重试终止原因；3. 补充deadline传递缺口与重试框架缺口的关联说明。\", \"references\": []}, {\"wiki_path\": \"wiki/concepts/global-retry-budget.md\", \"title\": \"全局重试预算\", \"disposition\": \"update\", \"reason\": \"补充与链路级deadline预算的协同视角：在现有内容中增加一小节，说明两种预算机制的互补关系——deadline预算（时间维度，逐层透传剩余时间约束单次调用重试）与全局重试预算（次数/流量维度，宏观约束重试总量），并提及两者在工程实践中需要协同设计。\", \"references\": []}]}"
+}

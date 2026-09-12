@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "entities/batch-backfill.md",
+    "title": "批量回填",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取数据回填技术手段创建独立页。source 提供了两个关键事实：1) 批量回填是数据回填方式之一；2) 适合数据量大、切换时间紧的场景。内容相对独立，但作为技术手段，其独立性略弱于流程和原则。考虑到与懒回填构成对比，且各自有明确适用场景，可独立建页。现有页面无相关主题，需新建。"
+  }
+}

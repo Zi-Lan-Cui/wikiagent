@@ -1,0 +1,10 @@
+{
+  "source": "baseline-logging.md",
+  "target": {
+    "wiki_path": "entities/request-id.md",
+    "title": "request_id",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取核心字段实体。request_id是贯穿全文的枢纽，出现在字段规范、级别策略、采样策略三个层次中，是串联跨服务调用链的关键。文档提供了其生成时机（请求入口）、传递方式（随调用链）、核心作用（串联调用链）以及与trace_id的关系（尚未打通）等多个独立事实，足以支撑一个独立页面。"
+  }
+}

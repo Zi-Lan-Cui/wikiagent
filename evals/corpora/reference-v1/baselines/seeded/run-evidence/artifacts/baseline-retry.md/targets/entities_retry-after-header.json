@@ -1,0 +1,10 @@
+{
+  "source": "baseline-retry.md",
+  "target": {
+    "wiki_path": "entities/retry-after-header.md",
+    "title": "Retry-After头",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "文档将Retry-After头作为一个具体的协议特性进行讨论，澄清其影响“何时重试”而非“该不该重试”，并指出其当前未被处理的状态。这是一个独立的协议实体，现有页面无覆盖。"
+  }
+}

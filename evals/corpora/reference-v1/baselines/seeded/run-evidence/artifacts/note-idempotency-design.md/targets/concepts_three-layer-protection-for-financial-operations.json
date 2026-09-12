@@ -1,0 +1,16 @@
+{
+  "source": "note-idempotency-design.md",
+  "target": {
+    "wiki_path": "concepts/three-layer-protection-for-financial-operations.md",
+    "title": "three-layer-protection-for-financial-operations.md",
+    "disposition": "update",
+    "page_type": "",
+    "reason": "补充文档中关于三层体系中'幂等'层的深度工程实践细节，具体包括：1. 幂等记录的存储分层（Redis + 数据库两层防护）；2. 幂等并发处理（利用业务表唯一约束）；3. 幂等记录清理策略。这些内容作为幂等层的具体展开。",
+    "references": [
+      {
+        "slug": "concepts/idempotency-key",
+        "reason": "对照幂等键在三层体系中的具体实现"
+      }
+    ]
+  }
+}

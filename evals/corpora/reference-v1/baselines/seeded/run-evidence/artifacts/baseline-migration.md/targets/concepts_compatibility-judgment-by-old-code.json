@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "concepts/compatibility-judgment-by-old-code.md",
+    "title": "以旧代码为准的兼容性判断",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取核心判断原则创建独立页。source 提供了两个关键事实：1) 判断数据库变更是否兼容时，以旧代码的运行能力为基准；2) 确保变更后旧代码仍能正常运行。这是扩展阶段'向后兼容'要求的具体判断标准，具有独立的方法论价值。现有页面无相关主题，需新建。"
+  }
+}

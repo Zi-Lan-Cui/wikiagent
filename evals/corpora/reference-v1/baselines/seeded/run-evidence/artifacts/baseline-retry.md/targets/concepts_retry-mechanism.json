@@ -1,0 +1,10 @@
+{
+  "source": "baseline-retry.md",
+  "target": {
+    "wiki_path": "concepts/retry-mechanism.md",
+    "title": "重试机制",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档核心视角提取重试机制作为独立概念。文档系统阐述了重试的目的（抹掉暂时性故障）、核心矛盾（提升成功率 vs 避免重试风暴）、设计框架（错误分类、幂等、退避、预算）以及具体事故案例。现有页面无相关主题，需新建。"
+  }
+}

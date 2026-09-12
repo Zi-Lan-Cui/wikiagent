@@ -1,0 +1,96 @@
+{
+  "source": "note-saga-compensation.md",
+  "page_targets": [
+    {
+      "wiki_path": "entities/saga-pattern.md",
+      "title": "saga-pattern.md",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "从文档提取Saga模式作为核心架构模式创建独立实体页。文档提供了至少两个独立事实：1）Saga模式的核心思想是将跨服务流程拆分为一串本地事务，每个事务配有一个补偿操作，失败时逆序执行补偿以实现最终一致性；2）Saga模式需要状态机持久化、补偿幂等、补偿的补偿三层防护。现有页面无法承载，因为当前Wiki中没有专门阐述Saga模式的页面，且其作为分布式事务解决方案具有独立身份和丰富内容。",
+      "references": [
+        {
+          "slug": "concepts/idempotency-key",
+          "reason": "Saga模式的补偿幂等纪律直接依赖幂等键机制"
+        },
+        {
+          "slug": "concepts/three-layer-protection-for-financial-operations",
+          "reason": "对照资金类三层保障体系，区分不同场景下的三层防护框架"
+        }
+      ]
+    },
+    {
+      "wiki_path": "entities/tcc-pattern.md",
+      "title": "tcc-pattern.md",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "从文档提取TCC模式作为与Saga对比的核心架构模式创建独立实体页。文档提供了至少两个独立事实：1）TCC模式要求服务实现Try-Confirm-Cancel三态接口；2）TCC通过全程锁资源追求更强的中间一致性，但实现成本较高。现有页面无法承载，因为当前Wiki中没有专门阐述TCC模式的页面，且其作为分布式事务解决方案具有独立身份和明确边界。",
+      "references": [
+        {
+          "slug": "entities/saga-pattern",
+          "reason": "对照Saga模式，理解两种分布式事务方案的差异"
+        }
+      ]
+    },
+    {
+      "wiki_path": "concepts/compensation-operation.md",
+      "title": "compensation-operation.md",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "从文档提取补偿操作作为Saga模式的核心概念创建独立页。文档提供了至少两个独立事实：1）补偿操作的语义是'语义抵消'而非物理撤销，如库存扣减的补偿是'回补'、支付预下单的补偿是'释放冻结'；2）补偿操作必须幂等且使用独立幂等键，不能与原操作共用幂等键。现有页面无法承载，因为补偿操作是分布式事务中的关键概念，具有独立的设计原则和约束。",
+      "references": [
+        {
+          "slug": "entities/saga-pattern",
+          "reason": "补偿操作是Saga模式的核心组成部分"
+        },
+        {
+          "slug": "concepts/idempotency-key",
+          "reason": "补偿操作的幂等性直接依赖幂等键机制"
+        }
+      ]
+    },
+    {
+      "wiki_path": "concepts/saga-three-layer-protection.md",
+      "title": "saga-three-layer-protection.md",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "从文档提取Saga三层防护作为核心设计原则创建独立页。文档提供了至少两个独立事实：1）Saga模式需要状态机持久化、补偿幂等、补偿的补偿三层防护；2）这三层防护是Saga模式可靠运行的必要条件。现有页面无法承载，因为这是Saga模式特有的防护体系，与资金类三层保障体系在内涵和应用场景上不同。",
+      "references": [
+        {
+          "slug": "entities/saga-pattern",
+          "reason": "Saga三层防护是Saga模式可靠运行的核心保障"
+        },
+        {
+          "slug": "concepts/three-layer-protection-for-financial-operations",
+          "reason": "对照资金类三层保障体系，区分不同场景下的防护框架"
+        }
+      ]
+    },
+    {
+      "wiki_path": "concepts/semantic-cancellation.md",
+      "title": "semantic-cancellation.md",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "从文档提取语义抵消作为补偿操作的核心语义特性创建独立页。文档提供了至少两个独立事实：1）补偿操作的语义是'语义抵消'而非物理撤销；2）具体示例包括库存扣减的补偿是'回补'、支付预下单的补偿是'释放冻结'。现有页面无法承载，因为语义抵消是理解补偿操作设计的关键概念，具有独立的定义和示例。",
+      "references": []
+    },
+    {
+      "wiki_path": "concepts/idempotency-key.md",
+      "title": "idempotency-key.md",
+      "disposition": "update",
+      "page_type": "",
+      "reason": "补充幂等键在Saga补偿场景下的具体应用约束。在现有幂等键页面的'应用场景'或'使用约束'章节中，补充：1）Saga模式中补偿操作必须使用独立幂等键，不能与原操作共用幂等键；2）这是Saga三条关键纪律之一，确保补偿操作的幂等性。这实质性补充了幂等键在分布式事务场景下的应用维度。",
+      "references": [
+        {
+          "slug": "entities/saga-pattern",
+          "reason": "Saga模式是幂等键独立使用约束的来源场景"
+        },
+        {
+          "slug": "concepts/compensation-operation",
+          "reason": "补偿操作的幂等性要求直接依赖幂等键机制"
+        }
+      ]
+    }
+  ],
+  "raw": "```json\n{\n  \"page_targets\": [\n    {\n      \"wiki_path\": \"wiki/entities/saga-pattern\",\n      \"title\": \"Saga模式\",\n      \"disposition\": \"new\",\n      \"page_type\": \"entity\",\n      \"reason\": \"从文档提取Saga模式作为核心架构模式创建独立实体页。文档提供了至少两个独立事实：1）Saga模式的核心思想是将跨服务流程拆分为一串本地事务，每个事务配有一个补偿操作，失败时逆序执行补偿以实现最终一致性；2）Saga模式需要状态机持久化、补偿幂等、补偿的补偿三层防护。现有页面无法承载，因为当前Wiki中没有专门阐述Saga模式的页面，且其作为分布式事务解决方案具有独立身份和丰富内容。\",\n      \"references\": [\n        {\n          \"slug\": \"concepts/idempotency-key\",\n          \"reason\": \"Saga模式的补偿幂等纪律直接依赖幂等键机制\"\n        },\n        {\n          \"slug\": \"concepts/three-layer-protection-for-financial-operations\",\n          \"reason\": \"对照资金类三层保障体系，区分不同场景下的三层防护框架\"\n        }\n      ]\n    },\n    {\n      \"wiki_path\": \"wiki/entities/tcc-pattern\",\n      \"title\": \"TCC模式\",\n      \"disposition\": \"new\",\n      \"page_type\": \"entity\",\n      \"reason\": \"从文档提取TCC模式作为与Saga对比的核心架构模式创建独立实体页。文档提供了至少两个独立事实：1）TCC模式要求服务实现Try-Confirm-Cancel三态接口；2）TCC通过全程锁资源追求更强的中间一致性，但实现成本较高。现有页面无法承载，因为当前Wiki中没有专门阐述TCC模式的页面，且其作为分布式事务解决方案具有独立身份和明确边界。\",\n      \"references\": [\n        {\n          \"slug\": \"entities/saga-pattern\",\n          \"reason\": \"对照Saga模式，理解两种分布式事务方案的差异\"\n        }\n      ]\n    },\n    {\n      \"wiki_path\": \"wiki/concepts/compensation-operation\",\n      \"title\": \"补偿操作\",\n      \"disposition\": \"new\",\n      \"page_type\": \"concept\",\n      \"reason\": \"从文档提取补偿操作作为Saga模式的核心概念创建独立页。文档提供了至少两个独立事实：1）补偿操作的语义是'语义抵消'而非物理撤销，如库存扣减的补偿是'回补'、支付预下单的补偿是'释放冻结'；2）补偿操作必须幂等且使用独立幂等键，不能与原操作共用幂等键。现有页面无法承载，因为补偿操作是分布式事务中的关键概念，具有独立的设计原则和约束。\",\n      \"references\": [\n        {\n          \"slug\": \"entities/saga-pattern\",\n          \"reason\": \"补偿操作是Saga模式的核心组成部分\"\n        },\n        {\n          \"slug\": \"concepts/idempotency-key\",\n          \"reason\": \"补偿操作的幂等性直接依赖幂等键机制\"\n        }\n      ]\n    },\n    {\n      \"wiki_path\": \"wiki/concepts/saga-three-layer-protection\",\n      \"title\": \"Saga三层防护\",\n      \"disposition\": \"new\",\n      \"page_type\": \"concept\",\n      \"reason\": \"从文档提取Saga三层防护作为核心设计原则创建独立页。文档提供了至少两个独立事实：1）Saga模式需要状态机持久化、补偿幂等、补偿的补偿三层防护；2）这三层防护是Saga模式可靠运行的必要条件。现有页面无法承载，因为这是Saga模式特有的防护体系，与资金类三层保障体系在内涵和应用场景上不同。\",\n      \"references\": [\n        {\n          \"slug\": \"entities/saga-pattern\",\n          \"reason\": \"Saga三层防护是Saga模式可靠运行的核心保障\"\n        },\n        {\n          \"slug\": \"concepts/three-layer-protection-for-financial-operations\",\n          \"reason\": \"对照资金类三层保障体系，区分不同场景下的防护框架\"\n        }\n      ]\n    },\n    {\n      \"wiki_path\": \"wiki/concepts/semantic-cancellation\",\n      \"title\": \"语义抵消\",\n      \"disposition\": \"new\",\n      \"page_type\": \"concept\",\n      \"reason\": \"从文档提取语义抵消作为补偿操作的核心语义特性创建独立页。文档提供了至少两个独立事实：1）补偿操作的语义是'语义抵消'而非物理撤销；2）具体示例包括库存扣减的补偿是'回补'、支付预下单的补偿是'释放冻结'。现有页面无法承载，因为语义抵消是理解补偿操作设计的关键概念，具有独立的定义和示例。\",\n      \"references\": [\n        {\n          \"slug\": \"wiki/concepts/compensation-operation\",\n          \"reason\": \"语义抵消是补偿操作的核心语义特性\"\n        }\n      ]\n    },\n    {\n      \"wiki_path\": \"wiki/concepts/idempotency-key\",\n      \"title\": \"幂等键\",\n      \"disposition\": \"update\",\n      \"reason\": \"补充幂等键在Saga补偿场景下的具体应用约束。在现有幂等键页面的'应用场景'或'使用约束'章节中，补充：1）Saga模式中补偿操作必须使用独立幂等键，不能与原操作共用幂等键；2）这是Saga三条关键纪律之一，确保补偿操作的幂等性。这实质性补充了幂等键在分布式事务场景下的应用维度。\",\n      \"references\": [\n        {\n          \"slug\": \"entities/saga-pattern\",\n          \"reason\": \"Saga模式是幂等键独立使用约束的来源场景\"\n        },\n        {\n          \"slug\": \"concepts/compensation-operation\",\n          \"reason\": \"补偿操作的幂等性要求直接依赖幂等键机制\"\n        }\n      ]\n    }\n  ]\n}\n```",
+  "_recovered_from": "transcript+events（首跑失败未落盘）"
+}

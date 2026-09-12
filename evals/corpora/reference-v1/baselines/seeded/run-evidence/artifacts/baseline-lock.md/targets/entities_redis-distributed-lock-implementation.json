@@ -1,0 +1,10 @@
+{
+  "source": "baseline-lock.md",
+  "target": {
+    "wiki_path": "entities/redis-distributed-lock-implementation.md",
+    "title": "Redis分布式锁实现机制",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取具体技术实现创建独立页。该实体详细描述了分布式锁的工程实现，包括获取（SET NX PX原子命令）、释放（Lua脚本原子校验token）、租约（TTL设置）与续期机制。source 提供了至少两个独立事实：1) 获取与释放的具体命令和原子性保证；2) 租约时间设置原则（p95耗时的两到三倍）与续期校验逻辑。现有空库无法承载此具体实现细节。"
+  }
+}

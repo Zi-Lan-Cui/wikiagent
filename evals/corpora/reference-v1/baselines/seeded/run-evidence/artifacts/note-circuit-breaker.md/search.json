@@ -1,0 +1,9 @@
+{
+  "source": "note-circuit-breaker.md",
+  "rel_paths": [
+    "concepts/retry-mechanism.md",
+    "concepts/retry-storm.md",
+    "concepts/retry-amplification-factor.md"
+  ],
+  "raw": "[\"concepts/retry-mechanism\", \"concepts/retry-storm\", \"concepts/retry-amplification-factor\"]"
+}

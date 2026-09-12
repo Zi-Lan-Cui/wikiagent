@@ -1,0 +1,10 @@
+{
+  "source": "baseline-lock.md",
+  "target": {
+    "wiki_path": "entities/fencing-token.md",
+    "title": "Fencing Token",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取架构方案创建独立页。该实体是解决锁过期后资源被旧持有者污染的系统性方案，通过单调递增的序号令牌让共享资源拒绝旧序号写入。source 提供了至少两个独立事实：1) fencing token的工作原理（单调递增序号）；2) 实现前提（需要资源方参与协议）及当前状态（尚未实现）。现有空库无法承载此具体方案。"
+  }
+}

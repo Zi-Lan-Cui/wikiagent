@@ -1,0 +1,114 @@
+{
+  "source": "baseline-retry.md",
+  "schema": "compile-time-tree-v1",
+  "existing_pages": [
+    {
+      "path": "concepts/distributed-lock-lease-contract.md",
+      "type": "concept",
+      "title": "分布式锁的租约契约模型",
+      "summary": "将分布式锁定义为一份有时间限制的契约，其核心缺陷是锁的释放不依赖持有者知情，所有设计均围绕此缺陷展开补偿。",
+      "goal": "系统阐述分布式锁作为‘租约契约’的本质、执行机制、固有缺陷及其补偿方案，成为理解分布式锁设计哲学与工程实践的理论基石。"
+    },
+    {
+      "path": "entities/redis-distributed-lock-implementation.md",
+      "type": "entity",
+      "title": "Redis分布式锁实现机制",
+      "summary": "基于Redis的分布式锁获取、释放、租约与续期的具体工程实现。",
+      "goal": "系统阐述Redis分布式锁的原子命令实现、租约管理、续期逻辑及已知缺陷，作为该实体实现的完整技术参考。"
+    },
+    {
+      "path": "concepts/mutual-exclusion-is-not-correctness.md",
+      "type": "concept",
+      "title": "互斥≠正确性",
+      "summary": "分布式锁仅承诺互斥，不保证业务正确性，不能替代幂等设计。",
+      "goal": "系统阐述分布式锁的互斥承诺边界，明确其与业务正确性保障（如幂等）的区别，并基于事故案例说明为何需要多层防护。"
+    },
+    {
+      "path": "entities/fencing-token.md",
+      "type": "entity",
+      "title": "Fencing Token",
+      "summary": "一种通过单调递增序号防止锁过期后旧持有者污染共享资源的系统性方案。",
+      "goal": "系统阐述 Fencing Token 的工作原理、实现前提及其作为分布式锁租约契约缺陷补偿方案的角色。"
+    },
+    {
+      "path": "concepts/renewal-failure-only-cleanup-no-new-operations.md",
+      "type": "concept",
+      "title": "续期失败只收尾不新增规则",
+      "summary": "分布式锁续期失败时，完成当前原子操作后停止，不发起新操作，标记任务为pending-verify。",
+      "goal": "系统阐述分布式锁续期失败后的统一处理规则，包括其具体内容、落地机制（pending-verify状态）及其工程前提（可checkpoint任务设计），作为续期失败场景的决策锚点。"
+    },
+    {
+      "path": "concepts/three-layer-protection-for-financial-operations.md",
+      "type": "concept",
+      "title": "资金类三层保障体系",
+      "summary": "资金类操作需锁、幂等、对账三层保障，解决不同层面问题且不能替代。",
+      "goal": "系统阐述资金类操作中锁（互斥）、幂等（防重复）、对账（兜底）三层保障体系的构成、各自解决的问题层面及其不可替代性，作为设计资金相关操作的原则参考。"
+    }
+  ],
+  "planned_targets": [
+    {
+      "path": "concepts/retry-mechanism.md",
+      "type": "concept",
+      "title": "重试机制",
+      "summary": "",
+      "goal": "从文档核心视角提取重试机制作为独立概念。文档系统阐述了重试的目的（抹掉暂时性故障）、核心矛盾（提升成功率 vs 避免重试风暴）、设计框架（错误分类、幂等、退避、预算）以及具体事故案例。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "concepts/retry-storm.md",
+      "type": "concept",
+      "title": "重试风暴",
+      "summary": "",
+      "goal": "文档将重试风暴定义为重试机制的核心副作用和设计约束，并通过6月事故案例具体说明其成因（缺少jitter）和后果（级联故障）。这是一个独立的故障模式概念，现有页面无覆盖。",
+      "planned": true
+    },
+    {
+      "path": "concepts/idempotency-key.md",
+      "type": "concept",
+      "title": "幂等键",
+      "summary": "",
+      "goal": "文档将幂等键作为解决“可重试≠可重复”问题的关键机制，是写操作安全重试的前提。文档明确了其职责（业务侧去重）与重试框架（基础设施侧决策）的边界。现有页面无此概念。",
+      "planned": true
+    },
+    {
+      "path": "concepts/exponential-backoff.md",
+      "type": "concept",
+      "title": "指数退避",
+      "summary": "",
+      "goal": "文档将指数退避作为重试退避策略的核心参数之一（解决“别太勤”），并详细说明了其参数设置（初始200ms，上限5s）和实现注意事项（单调时钟）。现有页面无此概念。",
+      "planned": true
+    },
+    {
+      "path": "concepts/jitter.md",
+      "type": "concept",
+      "title": "随机抖动(jitter)",
+      "summary": "",
+      "goal": "文档将jitter作为解决“重试扎堆”问题的关键策略（与指数退避互补），并通过6月事故反面论证了其必要性。文档给出了具体修正方案（计算值×random(0.5, 1.5)）。现有页面无此概念。",
+      "planned": true
+    },
+    {
+      "path": "concepts/global-retry-budget.md",
+      "type": "concept",
+      "title": "全局重试预算",
+      "summary": "",
+      "goal": "文档将全局重试预算列为控制宏观重试放大系数的核心机制（解决“别太多”），并指出其当前缺失状态和实现方向（实例级/集群级配额）。这是一个独立的管控机制概念，现有页面无覆盖。",
+      "planned": true
+    },
+    {
+      "path": "concepts/retry-amplification-factor.md",
+      "type": "concept",
+      "title": "重试放大系数",
+      "summary": "",
+      "goal": "文档将重试放大系数定义为重试产生的额外流量与原始业务流量的比值，是衡量重试副作用的核心指标，需通过全局预算和熔断兜底控制。现有页面无此概念。",
+      "planned": true
+    },
+    {
+      "path": "entities/retry-after-header.md",
+      "type": "entity",
+      "title": "Retry-After头",
+      "summary": "",
+      "goal": "文档将Retry-After头作为一个具体的协议特性进行讨论，澄清其影响“何时重试”而非“该不该重试”，并指出其当前未被处理的状态。这是一个独立的协议实体，现有页面无覆盖。",
+      "planned": true
+    }
+  ]
+}

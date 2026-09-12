@@ -1,0 +1,10 @@
+{
+  "source": "baseline-jobs.md",
+  "target": {
+    "wiki_path": "entities/background-job-lifecycle.md",
+    "title": "后台任务生命周期管理",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档摘要提取后台任务生命周期管理的完整设计原则、现有实现与已知问题，创建独立实体页。关键点包括：任务状态机（queued/running/succeeded/failed）、状态转换持久化原则、领取流程、幂等性实现（task_id去重）、超时与协作式取消机制、事件发布顺序（先状态落库再发布事件）、崩溃恢复缺口（缺乏租约语义）及临时兜底方案。现有页面无直接对应实体，且内容足够独立（包含多个核心机制与问题诊断），适合新建。"
+  }
+}

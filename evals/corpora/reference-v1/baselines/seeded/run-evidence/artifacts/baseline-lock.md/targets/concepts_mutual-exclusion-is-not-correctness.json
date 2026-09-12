@@ -1,0 +1,10 @@
+{
+  "source": "baseline-lock.md",
+  "target": {
+    "wiki_path": "concepts/mutual-exclusion-is-not-correctness.md",
+    "title": "互斥≠正确性",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取核心设计原则创建独立页。该概念明确了分布式锁的边界：仅承诺互斥，不保证业务正确性，因此不能替代幂等设计。source 提供了至少两个独立事实：1) 事故复盘中锁过期导致双扣，证明互斥失效场景；2) 文档强调资金类操作需要锁、幂等、对账三层保障，三者解决不同层面问题。现有空库无法承载此重要原则。"
+  }
+}

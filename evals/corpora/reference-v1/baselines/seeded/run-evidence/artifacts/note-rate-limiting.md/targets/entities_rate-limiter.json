@@ -1,0 +1,10 @@
+{
+  "source": "note-rate-limiting.md",
+  "target": {
+    "wiki_path": "entities/rate-limiter.md",
+    "title": "限流器",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取订单网关与订单服务中限流机制的完整实践作为独立实体。文档提供了至少两个独立事实：1) 采用令牌桶算法，桶容量决定突发容忍度，参数需基于下游真实容量；2) 分布式限流通过Redis计数实现，采用窗口计数法，允许10%误差，本地预扣将Redis QPS降至请求量5%，Redis故障时fail-open。现有页面无法承载，因为这是一个具体的、有明确实现细节的技术组件，与抽象概念（如分布式限流）或协议头（如Retry-After）不同，且文档核心视角围绕此实体展开。"
+  }
+}

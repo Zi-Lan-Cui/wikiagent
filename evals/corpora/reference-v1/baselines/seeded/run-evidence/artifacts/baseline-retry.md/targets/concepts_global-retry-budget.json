@@ -1,0 +1,10 @@
+{
+  "source": "baseline-retry.md",
+  "target": {
+    "wiki_path": "concepts/global-retry-budget.md",
+    "title": "全局重试预算",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "文档将全局重试预算列为控制宏观重试放大系数的核心机制（解决“别太多”），并指出其当前缺失状态和实现方向（实例级/集群级配额）。这是一个独立的管控机制概念，现有页面无覆盖。"
+  }
+}

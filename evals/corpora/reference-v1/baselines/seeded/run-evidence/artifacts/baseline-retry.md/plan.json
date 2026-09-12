@@ -1,0 +1,62 @@
+{
+  "source": "baseline-retry.md",
+  "page_targets": [
+    {
+      "wiki_path": "concepts/retry-mechanism.md",
+      "title": "重试机制",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "从文档核心视角提取重试机制作为独立概念。文档系统阐述了重试的目的（抹掉暂时性故障）、核心矛盾（提升成功率 vs 避免重试风暴）、设计框架（错误分类、幂等、退避、预算）以及具体事故案例。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "concepts/retry-storm.md",
+      "title": "重试风暴",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "文档将重试风暴定义为重试机制的核心副作用和设计约束，并通过6月事故案例具体说明其成因（缺少jitter）和后果（级联故障）。这是一个独立的故障模式概念，现有页面无覆盖。"
+    },
+    {
+      "wiki_path": "concepts/idempotency-key.md",
+      "title": "幂等键",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "文档将幂等键作为解决“可重试≠可重复”问题的关键机制，是写操作安全重试的前提。文档明确了其职责（业务侧去重）与重试框架（基础设施侧决策）的边界。现有页面无此概念。"
+    },
+    {
+      "wiki_path": "concepts/exponential-backoff.md",
+      "title": "指数退避",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "文档将指数退避作为重试退避策略的核心参数之一（解决“别太勤”），并详细说明了其参数设置（初始200ms，上限5s）和实现注意事项（单调时钟）。现有页面无此概念。"
+    },
+    {
+      "wiki_path": "concepts/jitter.md",
+      "title": "随机抖动(jitter)",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "文档将jitter作为解决“重试扎堆”问题的关键策略（与指数退避互补），并通过6月事故反面论证了其必要性。文档给出了具体修正方案（计算值×random(0.5, 1.5)）。现有页面无此概念。"
+    },
+    {
+      "wiki_path": "concepts/global-retry-budget.md",
+      "title": "全局重试预算",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "文档将全局重试预算列为控制宏观重试放大系数的核心机制（解决“别太多”），并指出其当前缺失状态和实现方向（实例级/集群级配额）。这是一个独立的管控机制概念，现有页面无覆盖。"
+    },
+    {
+      "wiki_path": "concepts/retry-amplification-factor.md",
+      "title": "重试放大系数",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "文档将重试放大系数定义为重试产生的额外流量与原始业务流量的比值，是衡量重试副作用的核心指标，需通过全局预算和熔断兜底控制。现有页面无此概念。"
+    },
+    {
+      "wiki_path": "entities/retry-after-header.md",
+      "title": "Retry-After头",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "文档将Retry-After头作为一个具体的协议特性进行讨论，澄清其影响“何时重试”而非“该不该重试”，并指出其当前未被处理的状态。这是一个独立的协议实体，现有页面无覆盖。"
+    }
+  ],
+  "raw": "{\"page_targets\": [{\"wiki_path\": \"wiki/concepts/retry-mechanism\", \"title\": \"重试机制\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"从文档核心视角提取重试机制作为独立概念。文档系统阐述了重试的目的（抹掉暂时性故障）、核心矛盾（提升成功率 vs 避免重试风暴）、设计框架（错误分类、幂等、退避、预算）以及具体事故案例。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"concepts/mutual-exclusion-is-not-correctness\", \"reason\": \"类比：重试机制与分布式锁类似，都是解决特定问题的工具，需明确其职责边界（错误中继站 vs 业务去重）\"}]}, {\"wiki_path\": \"wiki/concepts/retry-storm\", \"title\": \"重试风暴\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"文档将重试风暴定义为重试机制的核心副作用和设计约束，并通过6月事故案例具体说明其成因（缺少jitter）和后果（级联故障）。这是一个独立的故障模式概念，现有页面无覆盖。\", \"references\": [{\"slug\": \"concepts/retry-mechanism\", \"reason\": \"重试风暴是重试机制的固有副作用，是设计重试机制时必须考虑的核心约束\"}]}, {\"wiki_path\": \"wiki/concepts/idempotency-key\", \"title\": \"幂等键\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"文档将幂等键作为解决“可重试≠可重复”问题的关键机制，是写操作安全重试的前提。文档明确了其职责（业务侧去重）与重试框架（基础设施侧决策）的边界。现有页面无此概念。\", \"references\": [{\"slug\": \"concepts/retry-mechanism\", \"reason\": \"幂等键是重试机制中保障操作可重复性的核心组件，两者共同决定写操作是否可安全重试\"}]}, {\"wiki_path\": \"wiki/concepts/exponential-backoff\", \"title\": \"指数退避\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"文档将指数退避作为重试退避策略的核心参数之一（解决“别太勤”），并详细说明了其参数设置（初始200ms，上限5s）和实现注意事项（单调时钟）。现有页面无此概念。\", \"references\": [{\"slug\": \"concepts/retry-mechanism\", \"reason\": \"指数退避是重试机制中控制单次重试节奏的核心策略\"}]}, {\"wiki_path\": \"wiki/concepts/jitter\", \"title\": \"随机抖动(jitter)\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"文档将jitter作为解决“重试扎堆”问题的关键策略（与指数退避互补），并通过6月事故反面论证了其必要性。文档给出了具体修正方案（计算值×random(0.5, 1.5)）。现有页面无此概念。\", \"references\": [{\"slug\": \"concepts/exponential-backoff\", \"reason\": \"jitter是指数退避策略的必要补充，两者共同构成完整的退避节奏控制\"}]}, {\"wiki_path\": \"wiki/concepts/global-retry-budget\", \"title\": \"全局重试预算\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"文档将全局重试预算列为控制宏观重试放大系数的核心机制（解决“别太多”），并指出其当前缺失状态和实现方向（实例级/集群级配额）。这是一个独立的管控机制概念，现有页面无覆盖。\", \"references\": [{\"slug\": \"concepts/retry-mechanism\", \"reason\": \"全局重试预算从宏观层面约束重试机制的放大效应，是重试设计的顶层控制\"}]}, {\"wiki_path\": \"wiki/concepts/retry-amplification-factor\", \"title\": \"重试放大系数\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"文档将重试放大系数定义为重试产生的额外流量与原始业务流量的比值，是衡量重试副作用的核心指标，需通过全局预算和熔断兜底控制。现有页面无此概念。\", \"references\": [{\"slug\": \"concepts/retry-storm\", \"reason\": \"重试放大系数是量化重试风暴风险的核心指标\"}, {\"slug\": \"concepts/global-retry-budget\", \"reason\": \"全局重试预算旨在控制重试放大系数在可接受范围内\"}]}, {\"wiki_path\": \"wiki/entities/retry-after-header\", \"title\": \"Retry-After头\", \"disposition\": \"new\", \"page_type\": \"entity\", \"reason\": \"文档将Retry-After头作为一个具体的协议特性进行讨论，澄清其影响“何时重试”而非“该不该重试”，并指出其当前未被处理的状态。这是一个独立的协议实体，现有页面无覆盖。\", \"references\": [{\"slug\": \"concepts/retry-mechanism\", \"reason\": \"Retry-After头是重试机制中可选的、用于优化重试时机的外部信号\"}]}]}"
+}

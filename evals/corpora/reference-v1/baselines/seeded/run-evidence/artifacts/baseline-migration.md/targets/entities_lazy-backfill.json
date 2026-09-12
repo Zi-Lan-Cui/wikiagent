@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "entities/lazy-backfill.md",
+    "title": "懒回填",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取数据回填技术手段创建独立页。source 提供了两个关键事实：1) 懒回填是数据回填方式之一；2) 适合访问分散的场景，在数据被访问时按需回填。与批量回填构成对比，各自有明确适用场景。现有页面无相关主题，需新建。"
+  }
+}

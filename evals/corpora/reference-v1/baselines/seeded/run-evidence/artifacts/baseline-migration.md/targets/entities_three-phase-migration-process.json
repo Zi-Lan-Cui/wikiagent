@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "entities/three-phase-migration-process.md",
+    "title": "三阶段迁移流程",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取核心流程创建独立页。source 提供了多个独立事实：1) 流程分为扩展（只做加法）、迁移（数据回填、新旧并存）、收缩（确认后删除）三个顺序阶段；2) 扩展阶段必须保证向后兼容；3) 收缩阶段是唯一危险阶段，需先发布不含旧引用的代码、观察完整发布周期、依据监控指标判断。现有页面无相关主题，需新建。"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "source": "note-message-delivery.md",
+  "rel_paths": [
+    "concepts/idempotency-key.md",
+    "concepts/retry-mechanism.md",
+    "concepts/exponential-backoff.md",
+    "concepts/retry-storm.md"
+  ],
+  "raw": "[\"concepts/idempotency-key.md\", \"concepts/retry-mechanism.md\", \"concepts/exponential-backoff.md\", \"concepts/retry-storm.md\"]"
+}

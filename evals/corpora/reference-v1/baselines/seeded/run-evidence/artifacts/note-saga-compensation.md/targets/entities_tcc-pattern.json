@@ -1,0 +1,16 @@
+{
+  "source": "note-saga-compensation.md",
+  "target": {
+    "wiki_path": "entities/tcc-pattern.md",
+    "title": "tcc-pattern.md",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取TCC模式作为与Saga对比的核心架构模式创建独立实体页。文档提供了至少两个独立事实：1）TCC模式要求服务实现Try-Confirm-Cancel三态接口；2）TCC通过全程锁资源追求更强的中间一致性，但实现成本较高。现有页面无法承载，因为当前Wiki中没有专门阐述TCC模式的页面，且其作为分布式事务解决方案具有独立身份和明确边界。",
+    "references": [
+      {
+        "slug": "entities/saga-pattern",
+        "reason": "对照Saga模式，理解两种分布式事务方案的差异"
+      }
+    ]
+  }
+}

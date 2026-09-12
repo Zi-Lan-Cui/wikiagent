@@ -1,0 +1,13 @@
+{
+  "source": "baseline-jobs.md",
+  "page_targets": [
+    {
+      "wiki_path": "entities/background-job-lifecycle.md",
+      "title": "后台任务生命周期管理",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "从文档摘要提取后台任务生命周期管理的完整设计原则、现有实现与已知问题，创建独立实体页。关键点包括：任务状态机（queued/running/succeeded/failed）、状态转换持久化原则、领取流程、幂等性实现（task_id去重）、超时与协作式取消机制、事件发布顺序（先状态落库再发布事件）、崩溃恢复缺口（缺乏租约语义）及临时兜底方案。现有页面无直接对应实体，且内容足够独立（包含多个核心机制与问题诊断），适合新建。"
+    }
+  ],
+  "raw": "{\n  \"page_targets\": [\n    {\n      \"wiki_path\": \"wiki/entities/background-job-lifecycle\",\n      \"title\": \"后台任务生命周期管理\",\n      \"disposition\": \"new\",\n      \"page_type\": \"entity\",\n      \"reason\": \"从文档摘要提取后台任务生命周期管理的完整设计原则、现有实现与已知问题，创建独立实体页。关键点包括：任务状态机（queued/running/succeeded/failed）、状态转换持久化原则、领取流程、幂等性实现（task_id去重）、超时与协作式取消机制、事件发布顺序（先状态落库再发布事件）、崩溃恢复缺口（缺乏租约语义）及临时兜底方案。现有页面无直接对应实体，且内容足够独立（包含多个核心机制与问题诊断），适合新建。\",\n      \"references\": [\n        {\n          \"slug\": \"concepts/distributed-lock-lease-contract\",\n          \"reason\": \"文档诊断当前系统running状态缺乏租约语义，该页面提供租约契约的理论模型，可作为后续实现租约机制的参考\"\n        },\n        {\n          \"slug\": \"concepts/idempotency-key\",\n          \"reason\": \"文档中的task_id去重是幂等性在任务调度层的应用，该页面提供更通用的幂等键理论框架\"\n        },\n        {\n          \"slug\": \"concepts/retry-mechanism\",\n          \"reason\": \"文档的事件补发队列涉及重试，该页面提供重试机制的设计原则，可为事件补发提供设计依据\"\n        }\n      ]\n    }\n  ]\n}"
+}

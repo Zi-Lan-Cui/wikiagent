@@ -1,0 +1,69 @@
+{
+  "source": "baseline-migration.md",
+  "page_targets": [
+    {
+      "wiki_path": "concepts/gradual-ship-replacement-model.md",
+      "title": "逐步换舷心智模型",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "从文档提取核心心智模型创建独立页。source 提供了两个关键事实：1) 将数据库schema变更类比为航行中逐步换舷，确保任何中间时刻系统都能用当前已发布的任意版本代码与已执行的任意子集变更正常运行；2) 该模型是三阶段迁移流程的逻辑起点，推导出扩展、迁移、收缩三个阶段。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "entities/three-phase-migration-process.md",
+      "title": "三阶段迁移流程",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "从文档提取核心流程创建独立页。source 提供了多个独立事实：1) 流程分为扩展（只做加法）、迁移（数据回填、新旧并存）、收缩（确认后删除）三个顺序阶段；2) 扩展阶段必须保证向后兼容；3) 收缩阶段是唯一危险阶段，需先发布不含旧引用的代码、观察完整发布周期、依据监控指标判断。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "concepts/rollback-code-not-data.md",
+      "title": "回滚代码而非数据",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "从文档提取核心回滚原则创建独立页。source 提供了两个关键事实：1) 回滚时只回滚代码版本，不回滚已执行的数据回填；2) 原因是数据回滚成本高且易导致数据漂移，已执行的数据回填不做反向回填。该原则与三阶段流程形成张力，是独立的决策原则。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "concepts/compatibility-judgment-by-old-code.md",
+      "title": "以旧代码为准的兼容性判断",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "从文档提取核心判断原则创建独立页。source 提供了两个关键事实：1) 判断数据库变更是否兼容时，以旧代码的运行能力为基准；2) 确保变更后旧代码仍能正常运行。这是扩展阶段'向后兼容'要求的具体判断标准，具有独立的方法论价值。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "entities/batch-backfill.md",
+      "title": "批量回填",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "从文档提取数据回填技术手段创建独立页。source 提供了两个关键事实：1) 批量回填是数据回填方式之一；2) 适合数据量大、切换时间紧的场景。内容相对独立，但作为技术手段，其独立性略弱于流程和原则。考虑到与懒回填构成对比，且各自有明确适用场景，可独立建页。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "entities/lazy-backfill.md",
+      "title": "懒回填",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "从文档提取数据回填技术手段创建独立页。source 提供了两个关键事实：1) 懒回填是数据回填方式之一；2) 适合访问分散的场景，在数据被访问时按需回填。与批量回填构成对比，各自有明确适用场景。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "entities/express-lane.md",
+      "title": "快车道",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "从文档提取流程例外创建独立页。source 提供了两个关键事实：1) 快车道是针对简单变更（如带默认值的可空加列）提供的简化流程；2) 允许扩展和迁移阶段合并。这是三阶段流程的受控例外，有独立的适用条件和限制。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "entities/automated-gate.md",
+      "title": "自动化闸门",
+      "disposition": "new",
+      "page_type": "entity",
+      "reason": "从文档提取系统约束创建独立页。source 提供了两个关键事实：1) 自动化闸门是收缩阶段删除操作的前置自动校验机制；2) 需校验访问计数、快照存在性等条件，是当前体系的缺口。这是一个具体的系统组件/机制，有明确的职责和当前状态。现有页面无相关主题，需新建。"
+    },
+    {
+      "wiki_path": "concepts/old-structure-access-count.md",
+      "title": "旧结构访问计数",
+      "disposition": "new",
+      "page_type": "concept",
+      "reason": "从文档提取监控指标概念创建独立页。source 提供了两个关键事实：1) 旧结构访问计数是收缩阶段判断旧结构是否可删除的监控指标；2) 通过观察访问计数是否归零来决定。这是一个具体的判断依据，与自动化闸门相关。现有页面无相关主题，需新建。"
+    }
+  ],
+  "raw": "{\"page_targets\": [{\"wiki_path\": \"wiki/concepts/gradual-ship-replacement-model\", \"title\": \"逐步换舷心智模型\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"从文档提取核心心智模型创建独立页。source 提供了两个关键事实：1) 将数据库schema变更类比为航行中逐步换舷，确保任何中间时刻系统都能用当前已发布的任意版本代码与已执行的任意子集变更正常运行；2) 该模型是三阶段迁移流程的逻辑起点，推导出扩展、迁移、收缩三个阶段。现有页面无相关主题，需新建。\", \"references\": []}, {\"wiki_path\": \"wiki/entities/three-phase-migration-process\", \"title\": \"三阶段迁移流程\", \"disposition\": \"new\", \"page_type\": \"entity\", \"reason\": \"从文档提取核心流程创建独立页。source 提供了多个独立事实：1) 流程分为扩展（只做加法）、迁移（数据回填、新旧并存）、收缩（确认后删除）三个顺序阶段；2) 扩展阶段必须保证向后兼容；3) 收缩阶段是唯一危险阶段，需先发布不含旧引用的代码、观察完整发布周期、依据监控指标判断。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"concepts/gradual-ship-replacement-model\", \"reason\": \"流程的理论基础\"}]}, {\"wiki_path\": \"wiki/concepts/rollback-code-not-data\", \"title\": \"回滚代码而非数据\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"从文档提取核心回滚原则创建独立页。source 提供了两个关键事实：1) 回滚时只回滚代码版本，不回滚已执行的数据回填；2) 原因是数据回滚成本高且易导致数据漂移，已执行的数据回填不做反向回填。该原则与三阶段流程形成张力，是独立的决策原则。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"entities/three-phase-migration-process\", \"reason\": \"原则作用于该流程\"}]}, {\"wiki_path\": \"wiki/concepts/compatibility-judgment-by-old-code\", \"title\": \"以旧代码为准的兼容性判断\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"从文档提取核心判断原则创建独立页。source 提供了两个关键事实：1) 判断数据库变更是否兼容时，以旧代码的运行能力为基准；2) 确保变更后旧代码仍能正常运行。这是扩展阶段'向后兼容'要求的具体判断标准，具有独立的方法论价值。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"entities/three-phase-migration-process\", \"reason\": \"原则应用于该流程的扩展阶段\"}]}, {\"wiki_path\": \"wiki/entities/batch-backfill\", \"title\": \"批量回填\", \"disposition\": \"new\", \"page_type\": \"entity\", \"reason\": \"从文档提取数据回填技术手段创建独立页。source 提供了两个关键事实：1) 批量回填是数据回填方式之一；2) 适合数据量大、切换时间紧的场景。内容相对独立，但作为技术手段，其独立性略弱于流程和原则。考虑到与懒回填构成对比，且各自有明确适用场景，可独立建页。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"entities/three-phase-migration-process\", \"reason\": \"应用于该流程的迁移阶段\"}]}, {\"wiki_path\": \"wiki/entities/lazy-backfill\", \"title\": \"懒回填\", \"disposition\": \"new\", \"page_type\": \"entity\", \"reason\": \"从文档提取数据回填技术手段创建独立页。source 提供了两个关键事实：1) 懒回填是数据回填方式之一；2) 适合访问分散的场景，在数据被访问时按需回填。与批量回填构成对比，各自有明确适用场景。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"entities/three-phase-migration-process\", \"reason\": \"应用于该流程的迁移阶段\"}, {\"slug\": \"entities/batch-backfill\", \"reason\": \"对比参照\"}]}, {\"wiki_path\": \"wiki/entities/express-lane\", \"title\": \"快车道\", \"disposition\": \"new\", \"page_type\": \"entity\", \"reason\": \"从文档提取流程例外创建独立页。source 提供了两个关键事实：1) 快车道是针对简单变更（如带默认值的可空加列）提供的简化流程；2) 允许扩展和迁移阶段合并。这是三阶段流程的受控例外，有独立的适用条件和限制。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"entities/three-phase-migration-process\", \"reason\": \"作为该流程的例外\"}]}, {\"wiki_path\": \"wiki/entities/automated-gate\", \"title\": \"自动化闸门\", \"disposition\": \"new\", \"page_type\": \"entity\", \"reason\": \"从文档提取系统约束创建独立页。source 提供了两个关键事实：1) 自动化闸门是收缩阶段删除操作的前置自动校验机制；2) 需校验访问计数、快照存在性等条件，是当前体系的缺口。这是一个具体的系统组件/机制，有明确的职责和当前状态。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"entities/three-phase-migration-process\", \"reason\": \"应用于该流程的收缩阶段\"}]}, {\"wiki_path\": \"wiki/concepts/old-structure-access-count\", \"title\": \"旧结构访问计数\", \"disposition\": \"new\", \"page_type\": \"concept\", \"reason\": \"从文档提取监控指标概念创建独立页。source 提供了两个关键事实：1) 旧结构访问计数是收缩阶段判断旧结构是否可删除的监控指标；2) 通过观察访问计数是否归零来决定。这是一个具体的判断依据，与自动化闸门相关。现有页面无相关主题，需新建。\", \"references\": [{\"slug\": \"entities/three-phase-migration-process\", \"reason\": \"应用于该流程的收缩阶段\"}, {\"slug\": \"entities/automated-gate\", \"reason\": \"作为闸门校验条件之一\"}]}]}"
+}

@@ -1,0 +1,10 @@
+{
+  "source": "note-timeout-degradation.md",
+  "target": {
+    "wiki_path": "concepts/retry-mechanism.md",
+    "title": "重试机制",
+    "disposition": "update",
+    "page_type": "",
+    "reason": "补充deadline场景下重试行为的具体案例：1. 在'超时与预算'小节中，增加deadline传递如何将重试次数从静态配置值变为动态值（受剩余预算约束）的说明；2. 增加监控维度：区分'次数上限拦截'与'预算拦截'两种重试终止原因；3. 补充deadline传递缺口与重试框架缺口的关联说明。"
+  }
+}

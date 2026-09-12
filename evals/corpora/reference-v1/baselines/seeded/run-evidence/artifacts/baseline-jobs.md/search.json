@@ -1,0 +1,9 @@
+{
+  "source": "baseline-jobs.md",
+  "rel_paths": [
+    "concepts/distributed-lock-lease-contract.md",
+    "concepts/idempotency-key.md",
+    "concepts/retry-mechanism.md"
+  ],
+  "raw": "[\"concepts/distributed-lock-lease-contract.md\", \"concepts/idempotency-key.md\", \"concepts/retry-mechanism.md\"]"
+}

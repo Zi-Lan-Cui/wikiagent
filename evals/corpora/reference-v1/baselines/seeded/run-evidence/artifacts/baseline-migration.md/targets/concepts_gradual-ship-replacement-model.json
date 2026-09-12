@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "concepts/gradual-ship-replacement-model.md",
+    "title": "逐步换舷心智模型",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取核心心智模型创建独立页。source 提供了两个关键事实：1) 将数据库schema变更类比为航行中逐步换舷，确保任何中间时刻系统都能用当前已发布的任意版本代码与已执行的任意子集变更正常运行；2) 该模型是三阶段迁移流程的逻辑起点，推导出扩展、迁移、收缩三个阶段。现有页面无相关主题，需新建。"
+  }
+}

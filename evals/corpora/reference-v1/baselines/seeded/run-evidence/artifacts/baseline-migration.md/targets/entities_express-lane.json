@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "entities/express-lane.md",
+    "title": "快车道",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取流程例外创建独立页。source 提供了两个关键事实：1) 快车道是针对简单变更（如带默认值的可空加列）提供的简化流程；2) 允许扩展和迁移阶段合并。这是三阶段流程的受控例外，有独立的适用条件和限制。现有页面无相关主题，需新建。"
+  }
+}
