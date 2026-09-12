@@ -1,0 +1,53 @@
+---
+type: index
+title: "Reference Eval Empty Baseline"
+summary: "Expert Reference 评测的空白 Wiki 基线。"
+goal: "为新建型 case 提供相同且可重置的初始状态。"
+sources: []
+related: []
+---
+
+# Reference Eval Empty Baseline
+
+本页只声明评测基线，不提供任何领域知识。
+- [[concepts/distributed-lock-lease-contract]] — [concept] concepts/distributed-lock-lease-contract.md — 分布式锁的租约契约模型 — 将分布式锁定义为一份有时间限制的契约，其核心缺陷是锁的释放不依赖持有者知情，所有设计均围绕此缺陷展开补偿。 — goal: 系统阐述分布式锁作为‘租约契约’的本质、执行机制、固有缺陷及其补偿方案，成为理解分布式锁设计哲学与工程实践的理论基石。
+- [[entities/redis-distributed-lock-implementation]] — [entity] entities/redis-distributed-lock-implementation.md — Redis分布式锁实现机制 — 基于Redis的分布式锁获取、释放、租约与续期的具体工程实现。 — goal: 系统阐述Redis分布式锁的原子命令实现、租约管理、续期逻辑及已知缺陷，作为该实体实现的完整技术参考。
+- [[concepts/mutual-exclusion-is-not-correctness]] — [concept] concepts/mutual-exclusion-is-not-correctness.md — 互斥≠正确性 — 分布式锁仅承诺互斥，不保证业务正确性，不能替代幂等设计。 — goal: 系统阐述分布式锁的互斥承诺边界，明确其与业务正确性保障（如幂等）的区别，并基于事故案例说明为何需要多层防护。
+- [[entities/fencing-token]] — [entity] entities/fencing-token.md — Fencing Token — 一种通过单调递增序号防止锁过期后旧持有者污染共享资源的系统性方案。 — goal: 系统阐述 Fencing Token 的工作原理、实现前提及其作为分布式锁租约契约缺陷补偿方案的角色。
+- [[concepts/renewal-failure-only-cleanup-no-new-operations]] — [concept] concepts/renewal-failure-only-cleanup-no-new-operations.md — 续期失败只收尾不新增规则 — 分布式锁续期失败时，完成当前原子操作后停止，不发起新操作，标记任务为pending-verify。 — goal: 系统阐述分布式锁续期失败后的统一处理规则，包括其具体内容、落地机制（pending-verify状态）及其工程前提（可checkpoint任务设计），作为续期失败场景的决策锚点。
+- [[concepts/three-layer-protection-for-financial-operations]] — [concept] concepts/three-layer-protection-for-financial-operations.md — 资金类三层保障体系 — 资金类操作需锁、幂等、对账三层保障，解决不同层面问题且不能替代。 — goal: 系统阐述资金类操作中锁（互斥）、幂等（防重复）、对账（兜底）三层保障体系的构成、各自解决的问题层面及其不可替代性，作为设计资金相关操作的原则参考。
+- [[concepts/retry-mechanism]] — [concept] concepts/retry-mechanism.md — 重试机制 — 通过有限次重试抹掉暂时性故障，但需平衡成功率与重试风暴风险。 — goal: 系统阐述重试机制的设计原则、核心矛盾（成功率 vs 风暴）、关键参数（错误分类、幂等、退避、预算）及事故教训，作为构建健壮服务调用的参考。
+- [[concepts/retry-storm]] — [concept] concepts/retry-storm.md — 重试风暴 — 重试机制因客户端同步重试导致流量尖峰，引发下游级联故障的故障模式。 — goal: 系统阐释重试风暴作为重试机制固有副作用的成因、后果及设计约束，服务分布式系统容错设计参考。
+- [[concepts/idempotency-key]] — [concept] concepts/idempotency-key.md — 幂等键 — 用于业务侧去重，确保写操作在重试时可重复执行而不产生副作用，是安全重试的前提。 — goal: 系统阐述幂等键作为业务侧去重机制的核心职责、与重试框架的边界，以及其在保障写操作可重复性中的关键作用。
+- [[concepts/exponential-backoff]] — [concept] concepts/exponential-backoff.md — 指数退避 — 重试机制中控制重试间隔的核心策略，使重试节奏匹配故障恢复曲线。 — goal: 系统覆盖指数退避作为重试策略核心参数的机制、参数设置与实现注意事项，服务于重试机制设计的完整参考。
+- [[concepts/jitter]] — [concept] concepts/jitter.md — 随机抖动(jitter) — 在重试退避等待时长中引入随机因子，防止多个客户端同步重试导致流量扎堆，是指数退避策略的必要补充。 — goal: 系统覆盖随机抖动的定义、作用、与指数退避的关系以及具体实现方案，作为解决重试扎堆问题的关键策略参考。
+- [[concepts/global-retry-budget]] — [concept] concepts/global-retry-budget.md — 全局重试预算 — 从宏观层面约束重试机制的放大效应，控制重试流量的总体规模。 — goal: 系统阐述全局重试预算作为控制重试放大系数的核心机制，明确其目标、实现方向（实例级/集群级配额）及其在重试设计体系中的定位。
+- [[concepts/retry-amplification-factor]] — [concept] concepts/retry-amplification-factor.md — 重试放大系数 — 衡量重试机制产生的额外流量与原始业务流量比值的核心指标，用于量化重试风暴风险。 — goal: 系统阐述重试放大系数的定义、计算方式、风险成因及其通过全局预算和熔断进行控制的方法，作为评估重试策略副作用的核心参考。
+- [[entities/retry-after-header]] — [entity] entities/retry-after-header.md — Retry-After头 — HTTP响应头，指示客户端在重试前应等待的时间，优化重试时机。 — goal: 系统阐述Retry-After头作为重试机制中优化重试时机的外部信号，澄清其影响'何时重试'而非'该不该重试'的协议特性。
+- [[concepts/gradual-ship-replacement-model]] — [concept] concepts/gradual-ship-replacement-model.md — 逐步换舷心智模型 — 将数据库schema变更类比为航行中逐步换舷，确保任何中间时刻系统都能正常运行。 — goal: 系统阐述逐步换舷心智模型的核心原则、三阶段流程及其逻辑推导，作为数据库迁移实践的理论基础。
+- [[entities/three-phase-migration-process]] — [entity] entities/three-phase-migration-process.md — 三阶段迁移流程 — 数据库Schema变更的顺序流程：扩展、迁移、收缩，确保任何中间状态系统可运行。 — goal: 系统阐述三阶段迁移流程的定义、各阶段核心原则、关键操作与风险控制，作为数据库变更实践的标准操作指南。
+- [[concepts/rollback-code-not-data]] — [concept] concepts/rollback-code-not-data.md — 回滚代码而非数据 — 数据库迁移中，回滚时只回滚代码版本，不回滚已执行的数据回填操作。 — goal: 阐明数据库迁移回滚的核心决策原则：只回滚代码版本，不回滚数据变更，并解释其原因与适用场景。
+- [[concepts/compatibility-judgment-by-old-code]] — [concept] concepts/compatibility-judgment-by-old-code.md — 以旧代码为准的兼容性判断 — 数据库变更兼容性的核心判断原则：以旧代码的运行能力为基准，确保变更后旧代码仍能正常运行。 — goal: 阐明在数据库迁移的扩展阶段，如何以旧代码的运行能力为唯一基准来判断变更的兼容性，使其成为可操作的方法论原则。
+- [[entities/batch-backfill]] — [entity] entities/batch-backfill.md — 批量回填 — 数据库迁移中，适合数据量大、切换时间紧场景的数据回填技术手段。 — goal: 系统说明批量回填作为数据回填方式之一的定义、适用场景及其在数据库迁移三阶段流程中的位置。
+- [[entities/lazy-backfill]] — [entity] entities/lazy-backfill.md — 懒回填 — 一种数据回填方式，适合访问分散的场景，在数据被访问时按需回填。 — goal: 阐明懒回填作为一种数据回填技术手段的定义、适用场景及其在数据库迁移流程中的角色。
+- [[entities/express-lane]] — [entity] entities/express-lane.md — 快车道 — 为简单数据库变更提供的简化迁移流程，允许扩展和迁移阶段合并。 — goal: 阐明快车道作为三阶段迁移流程受控例外的定义、适用条件与限制，服务于理解简化数据库变更路径。
+- [[entities/automated-gate]] — [entity] entities/automated-gate.md — 自动化闸门 — 收缩阶段删除操作的前置自动校验机制，需校验访问计数、快照存在性等条件。 — goal: 作为收缩阶段删除操作的自动化安全关卡，确保在删除旧数据库结构前，所有预设的前置条件（如访问计数归零、快照存在）都已满足，从而防止因引用漏判导致的事故。
+- [[concepts/old-structure-access-count]] — [concept] concepts/old-structure-access-count.md — 旧结构访问计数 — 收缩阶段判断旧结构是否可删除的监控指标，通过观察其是否归零来决定。 — goal: 阐明旧结构访问计数作为收缩阶段关键判断依据的机制与应用场景，服务于数据库迁移流程的决策参考。
+- [[entities/background-job-lifecycle]] — [entity] entities/background-job-lifecycle.md — 后台任务生命周期管理 — 定义任务状态机、领取流程、幂等性、超时与取消机制，以及事件发布顺序和崩溃恢复缺口。 — goal: 系统覆盖后台任务从入队到终态的完整生命周期管理机制、设计原则与已知问题，作为任务调度系统可靠性的核心参考。
+- [[entities/structured-logging-specification]] — [entity] entities/structured-logging-specification.md — 结构化日志规范 — 一套解决线上排障效率低和日志敏感信息泄露问题的体系，包含分类、字段、级别、脱敏、采样五个维度的具体规则。 — goal: 系统阐述该结构化日志规范的核心规则与设计思想，作为理解和实施该规范的完整参考。
+- [[entities/request-id]] — [entity] entities/request-id.md — request_id — 结构化日志中用于串联跨服务调用链的核心标识符。 — goal: 作为结构化日志规范的核心字段实体，系统阐述 request_id 的定义、生成时机、传递方式及其在调用链串联中的核心作用。
+- [[concepts/log-classification]] — [concept] concepts/log-classification.md — 日志分类 — 将日志分为排障日志、审计日志、指标事件三类，并通过独立管道处理的架构原则。 — goal: 系统阐述日志三分类（排障、审计、指标事件）的定义、处理要求及其作为顶层架构决策的原则，服务于结构化日志规范的完整理解。
+- [[concepts/error-level-scarcity]] — [concept] concepts/error-level-scarcity.md — ERROR级别稀缺化 — ERROR级别仅用于需要立即人工介入的故障，且错误只应在调用链最外层打一次。 — goal: 系统阐述ERROR级别日志的稀缺化原则、使用边界及其在调用链中的唯一性规则，作为结构化日志规范中级别策略的核心组成部分。
+- [[concepts/desensitization-down-to-framework]] — [concept] concepts/desensitization-down-to-framework.md — 脱敏下沉 — 将日志脱敏逻辑下沉到框架层，通过字段名规则库和值模式统一掩码，确保敏感信息默认不落日志。 — goal: 系统阐述脱敏下沉作为日志架构决策的核心思想、实现机制（字段名规则库与值模式掩码）及其在结构化日志规范中的定位，服务于对日志合规性与安全性的理解。
+- [[concepts/request-id-based-sampling]] — [concept] concepts/request-id-based-sampling.md — 基于request_id的采样 — 在请求入口按request_id做采样决策并随链传递，保证单个请求日志完整性，ERROR全量保留的采样策略。 — goal: 系统覆盖基于request_id的采样策略的决策点、传递方式及其保证，作为结构化日志规范中采样机制的完整参考。
+- [[concepts/immutable-schema]] — [concept] concepts/immutable-schema.md — 不可变schema — 业务字段命名一旦写入存储即成为不可变的schema，是数据治理的核心原则。 — goal: 系统阐述不可变schema原则的约束、原因及其在结构化日志规范中的体现，作为业务字段命名稳定性的权威参考。
+- [[concepts/framework-guarantee-principle]] — [concept] concepts/framework-guarantee-principle.md — 框架保证原则 — 将日志的可用性与合规性从依赖个人自觉转变为由机制和框架保证的核心设计哲学。 — goal: 系统阐述框架保证原则的核心思想、对比逻辑及其在结构化日志规范中的具体体现，作为理解整套规范设计哲学的锚点。
+- [[entities/saga-pattern]] — [entity] entities/saga-pattern.md — Saga模式 — 一种分布式事务解决方案，将跨服务流程拆分为一串本地事务，每个事务配有补偿操作，失败时逆序执行补偿以实现最终一致性。 — goal: 系统阐述Saga模式的核心思想、编排方式、关键纪律（状态机持久化、补偿幂等、补偿的补偿）及其在跨服务一致性场景下的应用，作为理解该架构模式的独立参考。
+- [[entities/tcc-pattern]] — [entity] entities/tcc-pattern.md — TCC模式 — 一种分布式事务模式，要求服务实现Try-Confirm-Cancel三态接口，通过全程锁资源追求更强的中间一致性。 — goal: 作为与Saga模式对比的核心架构模式，系统阐述TCC模式的三态接口要求及其在一致性与实现成本间的权衡。
+- [[concepts/compensation-operation]] — [concept] concepts/compensation-operation.md — 补偿操作 — Saga模式中用于语义抵消原操作的本地事务，必须幂等且使用独立幂等键。 — goal: 系统阐述补偿操作作为Saga模式核心概念的语义、设计原则与约束，服务于分布式事务设计参考。
+- [[concepts/saga-three-layer-protection]] — [concept] concepts/saga-three-layer-protection.md — Saga三层防护 — Saga模式可靠运行的必要条件：状态机持久化、补偿幂等、补偿的补偿。 — goal: 系统阐述Saga三层防护的定义、内涵及其作为Saga模式核心保障的必要性，服务于对Saga模式可靠性设计的深入理解。
+- [[concepts/semantic-cancellation]] — [concept] concepts/semantic-cancellation.md — 语义抵消 — 补偿操作的核心语义特性，指通过执行一个语义相反的操作来抵消原操作的影响，而非物理撤销。 — goal: 系统阐述语义抵消作为Saga补偿操作核心语义的定义、示例及其与物理撤销的区别，服务对补偿操作设计原则的理解。
+- [[entities/circuit-breaker]] — [entity] entities/circuit-breaker.md — 熔断器 — 当下游服务不可用时，主动停止请求以保护上游资源并助力恢复的保护机制。 — goal: 系统覆盖熔断器的三态状态机模型、关键参数、决策依据与已知缺口，作为订单服务中熔断器实现的完整参考。
+- [[entities/rate-limiter]] — [entity] entities/rate-limiter.md — 限流器 — 订单网关与订单服务中保护型限流的具体实现，基于令牌桶算法与Redis分布式计数。 — goal: 系统覆盖订单网关中限流器的算法选型、分布式实现、协作规则与已知缺口，作为该具体技术组件的完整实践参考。
+- [[concepts/rate-limit-circuit-breaker-retry-collaboration]] — [concept] concepts/rate-limit-circuit-breaker-retry-collaboration.md — 限流-熔断-重试协作 — 定义限流、熔断、重试三种机制的职责边界与协同工作规则。 — goal: 系统阐述限流、熔断、重试三者在分布式系统中的职责划分、协作规则与交互模式，作为设计健壮性架构的参考原则。
+- [[concepts/priority-based-rate-limiting]] — [concept] concepts/priority-based-rate-limiting.md — 基于优先级的限流 — 针对无差别保护型限流误伤核心链路的缺陷，提出引入优先级区分作为限流策略的演进方向。 — goal: 阐明基于优先级的限流作为保护型限流改进方向的必要性、核心问题及其在限流策略演进中的位置。

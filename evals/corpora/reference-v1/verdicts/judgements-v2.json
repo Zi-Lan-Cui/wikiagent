@@ -1,0 +1,1530 @@
+{
+  "schema_version": 2,
+  "set_id": "judgements-v2",
+  "description": "判词题集 v3 终稿：60 条。organization 维度按统一标准 C1/C3 判定（C1=输入摘要中独立论述段存在性；C3=与既有页 goal 职责重叠），view 补 structure-tree.json 结构事实。其余三维度保留 v2。",
+  "cases": [
+    {
+      "id": "e-003",
+      "dimension": "coverage",
+      "stage": "extract",
+      "source": "baseline-lock.md",
+      "target": {
+        "kind": "summary"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/source/baseline-lock.md"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/extract.txt"
+        ]
+      },
+      "candidate": null,
+      "claim": "材料的必要事实『TTL 取 p95 而非均值/p50，因为锁保护的恰是最慢的长尾任务』（取值理由）在 extract 摘要中被保留。",
+      "gold": false,
+      "evidence": "材料 3.2：『取 p95 而不是均值或 p50，是因为锁保护的恰恰是最慢的那部分任务』；摘要仅『其值通常为任务p95耗时的两到三倍』",
+      "reason": "摘要保留了取值，『为什么是 p95』的理由在 extract 阶段丢失。"
+    },
+    {
+      "id": "e-005",
+      "dimension": "uncertainty",
+      "stage": "extract",
+      "source": "baseline-lock.md",
+      "target": {
+        "kind": "summary"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/source/baseline-lock.md"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/extract.txt"
+        ]
+      },
+      "candidate": null,
+      "claim": "材料中续期失败规则的『草案、待评审固化』状态在 extract 摘要中被如实保留。",
+      "gold": false,
+      "evidence": "材料第七节：『目前的草案是……』『有规则草案，待评审固化』；摘要直接写『提出了统一规则：转入只收尾、不新增模式』，无任何草案标注",
+      "reason": "张力压平发生在 extract 阶段：未固化的草案被摘要写成已提出的统一规则。"
+    },
+    {
+      "id": "e-006",
+      "dimension": "coverage",
+      "stage": "extract",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "summary"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/source/baseline-retry.md"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt"
+        ]
+      },
+      "candidate": null,
+      "claim": "材料退避参数的『每次翻倍』（倍率为 2 的指数增长）在 extract 摘要中被保留。",
+      "gold": false,
+      "evidence": "材料第四节：『初始 200ms，每次翻倍（指数退避）』；摘要仅『初始200ms、指数退避、单次等待上限5s、最多4次尝试』，『每次翻倍』缺失",
+      "reason": "摘要将『每次翻倍』泛化为『指数退避』——指数增长不必然是翻倍。倍率信息在 extract 阶段丢失。"
+    },
+    {
+      "id": "e-007",
+      "dimension": "uncertainty",
+      "stage": "extract",
+      "source": "baseline-lock.md",
+      "target": {
+        "kind": "summary"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/source/baseline-lock.md"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/extract.txt"
+        ]
+      },
+      "candidate": null,
+      "claim": "材料的限制声明『获取超时与重试参数没有理论最优解，是按当前业务拍的，直接抄数字没有意义』在 extract 摘要中被保留。",
+      "gold": false,
+      "evidence": "材料第五节：『这两个数字没有理论最优解……换业务、换流量特征都要重新评估，直接抄数字没有意义』；摘要无此限定（参数本身也已丢失）",
+      "reason": "参数的限定警告随参数一起在 extract 阶段丢失——读者无从得知这些数字的业务依赖。"
+    },
+    {
+      "id": "e-010",
+      "dimension": "grounding",
+      "stage": "extract",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "summary"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/source/baseline-retry.md"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要断言『对无幂等保障的写操作，超时后重试或报错都无免费正确答案，正确解法是补齐幂等』受材料支持。",
+      "gold": true,
+      "evidence": "材料第三节：『有幂等键就重试；没有幂等键，重试赌的是上次没生效，报错赌的是上次已生效……正确解法是回第二节——把幂等补齐』；摘要同义保留",
+      "reason": "摘要断言逐句可回溯到材料第三节，无添加、无夸大。"
+    },
+    {
+      "id": "x-002",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/jitter.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/targets/concepts_jitter.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/jitter.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "jitter 页断言修正方案为『等待时长 = 计算值 × random(0.5, 1.5)』受 extract 摘要支持。",
+      "gold": true,
+      "evidence": "摘要事故段：『修正方案为等待时长=计算值×random(0.5, 1.5)』；产物『具体实现方案』节公式一致",
+      "reason": "公式逐字来自摘要，execute 忠实。"
+    },
+    {
+      "id": "x-003",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/idempotency-key.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/targets/concepts_idempotency-key.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/idempotency-key.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "幂等键页断言『对没有幂等保障的写操作，超时后无论是重试还是报错，都没有免费的正确答案，正确解法是补齐幂等』受 extract 摘要支持。",
+      "gold": true,
+      "evidence": "摘要边界段原文；产物『在重试流程中的作用』节同义保留",
+      "reason": "execute 忠实保留摘要的边界表述。"
+    },
+    {
+      "id": "x-004",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/retry-amplification-factor.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/targets/concepts_retry-amplification-factor.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/retry-amplification-factor.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "放大系数页断言『重试放大系数 = 重试产生的额外流量 / 原始业务流量』受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要仅有一句『宏观上重试放大系数需全局预算和熔断兜底』——只出现术语，无定义无比值；产物『定义与计算』节给出比值公式",
+      "reason": "摘要只有『放大系数』这个名称，产物发明了正式定义与公式——超出摘要支持的添加。"
+    },
+    {
+      "id": "x-005",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/global-retry-budget.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/targets/concepts_global-retry-budget.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/global-retry-budget.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "全局重试预算页断言的具体机制（实例级配额超出后停止重试直接返回错误、集群级配额达到上限后所有实例停止重试）受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要缺口 2：『方向是实例级或集群级重试配额』——只有方向；产物『实现方向』节给出『超出配额停止重试』『所有实例停止重试』的具体停止语义",
+      "reason": "摘要明言是『方向』，产物的具体停止机制是超出摘要支持的细节扩写。"
+    },
+    {
+      "id": "x-006",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "baseline-lock.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/fencing-token.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/targets/entities_fencing-token.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/fencing-token.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "fencing-token 页断言『fencing token 已实现，解决了锁过期后旧持有者污染资源的问题』受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要：『系统性解法——引入fencing token……但这需要资源方参与协议，当前尚未实现』；产物第 27 行『从而解决了互斥不等于正确性的问题』（完成时表述），同页第 23 行又写『此方案尚未实现』",
+      "reason": "摘要明言『尚未实现』，不支持『已实现/已解决』——产物的完成时断言程度失真，且同页自相矛盾（27 行解决 vs 23 行未实现）。"
+    },
+    {
+      "id": "x-008",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/retry-mechanism.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/targets/concepts_retry-mechanism.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/retry-mechanism.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的缺口状态『随机抖动（jitter）尚未修复』在页面产物中被保留为缺口。",
+      "gold": true,
+      "evidence": "摘要缺口 1：『随机抖动（jitter）尚未修复，修正方案已明确』；产物『已知缺口』节第 1 项『随机抖动（jitter）尚未修复』，gaps 字段同步",
+      "reason": "execute 如实保留缺口，未实化为已实现。"
+    },
+    {
+      "id": "x-009",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/retry-mechanism.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/targets/concepts_retry-mechanism.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/retry-mechanism.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的缺口状态『跨尝试的总 deadline 统一约束尚未实现』在页面产物中被保留为缺口。",
+      "gold": true,
+      "evidence": "摘要超时段：『当前已实现独立超时，但跨尝试的总deadline统一约束尚未实现』；产物『超时与预算』节同句保留",
+      "reason": "execute 如实保留已实现与未实现的边界。"
+    },
+    {
+      "id": "x-010",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/retry-after-header.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/targets/entities_retry-after-header.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/retry-after-header.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的边界声明『Retry-After 影响重试的何时，不影响该不该』及『当前未处理』状态在页面产物中被保留。",
+      "gold": true,
+      "evidence": "摘要缺口 3 及澄清段；产物『协议特性』『当前状态』两节完整保留何时/该不该区分与未处理状态",
+      "reason": "execute 完整保留边界与缺口状态。"
+    },
+    {
+      "id": "x-011",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "baseline-lock.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/distributed-lock-lease-contract.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/targets/concepts_distributed-lock-lease-contract.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/distributed-lock-lease-contract.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的缺口『释放时 token 不匹配未告警』在页面产物中被保留为缺口。",
+      "gold": true,
+      "evidence": "摘要缺口列表第 3 项；产物『契约的已知缺口』节第 3 项『释放时token不匹配未告警』",
+      "reason": "execute 如实保留缺口。"
+    },
+    {
+      "id": "g-013",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/rate-limit-circuit-breaker-retry-collaboration.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/targets/concepts_rate-limit-circuit-breaker-retry-collaboration.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/rate-limit-circuit-breaker-retry-collaboration.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "collaboration 页断言『被限流机制主动拒绝的请求不应被重试』受 extract 摘要支持。",
+      "gold": true,
+      "evidence": "摘要：『被限流拒绝的请求不应重试』；产物『协作规则』第 2 条『被限流机制主动拒绝的请求（例如，网关返回 429）不应被重试』同义保留。",
+      "reason": "claim 收紧为摘要直接支持的断言（去掉 v8 中超出摘要的原因从句）。"
+    },
+    {
+      "id": "c-013",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/idempotency-key.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/targets/concepts_idempotency-key.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/idempotency-key.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "saga 的 plan 决策『update idempotency-key 页补充补偿操作使用独立幂等键的约束』在 idempotency-key 页中落地（页面 sources 含 note-saga-compensation 或正文含补偿场景约束）。",
+      "gold": false,
+      "evidence": "plan target（update concepts/idempotency-key.md，reason『补充幂等键在Saga补偿场景下的具体应用约束』）；产物 idempotency-key 页 sources 仅 [baseline-retry.md, note-idempotency-design.md]，无 note-saga-compensation；正文无『补偿』字样",
+      "reason": "plan 决策了 update，但该 update 未落地——saga 首跑失败后 retry 时 update 内容没有写进页面（sources 与正文双端无痕）。增量 update 丢失。"
+    },
+    {
+      "id": "u-007",
+      "dimension": "uncertainty",
+      "stage": "extract",
+      "source": "note-message-delivery.md",
+      "target": {
+        "kind": "summary"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/source/note-message-delivery.md"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-message-delivery.md/extract.txt"
+        ]
+      },
+      "candidate": null,
+      "claim": "材料的缺口状态『死信队列依赖人工处理且缺乏监控（9 月事故积压 4 小时无人发现）』在 extract 摘要中被保留为缺口。",
+      "gold": true,
+      "evidence": "材料第四节：『当前死信队列依赖人工处理——9月事故里死信积压4小时无人发现』；摘要『9月事故的核心教训是死信队列依赖人工处理且缺乏监控，导致积压4小时无人发现』",
+      "reason": "缺口与事故佐证在 extract 阶段完整保留，未实化为已处理。"
+    },
+    {
+      "id": "u-008",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "note-circuit-breaker.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/circuit-breaker.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/targets/entities_circuit-breaker.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/circuit-breaker.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要列出的三个已知缺口（与重试预算未联动、探测无全局上限、积压请求处理未统一）在 circuit-breaker 页中被保留为缺口。",
+      "gold": true,
+      "evidence": "摘要缺口段三项；产物『已知缺口』节三项逐条保留，gaps 字段同步",
+      "reason": "三个缺口全部如实保留，未实化为已实现。"
+    },
+    {
+      "id": "u-012",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "note-timeout-degradation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/global-retry-budget.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/targets/concepts_global-retry-budget.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/global-retry-budget.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的缺口状态『deadline 传递机制尚未实现』在 global-retry-budget 页的协同节中被保留为未实现状态。",
+      "gold": false,
+      "evidence": "摘要：『当前deadline传递机制尚未实现，这与重试框架的缺口相关联』；产物第 41-46 行协同节只做描述性论述（『需要协同工作』『需协同设计』），无『尚未实现/未实现』任何状态标注，gaps 字段也无此缺口",
+      "reason": "update 把『未实现』的缺口状态写成了中性描述——张力在 execute 阶段丢失。"
+    },
+    {
+      "id": "u-014",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "note-idempotency-design.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/idempotency-key.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-idempotency-design.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-idempotency-design.md/targets/concepts_idempotency-key.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/idempotency-key.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的待修项『重试框架对无幂等键写请求的拦截功能尚未实现』在 idempotency-key 页中被保留为未实现状态。",
+      "gold": true,
+      "evidence": "摘要『重试框架对无幂等键写请求的拦截功能目前尚未实现』；产物第 75 行『重试框架对无幂等键写请求的拦截功能尚未实现』（已知缺口第 5 项）",
+      "reason": "execute 如实保留待修项状态。"
+    },
+    {
+      "id": "u-015",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "note-timeout-degradation.md",
+      "target": {
+        "kind": "collection",
+        "pages": [
+          "concepts/retry-mechanism.md",
+          "concepts/global-retry-budget.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/targets/concepts_retry-mechanism.json",
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/targets/concepts_global-retry-budget.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/retry-mechanism.md",
+          "baselines/seeded/wiki/concepts/global-retry-budget.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的缺口『降级开关未配置化、降级恢复无机制』在 timeout 篇的产物（retry-mechanism 与 global-retry-budget 两页）中被保留为缺口。",
+      "gold": false,
+      "evidence": "摘要缺口段：『降级开关未配置化、降级恢复无机制』两项；产物两页均无任何降级相关缺口表述（plan 只 update 了 deadline 主题，降级主题没有被任何页面承载）",
+      "reason": "降级缺口在产物中完全缺失——plan 未给降级主题分配任何 target，缺口随主题一起丢失。"
+    },
+    {
+      "id": "p-001",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "baseline-lock.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/baseline-lock.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/baseline-lock.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将 fencing token 独立成页的决策成立：输入摘要中 fencing token 有独立论述段（原理、资源方参与前提、未实现状态——≥2 个独立事实），且无既有页 goal 声明覆盖该主题。",
+      "gold": true,
+      "evidence": "C1: 摘要『针对此问题，文档提出了系统性解法——引入fencing token（栅栏令牌），通过单调递增的序号让共享资源拒绝旧序号的写入，但这需要资源方参与协议，当前尚未实现』为完整段（原理+前提+状态三事实）；C3: 结构树中无既有页 goal 含 fencing。",
+      "reason": "C1 成立 ∧ C3 不成立 → true。"
+    },
+    {
+      "id": "p-002",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/baseline-retry.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/baseline-retry.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将『重试放大系数』独立成页的决策成立：输入摘要中该主题有独立论述段。",
+      "gold": false,
+      "evidence": "C1: 摘要仅『宏观上重试放大系数需全局预算和熔断兜底』一句——只出现术语，无第二个独立事实（无定义、无计算方式、无边界），不构成独立论述段。",
+      "reason": "C1 不成立 → false。"
+    },
+    {
+      "id": "p-003",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "baseline-lock.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/baseline-lock.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/baseline-lock.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将『租约契约模型』与『Redis 分布式锁实现』分为两页的决策成立：输入摘要中两主题各有独立论述段，且无既有页 goal 声明覆盖。",
+      "gold": true,
+      "evidence": "C1: 摘要契约段（固有缺陷/补偿方案/边界原则）与实现段（SET/Lua/参数）各含≥2 独立事实；C3: 结构树中无既有页 goal 覆盖『契约模型』或『Redis 实现』主题。",
+      "reason": "C1 成立 ∧ C3 不成立 → true。"
+    },
+    {
+      "id": "p-004",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "baseline-lock.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/baseline-lock.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/baseline-lock.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-lock.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将『资金类三层保障体系』独立成页的决策成立：输入摘要中该主题有独立论述段。",
+      "gold": false,
+      "evidence": "C1: 摘要仅『资金类操作需锁、幂等、对账三层保障』一句——三个名称的一次列举，无第二处独立事实（无各层职责展开）。",
+      "reason": "C1 不成立 → false。"
+    },
+    {
+      "id": "p-005",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "baseline-retry.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/baseline-retry.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/baseline-retry.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-retry.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将 jitter 独立成页的决策成立：输入摘要中 jitter 有独立论述段，且无既有页 goal 声明覆盖。",
+      "gold": true,
+      "evidence": "C1: 摘要事故段『但这套参数缺少随机抖动（jitter），导致了6月事故……修正方案为等待时长=计算值×random(0.5, 1.5)』（成因+方案+公式≥2 事实）；C3: 结构树中无既有页 goal 含 jitter。",
+      "reason": "C1 成立 ∧ C3 不成立 → true。"
+    },
+    {
+      "id": "p-006",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "baseline-cache.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/baseline-cache.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/baseline-cache.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/baseline-cache.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/baseline-cache.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/baseline-cache.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 对 cache 篇输出空 targets 的决策成立：输入摘要中不存在有独立论述段的主题。",
+      "gold": false,
+      "evidence": "C1: 摘要含多个有独立论述段的主题——『先写库后删缓存』时序段、『重建锁/空值缓存/随机偏移』三对策段、事件驱动失效段、代际键缺口段，各含≥2 独立事实。",
+      "reason": "C1 对『不存在独立主题』不成立 → false。"
+    },
+    {
+      "id": "o-006",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-message-delivery.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-message-delivery.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-message-delivery.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-message-delivery.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-message-delivery.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-message-delivery.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 对 message-delivery 篇输出空 targets 的决策成立：输入摘要中不存在有独立论述段的主题。",
+      "gold": false,
+      "evidence": "C1: 摘要含多个有独立论述段的主题——三种投递语义段（at-most-once/at-least-once/exactly-once 各有定义）、幂等消费段（message_id+去重表+同事务）、死信与重试段、事件与状态一致性段，各含≥2 独立事实。",
+      "reason": "C1 对『不存在独立主题』不成立 → false。"
+    },
+    {
+      "id": "o-007",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-circuit-breaker.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-circuit-breaker.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-circuit-breaker.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将熔断器独立成页的决策成立：输入摘要中熔断器有独立论述段，且无既有页 goal 声明覆盖。",
+      "gold": true,
+      "evidence": "C1: 摘要整篇论述熔断器（三态状态机、五个参数、判定依据、三个缺口）；C3: 结构树中无既有页 goal 覆盖熔断器主题。",
+      "reason": "C1 成立 ∧ C3 不成立 → true。"
+    },
+    {
+      "id": "o-008",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-saga-compensation.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-saga-compensation.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将『语义抵消』独立成页的决策成立：输入摘要中该主题有独立论述段。",
+      "gold": false,
+      "evidence": "C1: 摘要『补偿操作的语义是语义抵消而非物理撤销，例如库存扣减的补偿是回补……』是补偿操作定义段的一部分，语义抵消自身无第二个独立事实；C3: 结构树中 compensation-operation 页 goal『系统阐述补偿操作作为Saga模式核心概念的语义、设计原则与约束』已声明覆盖其语义。",
+      "reason": "C1 不成立（且 C3 成立）→ false。"
+    },
+    {
+      "id": "o-009",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-saga-compensation.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-saga-compensation.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将『Saga 三层防护』独立成页的决策成立：输入摘要中该主题有独立论述段且无既有页 goal 声明覆盖。",
+      "gold": false,
+      "evidence": "C1: 摘要『文档详细描述了订单下单Saga的状态机流转，并强调了三条关键纪律：状态转换必须……补偿操作必须幂等……』是独立论述段；C3: 结构树中 saga-pattern 页 goal『关键纪律（状态机持久化、补偿幂等、补偿的补偿）』与三层防护页 goal 同义重叠——既有页已声明覆盖该主题。",
+      "reason": "C1 成立但 C3 成立 → false。"
+    },
+    {
+      "id": "o-010",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-saga-compensation.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-saga-compensation.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将补偿场景幂等键约束 update 进已有 idempotency-key 页（而非新建页）的决策成立：该主题在输入摘要中无独立论述段，且属于既有页 goal 覆盖范围。",
+      "gold": true,
+      "evidence": "C1: 摘要『补偿操作必须幂等，使用独立幂等键按原操作ID去重』是补偿纪律的组成部分，非独立主题段；C3: 结构树中 idempotency-key 页 goal 覆盖幂等键机制——增量归入已有页是唯一正确方向。",
+      "reason": "C1 不成立（非独立主题）且 C3 成立（归已有页）→ update 决策成立 → true。"
+    },
+    {
+      "id": "o-011",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-timeout-degradation.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-timeout-degradation.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-timeout-degradation.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将 deadline 主题 update 进已有 retry-mechanism 与 global-retry-budget 两页（而非新建 deadline 页）的决策成立：该主题在输入摘要中无独立论述段，且属于既有页 goal 覆盖范围。",
+      "gold": true,
+      "evidence": "C1: 摘要 deadline 段『当前deadline传递机制尚未实现，这与重试框架的缺口相关联』表明它是重试机制的缺口而非独立主题；C3: 结构树中 retry-mechanism goal『覆盖错误分类、退避参数、实现要求、副作用风险与已知缺口』与 global-retry-budget goal 覆盖其协同。",
+      "reason": "C1 不成立（是缺口不是主题）且 C3 成立（归既有页）→ update 决策成立 → true。"
+    },
+    {
+      "id": "o-012",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-idempotency-design.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-idempotency-design.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-idempotency-design.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-idempotency-design.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-idempotency-design.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-idempotency-design.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将幂等设计模式增量 update 进已有三个页面（而非新建页）的决策成立：输入摘要中该主题无独立论述段，且属于既有页 goal 覆盖范围。",
+      "gold": true,
+      "evidence": "C1: 摘要内容（幂等键选择/存储分层/并发约束/重试边界）是既有主题的工程展开，无独立新主题段；C3: 结构树中 idempotency-key/retry-mechanism/three-layer-protection 三页 goal 分别覆盖其内容。",
+      "reason": "C1 不成立（是展开不是新主题）且 C3 成立（归既有页）→ update 决策成立 → true。"
+    },
+    {
+      "id": "o-013",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-rate-limiting.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-rate-limiting.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将三机制协作规则独立成 collaboration 页（而非 update retry-mechanism）的决策成立：输入摘要中协作规则有独立论述段，且无既有页 goal 声明覆盖。",
+      "gold": true,
+      "evidence": "C1: 摘要『文档进一步厘清了限流、熔断、重试三者的职责边界：限流控制入口速率，熔断判断下游状态，重试处理单请求失败。具体协作规则包括……』（职责边界+多条协作规则≥2 事实）；C3: 结构树中无既有页 goal 覆盖三机制协作主题。",
+      "reason": "C1 成立 ∧ C3 不成立 → true。"
+    },
+    {
+      "id": "o-014",
+      "dimension": "organization",
+      "stage": "plan",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/analyze.json",
+          "baselines/seeded/run-evidence/index-snapshots/note-rate-limiting.index.json",
+          "baselines/seeded/run-evidence/compile-time-trees/note-rate-limiting.tree.json"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "plan 将『基于优先级的限流』独立成页的决策成立：输入摘要中该主题有独立论述段，且无既有页 goal 声明覆盖。",
+      "gold": true,
+      "evidence": "C1: 摘要『必须区分流量的优先级』段（保护/配额动机区分+8月事故误伤支付回调+优先级分流缺口≥2 事实）；C3: 结构树中无既有页 goal 覆盖优先级限流主题。",
+      "reason": "C1 成立 ∧ C3 不成立 → true。"
+    },
+    {
+      "id": "c-014",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-timeout-degradation.md",
+      "target": {
+        "kind": "collection",
+        "pages": [
+          "concepts/retry-mechanism.md",
+          "concepts/global-retry-budget.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/targets/concepts_retry-mechanism.json",
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/targets/concepts_global-retry-budget.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/retry-mechanism.md",
+          "baselines/seeded/wiki/concepts/global-retry-budget.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的 deadline 纪律『下层服务不得重置预算』在 timeout 篇的两页产物中被保留。",
+      "gold": false,
+      "evidence": "摘要：『文档明确了两条纪律：下层服务不得重置预算，且当剩余时间不足时应立即快速失败』；两页产物核对：retry-mechanism 第 58 行只有『透传剩余时间』机制描述、无『不得重置』纪律；global-retry-budget 第 41-46 行协同节只说『逐层约束』『精细化控制』、无『不得重置』表述——两页均无此纪律。",
+      "reason": "跨页聚合判定：judge 必须搜完两页才能确认纪律丢失——变换描述（'透传/逐层约束'≠'不得重置'）不是保留。"
+    },
+    {
+      "id": "c-015",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-circuit-breaker.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/circuit-breaker.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/targets/entities_circuit-breaker.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/circuit-breaker.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "circuit-breaker 页断言熔断统计窗口为 40 秒受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要：『统计窗口30秒』；产物第 33 行『统计窗口：30秒』——40 秒在任何输入与产出中均不存在。",
+      "reason": "事实交换题：claim 嵌入错误数字 40（真实 30），judge 必须逐字对照数字而不是被数字的'合理性'带偏。"
+    },
+    {
+      "id": "c-016",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-idempotency-design.md",
+      "target": {
+        "kind": "collection",
+        "pages": [
+          "concepts/idempotency-key.md",
+          "concepts/three-layer-protection-for-financial-operations.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-idempotency-design.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-idempotency-design.md/targets/concepts_idempotency-key.json",
+          "baselines/seeded/run-evidence/artifacts/note-idempotency-design.md/targets/concepts_three-layer-protection-for-financial-operations.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/idempotency-key.md",
+          "baselines/seeded/wiki/concepts/three-layer-protection-for-financial-operations.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的关键事实『幂等键必须是业务操作的固有标识而非某次请求的标识（如支付单号/订单号，而非回调流水号）』在两页产物中被保留。",
+      "gold": true,
+      "evidence": "摘要：『幂等键必须是业务操作的固有标识而非某次请求的标识，并以支付回调使用支付单号、下单请求使用订单号为例说明』；idempotency-key 页『幂等键选择策略』节『业务操作的固有标识（如支付单号、订单号），而非某次请求的标识（如回调流水号）』、three-layer 页『幂等层的工程实践』节同义——跨两页聚合成立。",
+      "reason": "跨页 paraphrase 判定：事实以改写形式分散在两页，judge 必须聚合两页证据。"
+    },
+    {
+      "id": "c-017",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/compensation-operation.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/targets/concepts_compensation-operation.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/compensation-operation.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的关键事实『补偿操作与原操作不能共用幂等键』在 compensation-operation 页中被保留（含其推论：补偿按原操作 ID 去重）。",
+      "gold": true,
+      "evidence": "摘要：『补偿操作必须幂等，使用独立幂等键按原操作ID去重』『补偿操作与原操作不能共用幂等键』；产物第 23 行『补偿操作不能与原操作共用幂等键，必须使用独立的幂等键按原操作ID进行去重』——断言与推论均保留。",
+      "reason": "直接蕴含判定：claim 的推论部分（按原操作 ID 去重）由摘要直接蕴含，judge 需识别蕴含关系而非字面匹配。"
+    },
+    {
+      "id": "c-018",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-message-delivery.md",
+      "target": {
+        "kind": "collection",
+        "pages": []
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-message-delivery.md/extract.txt"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-message-delivery.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的关键事实『去重记录 TTL 设为 7 天（覆盖消息系统 72 小时最大重投窗口）』在 message-delivery 篇的产物中被保留。",
+      "gold": false,
+      "evidence": "摘要：『去重记录的TTL被设为7天，以覆盖消息系统最长72小时的重投窗口』；该篇 plan 为空数组（整篇 noop）——零页面产出，该事实连同整篇内容一起丢失。",
+      "reason": "noop 全丢判定：claim 指向不存在的产物页面集合，judge 必须从空产出中得出事实未保留。"
+    },
+    {
+      "id": "c-019",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/rate-limiter.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/targets/entities_rate-limiter.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/rate-limiter.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "rate-limiter 页断言本地预扣机制将 Redis 的 QPS 降至请求量的 10% 受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要：『本地预扣机制，将Redis的QPS降至请求量的5%』；产物第 24 行『将Redis的QPS降至请求量的5%』——claim 中的 10% 与输入产出均不符。",
+      "reason": "事实交换题：数字 5 换成 10，judge 必须逐字对照百分比。"
+    },
+    {
+      "id": "g-016",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-circuit-breaker.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/circuit-breaker.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/targets/entities_circuit-breaker.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/circuit-breaker.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "circuit-breaker 页断言『429 限流错误也会触发熔断』受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要：『熔断器的判定基于下游服务的整体健康状态（如5xx错误和超时），而非单次请求的错误类型（例如429限流错误不会触发熔断）』；产物『决策依据』节『429限流错误不会触发熔断』——claim 的『也会触发』与输入产出双双矛盾。",
+      "reason": "模态反转近失题：claim 把『不触发』翻转成『会触发』，judge 必须抓住否定词。"
+    },
+    {
+      "id": "g-017",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/rate-limiter.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/targets/entities_rate-limiter.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/rate-limiter.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "rate-limiter 页断言『本地预扣机制将 Redis 的 QPS 降至请求量的 15%』受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要：『本地预扣机制，将Redis的QPS降至请求量的5%』；产物第 24 行『将Redis的QPS降至请求量的5%』——claim 的 15% 与两端都不符。",
+      "reason": "事实交换近失题：5% 换成 15%，judge 必须逐字对照百分比。"
+    },
+    {
+      "id": "g-018",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/rate-limit-circuit-breaker-retry-collaboration.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/targets/concepts_rate-limit-circuit-breaker-retry-collaboration.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/rate-limit-circuit-breaker-retry-collaboration.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "collaboration 页断言『熔断器对任何类型的下游异常都快速失败』受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要：『限流控制入口速率，熔断判断下游状态，重试处理单请求失败』——只给职责边界；产物『熔断：判断下游服务的状态。当检测到下游故障或延迟过高时，熔断器会快速失败』——触发条件是『故障或延迟过高』，无『任何类型』的全称断言。",
+      "reason": "过度概括近失题：claim 的全称量词『任何类型』超出输入与产出的范围。"
+    },
+    {
+      "id": "g-019",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/saga-pattern.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/targets/entities_saga-pattern.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/saga-pattern.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "saga-pattern 页断言『协同式 Saga 需要中心协调器维护状态机』受 extract 摘要支持。",
+      "gold": false,
+      "evidence": "摘要：『在Saga的编排方式上，文档选择了编排式，由订单服务的Saga协调器维护显式的流程状态机，以避免协同式中流程逻辑分散在事件中导致的排查困难』——协调器是编排式的特征，『协同式流程逻辑分散在事件中』恰恰说明协同式无中心协调器；产物『编排方式』节同此结构。",
+      "reason": "归因反转近失题：claim 把编排式的特征安到协同式头上，judge 必须抓住两种编排方式的对比结构。"
+    },
+    {
+      "id": "g-020",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/compensation-operation.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/targets/concepts_compensation-operation.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/compensation-operation.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "compensation-operation 页断言『补偿操作自身失败后依赖重试队列恢复，最终由对账兜底』受 extract 摘要支持。",
+      "gold": true,
+      "evidence": "摘要：『补偿操作本身也可能失败，需进入重试队列并由对账机制兜底』；产物第 27 行『补偿操作本身也可能失败，此时需要进入重试队列，并最终由对账机制兜底』——同义改写（『依赖…恢复』=『进入重试队列』）。",
+      "reason": "paraphrase 保留题：claim 用『依赖重试队列恢复』改写输入的『进入重试队列』，judge 需识别语义等价。"
+    },
+    {
+      "id": "g-021",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-circuit-breaker.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/circuit-breaker.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/targets/entities_circuit-breaker.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/circuit-breaker.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "circuit-breaker 页断言『熔断器有效性的衡量标准是它能否缩短下游的恢复时长』受 extract 摘要支持。",
+      "gold": true,
+      "evidence": "摘要：『熔断器有效性的最终评估标准应是观察其是否能够缩短下游服务的恢复时长』；产物末段『熔断器有效性的最终评估标准应是观察其是否能够缩短下游服务的恢复时长』——『衡量标准』与『评估标准』同义改写。",
+      "reason": "paraphrase 保留题：术语改写（衡量/评估），judge 需识别同义。"
+    },
+    {
+      "id": "g-022",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/rate-limiter.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/targets/entities_rate-limiter.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/rate-limiter.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "rate-limiter 页断言『分布式限流采用窗口计数法，并容忍 10% 的计数误差』受 extract 摘要支持。",
+      "gold": true,
+      "evidence": "摘要：『分布式限流通过Redis计数实现全局速率上限，采用窗口计数法，允许10%的误差容忍』；产物第 24 行『窗口计数法，并允许10%的误差容忍』——两事实合一改写。",
+      "reason": "双事实聚合题：claim 把『窗口计数法』与『10% 误差』合成一句，judge 需同时验证两个锚点。"
+    },
+    {
+      "id": "g-024",
+      "dimension": "grounding",
+      "stage": "execute",
+      "source": "note-timeout-degradation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/retry-mechanism.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/targets/concepts_retry-mechanism.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/retry-mechanism.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "retry-mechanism 页断言『引入 deadline 后，重试次数不再是配置的固定值，而是受剩余预算约束动态变化』受 extract 摘要支持。",
+      "gold": true,
+      "evidence": "摘要：『引入deadline后，重试次数会变为动态值。例如，在剩余3秒预算下，按退避序列实际最多可能尝试3次，而非配置的4次』；产物第 58 行『重试次数将从静态配置值变为动态值，受剩余预算约束』——改写保留。",
+      "reason": "paraphrase 保留题：『不再是配置的固定值』=『从静态配置值变为动态值』，judge 需识别同义改写。"
+    },
+    {
+      "id": "c-020",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-circuit-breaker.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/circuit-breaker.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/targets/entities_circuit-breaker.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/circuit-breaker.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的关键事实『熔断判定只看下游整体健康状态，不看单次请求的错误类型』在 circuit-breaker 页中被保留。",
+      "gold": true,
+      "evidence": "摘要：『熔断器的判定基于下游服务的整体健康状态（如5xx错误和超时），而非单次请求的错误类型』；产物『决策依据』节『熔断器的判定基于下游服务的整体健康状态（如5xx错误和超时），而非单次请求的错误类型（例如429限流错误不会触发熔断）』——同义保留。",
+      "reason": "paraphrase 保留题：『只看…不看…』的对比结构改写为『基于…而非…』。"
+    },
+    {
+      "id": "c-021",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/rate-limiter.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/targets/entities_rate-limiter.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/rate-limiter.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的关键事实『限流触发后返回 429 与 Retry-After，并监控被拒流量的走势』在 rate-limiter 页中被保留。",
+      "gold": true,
+      "evidence": "摘要：『限流触发后需返回429状态码与Retry-After头，并监控被拒流量的趋势』；产物『协作规则』第 3 条『限流触发后需返回429状态码与Retry-After头，并监控被拒流量的趋势』——『走势』与『趋势』同义。",
+      "reason": "paraphrase 保留题：单字改写（走势/趋势），其余需逐项核对。"
+    },
+    {
+      "id": "c-022",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-circuit-breaker.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/circuit-breaker.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/targets/entities_circuit-breaker.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/circuit-breaker.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的两个半开探测参数『每次放行 1 个探测请求』与『连续 3 次成功恢复闭合』在 circuit-breaker 页中被保留。",
+      "gold": true,
+      "evidence": "摘要：『此时会放行少量探测请求（每次1个）。只有连续3次探测请求成功，熔断器才会恢复至闭合状态』；产物『关键参数』节『半开状态探测策略：每次放行1个探测请求』『恢复条件：连续3次探测请求成功』——两参数齐全。",
+      "reason": "双事实聚合题：claim 聚合两个数字参数，judge 需逐一核对 1 与 3。"
+    },
+    {
+      "id": "c-023",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/compensation-operation.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/targets/concepts_compensation-operation.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/compensation-operation.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的关键事实『补偿操作必须幂等（多次执行效果与一次相同）』在 compensation-operation 页中被保留。",
+      "gold": true,
+      "evidence": "摘要：『补偿操作必须幂等，使用独立幂等键按原操作ID去重』；产物第 22 行『必须幂等：补偿操作本身可能失败并需要重试，因此必须保证幂等性，确保多次执行的效果与一次执行相同』——幂等含义被展开表述。",
+      "reason": "蕴含展开题：claim 的『多次执行效果与一次相同』是对『幂等』一词的定义展开，judge 需识别定义等价。"
+    },
+    {
+      "id": "c-024",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/saga-pattern.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/targets/entities_saga-pattern.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/saga-pattern.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的关键事实『Saga 中间状态是合法的，但必须可观测』在 saga-pattern 页中被保留。",
+      "gold": true,
+      "evidence": "摘要：『Saga模式下的中间状态被视为合法但必须可观测』；产物第 40 行『Saga模式下的中间状态被视为合法但必须可观测』——同义保留。",
+      "reason": "paraphrase 保留题：『是合法的，但必须』的让步结构改写。"
+    },
+    {
+      "id": "c-025",
+      "dimension": "coverage",
+      "stage": "execute",
+      "source": "note-saga-compensation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/saga-pattern.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-saga-compensation.md/targets/entities_saga-pattern.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/saga-pattern.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的关键事实『选择编排式的动机是避免协同式流程逻辑散落事件中难以排查』在 saga-pattern 页中被保留。",
+      "gold": true,
+      "evidence": "摘要：『文档选择了编排式，由订单服务的Saga协调器维护显式的流程状态机，以避免协同式中流程逻辑分散在事件中导致的排查困难』；产物『编排方式』节『编排式由一个Saga协调器维护显式的流程状态机，避免了协同式中流程逻辑分散在事件中导致的排查困难』——动机与原因完整保留。",
+      "reason": "动机保留题：claim 只问『选择动机』这一层，judge 需从产物『编排方式』节提取动机成分。"
+    },
+    {
+      "id": "u-016",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "note-circuit-breaker.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/circuit-breaker.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-circuit-breaker.md/targets/entities_circuit-breaker.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/circuit-breaker.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的缺口『熔断与重试预算未联动』在 circuit-breaker 页的 gaps 字段中被保留为『未实现』状态。",
+      "gold": false,
+      "evidence": "摘要缺口段：『熔断策略与重试预算未联动，可能导致恢复时所有实例同时放量引发流量洪峰』——是『未实现』缺口；产物 gaps 字段：『文档未提及熔断器与重试预算联动的具体实现方案』——『未实现』被软化为『文档未提及』（实现缺口变成了文档缺口）。",
+      "reason": "张力软化近失题：缺口状态从『未实现』软化为『未提及』——judge 必须区分两种表述的性质差异（正文保留缺口、gaps 字段软化）。"
+    },
+    {
+      "id": "u-017",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "note-message-delivery.md",
+      "target": {
+        "kind": "plan"
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-message-delivery.md/extract.txt"
+        ],
+        "output": [
+          "baselines/seeded/run-evidence/artifacts/note-message-delivery.md/plan.json"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的缺口『死信队列依赖人工处理且缺乏监控（9 月事故积压 4 小时无人发现）』在 message-delivery 篇产物中被保留为缺口。",
+      "gold": false,
+      "evidence": "摘要：『9月事故的核心教训是死信队列依赖人工处理且缺乏监控，导致积压4小时无人发现』；该篇 plan 为空数组（整篇 noop）——零页面产出，缺口连同整篇内容丢失。",
+      "reason": "noop 全丢题：claim 指向不存在的产物，judge 必须从空产出得出缺口未保留。"
+    },
+    {
+      "id": "u-018",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "note-timeout-degradation.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "concepts/retry-mechanism.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-timeout-degradation.md/targets/concepts_retry-mechanism.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/concepts/retry-mechanism.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的『重试次数动态化要求监控区分次数上限拦截与预算拦截两种终止原因』在 retry-mechanism 页中被保留。",
+      "gold": true,
+      "evidence": "摘要：『监控系统需要区分次数上限拦截和预算拦截两种情况』；产物第 58 行『这要求监控系统能够区分两种重试终止原因：次数上限拦截（达到配置的最大尝试次数）与预算拦截（剩余时间不足以进行下一次尝试）』——完整保留且带解释。",
+      "reason": "paraphrase 保留题：『两种终止原因』的归纳表述，judge 需确认两种拦截名称都在。"
+    },
+    {
+      "id": "u-019",
+      "dimension": "uncertainty",
+      "stage": "execute",
+      "source": "note-rate-limiting.md",
+      "target": {
+        "kind": "page",
+        "pages": [
+          "entities/rate-limiter.md"
+        ]
+      },
+      "view": {
+        "inputs": [
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/extract.txt",
+          "baselines/seeded/run-evidence/artifacts/note-rate-limiting.md/targets/entities_rate-limiter.json"
+        ],
+        "output": [
+          "baselines/seeded/wiki/entities/rate-limiter.md"
+        ]
+      },
+      "candidate": null,
+      "claim": "extract 摘要的缺口『出口限流尚未实现，存在集体超载风险』在 rate-limiter 页中被保留为缺口。",
+      "gold": true,
+      "evidence": "摘要缺口段：『仅实现了入口限流，出口限流尚未实现，存在集体超载风险』；产物 gaps 字段『文档指出出口限流尚未实现，优先级分流缺乏统一框架，限流与重试预算尚未联动』——『尚未实现』状态保留。",
+      "reason": "缺口保留题：『尚未实现』状态词与风险关联都需在产物中找到。"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "concepts/rollback-code-not-data.md",
+    "title": "回滚代码而非数据",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取核心回滚原则创建独立页。source 提供了两个关键事实：1) 回滚时只回滚代码版本，不回滚已执行的数据回填；2) 原因是数据回滚成本高且易导致数据漂移，已执行的数据回填不做反向回填。该原则与三阶段流程形成张力，是独立的决策原则。现有页面无相关主题，需新建。"
+  }
+}

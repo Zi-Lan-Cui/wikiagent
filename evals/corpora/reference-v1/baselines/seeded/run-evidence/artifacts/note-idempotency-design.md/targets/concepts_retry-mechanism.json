@@ -1,0 +1,16 @@
+{
+  "source": "note-idempotency-design.md",
+  "target": {
+    "wiki_path": "concepts/retry-mechanism.md",
+    "title": "retry-mechanism.md",
+    "disposition": "update",
+    "page_type": "",
+    "reason": "补充文档从幂等侧讨论的与重试框架的职责边界和工程缺口，具体包括：1. 明确'重试框架负责决策，幂等保障重试安全'的边界划分；2. 指出当前工程缺口：重试框架对无幂等键写请求的拦截功能尚未实现。",
+    "references": [
+      {
+        "slug": "concepts/idempotency-key",
+        "reason": "对照幂等键作为重试安全前提的职责"
+      }
+    ]
+  }
+}

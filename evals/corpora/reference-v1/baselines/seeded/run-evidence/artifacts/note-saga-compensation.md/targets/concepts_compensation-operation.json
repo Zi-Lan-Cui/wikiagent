@@ -1,0 +1,20 @@
+{
+  "source": "note-saga-compensation.md",
+  "target": {
+    "wiki_path": "concepts/compensation-operation.md",
+    "title": "compensation-operation.md",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取补偿操作作为Saga模式的核心概念创建独立页。文档提供了至少两个独立事实：1）补偿操作的语义是'语义抵消'而非物理撤销，如库存扣减的补偿是'回补'、支付预下单的补偿是'释放冻结'；2）补偿操作必须幂等且使用独立幂等键，不能与原操作共用幂等键。现有页面无法承载，因为补偿操作是分布式事务中的关键概念，具有独立的设计原则和约束。",
+    "references": [
+      {
+        "slug": "entities/saga-pattern",
+        "reason": "补偿操作是Saga模式的核心组成部分"
+      },
+      {
+        "slug": "concepts/idempotency-key",
+        "reason": "补偿操作的幂等性直接依赖幂等键机制"
+      }
+    ]
+  }
+}

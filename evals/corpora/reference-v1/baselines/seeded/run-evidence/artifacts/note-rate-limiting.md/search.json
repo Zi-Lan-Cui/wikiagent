@@ -1,0 +1,10 @@
+{
+  "source": "note-rate-limiting.md",
+  "rel_paths": [
+    "concepts/retry-mechanism.md",
+    "concepts/retry-storm.md",
+    "entities/retry-after-header.md",
+    "entities/circuit-breaker.md"
+  ],
+  "raw": "[\"concepts/retry-mechanism\", \"concepts/retry-storm\", \"entities/retry-after-header\", \"entities/circuit-breaker\"]"
+}
