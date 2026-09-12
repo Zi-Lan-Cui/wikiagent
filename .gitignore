@@ -53,10 +53,4 @@ htmlcov/
 .ruff_cache/
 
 # other
-docs/*
-!docs/resume-design.md
-!docs/system-design-notes.md
 first_wiki/
-
-# personal document
-TODO.md
