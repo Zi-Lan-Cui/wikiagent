@@ -1,0 +1,178 @@
+{
+  "source": "baseline-migration.md",
+  "schema": "compile-time-tree-v1",
+  "existing_pages": [
+    {
+      "path": "concepts/distributed-lock-lease-contract.md",
+      "type": "concept",
+      "title": "分布式锁的租约契约模型",
+      "summary": "将分布式锁定义为一份有时间限制的契约，其核心缺陷是锁的释放不依赖持有者知情，所有设计均围绕此缺陷展开补偿。",
+      "goal": "系统阐述分布式锁作为‘租约契约’的本质、执行机制、固有缺陷及其补偿方案，成为理解分布式锁设计哲学与工程实践的理论基石。"
+    },
+    {
+      "path": "entities/redis-distributed-lock-implementation.md",
+      "type": "entity",
+      "title": "Redis分布式锁实现机制",
+      "summary": "基于Redis的分布式锁获取、释放、租约与续期的具体工程实现。",
+      "goal": "系统阐述Redis分布式锁的原子命令实现、租约管理、续期逻辑及已知缺陷，作为该实体实现的完整技术参考。"
+    },
+    {
+      "path": "concepts/mutual-exclusion-is-not-correctness.md",
+      "type": "concept",
+      "title": "互斥≠正确性",
+      "summary": "分布式锁仅承诺互斥，不保证业务正确性，不能替代幂等设计。",
+      "goal": "系统阐述分布式锁的互斥承诺边界，明确其与业务正确性保障（如幂等）的区别，并基于事故案例说明为何需要多层防护。"
+    },
+    {
+      "path": "entities/fencing-token.md",
+      "type": "entity",
+      "title": "Fencing Token",
+      "summary": "一种通过单调递增序号防止锁过期后旧持有者污染共享资源的系统性方案。",
+      "goal": "系统阐述 Fencing Token 的工作原理、实现前提及其作为分布式锁租约契约缺陷补偿方案的角色。"
+    },
+    {
+      "path": "concepts/renewal-failure-only-cleanup-no-new-operations.md",
+      "type": "concept",
+      "title": "续期失败只收尾不新增规则",
+      "summary": "分布式锁续期失败时，完成当前原子操作后停止，不发起新操作，标记任务为pending-verify。",
+      "goal": "系统阐述分布式锁续期失败后的统一处理规则，包括其具体内容、落地机制（pending-verify状态）及其工程前提（可checkpoint任务设计），作为续期失败场景的决策锚点。"
+    },
+    {
+      "path": "concepts/three-layer-protection-for-financial-operations.md",
+      "type": "concept",
+      "title": "资金类三层保障体系",
+      "summary": "资金类操作需锁、幂等、对账三层保障，解决不同层面问题且不能替代。",
+      "goal": "系统阐述资金类操作中锁（互斥）、幂等（防重复）、对账（兜底）三层保障体系的构成、各自解决的问题层面及其不可替代性，作为设计资金相关操作的原则参考。"
+    },
+    {
+      "path": "concepts/retry-mechanism.md",
+      "type": "concept",
+      "title": "重试机制",
+      "summary": "通过有限次重试抹掉暂时性故障，但需平衡成功率与重试风暴风险。",
+      "goal": "系统阐述重试机制的设计原则、核心矛盾（成功率 vs 风暴）、关键参数（错误分类、幂等、退避、预算）及事故教训，作为构建健壮服务调用的参考。"
+    },
+    {
+      "path": "concepts/retry-storm.md",
+      "type": "concept",
+      "title": "重试风暴",
+      "summary": "重试机制因客户端同步重试导致流量尖峰，引发下游级联故障的故障模式。",
+      "goal": "系统阐释重试风暴作为重试机制固有副作用的成因、后果及设计约束，服务分布式系统容错设计参考。"
+    },
+    {
+      "path": "concepts/idempotency-key.md",
+      "type": "concept",
+      "title": "幂等键",
+      "summary": "用于业务侧去重，确保写操作在重试时可重复执行而不产生副作用，是安全重试的前提。",
+      "goal": "系统阐述幂等键作为业务侧去重机制的核心职责、与重试框架的边界，以及其在保障写操作可重复性中的关键作用。"
+    },
+    {
+      "path": "concepts/exponential-backoff.md",
+      "type": "concept",
+      "title": "指数退避",
+      "summary": "重试机制中控制重试间隔的核心策略，使重试节奏匹配故障恢复曲线。",
+      "goal": "系统覆盖指数退避作为重试策略核心参数的机制、参数设置与实现注意事项，服务于重试机制设计的完整参考。"
+    },
+    {
+      "path": "concepts/jitter.md",
+      "type": "concept",
+      "title": "随机抖动(jitter)",
+      "summary": "在重试退避等待时长中引入随机因子，防止多个客户端同步重试导致流量扎堆，是指数退避策略的必要补充。",
+      "goal": "系统覆盖随机抖动的定义、作用、与指数退避的关系以及具体实现方案，作为解决重试扎堆问题的关键策略参考。"
+    },
+    {
+      "path": "concepts/global-retry-budget.md",
+      "type": "concept",
+      "title": "全局重试预算",
+      "summary": "从宏观层面约束重试机制的放大效应，控制重试流量的总体规模。",
+      "goal": "系统阐述全局重试预算作为控制重试放大系数的核心机制，明确其目标、实现方向（实例级/集群级配额）及其在重试设计体系中的定位。"
+    },
+    {
+      "path": "concepts/retry-amplification-factor.md",
+      "type": "concept",
+      "title": "重试放大系数",
+      "summary": "衡量重试机制产生的额外流量与原始业务流量比值的核心指标，用于量化重试风暴风险。",
+      "goal": "系统阐述重试放大系数的定义、计算方式、风险成因及其通过全局预算和熔断进行控制的方法，作为评估重试策略副作用的核心参考。"
+    },
+    {
+      "path": "entities/retry-after-header.md",
+      "type": "entity",
+      "title": "Retry-After头",
+      "summary": "HTTP响应头，指示客户端在重试前应等待的时间，优化重试时机。",
+      "goal": "系统阐述Retry-After头作为重试机制中优化重试时机的外部信号，澄清其影响'何时重试'而非'该不该重试'的协议特性。"
+    }
+  ],
+  "planned_targets": [
+    {
+      "path": "concepts/gradual-ship-replacement-model.md",
+      "type": "concept",
+      "title": "逐步换舷心智模型",
+      "summary": "",
+      "goal": "从文档提取核心心智模型创建独立页。source 提供了两个关键事实：1) 将数据库schema变更类比为航行中逐步换舷，确保任何中间时刻系统都能用当前已发布的任意版本代码与已执行的任意子集变更正常运行；2) 该模型是三阶段迁移流程的逻辑起点，推导出扩展、迁移、收缩三个阶段。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "entities/three-phase-migration-process.md",
+      "type": "entity",
+      "title": "三阶段迁移流程",
+      "summary": "",
+      "goal": "从文档提取核心流程创建独立页。source 提供了多个独立事实：1) 流程分为扩展（只做加法）、迁移（数据回填、新旧并存）、收缩（确认后删除）三个顺序阶段；2) 扩展阶段必须保证向后兼容；3) 收缩阶段是唯一危险阶段，需先发布不含旧引用的代码、观察完整发布周期、依据监控指标判断。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "concepts/rollback-code-not-data.md",
+      "type": "concept",
+      "title": "回滚代码而非数据",
+      "summary": "",
+      "goal": "从文档提取核心回滚原则创建独立页。source 提供了两个关键事实：1) 回滚时只回滚代码版本，不回滚已执行的数据回填；2) 原因是数据回滚成本高且易导致数据漂移，已执行的数据回填不做反向回填。该原则与三阶段流程形成张力，是独立的决策原则。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "concepts/compatibility-judgment-by-old-code.md",
+      "type": "concept",
+      "title": "以旧代码为准的兼容性判断",
+      "summary": "",
+      "goal": "从文档提取核心判断原则创建独立页。source 提供了两个关键事实：1) 判断数据库变更是否兼容时，以旧代码的运行能力为基准；2) 确保变更后旧代码仍能正常运行。这是扩展阶段'向后兼容'要求的具体判断标准，具有独立的方法论价值。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "entities/batch-backfill.md",
+      "type": "entity",
+      "title": "批量回填",
+      "summary": "",
+      "goal": "从文档提取数据回填技术手段创建独立页。source 提供了两个关键事实：1) 批量回填是数据回填方式之一；2) 适合数据量大、切换时间紧的场景。内容相对独立，但作为技术手段，其独立性略弱于流程和原则。考虑到与懒回填构成对比，且各自有明确适用场景，可独立建页。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "entities/lazy-backfill.md",
+      "type": "entity",
+      "title": "懒回填",
+      "summary": "",
+      "goal": "从文档提取数据回填技术手段创建独立页。source 提供了两个关键事实：1) 懒回填是数据回填方式之一；2) 适合访问分散的场景，在数据被访问时按需回填。与批量回填构成对比，各自有明确适用场景。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "entities/express-lane.md",
+      "type": "entity",
+      "title": "快车道",
+      "summary": "",
+      "goal": "从文档提取流程例外创建独立页。source 提供了两个关键事实：1) 快车道是针对简单变更（如带默认值的可空加列）提供的简化流程；2) 允许扩展和迁移阶段合并。这是三阶段流程的受控例外，有独立的适用条件和限制。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "entities/automated-gate.md",
+      "type": "entity",
+      "title": "自动化闸门",
+      "summary": "",
+      "goal": "从文档提取系统约束创建独立页。source 提供了两个关键事实：1) 自动化闸门是收缩阶段删除操作的前置自动校验机制；2) 需校验访问计数、快照存在性等条件，是当前体系的缺口。这是一个具体的系统组件/机制，有明确的职责和当前状态。现有页面无相关主题，需新建。",
+      "planned": true
+    },
+    {
+      "path": "concepts/old-structure-access-count.md",
+      "type": "concept",
+      "title": "旧结构访问计数",
+      "summary": "",
+      "goal": "从文档提取监控指标概念创建独立页。source 提供了两个关键事实：1) 旧结构访问计数是收缩阶段判断旧结构是否可删除的监控指标；2) 通过观察访问计数是否归零来决定。这是一个具体的判断依据，与自动化闸门相关。现有页面无相关主题，需新建。",
+      "planned": true
+    }
+  ]
+}

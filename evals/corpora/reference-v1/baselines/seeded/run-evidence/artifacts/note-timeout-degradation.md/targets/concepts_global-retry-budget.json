@@ -1,0 +1,10 @@
+{
+  "source": "note-timeout-degradation.md",
+  "target": {
+    "wiki_path": "concepts/global-retry-budget.md",
+    "title": "全局重试预算",
+    "disposition": "update",
+    "page_type": "",
+    "reason": "补充与链路级deadline预算的协同视角：在现有内容中增加一小节，说明两种预算机制的互补关系——deadline预算（时间维度，逐层透传剩余时间约束单次调用重试）与全局重试预算（次数/流量维度，宏观约束重试总量），并提及两者在工程实践中需要协同设计。"
+  }
+}

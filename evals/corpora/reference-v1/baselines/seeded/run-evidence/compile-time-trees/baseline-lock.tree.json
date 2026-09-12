@@ -1,0 +1,55 @@
+{
+  "source": "baseline-lock.md",
+  "schema": "compile-time-tree-v1",
+  "existing_pages": [],
+  "planned_targets": [
+    {
+      "path": "concepts/distributed-lock-lease-contract.md",
+      "type": "concept",
+      "title": "分布式锁的租约契约模型",
+      "summary": "",
+      "goal": "从文档提取核心概念创建独立页。该概念是全文的理论基石，定义了分布式锁的本质（有时间限制的契约）和所有设计缺陷的根源（锁的释放不依赖持有者知情）。source 提供了至少两个独立事实：1) 锁的获取（SET NX PX）与释放（Lua脚本）机制是契约的执行层；2) 事故复盘（GC停顿导致锁过期）和解法（fencing token）是契约缺陷的体现与补偿。现有空库无法承载此核心概念。",
+      "planned": true
+    },
+    {
+      "path": "entities/redis-distributed-lock-implementation.md",
+      "type": "entity",
+      "title": "Redis分布式锁实现机制",
+      "summary": "",
+      "goal": "从文档提取具体技术实现创建独立页。该实体详细描述了分布式锁的工程实现，包括获取（SET NX PX原子命令）、释放（Lua脚本原子校验token）、租约（TTL设置）与续期机制。source 提供了至少两个独立事实：1) 获取与释放的具体命令和原子性保证；2) 租约时间设置原则（p95耗时的两到三倍）与续期校验逻辑。现有空库无法承载此具体实现细节。",
+      "planned": true
+    },
+    {
+      "path": "concepts/mutual-exclusion-is-not-correctness.md",
+      "type": "concept",
+      "title": "互斥≠正确性",
+      "summary": "",
+      "goal": "从文档提取核心设计原则创建独立页。该概念明确了分布式锁的边界：仅承诺互斥，不保证业务正确性，因此不能替代幂等设计。source 提供了至少两个独立事实：1) 事故复盘中锁过期导致双扣，证明互斥失效场景；2) 文档强调资金类操作需要锁、幂等、对账三层保障，三者解决不同层面问题。现有空库无法承载此重要原则。",
+      "planned": true
+    },
+    {
+      "path": "entities/fencing-token.md",
+      "type": "entity",
+      "title": "Fencing Token",
+      "summary": "",
+      "goal": "从文档提取架构方案创建独立页。该实体是解决锁过期后资源被旧持有者污染的系统性方案，通过单调递增的序号令牌让共享资源拒绝旧序号写入。source 提供了至少两个独立事实：1) fencing token的工作原理（单调递增序号）；2) 实现前提（需要资源方参与协议）及当前状态（尚未实现）。现有空库无法承载此具体方案。",
+      "planned": true
+    },
+    {
+      "path": "concepts/renewal-failure-only-cleanup-no-new-operations.md",
+      "type": "concept",
+      "title": "只收尾不新增",
+      "summary": "",
+      "goal": "从文档提取统一处理规则创建独立页。该概念是续期失败后的统一处理规则：完成当前原子单元后停止，不发起新操作，标记为pending-verify。source 提供了至少两个独立事实：1) 规则的具体内容（完成当前原子单元后停止）；2) 落地机制（pending-verify状态）及工程前提（可checkpoint任务设计）。现有空库无法承载此核心规则。",
+      "planned": true
+    },
+    {
+      "path": "concepts/three-layer-protection-for-financial-operations.md",
+      "type": "concept",
+      "title": "资金类三层保障体系",
+      "summary": "",
+      "goal": "从文档提取设计原则创建独立页。该概念强调资金类操作需要锁（互斥）、幂等（防重复）、对账（兜底）三层保障，三者解决不同层面问题且不能替代。source 提供了至少两个独立事实：1) 三层保障的具体构成（锁、幂等、对账）；2) 三者解决不同层面问题且不能替代的设计原则。现有空库无法承载此重要原则。",
+      "planned": true
+    }
+  ]
+}

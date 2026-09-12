@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "concepts/old-structure-access-count.md",
+    "title": "旧结构访问计数",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取监控指标概念创建独立页。source 提供了两个关键事实：1) 旧结构访问计数是收缩阶段判断旧结构是否可删除的监控指标；2) 通过观察访问计数是否归零来决定。这是一个具体的判断依据，与自动化闸门相关。现有页面无相关主题，需新建。"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "corpus_id": "wiki-agent-reference-v1",
+  "description": "由 6 篇受控种子笔记顺序编译生成的 seeded 基线及其判词题集。判词题从编译 run 证据（视角/决策/结果）生成，用于校准 LLM Judge。",
+  "baselines": [
+    {
+      "id": "empty-v1",
+      "wiki_path": "baselines/empty/wiki",
+      "wiki_sha256": "5df01424faa55c9eb4b7dcbbdc848036f23521829e9510c2c7169e28d370c685",
+      "description": "仅含索引页的新建型只读基线。"
+    },
+    {
+      "id": "seeded-v1",
+      "wiki_path": "baselines/seeded/wiki",
+      "wiki_sha256": "bc3f814999d6feb1b15ccb0d308cbfe84d7ce5662a781620981321f631bc7741",
+      "source_path": "baselines/seeded/source",
+      "source_sha256": "59717c5e3e043366a86769a6d56919bb3473c097bb101f0fd20246163ddfd5f3",
+      "description": "12 篇种子笔记顺序编译生成的基线 wiki。前 6 篇（baseline-*）从空基线编译，后 6 篇（note-*，故障保护与可靠处理两个关联方向）以前序 wiki 为基线增量编译。每篇编译时的视角（index 快照 + search 候选）与决策记录归档在 run-evidence/。"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "source": "baseline-logging.md",
+  "target": {
+    "wiki_path": "entities/structured-logging-specification.md",
+    "title": "结构化日志规范",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取核心实体。该规范是一个完整的、解决线上排障效率低和日志敏感信息泄露问题的体系，包含分类、字段、级别、脱敏、采样五个维度的具体规则，以及框架保证的核心思想。这是一个独立的、有明确边界和内容的命名实体，现有页面无法承载。"
+  }
+}

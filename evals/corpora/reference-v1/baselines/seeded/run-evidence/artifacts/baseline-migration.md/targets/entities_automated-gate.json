@@ -1,0 +1,10 @@
+{
+  "source": "baseline-migration.md",
+  "target": {
+    "wiki_path": "entities/automated-gate.md",
+    "title": "自动化闸门",
+    "disposition": "new",
+    "page_type": "entity",
+    "reason": "从文档提取系统约束创建独立页。source 提供了两个关键事实：1) 自动化闸门是收缩阶段删除操作的前置自动校验机制；2) 需校验访问计数、快照存在性等条件，是当前体系的缺口。这是一个具体的系统组件/机制，有明确的职责和当前状态。现有页面无相关主题，需新建。"
+  }
+}
