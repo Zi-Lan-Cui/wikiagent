@@ -1,0 +1,20 @@
+{
+  "source": "note-saga-compensation.md",
+  "target": {
+    "wiki_path": "concepts/saga-three-layer-protection.md",
+    "title": "saga-three-layer-protection.md",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取Saga三层防护作为核心设计原则创建独立页。文档提供了至少两个独立事实：1）Saga模式需要状态机持久化、补偿幂等、补偿的补偿三层防护；2）这三层防护是Saga模式可靠运行的必要条件。现有页面无法承载，因为这是Saga模式特有的防护体系，与资金类三层保障体系在内涵和应用场景上不同。",
+    "references": [
+      {
+        "slug": "entities/saga-pattern",
+        "reason": "Saga三层防护是Saga模式可靠运行的核心保障"
+      },
+      {
+        "slug": "concepts/three-layer-protection-for-financial-operations",
+        "reason": "对照资金类三层保障体系，区分不同场景下的防护框架"
+      }
+    ]
+  }
+}

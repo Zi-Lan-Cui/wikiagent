@@ -1,0 +1,10 @@
+{
+  "source": "baseline-retry.md",
+  "target": {
+    "wiki_path": "concepts/idempotency-key.md",
+    "title": "幂等键",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "文档将幂等键作为解决“可重试≠可重复”问题的关键机制，是写操作安全重试的前提。文档明确了其职责（业务侧去重）与重试框架（基础设施侧决策）的边界。现有页面无此概念。"
+  }
+}

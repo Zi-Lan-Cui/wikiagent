@@ -1,0 +1,20 @@
+{
+  "source": "note-idempotency-design.md",
+  "target": {
+    "wiki_path": "concepts/idempotency-key.md",
+    "title": "idempotency-key.md",
+    "disposition": "update",
+    "page_type": "",
+    "reason": "补充文档中关于幂等键的深度实践内容，包括：1. 选择策略（必须是业务操作的固有标识，如支付单号、订单号，而非请求标识）；2. 存储实现（Redis用于短窗口高频去重，数据库唯一约束用于长窗口去重，构成两层防护）；3. 并发处理（利用业务表唯一约束实现可靠幂等）；4. 清理策略（Redis记录的TTL应覆盖重复窗口）。这些内容填补了候选页面声明的缺口。",
+    "references": [
+      {
+        "slug": "concepts/three-layer-protection-for-financial-operations",
+        "reason": "对照资金操作三层保障体系中幂等层的定位"
+      },
+      {
+        "slug": "concepts/retry-mechanism",
+        "reason": "对照重试机制中幂等作为关键参数的视角"
+      }
+    ]
+  }
+}

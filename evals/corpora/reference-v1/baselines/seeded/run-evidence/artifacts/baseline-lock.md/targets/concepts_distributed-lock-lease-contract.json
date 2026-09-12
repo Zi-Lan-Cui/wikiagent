@@ -1,0 +1,10 @@
+{
+  "source": "baseline-lock.md",
+  "target": {
+    "wiki_path": "concepts/distributed-lock-lease-contract.md",
+    "title": "分布式锁的租约契约模型",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取核心概念创建独立页。该概念是全文的理论基石，定义了分布式锁的本质（有时间限制的契约）和所有设计缺陷的根源（锁的释放不依赖持有者知情）。source 提供了至少两个独立事实：1) 锁的获取（SET NX PX）与释放（Lua脚本）机制是契约的执行层；2) 事故复盘（GC停顿导致锁过期）和解法（fencing token）是契约缺陷的体现与补偿。现有空库无法承载此核心概念。"
+  }
+}

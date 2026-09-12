@@ -1,0 +1,10 @@
+{
+  "source": "baseline-retry.md",
+  "target": {
+    "wiki_path": "concepts/retry-storm.md",
+    "title": "重试风暴",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "文档将重试风暴定义为重试机制的核心副作用和设计约束，并通过6月事故案例具体说明其成因（缺少jitter）和后果（级联故障）。这是一个独立的故障模式概念，现有页面无覆盖。"
+  }
+}

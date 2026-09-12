@@ -1,0 +1,10 @@
+{
+  "source": "baseline-lock.md",
+  "target": {
+    "wiki_path": "concepts/renewal-failure-only-cleanup-no-new-operations.md",
+    "title": "只收尾不新增",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取统一处理规则创建独立页。该概念是续期失败后的统一处理规则：完成当前原子单元后停止，不发起新操作，标记为pending-verify。source 提供了至少两个独立事实：1) 规则的具体内容（完成当前原子单元后停止）；2) 落地机制（pending-verify状态）及工程前提（可checkpoint任务设计）。现有空库无法承载此核心规则。"
+  }
+}

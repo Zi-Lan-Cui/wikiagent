@@ -1,0 +1,10 @@
+{
+  "source": "baseline-logging.md",
+  "target": {
+    "wiki_path": "concepts/request-id-based-sampling.md",
+    "title": "基于request_id的采样",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取核心概念。该概念定义了在请求入口按request_id做采样决策并随链传递，保证单个请求日志完整性，ERROR全量保留的采样策略。这是一个独立的采样机制，有明确的决策点、传递方式和保证，现有页面无法承载。"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "source": "baseline-retry.md",
+  "target": {
+    "wiki_path": "concepts/retry-amplification-factor.md",
+    "title": "重试放大系数",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "文档将重试放大系数定义为重试产生的额外流量与原始业务流量的比值，是衡量重试副作用的核心指标，需通过全局预算和熔断兜底控制。现有页面无此概念。"
+  }
+}

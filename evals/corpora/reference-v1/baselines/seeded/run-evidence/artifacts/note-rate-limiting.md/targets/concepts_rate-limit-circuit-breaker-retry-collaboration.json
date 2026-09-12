@@ -1,0 +1,10 @@
+{
+  "source": "note-rate-limiting.md",
+  "target": {
+    "wiki_path": "concepts/rate-limit-circuit-breaker-retry-collaboration.md",
+    "title": "限流-熔断-重试协作",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "从文档提取三者职责边界与协作规则作为独立概念。文档提供了至少两个独立事实：1) 职责边界：限流控制入口速率，熔断判断下游状态，重试处理单请求失败；2) 具体协作规则：收到429时尊重Retry-After头减速、被限流拒绝的请求不应重试、限流触发后返回429+Retry-After头并监控被拒流量趋势。现有页面无法承载，因为这是一个关于多个机制如何协同工作的抽象原则，而非单个机制的内部实现。"
+  }
+}

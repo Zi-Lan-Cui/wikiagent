@@ -1,0 +1,9 @@
+{
+  "source": "note-timeout-degradation.md",
+  "rel_paths": [
+    "concepts/retry-mechanism.md",
+    "concepts/retry-storm.md",
+    "concepts/global-retry-budget.md"
+  ],
+  "raw": "[\"concepts/retry-mechanism\", \"concepts/retry-storm\", \"concepts/global-retry-budget\"]"
+}

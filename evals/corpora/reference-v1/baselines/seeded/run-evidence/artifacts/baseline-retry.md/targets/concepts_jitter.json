@@ -1,0 +1,10 @@
+{
+  "source": "baseline-retry.md",
+  "target": {
+    "wiki_path": "concepts/jitter.md",
+    "title": "随机抖动(jitter)",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "文档将jitter作为解决“重试扎堆”问题的关键策略（与指数退避互补），并通过6月事故反面论证了其必要性。文档给出了具体修正方案（计算值×random(0.5, 1.5)）。现有页面无此概念。"
+  }
+}

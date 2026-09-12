@@ -1,0 +1,10 @@
+{
+  "source": "baseline-retry.md",
+  "target": {
+    "wiki_path": "concepts/exponential-backoff.md",
+    "title": "指数退避",
+    "disposition": "new",
+    "page_type": "concept",
+    "reason": "文档将指数退避作为重试退避策略的核心参数之一（解决“别太勤”），并详细说明了其参数设置（初始200ms，上限5s）和实现注意事项（单调时钟）。现有页面无此概念。"
+  }
+}
