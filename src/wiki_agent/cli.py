@@ -1,5 +1,3 @@
-"""Installed command-line entry point for the local Wiki assistant."""
-
 from __future__ import annotations
 
 import argparse

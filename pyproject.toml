@@ -33,7 +33,7 @@ packages = ["src/wiki_agent"]
 
 [dependency-groups]
 dev = [
-    "pyright>=1.1.411",
+    "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.4",
@@ -41,6 +41,8 @@ dev = [
 
 [tool.pytest.ini_options]
 addopts = "-p no:launch_testing -p no:launch_ros"
+# 使 `evals` 包在 `uv run pytest` 与 CI 中也可导入（不依赖 `python -m pytest` 注入 cwd）。
+pythonpath = ["."]
 markers = [
     "live: calls a real LLM and is excluded from normal regression runs",
 ]
