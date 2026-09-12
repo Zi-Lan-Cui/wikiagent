@@ -315,7 +315,7 @@ def analyze_user(extract: ExtractResult, candidates: str) -> str:
         [
             f"## 文档摘要（唯一的 source 事实来源：{extract.source_identity}）\n"
             f"{extract.document_summary[:_ANALYZE_SUMMARY_CHARS]}",
-            f"## 候选页面（仅用于判断已有页面关系，不是 source 事实来源）\n{candidates}",
+            f"## 候选页面（仅用于判断已有页面关系，不是 source 事实来源）\n{candidates or '（无候选页面——空库首跑的正常状态，不代表 source 无价值）'}",
             "## 分析边界\n"
             "请把 source 事实与候选页面事实分开。候选页面没有明确提供的内容视为未知；"
             "不能用常识、训练记忆或候选页面名称补全。",
@@ -396,6 +396,13 @@ def plan_system(
             "- new:    创建新页。title 是纯文本（不含 [[]]），reason 写明从哪里提取内容、应包含哪些关键点。\n"
             "- update: 已有页面。reason 写明具体操作: 补充什么内容到哪个章节。\n"
             "- 不操作的页面不要写进输出——没有要建的页时 page_targets 为空数组。\n"
+            "\n## page_type（new 页面必填——路由与类型的单一权威）\n"
+            "new 页面必须给出 page_type: concept / entity / topic，且必须与 wiki_path 的目录一致:\n"
+            "- concepts/ → page_type=concept（抽象概念、机制、原则、策略）\n"
+            "- entities/  → page_type=entity（命名实体、具体组件、技术方案）\n"
+            "- topics/    → page_type=topic（主题汇集页，≥3 个相关实体/概念时才创建）\n"
+            "同一主题是『抽象概念』还是『命名实体』在这里决定，生成阶段会直接沿用、不再自行判断。\n"
+            "update 目标不需要 page_type（沿用已有页面）。\n"
             "\n## references 字段（重要——与 reason 分离）\n"
             "reason 负责描述操作。references 负责描述引用关系——为生成阶段提供精确的交叉引用列表。\n"
             '格式: "references": [{"slug": "entities/xxx", "reason": "对照参照"}]\n'
@@ -409,7 +416,7 @@ def plan_system(
             "不确定时宁可不写交叉引用。\n"
             "\n## 输出\n"
             '纯 JSON（不要用 ```json 包裹）: {"page_targets": [{"wiki_path": "wiki/...", '
-            '"title": "...", "disposition": "...", "reason": "具体操作指令",'
+            '"title": "...", "disposition": "...", "page_type": "concept", "reason": "具体操作指令",'
             ' "references": [{"slug": "entities/xxx", "reason": "对比参照"}]}'
         ),
     ]
@@ -500,6 +507,13 @@ def new_page_user(target: PageTarget, extract: ExtractResult) -> str:
             "## 页面范围（必须遵守）\n"
             f"本页只能覆盖以下计划原因明确要求的范围：{target.reason}\n"
             "如果内容来源没有支持某个细节，就省略，不要用外部知识补全。",
+            (
+                "## 页面类型（计划已决策，必须原样写入 frontmatter）\n"
+                f"type: {target.page_type}\n"
+                "不要自行判断或更改——路径目录与 type 的一致性由系统校验。"
+                if target.page_type
+                else ""
+            ),
             _format_references(target.references),
             f"## 唯一事实来源 ({extract.source_identity})\n"
             f"以下摘要是本次允许新增事实的唯一来源：\n{extract.document_summary[:_GEN_SUMMARY_CHARS]}",
@@ -517,7 +531,8 @@ def update_system() -> str:
     return "\n\n".join(
         [
             "你是知识库的编辑。在已有页面基础上融入新信息。**直接输出页面，不要解释。**",
-            "首字符必须是 `-`（frontmatter 开头）。",
+            "首字符必须是 `---`（frontmatter 开头的三个连字符），"
+            "不是 YAML 列表的单个 `-`——不要输出 `- ---` 这样的列表包裹形式。",
             "## 两类输入的职责（必须区分）\n"
             "已有页面是保留基线，不是本次新增事实的来源；除非与新信息冲突，\n"
             "已有页面中的事实应保留，但不得把它们伪装成本次 source 的新增内容。\n"
@@ -540,7 +555,7 @@ def update_system() -> str:
             "> **Status: Disputed**",
             "> - 版本A (已有): ...",
             "> - 版本B (新): ...",
-            "## 输出: 完整页面（frontmatter + 正文），首字符 `-`",
+            "## 输出: 完整页面（frontmatter + 正文），首字符 `---`（三个连字符，不是列表 `-`）",
         ]
     )
 

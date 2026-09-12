@@ -192,6 +192,7 @@ def _parse_plan(raw: str) -> IntegrationPlan:
                 disposition=disposition,
                 reason=t.get("reason", ""),
                 references=_parse_references(t.get("references", [])),
+                page_type=str(t.get("page_type", "")).strip(),
             )
         )
     return IntegrationPlan(page_targets=targets)

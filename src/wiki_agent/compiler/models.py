@@ -127,6 +127,14 @@ class PageTarget:
     references: list[dict[str, str]] = field(default_factory=list)
     """引用建议: [{"slug": "entities/xxx", "reason": "对比参照"}, ...]。从 reason 中剥离，方便后续过滤和 retry。"""
 
+    page_type: str = ""
+    """new 页面的 type（concept/entity/topic）——plan 决策的单一权威。
+
+    路由目录与 type 由 plan 同一次决策产出，generate 阶段不再自行判断：
+    否则两个独立 LLM 判断各走各的（实测: plan 路由 entities/、
+    generate 写 type=concept，质量闸门 type/目录不一致拦截）。
+    update 目标留空（沿用已有页面 type）。"""
+
 
 @dataclass
 class SearchResult:

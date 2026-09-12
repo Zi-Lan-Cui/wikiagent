@@ -382,6 +382,7 @@ async def compile_sources(
                                 "wiki_path": pt.wiki_path,
                                 "title": pt.title,
                                 "disposition": pt.disposition.value,
+                                "page_type": pt.page_type,
                                 "reason": pt.reason,
                             }
                             for pt in outcome.plan.page_targets

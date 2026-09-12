@@ -18,6 +18,10 @@ _VALID_RELATIONS = {"duplicate", "extends", "related", "contradicts", "unrelated
 # 枚举拦截性价比低，并入合法集
 _VALID_IMPORTANCE = {"核心", "边缘", "重要"}
 _VALID_DISPOSITIONS = {"new", "update"}
+# 页面类型与目录的权威映射（与 quality._TYPE_DIRS 同义——plan 校验先行，
+# 落盘闸门兜底，两处一致）
+_VALID_PAGE_TYPES = {"concept", "entity", "topic"}
+_TYPE_DIRS = {"concept": "concepts", "entity": "entities", "topic": "topics"}
 
 
 def _check_analyze_json(
@@ -195,6 +199,23 @@ def _check_plan_json(
                 f"当前: {disposition!r}。"
                 f"不操作的页面不要写进 page_targets——输出空数组即可。"
             )
+        # new 页面必须由 plan 决策 page_type，且与路由目录一致——
+        # type 与目录来自同一次决策，generate 阶段不再自行判断
+        # （实测: plan 路由 entities/、generate 写 type=concept，
+        # 质量闸门 type/目录不一致，页面生成失败）。
+        page_type = str(t.get("page_type", "")).strip()
+        if disposition == "new":
+            if page_type not in _VALID_PAGE_TYPES:
+                return False, (
+                    f"page_targets[{i}]（{path}）是 new，必须给出 page_type，"
+                    f"且只能是 {sorted(_VALID_PAGE_TYPES)} 之一，当前: {page_type!r}。"
+                )
+            if _TYPE_DIRS.get(page_type) != first_seg:
+                return False, (
+                    f"page_targets[{i}]（{path}）page_type={page_type!r} 与目录不一致: "
+                    f"type={page_type} 应位于 {_TYPE_DIRS[page_type]}/ 下。"
+                    f"请统一两者——改 wiki_path 或改 page_type。"
+                )
         title = str(t.get("title", "")).strip()
         if not title:
             return False, f"page_targets[{i}].title 不能为空。"

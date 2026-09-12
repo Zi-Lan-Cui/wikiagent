@@ -178,6 +178,7 @@ class CuratorPlanner(Planner):
                 {
                     "path": t.wiki_path,
                     "disposition": t.disposition.value,
+                    "page_type": t.page_type,
                     "reason": t.reason,
                     "references": t.references,
                 }
