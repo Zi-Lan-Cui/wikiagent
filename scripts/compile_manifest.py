@@ -1,6 +1,8 @@
 """Development launcher for manifest-driven batch compilation."""
 
-from wiki_agent.application.batch_compile import main
+import asyncio
+
+from wiki_agent.application.batch_compile import _main, _parser
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(asyncio.run(_main(_parser().parse_args())))
