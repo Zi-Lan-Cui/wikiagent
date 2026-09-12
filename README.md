@@ -4,15 +4,15 @@
 
 ## 为什么使用 wiki-agent
 
-wiki-agent 面向的是“资料越来越多，但不想花时间维护知识库”的用户。它关注的不是生成多少文档，而是让知识库长期好用：
+wiki-agent 面向"资料越来越多，但不想花时间维护知识库"的用户。它关注的不是生成多少文档，而是让知识库长期好用：
 
 - **少整理**：把零散笔记、文档和资料交给它，自动归纳主题、建立关联并整理成可浏览的 Wiki。
 - **持续更新**：新资料加入后只处理受影响的内容，不必反复重做整个知识库。
-- **更容易找得到**：页面有统一分类、索引和交叉链接，减少“记得看过但找不到”的情况。
-- **回答有依据**：问答会先查 Wiki，再给出答案和引用位置，方便核对，而不是只给一段无法追溯的生成文本。
+- **更容易找得到**：页面有统一分类、索引和交叉链接，减少"记得看过但找不到"的情况。
+- **回答有依据**：问答会先查 Wiki，再给出答案和引用位置，方便核对。
 - **修改更放心**：整理和修订前会保留运行记录，出现问题可以查看、重试或回退。
 - **本地可控**：资料和生成的 Wiki 保存在自己的环境中，模型服务、路径、并发和成本都可以自行控制。
-- **适合逐步使用**：可以先整理一个小目录，确认效果后再扩大范围，不要求一次性迁移全部资料。
+- **适合逐步使用**：可以先整理一个小目录，确认效果后再扩大范围。
 
 ## 你可以用它做什么
 
@@ -31,43 +31,9 @@ wiki-agent 面向的是“资料越来越多，但不想花时间维护知识库
 uv sync
 ```
 
-配置文件位于 `env/`。请在本地填写模型服务和路径配置，不要将包含密钥或个人路径的文件提交到仓库。
-
-首次配置可复制模板：
-
-```bash
-cp env/.env.example env/.env
-```
-
-所有可调运行参数（模型、reasoning、预算、并发、watch 时间窗和重试策略）都集中在这个文件中；
-`RootConfig` 只负责类型定义、优先级合并和启动校验。
-
-数据目录采用明确的三分结构，三个根目录必须互不包含：
-
-```text
-materials/                  用户提供的原始资料
-wiki/                       仅保存可发布的生成知识页
-workspace/
-├── provenance/sources/     系统生成的来源摘要与溯源记录
-├── runs/                   每次运行的日志、报告和阶段产物
-├── watch/                  增量监测状态
-└── ...                     会话、队列和问题记录
-```
-
-可分别通过 `WIKI_MATERIALS_DIR`、`WIKI_WIKI_DIR` 和 `WIKI_WORKSPACE_DIR` 配置；相对路径均以项目根目录为基准。
-
-问答模型默认保留 reasoning。可通过 `LLM_THINKING=enabled|disabled` 控制；启用 reasoning 时，
-请同时保证 `AGENT_MAX_TOKENS` 足够覆盖思考和最终回答。编译阶段会按各阶段契约显式关闭 reasoning。
+配置文件位于 `env/`，请先在本地填写模型服务和路径配置，不要提交包含密钥的文件。
 
 ## 使用
-
-安装后可运行：
-
-```bash
-uv run wiki-agent --help
-```
-
-编译、watch、refine 等开发和运维入口位于 `scripts/`，评测入口位于 `evals/run.py`。这些命令都接受路径参数或读取统一配置，不要求修改源码中的路径字符串。
 
 ### 1. 编译资料
 
@@ -77,45 +43,37 @@ uv run wiki-agent --help
 uv run python scripts/compile_sources.py /path/to/source-folder
 ```
 
-省略资料目录时使用 `WIKI_MATERIALS_DIR`。知识页写入 `wiki/`，来源记录和运行日志写入 `workspace/`；如果某个文件失败，会记录在运行目录中，不会悄悄跳过。
+省略资料目录时使用配置的默认目录。知识页写入 `wiki/`，来源记录和运行日志写入 `workspace/`。
 
 ### 2. 持续监测
 
-需要持续接收新资料时：
+持续接收新资料：
 
 ```bash
 uv run python scripts/watch_folder.py /path/to/source-folder
 ```
 
-同样可以省略目录并使用 `WIKI_MATERIALS_DIR`。watch 会检测新增和修改的文件，并只重新处理有实际变化的内容。使用 `Ctrl-C` 停止即可，下一次启动会继续根据持久化快照检查变化。
+watch 会检测新增和修改的文件，只重新处理有实际变化的内容。
 
 ### 3. 优化已有 Wiki
 
 对已有页面进行摘要、关联和缺口修订：
 
 ```bash
-uv run python scripts/refine_wiki.py \
-  --wiki-dir /path/to/wiki \
-  --project-root /path/to/project
+uv run python scripts/refine_wiki.py --wiki-dir /path/to/wiki
 ```
 
-可以用 `--limit N` 先处理少量页面。Refine 默认只更新当前页面，并在运行前保存备份。
+可以用 `--limit N` 先处理少量页面。
 
 ### 4. 调整页面结构
 
-合并重复页面或整理结构前，建议先预览：
+合并重复页面或整理结构前先预览：
 
 ```bash
 uv run python scripts/surgery_wiki.py --dry-run
 ```
 
-确认提议后再执行：
-
-```bash
-uv run python scripts/surgery_wiki.py
-```
-
-`--yes` 可用于自动确认，但只建议在已经检查过预览和备份策略后使用。
+确认后再执行 `uv run python scripts/surgery_wiki.py`。
 
 ### 5. 使用问答助手
 
@@ -125,57 +83,46 @@ uv run python scripts/surgery_wiki.py
 uv run wiki-agent
 ```
 
-常用选项：
+常用选项：`--list` 查看已有会话，`--resume SESSION_ID` 恢复会话，`--debug` 保存调试日志。输入 `/q`、`/quit` 或 `/exit` 结束当前会话。
+
+### 6. 使用 Web 工作台
+
+启动本地 Web 界面，在浏览器中浏览 Wiki、进行问答并处理问题队列：
 
 ```bash
-uv run wiki-agent --list              # 查看已有会话
-uv run wiki-agent --resume SESSION_ID # 恢复会话
-uv run wiki-agent --debug              # 保存调试日志和事件
+uv run uvicorn wiki_agent.web.app:create_app --factory --port 8000
 ```
 
-输入 `/q`、`/quit` 或 `/exit` 结束当前会话。
+打开 http://localhost:8000 即可使用。界面包含三个区域：
 
-### 6. 查看运行记录
+- **对话**：与 Wiki 进行可引用问答，支持多会话管理
+- **Wiki 浏览**：查看生成的知识页面、目录索引与交叉链接，支持前后导航
+- **工作台**：查看后台任务执行进度，处理编译失败与质量提醒（支持重试、处置等操作）
 
-每次处理都会在 `workspace/runs/` 下保存独立运行目录，通常包括：
-
-- `run.log`：人类可读的运行日志
-- `events.jsonl`：机器可读的事件流
-- `failed.json`：失败来源及原因
-- `scan_report.md`：页面和链接质量报告
-- `artifacts/`：阶段产物和原始响应
-
-如果失败是由网络波动、服务限流等偶然因素引起，可以使用 retry 对失败文件重新尝试；持续失败时再查看最近一次运行目录中的错误记录。
-
-## 使用体验
+## 数据目录
 
 ```text
-资料 → 自动整理 → Wiki → 持续更新 → 可引用问答
+materials/     用户提供的原始资料
+wiki/          仅保存可发布的生成知识页
+workspace/     运行状态、日志、溯源记录和会话数据
 ```
 
-你可以把它当作一个会持续维护的个人知识库：平时只需放入新资料，需要时直接提问；重要修改仍然可以在写入前确认，并在出现问题时回退。
+三个目录必须互不包含，可分别通过 `WIKI_MATERIALS_DIR`、`WIKI_WIKI_DIR` 和 `WIKI_WORKSPACE_DIR` 配置。
 
 ## 开发检查
 
 ```bash
-uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 uv run pytest
-uv build
 ```
-
-评测框架只提供格式模板和执行器，不包含个人资料或固定数据集。用户可根据 `evals/templates/` 自行建立 manifest，并通过 `evals/run.py` 执行检查和汇总。
 
 ## 项目结构
 
 ```text
 src/wiki_agent/   核心运行时代码（按业务领域组织）
 scripts/          编译、watch、refine 等运维入口
-evals/            评测入口、模板和结果汇总
+evals/            评测框架与判词题集
 test/             自动化测试
 docs/             设计记录
-materials/        默认原始资料目录（可配置，也可使用外部目录）
-wiki/             仅包含生成知识页与索引
-workspace/        运行状态、日志、溯源记录和会话数据
 ```

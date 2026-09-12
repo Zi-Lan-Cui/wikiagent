@@ -1,5 +1,3 @@
-"""Application-facing facade for issue reporting and decisions."""
-
 from __future__ import annotations
 
 from wiki_agent.issues.models import (
