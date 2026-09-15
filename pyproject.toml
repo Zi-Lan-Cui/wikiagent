@@ -40,7 +40,6 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-p no:launch_testing -p no:launch_ros"
 # 使 `evals` 包在 `uv run pytest` 与 CI 中也可导入（不依赖 `python -m pytest` 注入 cwd）。
 pythonpath = ["."]
 markers = [
