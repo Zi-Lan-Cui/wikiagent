@@ -65,7 +65,8 @@ def main() -> int:
         )
         base = [
             sys.executable,
-            str(PROJECT_ROOT / "scripts/compile_manifest.py"),
+            "-m",
+            "wiki_agent.application.batch_compile",
             "--root",
             str(root),
             "--manifest",
