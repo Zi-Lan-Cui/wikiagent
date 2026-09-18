@@ -1,4 +1,4 @@
-"""结构手术的原子执行（无 LLM）——内存算最终状态后按依赖序列落盘。
+"""结构重组的原子执行（无 LLM）——内存算最终状态后按依赖序列落盘。
 
 复用 resolve（依赖序列 + 被吸收页判定）、rewrite（链接改写）、
 transaction（备份/回滚）、common（页面表）、wiki（related/normalize）。
@@ -11,17 +11,17 @@ import re
 from datetime import date
 from pathlib import Path
 
-from wiki_agent.compiler.surgery.common import _load_pages
-from wiki_agent.compiler.surgery.models import Proposal, SurgeryResult
-from wiki_agent.compiler.surgery.resolve import _src_of, _validate_operation_sequence
-from wiki_agent.compiler.surgery.rewrite import _plain_source_links, _rewrite_source_links
-from wiki_agent.compiler.surgery.transaction import _backup, _restore_group, _snapshot_group
+from wiki_agent.compiler.restructure.common import _load_pages
+from wiki_agent.compiler.restructure.models import Proposal, SurgeryResult
+from wiki_agent.compiler.restructure.resolve import _src_of, _validate_operation_sequence
+from wiki_agent.compiler.restructure.rewrite import _plain_source_links, _rewrite_source_links
+from wiki_agent.compiler.restructure.transaction import _backup, _restore_group, _snapshot_group
 from wiki_agent.errors import translate_generic_error
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.normalize import extract_related, normalize_page
 
-logger = get_logger("SURGERY")
+logger = get_logger("RESTRUCTURE")
 
 
 def _remove_index_entry(wiki: Path, slug: str) -> None:
@@ -273,7 +273,7 @@ def execute(
     for conflict in invalid:
         result.skipped.append(f"{conflict.kind}: {conflict.detail}")
         emit_event(
-            "surgery_skipped",
+            "restructure_skipped",
             op=conflict.kind,
             pages=[p.pages for p in conflict.proposals],
             reason=conflict.detail,
@@ -313,7 +313,7 @@ def execute(
             if missing:
                 logger.warning("  ✗ 跳过 %s: 页面已不存在 %s", prop.pages, missing)
                 result.skipped.append(f"{prop.op} {prop.pages}（页面不存在）")
-                emit_event("surgery_skipped", op=prop.op, pages=prop.pages, reason="page_missing")
+                emit_event("restructure_skipped", op=prop.op, pages=prop.pages, reason="page_missing")
                 failed.add(prop.id)
                 group_failed = True
                 continue
@@ -324,17 +324,17 @@ def execute(
                     # 更新内存页面表——被吸收页从表里移除，后续动作复核用
                     src = _src_of(prop)
                     del pages[src]
-                    emit_event("surgery_merged", pages=prop.pages, target=prop.target)
+                    emit_event("restructure_merged", pages=prop.pages, target=prop.target)
                 elif prop.op == "delete":
                     execute_delete(wiki, prop)
                     result.actions.append(f"delete {prop.pages[0]}")
                     del pages[prop.pages[0]]
-                    emit_event("surgery_deleted", pages=prop.pages)
+                    emit_event("restructure_deleted", pages=prop.pages)
                 elif prop.op == "create":
                     execute_create(wiki, prop)
                     result.actions.append(f"create {prop.target} <- {prop.pages[0]}")
                     emit_event(
-                        "surgery_created",
+                        "restructure_created",
                         source=prop.pages[0],
                         target=prop.target,
                         sections=prop.sections,
@@ -342,18 +342,18 @@ def execute(
                 elif prop.op == "trim":
                     execute_trim(wiki, prop)
                     result.actions.append(f"trim {prop.pages[0]}: {prop.sections}")
-                    emit_event("surgery_trimmed", pages=prop.pages, sections=prop.sections)
+                    emit_event("restructure_trimmed", pages=prop.pages, sections=prop.sections)
                 else:
                     raise ValueError(f"未知原子操作: {prop.op}")
                 completed.add(prop.id)
                 pages = _load_pages(wiki)
                 group_actions.append(prop.id)
             except Exception as e:
-                err = translate_generic_error(e, context="surgery execute")
+                err = translate_generic_error(e, context="restructure execute")
                 logger.error("  ✗ 执行失败 %s: %s", prop.pages, str(err)[:200])
                 result.skipped.append(f"{prop.op} {prop.pages}（执行失败: {err}）")
                 emit_event(
-                    "surgery_execute_failed",
+                    "restructure_execute_failed",
                     op=prop.op,
                     pages=prop.pages,
                     error=str(err),

@@ -1,4 +1,4 @@
-"""结构手术的工具——页面读取 / 证据收集 / LLM 输出安全解析。
+"""结构重组的工具——页面读取 / 证据收集 / LLM 输出安全解析。
 
 代码只做这些（收集证据），不做相似度阈值——裁决全给 LLM。
 被 proposal/review/execute 复用；自身只依赖 models + 底层
@@ -11,11 +11,11 @@ import json
 from pathlib import Path
 
 from wiki_agent.compiler.integration.parse import _strip_fence
-from wiki_agent.compiler.surgery.models import _CONTENT_DIRS, Proposal
+from wiki_agent.compiler.restructure.models import _CONTENT_DIRS, Proposal
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 
-logger = get_logger("SURGERY")
+logger = get_logger("RESTRUCTURE")
 
 
 def _load_pages(wiki_dir: str | Path) -> dict[str, dict]:
@@ -66,7 +66,7 @@ def _filter_valid_pages(
         missing = [s for s in p.pages if s not in pages]
         if missing:
             logger.warning("  ✗ 提议引用不存在的页面 %s——丢弃", missing)
-            emit_event("surgery_invalid_slug", pages=p.pages, missing=missing, op=p.op)
+            emit_event("restructure_invalid_slug", pages=p.pages, missing=missing, op=p.op)
             continue
         valid.append(p)
     return valid

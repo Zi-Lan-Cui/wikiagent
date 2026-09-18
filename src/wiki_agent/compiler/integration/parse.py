@@ -6,7 +6,7 @@
 
 依赖方向: parse 不依赖 checks（checks import 本模块的 _strip_fence）。
 _strip_fence / _try_repair_trailing_braces 是 LLM 原始输出清洗的共享规约，
-surgery 层复用同一份（`from integration.parse import _strip_fence`）。
+restructure 层复用同一份（`from integration.parse import _strip_fence`）。
 """
 
 from __future__ import annotations

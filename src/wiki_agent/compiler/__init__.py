@@ -12,7 +12,7 @@ Phase 2 (Integrator): ExtractResult + index.md → 受影响页面 → 异步更
     wiki/        frontmatter/rules/normalize/quality——无 LLM 的页面规则
     extraction/  Extractor（Phase 1）
     integration/ 四阶段 + parse/checks（Phase 2）+ workflow 组装
-    surgery/     结构手术 proposal/review/resolve/execute/rewrite/transaction
+    restructure/     结构重组 proposal/review/resolve/execute/rewrite/transaction
     workflows/   ingest/refine/failures/retry 工作流编排
 """
 

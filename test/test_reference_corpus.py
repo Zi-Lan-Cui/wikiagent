@@ -16,7 +16,7 @@ def test_repository_corpus_manifest_is_valid() -> None:
 
     assert errors == []
     assert manifest is not None
-    assert {b.id for b in manifest.baselines} == {"empty-v1", "seeded-v1"}
+    assert {b.id for b in manifest.baselines} == {"seeded-v1"}
     seeded = next(b for b in manifest.baselines if b.id == "seeded-v1")
     assert seeded.source_path == "baselines/seeded/source"
     assert seeded.source_sha256 is not None

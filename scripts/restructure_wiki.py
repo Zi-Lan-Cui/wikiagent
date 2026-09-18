@@ -1,11 +1,11 @@
-"""结构手术正式入口——粗提 → 复判 → 冲突消解 → 确认 → 执行。
+"""结构重组正式入口——粗提 → 复判 → 冲突消解 → 确认 → 执行。
 
 用法:
-    VIRTUAL_ENV= .venv/bin/python scripts/surgery_wiki.py             # 交互确认
-    VIRTUAL_ENV= .venv/bin/python scripts/surgery_wiki.py --dry-run   # 到消解为止，不动手
-    VIRTUAL_ENV= .venv/bin/python scripts/surgery_wiki.py --yes       # 跳过确认，直接执行
+    VIRTUAL_ENV= .venv/bin/python scripts/restructure_wiki.py             # 交互确认
+    VIRTUAL_ENV= .venv/bin/python scripts/restructure_wiki.py --dry-run   # 到消解为止，不动手
+    VIRTUAL_ENV= .venv/bin/python scripts/restructure_wiki.py --yes       # 跳过确认，直接执行
 
-运行容器: runs/surgery_<ts>/{run.log, events.jsonl, backup/, pending_decisions.json}
+运行容器: runs/restructure_<ts>/{run.log, events.jsonl, backup/, pending_decisions.json}
 """
 
 import asyncio
@@ -16,7 +16,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-from wiki_agent.compiler.surgery import (
+from wiki_agent.compiler.restructure import (
     _index_overview,
     _load_pages,
     execute,
@@ -27,7 +27,7 @@ from wiki_agent.compiler.surgery import (
 )
 from wiki_agent.config import load_config
 from wiki_agent.issues import IssueService, IssueStore
-from wiki_agent.issues.producers import report_quality_findings, report_surgery_conflicts
+from wiki_agent.issues.producers import report_quality_findings, report_restructure_conflicts
 from wiki_agent.llm.factory import create_llm
 from wiki_agent.log import begin_trace, configure_logging, setup_event_log
 from wiki_agent.versioning import WikiGitManager
@@ -35,7 +35,7 @@ from wiki_agent.wiki.quality import format_scan_report, scan_wiki
 
 
 async def main(dry_run: bool = False, yes: bool = False):
-    """手术主流程——粗提 → 复判 → 消解 → 确认 → 执行。
+    """重组主流程——粗提 → 复判 → 消解 → 确认 → 执行。
 
     Args:
         dry_run: 到消解为止，不动手。
@@ -44,11 +44,11 @@ async def main(dry_run: bool = False, yes: bool = False):
     cfg = load_config(project_root=PROJECT_ROOT)
     wiki_dir = cfg.paths.resolved_wiki_dir().resolve()
     runs_dir = cfg.paths.resolved_runs_dir().resolve()
-    run_dir = runs_dir / f"surgery_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_dir = runs_dir / f"restructure_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(file_path=str(run_dir / "run.log"))
     setup_event_log(run_dir / "events.jsonl")
-    begin_trace(trace_id=f"surgery_{run_dir.name}")
+    begin_trace(trace_id=f"restructure_{run_dir.name}")
 
     print(f"═══ 1. 粗提（LLM 见全库 index，{len(_index_overview(wiki_dir).splitlines())} 页）═══")
     issue_service = IssueService(IssueStore(cfg.paths.resolved_workspace_dir()))
@@ -107,10 +107,10 @@ async def main(dry_run: bool = False, yes: bool = False):
                 ),
                 encoding="utf-8",
             )
-            report_surgery_conflicts(
+            report_restructure_conflicts(
                 issue_service,
                 arb.unresolved,
-                origin={"mode": "surgery", "run_id": run_dir.name},
+                origin={"mode": "restructure", "run_id": run_dir.name},
             )
             print(
                 f"  ⚠ {len(arb.unresolved)} 组冲突无法仲裁——"
@@ -141,14 +141,14 @@ async def main(dry_run: bool = False, yes: bool = False):
 
     print("\n═══ 5. 执行（备份 → 原子动作）═══")
     git_manager = WikiGitManager(wiki_dir, run_root=runs_dir)
-    git_run = git_manager.begin(run_dir.name, mode="surgery")
+    git_run = git_manager.begin(run_dir.name, mode="restructure")
     try:
         result = execute(wiki_dir, accepted)
     except asyncio.CancelledError as exc:
-        git_manager.abort(git_run, reason=f"surgery cancelled: {exc}")
+        git_manager.abort(git_run, reason=f"restructure cancelled: {exc}")
         raise
     except Exception as exc:
-        git_manager.abort(git_run, reason=f"surgery exception: {exc}")
+        git_manager.abort(git_run, reason=f"restructure exception: {exc}")
         raise
 
     print("\n═══ 6. 扫描报告 ═══")
@@ -156,20 +156,20 @@ async def main(dry_run: bool = False, yes: bool = False):
     report_quality_findings(
         issue_service,
         issues,
-        origin={"mode": "surgery", "run_id": run_dir.name},
+        origin={"mode": "restructure", "run_id": run_dir.name},
     )
     print(format_scan_report(issues))
     errors = [issue for issue in issues if issue.level == "error"]
     if errors or result.skipped:
         git_manager.abort(
             git_run,
-            reason=f"surgery validation failed: errors={len(errors)}, skipped={len(result.skipped)}",
+            reason=f"restructure validation failed: errors={len(errors)}, skipped={len(result.skipped)}",
         )
         print("Git: 已恢复到运行前版本")
     else:
         git_manager.commit(
             git_run,
-            message=f"wiki: surgery {git_run.run_id}",
+            message=f"wiki: restructure {git_run.run_id}",
             scan_report=run_dir / "scan_report.md",
             metadata={"actions": len(result.actions), "scan_errors": len(errors)},
         )
