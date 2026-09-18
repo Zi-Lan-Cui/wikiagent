@@ -746,48 +746,37 @@ class RefineCommand(Command):
                 raise
             lines.append(f"成功 {stats['ok']} / 无操作 {stats['noop']} / 失败 {stats['failed']}")
 
-        # 结构重组：默认执行；显式 --dry-run 才只出报告不动手。
+        # 结构重组：复用 application.restructure_service（与独立脚本同一编排），
+        # 在 refine 的同一 git 事务内批量执行；命令侧只渲染结果，不重复流程逻辑。
         restructure_result = None
         try:
-            from wiki_agent.compiler.restructure import (
-                _load_pages,
-                execute,
-                propose_from_index,
-                re_arbitrate,
-                recheck,
-                resolve_conflicts,
+            from wiki_agent.application.restructure_service import restructure_wiki
+
+            outcome = await restructure_wiki(
+                ctx.agent.llm,
+                wiki,
+                confirm=None,  # 批量全收（无交互）
+                dry_run=dry_run,
+                issue_service=getattr(ctx.agent, "issue_service", None),
+                origin={"mode": "refine", "trigger": "refine_command"},
             )
-
-            proposals = await propose_from_index(ctx.agent.llm, wiki)
-            confirmed, _ = await recheck(ctx.agent.llm, wiki, proposals)
-            clean, conflicts = resolve_conflicts(confirmed, _load_pages(wiki))
-            if conflicts:
-                arb = await re_arbitrate(ctx.agent.llm, wiki, conflicts)
-                clean.extend(arb.resolved)
-                issue_service = getattr(ctx.agent, "issue_service", None)
-                if issue_service is not None and arb.unresolved:
-                    from wiki_agent.issues.producers import report_restructure_conflicts
-
-                    report_restructure_conflicts(
-                        issue_service,
-                        arb.unresolved,
-                        origin={"mode": "refine", "trigger": "refine_command"},
-                    )
             lines.append("")
             lines.append(
-                f"结构重组: {len(proposals)} 粗提 → {len(confirmed)} 确认 → {len(clean)} 有效"
+                f"结构重组: {len(outcome.proposals)} 粗提 → {len(outcome.confirmed)} 确认 → "
+                f"{len(outcome.effective)} 有效"
             )
-            for p in clean:
+            for p in outcome.effective:
                 lines.append(f"- {p.op} {p.pages} → {p.target} | {p.reason[:60]}")
-            if not dry_run:
-                restructure_result = execute(wiki, clean)
-                lines.append("")
-                lines.append(
-                    f"结构重组已执行: {len(restructure_result.actions)} 成功 / "
-                    f"{len(restructure_result.skipped)} 跳过"
-                )
-            else:
+            restructure_result = outcome.result
+            if dry_run:
                 lines.append("结构重组: dry-run（未修改结构页面）")
+            elif outcome.result is not None:
+                lines.append(
+                    f"结构重组已执行: {len(outcome.result.actions)} 成功 / "
+                    f"{len(outcome.result.skipped)} 跳过"
+                )
+            if outcome.unresolved:
+                lines.append(f"结构重组: {len(outcome.unresolved)} 组冲突已记入问题中心")
         except asyncio.CancelledError as exc:
             if git_manager and git_run:
                 git_manager.abort(git_run, reason=f"restructure cancelled: {exc}")
