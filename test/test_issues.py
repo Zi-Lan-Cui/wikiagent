@@ -12,7 +12,6 @@ from typing import cast
 import pytest
 
 from wiki_agent.application.issue_actions import IssueActionExecutor, resolve_correction_issue
-from wiki_agent.application.issue_tasks import IssueTaskManager
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.events import RunContext
 from wiki_agent.issues import (
@@ -237,83 +236,3 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path, 
     ]
     assert updated.retry["attempts"] == 2
 
-
-def test_issue_task_manager_returns_trackable_result(tmp_path: Path):
-    service = IssueService(IssueStore(tmp_path))
-    issue = service.report(_draft())
-
-    class _Executor:
-        store = service.store
-
-        async def execute(self, issue_id, action, payload=None, *, progress=None):
-            assert issue_id == issue.id
-            assert action == "retry"
-            if progress is not None:
-                progress("analyze")
-            return service.get(issue_id)
-
-    async def run():
-        manager = IssueTaskManager(_Executor())
-        task = manager.start(issue.id, "retry")
-        for _ in range(10):
-            await asyncio.sleep(0)
-            current = manager.get(task.id)
-            if current.status == "completed":
-                break
-        assert current.status == "completed"
-        assert current.resource == "notes/note.md"
-        assert current.source_stage == "plan"
-        assert current.current_stage == "已完成"
-        assert current.stage_code == "analyze"
-        assert current.stage_index == 6
-        assert current.stage_total == 10
-        assert current.result is not None
-        assert manager.list() == [current]
-        await manager.close()
-
-    asyncio.run(run())
-
-
-def test_issue_task_manager_serializes_wiki_actions(tmp_path: Path):
-    service = IssueService(IssueStore(tmp_path))
-    first = service.report(_draft(fingerprint="task-first"))
-    second = service.report(_draft(fingerprint="task-second", title="second.md 处理失败"))
-    first_started = asyncio.Event()
-    release_first = asyncio.Event()
-    running = 0
-    maximum_running = 0
-
-    class _Executor:
-        store = service.store
-
-        async def execute(self, issue_id, action, payload=None, *, progress=None):
-            nonlocal running, maximum_running
-            running += 1
-            maximum_running = max(maximum_running, running)
-            try:
-                if issue_id == first.id:
-                    first_started.set()
-                    await release_first.wait()
-                return service.get(issue_id)
-            finally:
-                running -= 1
-
-    async def run():
-        manager = IssueTaskManager(_Executor())
-        first_task = manager.start(first.id, "retry")
-        second_task = manager.start(second.id, "retry")
-        await first_started.wait()
-        assert manager.active_issue_ids() == {first.id, second.id}
-        assert manager.get(first_task.id).status == "running"
-        assert manager.get(second_task.id).status == "queued"
-        release_first.set()
-        for _ in range(20):
-            await asyncio.sleep(0)
-            if manager.get(second_task.id).status == "completed":
-                break
-        assert maximum_running == 1
-        assert manager.get(second_task.id).status == "completed"
-        assert manager.active_issue_ids() == set()
-        await manager.close()
-
-    asyncio.run(run())

@@ -94,12 +94,3 @@ def emit_event(event: str, **fields: Any) -> None:
     """
     if _event_log is not None:
         _event_log.emit(event, **fields)
-
-
-def dropped_events() -> int:
-    """返回事件丢弃计数——入口收尾检查（有丢失要显式报告）。
-
-    Returns:
-        累计写盘失败次数；事件日志未启用时返回 0。
-    """
-    return _event_log.dropped if _event_log is not None else 0
