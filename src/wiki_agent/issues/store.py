@@ -118,22 +118,12 @@ class IssueStore:
                     updated_at TEXT NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS legacy_issue_imports (
-                    source TEXT NOT NULL,
-                    legacy_id TEXT NOT NULL,
-                    issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
-                    imported_at TEXT NOT NULL,
-                    PRIMARY KEY(source, legacy_id)
-                );
-
                 -- 子表按 issue_id 查询（事件时间线、动作领取/审计）——SQLite 不会自动为
                 -- 外键列建索引，缺则全表扫；CREATE IF NOT EXISTS 对既有库同样补齐。
                 CREATE INDEX IF NOT EXISTS idx_issue_events_issue
                 ON issue_events(issue_id, sequence);
                 CREATE INDEX IF NOT EXISTS idx_issue_actions_issue
                 ON issue_actions(issue_id, status);
-                CREATE INDEX IF NOT EXISTS idx_legacy_issue_imports_issue
-                ON legacy_issue_imports(issue_id);
                 """
             )
             connection.execute(
@@ -532,24 +522,6 @@ class IssueStore:
         with self._connect() as connection:
             connection.execute(
                 "INSERT OR REPLACE INTO issue_meta(key, value) VALUES(?, ?)", (key, value)
-            )
-
-    def legacy_imported(self, source: str, legacy_id: str) -> bool:
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT 1 FROM legacy_issue_imports WHERE source = ? AND legacy_id = ?",
-                (source, legacy_id),
-            ).fetchone()
-        return row is not None
-
-    def mark_legacy_imported(self, source: str, legacy_id: str, issue_id: str) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO legacy_issue_imports(source, legacy_id, issue_id, imported_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (source, legacy_id, issue_id, utc_now()),
             )
 
     def _get_with_connection(self, connection: sqlite3.Connection, issue_id: str) -> IssueRecord:
