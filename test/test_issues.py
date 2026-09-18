@@ -1,9 +1,8 @@
-"""Unified issue models, persistence, projection and migration tests."""
+"""Unified issue models, persistence, projection tests."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -26,7 +25,6 @@ from wiki_agent.issues import (
     IssueStore,
 )
 from wiki_agent.issues.hooks import IssueReporterHook
-from wiki_agent.issues.migration import migrate_legacy_issues
 from wiki_agent.issues.producers import report_correction
 
 
@@ -140,47 +138,6 @@ def test_unavailable_source_disables_retry_and_resource_actions(tmp_path: Path):
     assert actions["retry"].disabled_reason == reason
     assert actions["open_resource"].disabled_reason == reason
 
-
-def test_legacy_migration_is_idempotent_and_preserves_backups(tmp_path: Path):
-    expired = (datetime.now() - timedelta(hours=1)).isoformat()
-    queue_record = {
-        "id": "ingest_1",
-        "type": "ingest_failure",
-        "file": "note.md",
-        "source_path": "/private/source/note.md",
-        "mode": "compile",
-        "stage": "execute",
-        "error": "page generation failed",
-        "retry_policy": "auto_retry",
-        "attempts": 2,
-        "retry_expires_at": expired,
-        "status": "pending",
-    }
-    (tmp_path / "queue.jsonl").write_text(json.dumps(queue_record) + "\n", encoding="utf-8")
-    memory = tmp_path / "memory_store"
-    memory.mkdir()
-    correction = {
-        "id": "corr_1",
-        "created_at": "2026-01-01T00:00:00",
-        "session_key": "session_1",
-        "page": "concepts/decorators.md",
-        "text": "示例过时",
-        "status": "pending",
-    }
-    (memory / "corrections.jsonl").write_text(json.dumps(correction) + "\n", encoding="utf-8")
-
-    store = IssueStore(tmp_path)
-    assert migrate_legacy_issues(tmp_path, store) == {"queue": 1, "corrections": 1, "skipped": 0}
-    assert migrate_legacy_issues(tmp_path, store) == {"queue": 0, "corrections": 0, "skipped": 2}
-
-    issues = store.list()
-    assert len(issues) == 2
-    ingest = next(item for item in issues if item.kind == IssueKind.INGESTION_FAILURE)
-    assert ingest.status == IssueStatus.BLOCKED
-    assert ingest.resource["path"] == "note.md"
-    assert ingest.context["source_path"] == "/private/source/note.md"
-    assert (tmp_path / "queue.jsonl.legacy.bak").is_file()
-    assert (memory / "corrections.jsonl.legacy.bak").is_file()
 
 
 def test_run_error_hook_reports_fatal_turn_but_not_cancellation(tmp_path: Path):
