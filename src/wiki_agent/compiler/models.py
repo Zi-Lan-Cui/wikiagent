@@ -20,7 +20,7 @@ class Disposition(StrEnum):
 # 编译流水线关 thinking——deepseek-v4-flash 是 reasoning 模型，
 # 思考段会静默吃掉整个 max_tokens 预算、content 留空（审计 C1 根因）。
 # 编译输出是"写页面"不是"解难题"，直接写更可靠也更便宜。
-# 单一来源：integration 四阶段与 surgery 复用此常量（勿再各存副本）。
+# 单一来源：integration 四阶段与 restructure 复用此常量（勿再各存副本）。
 _NO_THINKING = {"thinking": {"type": "disabled"}}
 
 

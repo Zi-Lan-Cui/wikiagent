@@ -1,4 +1,4 @@
-"""结构手术的候选提议——LLM 见全库 index，提原子操作（merge/delete/create/trim）。
+"""结构重组的候选提议——LLM 见全库 index，提原子操作（merge/delete/create/trim）。
 
 LLM 只在本模块与 review 出现（蓝图约束）。
 """
@@ -9,8 +9,8 @@ from pathlib import Path
 
 from wiki_agent.compiler.integration.parse import _strip_fence
 from wiki_agent.compiler.models import _NO_THINKING
-from wiki_agent.compiler.surgery.common import _index_overview, _safe_parse_json
-from wiki_agent.compiler.surgery.models import (
+from wiki_agent.compiler.restructure.common import _index_overview, _safe_parse_json
+from wiki_agent.compiler.restructure.models import (
     _PROPOSE_MAX_COUNT,
     _PROPOSE_MAX_TOKENS,
     Proposal,
@@ -20,7 +20,7 @@ from wiki_agent.errors import translate_generic_error
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
 
-logger = get_logger("SURGERY")
+logger = get_logger("RESTRUCTURE")
 
 
 def _check_propose_list(content: str) -> tuple[bool, str]:
@@ -35,7 +35,7 @@ def _check_propose_list(content: str) -> tuple[bool, str]:
     import json as _json
 
     # fence 剥离统一走 integration.parse._strip_fence（与 check/parse 层同一
-    # 规约，含 I5 尾部括号 repair——手术的 LLM 输出同样可能缺尾括号）
+    # 规约，含 I5 尾部括号 repair——重组的 LLM 输出同样可能缺尾括号）
     cleaned = _strip_fence(content)
     try:
         data = _json.loads(cleaned)
@@ -79,7 +79,7 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
     overview = _index_overview(wiki_dir)
     prompt = "\n\n".join(
         [
-            "你是知识库的结构审查员。基于全库页面索引，提出结构手术的原子提议。",
+            "你是知识库的结构审查员。基于全库页面索引，提出结构重组的原子提议。",
             "",
             "## 高度重叠的强信号（出现任一就该提 merge）",
             "- 两个页面摘要围绕同一组核心术语（如都围绕 *args/**kwargs、"
@@ -121,14 +121,14 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
         )
     except Exception as e:
         # LLM 失败不静默——分类后进事件流，返回空（结构健康是最安全的降级）
-        err = translate_generic_error(e, context="surgery propose")
+        err = translate_generic_error(e, context="restructure propose")
         logger.error("  粗提失败: %s", str(err)[:200])
-        emit_event("surgery_propose_failed", error=str(err), cause=type(e).__name__)
+        emit_event("restructure_propose_failed", error=str(err), cause=type(e).__name__)
         return []
     data = _safe_parse_json(response.content)
     if data is None:
         # check 已通过但内容仍坏（截断残余）——降级为无提议，不崩
-        emit_event("surgery_propose_failed", error="JSON 二次解析失败", cause="truncated")
+        emit_event("restructure_propose_failed", error="JSON 二次解析失败", cause="truncated")
         return []
     proposals = [
         Proposal(
@@ -146,5 +146,5 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
         )
         for i, item in enumerate(data[:_PROPOSE_MAX_COUNT], 1)
     ]
-    emit_event("surgery_proposed", count=len(proposals), ops=[p.op for p in proposals])
+    emit_event("restructure_proposed", count=len(proposals), ops=[p.op for p in proposals])
     return proposals

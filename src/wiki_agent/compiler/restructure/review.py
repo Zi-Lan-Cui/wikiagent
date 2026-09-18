@@ -1,4 +1,4 @@
-"""结构手术的 LLM 复判与冲突复裁——每条带页面全文 + 引用证据，单独复检。
+"""结构重组的 LLM 复判与冲突复裁——每条带页面全文 + 引用证据，单独复检。
 
 LLM 只在本模块与 proposal 出现（蓝图约束）。复判确认方向、复裁消解冲突；
 无法裁决的冲突不静默丢弃——返回 unresolved 交调用方。
@@ -10,13 +10,13 @@ from pathlib import Path
 
 from wiki_agent.compiler.integration.parse import _strip_fence
 from wiki_agent.compiler.models import _NO_THINKING
-from wiki_agent.compiler.surgery.common import (
+from wiki_agent.compiler.restructure.common import (
     _filter_valid_pages,
     _incoming_links,
     _load_pages,
     _safe_parse_json,
 )
-from wiki_agent.compiler.surgery.models import (
+from wiki_agent.compiler.restructure.models import (
     _RE_ARBITRATE_MAX_TOKENS,
     _RECHECK_BODY_CHARS,
     _RECHECK_MAX_TOKENS,
@@ -29,7 +29,7 @@ from wiki_agent.errors import translate_generic_error
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
 
-logger = get_logger("SURGERY")
+logger = get_logger("RESTRUCTURE")
 
 
 def _check_recheck(content: str) -> tuple[bool, str]:
@@ -152,16 +152,16 @@ async def recheck(
                 max_retries=2,
             )
         except Exception as e:
-            err = translate_generic_error(e, context="surgery recheck")
+            err = translate_generic_error(e, context="restructure recheck")
             logger.error("  复判失败 %s: %s", prop.pages, str(err)[:200])
             emit_event(
-                "surgery_recheck_failed", pages=prop.pages, error=str(err), cause=type(e).__name__
+                "restructure_recheck_failed", pages=prop.pages, error=str(err), cause=type(e).__name__
             )
             continue
         data = _safe_parse_json(response.content)
         if data is None:
             emit_event(
-                "surgery_recheck_failed",
+                "restructure_recheck_failed",
                 pages=prop.pages,
                 error="JSON 二次解析失败",
                 cause="truncated",
@@ -170,7 +170,7 @@ async def recheck(
         if data["verdict"] != "confirm":
             reason = data.get("reason", "")
             logger.info("  - 复判否决: %s（%s）", prop.pages, reason)
-            emit_event("surgery_rejected", pages=prop.pages, reason=reason)
+            emit_event("restructure_rejected", pages=prop.pages, reason=reason)
             rejected.append((prop, reason))
             continue
         op = data["op"]
@@ -202,7 +202,7 @@ async def recheck(
                 goal=prop.goal,
             )
         )
-        emit_event("surgery_confirmed", op=op, pages=prop.pages, target=target)
+        emit_event("restructure_confirmed", op=op, pages=prop.pages, target=target)
     return confirmed, rejected
 
 
@@ -245,7 +245,7 @@ async def re_arbitrate(
     """冲突复裁——把冲突反馈给 LLM，让它重提议（callback retry）。
 
     无法仲裁的冲突**不静默丢弃、不自动推进**——返回 unresolved，
-    由调用方阻塞等人（手术是破坏性低频操作，半应用状态比等待更糟）。
+    由调用方阻塞等人（重组是破坏性低频操作，半应用状态比等待更糟）。
 
     Args:
         llm: LLM 客户端。

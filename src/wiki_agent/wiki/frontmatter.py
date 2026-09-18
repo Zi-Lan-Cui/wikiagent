@@ -12,7 +12,7 @@ def split_frontmatter(content: str) -> tuple[dict, str]:
     """切分 frontmatter——返回 (字段 dict, 正文)。
 
     正文不 strip：调用方各自决定尾部处理
-    （surgery 拼接要保留原文形态）。
+    （restructure 拼接要保留原文形态）。
 
     简单解析语义: 逐行 partition(": ")——不做完整 YAML
     （嵌套/列表/引号转义超出 wiki 页面的 frontmatter 需求）。
@@ -22,7 +22,7 @@ def split_frontmatter(content: str) -> tuple[dict, str]:
 
     Returns:
         (字段 dict, 正文)。正文不 strip——调用方各自决定
-        尾部处理（surgery 拼接要保留原文形态）。
+        尾部处理（restructure 拼接要保留原文形态）。
     """
     fm: dict = {}
     body = content

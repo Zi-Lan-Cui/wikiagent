@@ -76,9 +76,10 @@ def _legacy_queue_draft(record: JsonObject) -> IssueDraft:
         kind = IssueKind.INGESTION_FAILURE
         title = f"{file_name or '来源文件'}处理失败"
         summary = detail or "来源文件未能完成知识编译。"
-    elif legacy_type == "surgery_conflict":
-        kind = IssueKind.SURGERY_CONFLICT
-        title = "Wiki 手术提案存在冲突"
+    elif legacy_type in {"restructure_conflict", "surgery_conflict"}:
+        # "surgery_conflict" 是改名前的历史队列 type，保留兼容读取。
+        kind = IssueKind.RESTRUCTURE_CONFLICT
+        title = "Wiki 重组提案存在冲突"
         summary = detail or "多个修改提案无法自动仲裁。"
     elif legacy_type == "wiki_issue":
         kind = IssueKind.CONTENT_CORRECTION
@@ -129,7 +130,7 @@ def _legacy_queue_draft(record: JsonObject) -> IssueDraft:
         status=status,
         severity=(
             IssueSeverity.WARNING
-            if kind in {IssueKind.CONTENT_CORRECTION, IssueKind.SURGERY_CONFLICT}
+            if kind in {IssueKind.CONTENT_CORRECTION, IssueKind.RESTRUCTURE_CONFLICT}
             else IssueSeverity.ERROR
         ),
         title=title,
