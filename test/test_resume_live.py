@@ -1,6 +1,6 @@
 """真实编译中断后 resume 的端到端验收（live，默认跳过）。
 
-流程：抽样真实 Markdown → 起真实 batch_compile → 定时 SIGINT → 校验 state 保留
+流程：抽样真实 Markdown → 起真实 compile_batches → 定时 SIGINT → 校验 state 保留
 中断态 → 同一 state --resume → 校验全部 source committed + Wiki Git 有提交。
 不修改原始笔记目录。运行：
 
@@ -55,7 +55,7 @@ def test_interrupt_then_resume() -> None:
             json.dumps({"sources": _sources(root_path, sample_size, 20260831)}), encoding="utf-8"
         )
         base = [
-            sys.executable, "-m", "wiki_agent.application.batch_compile",
+            sys.executable, "-m", "wiki_agent.application.compile_batches",
             "--root", str(root_path), "--manifest", str(manifest), "--wiki-dir", str(wiki),
             "--batch-size", "1", "--commit-scope", "source", "--state", str(state),
             "--work-dir", str(work), "--init-git",
