@@ -4,19 +4,19 @@ from pathlib import Path
 
 import pytest
 
-from wiki_agent.application import batch_compile as compile_manifest
+from wiki_agent.application import compile_batches
 
 
 def test_split_sources_is_stable_and_validates_size():
     sources = [{"id": f"source-{i:03d}", "path": f"{i}.md"} for i in range(5)]
-    batches = compile_manifest.split_sources(sources, 2)
+    batches = compile_batches.split_sources(sources, 2)
     assert [[item["id"] for item in batch] for batch in batches] == [
         ["source-000", "source-001"],
         ["source-002", "source-003"],
         ["source-004"],
     ]
     with pytest.raises(ValueError):
-        compile_manifest.split_sources(sources, 0)
+        compile_batches.split_sources(sources, 0)
 
 
 def test_run_batches_records_commit_and_resume_skips_committed(tmp_path: Path, monkeypatch):
@@ -48,12 +48,12 @@ def test_run_batches_records_commit_and_resume_skips_committed(tmp_path: Path, m
         )
         return run_dir
 
-    monkeypatch.setattr(compile_manifest, "compile_sources", fake_compile)
+    monkeypatch.setattr(compile_batches, "compile_sources", fake_compile)
     state_path = tmp_path / "state.json"
     work_dir = tmp_path / "work"
 
     first = asyncio.run(
-        compile_manifest.run_batches(
+        compile_batches.run_batches(
             root=root,
             manifest=manifest,
             wiki_dir=tmp_path / "wiki",
@@ -69,7 +69,7 @@ def test_run_batches_records_commit_and_resume_skips_committed(tmp_path: Path, m
     assert len(calls) == 2
 
     second = asyncio.run(
-        compile_manifest.run_batches(
+        compile_batches.run_batches(
             root=root,
             manifest=manifest,
             wiki_dir=tmp_path / "wiki",
@@ -96,11 +96,11 @@ def test_run_batches_persists_failure_before_propagating(tmp_path: Path, monkeyp
     async def failing_compile(*args, **kwargs):
         raise RuntimeError("simulated failure")
 
-    monkeypatch.setattr(compile_manifest, "compile_sources", failing_compile)
+    monkeypatch.setattr(compile_batches, "compile_sources", failing_compile)
     state_path = tmp_path / "state.json"
     with pytest.raises(RuntimeError, match="simulated failure"):
         asyncio.run(
-            compile_manifest.run_batches(
+            compile_batches.run_batches(
                 root=root,
                 manifest=manifest,
                 wiki_dir=tmp_path / "wiki",
@@ -134,9 +134,9 @@ def test_run_with_failed_source_is_not_marked_committed(tmp_path: Path, monkeypa
         )
         return run_dir
 
-    monkeypatch.setattr(compile_manifest, "compile_sources", fake_compile)
+    monkeypatch.setattr(compile_batches, "compile_sources", fake_compile)
     state = asyncio.run(
-        compile_manifest.run_batches(
+        compile_batches.run_batches(
             root=root,
             manifest=manifest,
             wiki_dir=tmp_path / "wiki",
@@ -166,10 +166,10 @@ def test_resume_rejects_changed_source_content(tmp_path: Path, monkeypatch):
         (run_dir / "run.json").write_text(json.dumps({"status": "committed"}), encoding="utf-8")
         return run_dir
 
-    monkeypatch.setattr(compile_manifest, "compile_sources", fake_compile)
+    monkeypatch.setattr(compile_batches, "compile_sources", fake_compile)
     state_path = tmp_path / "state.json"
     asyncio.run(
-        compile_manifest.run_batches(
+        compile_batches.run_batches(
             root=root,
             manifest=manifest,
             wiki_dir=tmp_path / "wiki",
@@ -182,7 +182,7 @@ def test_resume_rejects_changed_source_content(tmp_path: Path, monkeypatch):
 
     with pytest.raises(ValueError, match="source 内容或路径已变化"):
         asyncio.run(
-            compile_manifest.run_batches(
+            compile_batches.run_batches(
                 root=root,
                 manifest=manifest,
                 wiki_dir=tmp_path / "wiki",
@@ -207,9 +207,9 @@ def test_reconcile_rebuilds_batches_and_preserves_unchanged_sources(tmp_path: Pa
         {"id": "source-002", "path": "second.md"},
     ]
     manifest.write_text(json.dumps({"sources": sources}), encoding="utf-8")
-    batches = compile_manifest.split_sources(sources, 1)
-    state = compile_manifest._new_state(
-        manifest, root, tmp_path / "wiki", 1, batches, compile_manifest._sha256(manifest)
+    batches = compile_batches.split_sources(sources, 1)
+    state = compile_batches._new_state(
+        manifest, root, tmp_path / "wiki", 1, batches, compile_batches._sha256(manifest)
     )
     state["source_state"]["source-001"]["status"] = "committed"
     new = root / "new.md"
@@ -217,14 +217,14 @@ def test_reconcile_rebuilds_batches_and_preserves_unchanged_sources(tmp_path: Pa
     sources.append({"id": "source-003", "path": "new.md"})
     manifest.write_text(json.dumps({"sources": sources}), encoding="utf-8")
 
-    reconciled = compile_manifest._reconcile_state(
+    reconciled = compile_batches._reconcile_state(
         state,
         manifest=manifest,
         root=root,
         wiki_dir=tmp_path / "wiki",
         batch_size=2,
-        batches=compile_manifest.split_sources(sources, 2),
-        manifest_hash=compile_manifest._sha256(manifest),
+        batches=compile_batches.split_sources(sources, 2),
+        manifest_hash=compile_batches._sha256(manifest),
     )
 
     assert reconciled["source_state"]["source-001"]["status"] == "committed"

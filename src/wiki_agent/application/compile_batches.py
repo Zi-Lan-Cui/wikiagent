@@ -1,18 +1,20 @@
-"""按 source manifest 分批编译 Wiki，并支持中断后恢复。
+"""分批可恢复编译——``compile_service.compile_sources``（单次编译）之上的编排层。
 
-这个入口是评测/大批量导入的编排层，不改变 ``compile_sources`` 的语义：
-每个 batch 仍然是一次独立的 scan + diff + Git commit。批次状态只记录在
-Wiki 外部的 state 文件中，因此不会成为 Wiki 内容的一部分。
+关系：compile_service 负责"把一批源文件编译成 Wiki"这一原子动作；本模块负责
+把一个 source manifest **切分成多个 batch、逐批调用 compile_sources、并把批次状态
+写到 Wiki 外部的 state 文件**以支持中断后 --resume。每个 batch 仍是一次独立的
+scan + diff + Git commit，语义不变；state 不进 Wiki。二者职责分离故各占一模块，
+不并入 compile_service（避免单次编译与分批恢复两种关注混在一个大文件）。
 
 示例::
 
-    uv run python -m wiki_agent.application.batch_compile \
+    uv run python -m wiki_agent.application.compile_batches \
       --root /path/to/notebook \
       --manifest /path/to/source_manifest.json \
       --wiki-dir /tmp/wiki-agent-batched \
       --batch-size 20 --init-git
 
-    uv run python -m wiki_agent.application.batch_compile ... --resume
+    uv run python -m wiki_agent.application.compile_batches ... --resume
 """
 
 from __future__ import annotations
