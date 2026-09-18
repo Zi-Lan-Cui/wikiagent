@@ -125,6 +125,15 @@ class IssueStore:
                     imported_at TEXT NOT NULL,
                     PRIMARY KEY(source, legacy_id)
                 );
+
+                -- 子表按 issue_id 查询（事件时间线、动作领取/审计）——SQLite 不会自动为
+                -- 外键列建索引，缺则全表扫；CREATE IF NOT EXISTS 对既有库同样补齐。
+                CREATE INDEX IF NOT EXISTS idx_issue_events_issue
+                ON issue_events(issue_id, sequence);
+                CREATE INDEX IF NOT EXISTS idx_issue_actions_issue
+                ON issue_actions(issue_id, status);
+                CREATE INDEX IF NOT EXISTS idx_legacy_issue_imports_issue
+                ON legacy_issue_imports(issue_id);
                 """
             )
             connection.execute(
