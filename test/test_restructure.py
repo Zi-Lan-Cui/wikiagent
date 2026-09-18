@@ -1,12 +1,12 @@
-"""surgery 冲突消解与执行安全测试。
+"""restructure 冲突消解与执行安全测试。
 
-直接运行:  .venv/bin/python test/test_surgery.py
+直接运行:  .venv/bin/python test/test_restructure.py
 """
 
 import tempfile
 from pathlib import Path
 
-from wiki_agent.compiler.surgery import (
+from wiki_agent.compiler.restructure import (
     Proposal,
     _filter_valid_pages,
     _load_pages,

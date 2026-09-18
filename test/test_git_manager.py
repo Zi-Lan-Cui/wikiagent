@@ -132,7 +132,7 @@ def test_commit_and_rollback_create_revert_commit(tmp_path: Path):
 def test_abort_restores_tracked_and_removes_new_files(tmp_path: Path):
     _, wiki = _repo(tmp_path)
     manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
-    run = manager.begin("r2", mode="surgery")
+    run = manager.begin("r2", mode="restructure")
     (wiki / "index.md").write_text("broken\n", encoding="utf-8")
     (wiki / "new.md").write_text("untracked page\n", encoding="utf-8")
     unicode_page = wiki / "sources" / "数据类型及色彩空间变换.md"

@@ -676,16 +676,16 @@ class RetryCommand(Command):
 
 class RefineCommand(Command):
     name = "refine"
-    description = "执行 wiki 精炼；加 --dry-run 只预览结构手术"
+    description = "执行 wiki 精炼；加 --dry-run 只预览结构重组"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        """refine 全量 + 结构手术——默认执行，``--dry-run`` 只预览手术。
+        """refine 全量 + 结构重组——默认执行，``--dry-run`` 只预览重组。
 
         Args:
             ctx: 命令上下文。
 
         Returns:
-            执行结果（汇总 refine/手术/扫描统计）。
+            执行结果（汇总 refine/重组/扫描统计）。
         """
         from datetime import datetime
 
@@ -746,10 +746,10 @@ class RefineCommand(Command):
                 raise
             lines.append(f"成功 {stats['ok']} / 无操作 {stats['noop']} / 失败 {stats['failed']}")
 
-        # 结构手术：默认执行；显式 --dry-run 才只出报告不动手。
-        surgery_result = None
+        # 结构重组：默认执行；显式 --dry-run 才只出报告不动手。
+        restructure_result = None
         try:
-            from wiki_agent.compiler.surgery import (
+            from wiki_agent.compiler.restructure import (
                 _load_pages,
                 execute,
                 propose_from_index,
@@ -766,34 +766,34 @@ class RefineCommand(Command):
                 clean.extend(arb.resolved)
                 issue_service = getattr(ctx.agent, "issue_service", None)
                 if issue_service is not None and arb.unresolved:
-                    from wiki_agent.issues.producers import report_surgery_conflicts
+                    from wiki_agent.issues.producers import report_restructure_conflicts
 
-                    report_surgery_conflicts(
+                    report_restructure_conflicts(
                         issue_service,
                         arb.unresolved,
                         origin={"mode": "refine", "trigger": "refine_command"},
                     )
             lines.append("")
             lines.append(
-                f"结构手术: {len(proposals)} 粗提 → {len(confirmed)} 确认 → {len(clean)} 有效"
+                f"结构重组: {len(proposals)} 粗提 → {len(confirmed)} 确认 → {len(clean)} 有效"
             )
             for p in clean:
                 lines.append(f"- {p.op} {p.pages} → {p.target} | {p.reason[:60]}")
             if not dry_run:
-                surgery_result = execute(wiki, clean)
+                restructure_result = execute(wiki, clean)
                 lines.append("")
                 lines.append(
-                    f"结构手术已执行: {len(surgery_result.actions)} 成功 / "
-                    f"{len(surgery_result.skipped)} 跳过"
+                    f"结构重组已执行: {len(restructure_result.actions)} 成功 / "
+                    f"{len(restructure_result.skipped)} 跳过"
                 )
             else:
-                lines.append("结构手术: dry-run（未修改结构页面）")
+                lines.append("结构重组: dry-run（未修改结构页面）")
         except asyncio.CancelledError as exc:
             if git_manager and git_run:
-                git_manager.abort(git_run, reason=f"surgery cancelled: {exc}")
+                git_manager.abort(git_run, reason=f"restructure cancelled: {exc}")
             raise
         except Exception as e:
-            lines.append(f"结构手术跳过: {type(e).__name__}: {str(e)[:100]}")
+            lines.append(f"结构重组跳过: {type(e).__name__}: {str(e)[:100]}")
 
         issues = scan_wiki(wiki)
         issue_service = getattr(ctx.agent, "issue_service", None)
@@ -812,7 +812,7 @@ class RefineCommand(Command):
             scan_report = git_run.run_dir / "scan_report.md"
             scan_report.write_text(format_scan_report(issues), encoding="utf-8")
             errors = [issue for issue in issues if issue.level == "error"]
-            skipped = len(surgery_result.skipped) if surgery_result else 0
+            skipped = len(restructure_result.skipped) if restructure_result else 0
             if errors or skipped:
                 git_manager.abort(
                     git_run,
@@ -824,7 +824,7 @@ class RefineCommand(Command):
                     git_run,
                     message=f"wiki: refine {git_run.run_id}",
                     scan_report=scan_report,
-                    metadata={"scan_errors": len(errors), "surgery_skipped": skipped},
+                    metadata={"scan_errors": len(errors), "restructure_skipped": skipped},
                 )
                 lines.append(f"Git: 已提交 {committed.commit}")
 

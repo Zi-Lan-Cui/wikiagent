@@ -17,7 +17,7 @@ from wiki_agent.issues.models import (
 from wiki_agent.issues.service import IssueService
 
 if TYPE_CHECKING:
-    from wiki_agent.compiler.surgery.models import Conflict, Proposal
+    from wiki_agent.compiler.restructure.models import Conflict, Proposal
 
 
 class QualityFinding(Protocol):
@@ -100,7 +100,7 @@ def report_quality_findings(
     return issue_ids
 
 
-def report_surgery_conflicts(
+def report_restructure_conflicts(
     service: IssueService,
     conflicts: Iterable[Conflict],
     *,
@@ -115,18 +115,18 @@ def report_surgery_conflicts(
         pages = sorted({page for proposal in conflict.proposals for page in proposal.pages})
         card = service.report(
             IssueDraft(
-                kind=IssueKind.SURGERY_CONFLICT,
+                kind=IssueKind.RESTRUCTURE_CONFLICT,
                 severity=IssueSeverity.WARNING,
                 title="Wiki 结构提案无法自动仲裁",
                 summary=conflict.detail or "多个高风险结构操作存在冲突。",
-                fingerprint=f"surgery:{conflict.kind}:{'|'.join(pages)}",
+                fingerprint=f"restructure:{conflict.kind}:{'|'.join(pages)}",
                 origin={**(origin or {}), "stage": "arbitration"},
                 resource={
                     "type": "wiki_structure",
                     "path": pages[0] if pages else "",
                     "label": conflict.kind,
                 },
-                diagnostics={"error_code": "surgery_conflict"},
+                diagnostics={"error_code": "restructure_conflict"},
                 evidence=[{"key": conflict.detail or conflict.kind, "proposals": proposals}],
             )
         )

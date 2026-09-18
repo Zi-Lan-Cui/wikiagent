@@ -80,7 +80,7 @@ def available_actions(record: IssueRecord) -> tuple[IssueAction, ...]:
                 IssueAction("false_positive", "标记误报"),
             )
         )
-    elif record.kind == IssueKind.SURGERY_CONFLICT:
+    elif record.kind == IssueKind.RESTRUCTURE_CONFLICT:
         actions.extend((IssueAction("defer", "稍后处理"),))
     else:
         if record.diagnostics.get("log"):

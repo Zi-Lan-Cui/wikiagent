@@ -20,7 +20,7 @@ class RecordCorrection(BaseTool):
     side_effect: ClassVar[str] = "irreversible"
     description: str = (
         "当用户指出 wiki 知识库中某页面的内容错误、过时或缺失时调用——"
-        "把纠错记进问题中心，供后续 refine/手术使用。"
+        "把纠错记进问题中心，供后续 refine/重组使用。"
         "注意: 只在用户明确表达 wiki 内容有问题时调用；"
         "普通问答、用户提问不算纠错。"
     )

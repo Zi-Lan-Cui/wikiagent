@@ -286,7 +286,7 @@ class PathsConfig(BaseSettings):
         return self.resolved_workspace_dir() / "provenance" / "sources"
 
     def resolved_runs_dir(self) -> Path:
-        """返回编译、精炼、重试和手术的运行存档根目录。"""
+        """返回编译、精炼、重试和重组的运行存档根目录。"""
         return self.resolved_workspace_dir() / "runs"
 
     def resolved_watch_dir(self) -> Path:

@@ -1,4 +1,4 @@
-"""结构手术的确定性冲突与依赖消解（无 LLM）——复判之后、确认之前。
+"""结构重组的确定性冲突与依赖消解（无 LLM）——复判之后、确认之前。
 
 LLM 输出独立提议互不知情，冲突由代码归一化；无法确定性消解的收集为
 Conflict 交 review.re_arbitrate 或人工。
@@ -6,10 +6,10 @@ Conflict 交 review.re_arbitrate 或人工。
 
 from __future__ import annotations
 
-from wiki_agent.compiler.surgery.models import Conflict, Proposal
+from wiki_agent.compiler.restructure.models import Conflict, Proposal
 from wiki_agent.log import emit_event, get_logger
 
-logger = get_logger("SURGERY")
+logger = get_logger("RESTRUCTURE")
 
 
 def _page_quality(page: dict) -> int:
@@ -120,7 +120,7 @@ def resolve_conflicts(
     clean, dependency_conflicts = _validate_operation_sequence(clean, pages)
     conflicts.extend(dependency_conflicts)
     if conflicts:
-        emit_event("surgery_conflict", count=len(conflicts), kinds=[c.kind for c in conflicts])
+        emit_event("restructure_conflict", count=len(conflicts), kinds=[c.kind for c in conflicts])
     return clean, conflicts
 
 

@@ -1,4 +1,4 @@
-"""结构手术的备份、快照与回滚（无 LLM）。
+"""结构重组的备份、快照与回滚（无 LLM）。
 
 破坏性操作先备份；同 group_id 的 create+trim 是一个事务，失败整组回滚。
 备份回滚逻辑只在 transaction 存在（蓝图约束）。
@@ -9,10 +9,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from wiki_agent.compiler.surgery.models import Proposal
+from wiki_agent.compiler.restructure.models import Proposal
 from wiki_agent.log import get_logger
 
-logger = get_logger("SURGERY")
+logger = get_logger("RESTRUCTURE")
 
 
 def _backup(

@@ -18,7 +18,7 @@ class IssueKind(StrEnum):
     QUALITY_ISSUE = "quality_issue"
     CONTENT_CORRECTION = "content_correction"
     CONTENT_CONFLICT = "content_conflict"
-    SURGERY_CONFLICT = "surgery_conflict"
+    RESTRUCTURE_CONFLICT = "restructure_conflict"
 
 
 class IssueStatus(StrEnum):
