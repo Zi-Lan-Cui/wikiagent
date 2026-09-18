@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""二元判定一致性试点（B 层校准第一站）。
+"""二元判定一致性试点
 
 读取 judgements-v2 判词题集，按维度跑 binary_judge，逐条 1:1 与金标比对：
 - 分维度一致率（排除 unknown）——四维度各自 ≥85% 才达标；
@@ -30,12 +29,7 @@ def _default_gold() -> Path:
 
 
 def _load_files(root: Path, paths: list[str]) -> str:
-    """无脑文件加载器——按 view 里的文件清单逐个读，拼成判定输入。
-
-    view.inputs / view.output 是编译那一刻 compiler 真实可见/产出的
-    文件清单（相对 corpus 根）。加载器不做任何 stage 特判、不解析内容
-    结构——文件里是什么就喂什么，信息量对齐由题目文件保证。
-    """
+    """文件加载器——按 view 里的文件清单逐个读，拼成判定输入"""
     parts: list[str] = []
     for relative in paths:
         path = (root / relative).resolve()
