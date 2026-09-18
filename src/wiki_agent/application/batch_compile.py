@@ -6,13 +6,13 @@ Wiki 外部的 state 文件中，因此不会成为 Wiki 内容的一部分。
 
 示例::
 
-    uv run python scripts/compile_manifest.py \
+    uv run python -m wiki_agent.application.batch_compile \
       --root /path/to/notebook \
-      --manifest evals/templates/source_manifest.json \
+      --manifest /path/to/source_manifest.json \
       --wiki-dir /tmp/wiki-agent-batched \
       --batch-size 20 --init-git
 
-    uv run python scripts/compile_manifest.py ... --resume
+    uv run python -m wiki_agent.application.batch_compile ... --resume
 """
 
 from __future__ import annotations

@@ -70,10 +70,10 @@ uv run python scripts/refine_wiki.py --wiki-dir /path/to/wiki
 合并重复页面或整理结构前先预览：
 
 ```bash
-uv run python scripts/surgery_wiki.py --dry-run
+uv run python scripts/restructure_wiki.py --dry-run
 ```
 
-确认后再执行 `uv run python scripts/surgery_wiki.py`。
+确认后再执行 `uv run python scripts/restructure_wiki.py`。
 
 ### 5. 使用问答助手
 
