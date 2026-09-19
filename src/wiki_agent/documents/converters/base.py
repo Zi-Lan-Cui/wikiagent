@@ -12,10 +12,6 @@ from typing import Any
 
 from wiki_agent.documents.loader import RawFileProperties
 
-# ════════════════════════════════════════════════════════════════
-#  ConvertedFile — 统一输出
-# ════════════════════════════════════════════════════════════════
-
 
 @dataclass
 class ConvertedFile:
@@ -51,11 +47,6 @@ class ConvertedFile:
             content_hash=raw_file.content_hash,
             create_time=raw_file.create_time,
         )
-
-
-# ════════════════════════════════════════════════════════════════
-#  BaseConverter — 抽象接口
-# ════════════════════════════════════════════════════════════════
 
 
 class BaseConverter(ABC):

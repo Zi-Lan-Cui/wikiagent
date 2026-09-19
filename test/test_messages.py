@@ -11,9 +11,7 @@ from wiki_agent.conversation import (
     ToolCall,
 )
 
-# ════════════════════════════════════════════════════════════════
-#  ToolCall
-# ════════════════════════════════════════════════════════════════
+# ToolCall
 
 
 class TestToolCall:
@@ -28,9 +26,7 @@ class TestToolCall:
         assert tc.arguments == {}
 
 
-# ════════════════════════════════════════════════════════════════
-#  Message — construction
-# ════════════════════════════════════════════════════════════════
+# Message — construction
 
 
 class TestMessageConstruction:
@@ -76,13 +72,11 @@ class TestMessageConstruction:
         assert msg.content == ""
 
 
-# ════════════════════════════════════════════════════════════════
-#  Message — openai_schema
-# ════════════════════════════════════════════════════════════════
+# Message — openai_schema
 
 
 class TestOpenAISchema:
-    # ── 纯文本 ──────────────────────────────────────────
+    # 纯文本
 
     def test_simple_user(self):
         schema = Message(role="user", content="hi").openai_schema
@@ -96,7 +90,7 @@ class TestOpenAISchema:
         schema = Message(role="system", content="prompt").openai_schema
         assert schema == {"role": "system", "content": "prompt"}
 
-    # ── 图片 ────────────────────────────────────────────
+    # 图片
 
     def test_user_with_one_image(self):
         msg = Message(role="user", content="看图", images=["img_b64"])
@@ -126,7 +120,7 @@ class TestOpenAISchema:
         # assistant 不会携带图片，但 schema 不做 role 判断
         assert isinstance(schema["content"], list)
 
-    # ── tool_calls ──────────────────────────────────────
+    # tool_calls
 
     def test_message_with_tool_calls(self):
         tc = ToolCall(id="t1", name="calc", arguments={"expr": "1+1"})
@@ -162,7 +156,7 @@ class TestOpenAISchema:
         assert schema["tool_calls"][0]["id"] == "a"
         assert schema["tool_calls"][1]["id"] == "b"
 
-    # ── 组合：text + images + tool_calls ─────────────────
+    # 组合：text + images + tool_calls
 
     def test_text_with_images_and_tool_calls(self):
         """assistant 带 content + tool_calls，同时 images 字段不为空。"""
@@ -174,7 +168,7 @@ class TestOpenAISchema:
         assert isinstance(schema["content"], list)
         assert "tool_calls" in schema
 
-    # ── tool 角色 ───────────────────────────────────────
+    # tool 角色
 
     def test_tool_result(self):
         schema = Message(
@@ -198,7 +192,7 @@ class TestOpenAISchema:
         assert schema["content"] == "done"  # 纯文本，没变成数组
         assert "image_url" not in str(schema)
 
-    # ── 边界 ────────────────────────────────────────────
+    # 边界
 
     def test_empty_images_produces_plain_content(self):
         msg = Message(role="user", content="hi", images=[])
@@ -217,9 +211,7 @@ class TestOpenAISchema:
         assert parts[1]["type"] == "image_url"
 
 
-# ════════════════════════════════════════════════════════════════
-#  Message — text_schema
-# ════════════════════════════════════════════════════════════════
+# Message — text_schema
 
 
 class TestTextSchema:
@@ -276,9 +268,7 @@ class TestTextSchema:
         assert "f2" in text
 
 
-# ════════════════════════════════════════════════════════════════
-#  Message — create_from_openai (逆序列化)
-# ════════════════════════════════════════════════════════════════
+# Message — create_from_openai (逆序列化)
 
 
 class TestCreateFromOpenAI:
@@ -355,9 +345,7 @@ class TestCreateFromOpenAI:
         assert restored.tool_calls[1].name == "b"
 
 
-# ════════════════════════════════════════════════════════════════
-#  LLMResponse
-# ════════════════════════════════════════════════════════════════
+# LLMResponse
 
 
 class TestLLMResponse:
@@ -384,9 +372,7 @@ class TestLLMResponse:
         assert resp.usage["total"] == 30
 
 
-# ════════════════════════════════════════════════════════════════
-#  Integration — 模拟一次对话的完整 schema 流转
-# ════════════════════════════════════════════════════════════════
+# Integration — 模拟一次对话的完整 schema 流转
 
 
 class TestFullConversationSchema:

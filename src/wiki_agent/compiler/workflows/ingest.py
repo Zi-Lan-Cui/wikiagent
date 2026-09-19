@@ -336,7 +336,7 @@ class CompilePipeline:
         self._append_index(outcome.plan, outcome.pages_written)
         return outcome
 
-    # ── 内部 ──────────────────────────────────────────────
+    # 内部
 
     def _notify_progress(self, stage: IngestStage) -> None:
         callback = getattr(self, "_on_progress", None)
@@ -431,9 +431,7 @@ class CompilePipeline:
             logger.info("  index: +%d 条目", len(fresh))
 
 
-# ════════════════════════════════════════════════════════════
-#  工具
-# ════════════════════════════════════════════════════════════
+# 工具
 
 
 class _FallbackChunk:

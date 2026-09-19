@@ -29,9 +29,7 @@ from wiki_agent.compiler.workflows.refine import (
 from wiki_agent.conversation import LLMResponse
 from wiki_agent.wiki.rules import _check_page_output
 
-# ════════════════════════════════════════════════════════════
-#  unit: prompt 契约与校验
-# ════════════════════════════════════════════════════════════
+# unit: prompt 契约与校验
 
 
 def test_refine_plan_is_independent_curator():
@@ -228,9 +226,7 @@ def test_prompt_cache_separation():
     assert "分析文本XYZ" in cp.plan_user(ext, "分析文本XYZ")
 
 
-# ════════════════════════════════════════════════════════════
-#  unit: refine 编排与 index 排除
-# ════════════════════════════════════════════════════════════
+# unit: refine 编排与 index 排除
 
 
 def _make_wiki(tmp: Path) -> Path:
@@ -278,9 +274,7 @@ def test_refine_pages_scope():
     assert rels == {"concepts/x.md", "concepts/y.md", "entities/e.md"}
 
 
-# ════════════════════════════════════════════════════════════
-#  unit: 模式接线与兜底过滤
-# ════════════════════════════════════════════════════════════
+# unit: 模式接线与兜底过滤
 
 
 class _MockLLM:
@@ -350,9 +344,7 @@ def test_filter_refine_targets_all_violations_turn_noop():
     assert plan.page_targets == []
 
 
-# ════════════════════════════════════════════════════════════
-#  integration: ingest_one 全链（脚本化 LLM）
-# ════════════════════════════════════════════════════════════
+# integration: ingest_one 全链（脚本化 LLM）
 
 
 class ScriptedLLM:

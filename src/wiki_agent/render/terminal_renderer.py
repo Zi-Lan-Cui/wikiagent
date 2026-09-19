@@ -40,7 +40,7 @@ from rich.text import Text
 
 from wiki_agent.events import AgentHook, CommandProgress, RunContext
 
-# ── 样式 ──────────────────────────────────────────────────
+# 样式
 TOOL_ICONS: dict[str, str] = {
     "ReadFile": "📖",
     "ListDir": "📂",
@@ -55,7 +55,7 @@ DETAIL_STYLE = "dim"
 ARG_STYLE = "bright_black"
 
 
-# ── 工具行渲染辅助（纯函数）────────────────────────────────
+# 工具行渲染辅助（纯函数）
 
 
 def _trunc(s: str, max_len: int = 80) -> str:
@@ -140,11 +140,6 @@ def _result_summary(tool_name: str, result: str) -> str:
         return _trunc(result, 60)
 
 
-# ════════════════════════════════════════════════════════════
-#  TerminalRenderer — 渲染实体（直接订阅 hook 事件）
-# ════════════════════════════════════════════════════════════
-
-
 class TerminalRenderer(AgentHook):
     """终端渲染实体——流式文本 + 工具行的全部渲染状态与逻辑。"""
 
@@ -173,7 +168,7 @@ class TerminalRenderer(AgentHook):
         self._fence_buf: list[str] = []
         self._timers: dict[str, float] = {}
 
-    # ── 流式内部状态机（追加式——完整行即时打印）────────────
+    # 流式内部状态机（追加式——完整行即时打印）
 
     def _stream_delta(self, delta: str) -> None:
         """缓冲累积，完整行即时渲染打印。
@@ -248,7 +243,7 @@ class TerminalRenderer(AgentHook):
         """
         self._flush_stream()
 
-    # ── hook 事件（渲染入口）──────────────────────────────
+    # hook 事件（渲染入口）
 
     async def on_run_start(self, context: RunContext) -> None:
         # 复位缓冲与 fence 状态（跨 turn 复用渲染器实例）

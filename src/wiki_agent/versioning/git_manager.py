@@ -141,7 +141,7 @@ class WikiGitManager:
             if configured.returncode:
                 raise GitManagerError((configured.stderr or configured.stdout).strip())
 
-    # ── Git 基础操作 ─────────────────────────────────────
+    # Git 基础操作
 
     def _git_path(self, *args: str) -> str:
         result = subprocess.run(
@@ -379,7 +379,7 @@ class WikiGitManager:
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-    # ── 生命周期 ─────────────────────────────────────────
+    # 生命周期
 
     def begin(self, run_id: str, *, mode: str, scope: str | Path | None = None) -> GitRun:
         """创建运行检查点；默认要求 Wiki scope 干净。"""

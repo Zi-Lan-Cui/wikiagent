@@ -100,9 +100,7 @@ class Integrator:
         return await self._executor.execute(plan, extract)
 
 
-# ════════════════════════════════════════════════════════════
-#  组装工厂——唯一知道"模式 = 哪套组合"的地方
-# ════════════════════════════════════════════════════════════
+# 组装工厂——唯一知道"模式 = 哪套组合"的地方
 
 
 def compile_integrator(llm: LLMClient, *, wiki_dir: str | Path) -> Integrator:

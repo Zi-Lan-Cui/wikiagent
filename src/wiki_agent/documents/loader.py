@@ -75,7 +75,7 @@ class DataLoader:
 
     # 扩展名 → 模态
     ext_to_modality: dict[str, FileModality] = {
-        # ── 纯文本 ──
+        # 纯文本
         ".txt": FileModality.TEXT,
         ".py": FileModality.TEXT,
         ".js": FileModality.TEXT,
@@ -93,7 +93,7 @@ class DataLoader:
         ".ini": FileModality.TEXT,
         ".env": FileModality.TEXT,
         ".rst": FileModality.TEXT,
-        # ── 图片 ──
+        # 图片
         ".jpg": FileModality.IMAGE,
         ".jpeg": FileModality.IMAGE,
         ".png": FileModality.IMAGE,
@@ -101,7 +101,7 @@ class DataLoader:
         ".webp": FileModality.IMAGE,
         ".svg": FileModality.IMAGE,
         ".bmp": FileModality.IMAGE,
-        # ── 多模态/富文档 ──
+        # 多模态/富文档
         ".md": FileModality.RICH,
         ".markdown": FileModality.RICH,
         ".pdf": FileModality.RICH,
@@ -113,7 +113,7 @@ class DataLoader:
 
     _TEXT_ENCODINGS: tuple[str, ...] = ("utf-8", "gbk", "gb2312", "latin-1")
 
-    # ── 公开 API ──────────────────────────────────────────
+    # 公开 API
 
     def load(
         self,
@@ -181,7 +181,7 @@ class DataLoader:
         logger.info(f"在 {dir_path} 中发现 {len(paths)} 个文件")
         return self._load_from_paths(paths)
 
-    # ── 内部 ──────────────────────────────────────────────
+    # 内部
 
     def _load_from_paths(self, paths: list[Path]) -> LoadSummary:
         summary = LoadSummary(
@@ -321,10 +321,6 @@ class DataLoader:
         except OSError:
             return None
 
-
-# ────────────────────────────────────────────────────────────────
-#  main — 调试
-# ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import sys

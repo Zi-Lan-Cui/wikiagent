@@ -4,9 +4,7 @@ from pathlib import Path
 
 from wiki_agent.utils.helpers import ensure_dir, truncate_text_by_tokens
 
-# ═══════════════════════════════════════════
-#  truncate_text_by_tokens
-# ═══════════════════════════════════════════
+# truncate_text_by_tokens
 
 
 class TestTruncateTextByTokens:
@@ -66,9 +64,7 @@ class TestTruncateTextByTokens:
         assert result.endswith("\n... (truncated)") or len(result) > 0
 
 
-# ═══════════════════════════════════════════
-#  ensure_dir
-# ═══════════════════════════════════════════
+# ensure_dir
 
 
 class TestEnsureDir:
@@ -94,11 +90,5 @@ class TestEnsureDir:
         assert result == d
 
 
-# ═══════════════════════════════════════════
-#  运行方式:
-#    cd LearnRag
-#    pytest test/test_helpers/test.py -v
-#
-#  或只跑某个类:
-#    pytest test/test_helpers/test.py::TestTruncateTextByTokens -v
-# ═══════════════════════════════════════════
+# 运行方式: pytest test/test_helpers.py -v
+# 只跑某个类: pytest test/test_helpers.py::TestTruncateTextByTokens -v

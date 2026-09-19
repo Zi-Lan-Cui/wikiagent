@@ -24,9 +24,7 @@ class Disposition(StrEnum):
 _NO_THINKING = {"thinking": {"type": "disabled"}}
 
 
-# ════════════════════════════════════════════════════════════════
-#  Phase 1 输入 —— 来自 Chunker 的结构化 chunk
-# ════════════════════════════════════════════════════════════════
+# Phase 1 输入 —— 来自 Chunker 的结构化 chunk
 
 
 @dataclass
@@ -55,7 +53,7 @@ class SourceChunk:
     source_ext: str = ""
     """源文件扩展名，如 ``md``、``pdf``（经过 MinerU 转换后变为文本）。"""
 
-    # ── 未实现字段（预留——需要时再加，理由见下） ──
+    # 未实现字段（预留——需要时再加，理由见下）
     # heading_path 已由 chunker metadata 产出（2026-08-14），见 text_chunker。
     # chunk_overlap：检索场景（RAG 按相似度选 chunk）才需要——防切分点切断
     #   语义导致漏命中。编译是全量消费（每 chunk 都喂 LLM），边界语义由
@@ -93,9 +91,7 @@ class SourceDocument:
         return len(self.chunks)
 
 
-# ════════════════════════════════════════════════════════════════
-#  Phase 1 输出 —— ExtractResult
-# ════════════════════════════════════════════════════════════════
+# Phase 1 输出 —— ExtractResult
 
 
 @dataclass
@@ -113,9 +109,7 @@ class ExtractResult:
     document_summary: str = ""
 
 
-# ════════════════════════════════════════════════════════════════
-#  Phase 2 输出
-# ════════════════════════════════════════════════════════════════
+# Phase 2 输出
 
 
 @dataclass

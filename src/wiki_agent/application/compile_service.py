@@ -51,9 +51,7 @@ def log(msg: str, level: str = "INFO") -> None:
     _boundary_logger.log(_LEVEL_MAP.get(level, logging.INFO), msg)
 
 
-# ════════════════════════════════════════════════════════════
-#  主流程
-# ════════════════════════════════════════════════════════════
+# 主流程
 
 
 async def compile_sources(
@@ -108,7 +106,7 @@ async def compile_sources(
                 data=data or {},
             )
 
-    # ── 运行目录（真正运行时才确定时间戳——不是 import 时）──
+    # 运行目录（真正运行时才确定时间戳——不是 import 时）
     _run_ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     RUN_DIR = runs_dir / f"compile_{_run_ts}"
     ARTIFACTS_DIR = RUN_DIR / "artifacts"
@@ -142,7 +140,7 @@ async def compile_sources(
     started = time.monotonic()
     await report("init", message="正在初始化编译器")
 
-    # ── 统计 ──────────────────────────────────────────────
+    # 统计
     files_loaded = 0
     files_converted = 0
     files_chunked = 0
@@ -151,7 +149,7 @@ async def compile_sources(
     skip_errors: list[IngestError] = []
     skipped_files: list[dict[str, str]] = []
 
-    # ── 0. 初始化 ─────────────────────────────────────────
+    # 0. 初始化
     log("0. 初始化 LLM + VLM")
     try:
         llm = create_llm(cfg.llm, cfg.retry)
@@ -166,7 +164,7 @@ async def compile_sources(
     issue_service = IssueService(IssueStore(workspace_dir))
     failure_handler = SourceFailureHandler(issue_service, mode="compile")
 
-    # ── 1. DataLoader ─────────────────────────────────────
+    # 1. DataLoader
     log("1. DataLoader: 扫描文件")
     loader = DataLoader()
     summary = loader.load_dir(source_path)
@@ -192,7 +190,7 @@ async def compile_sources(
         log("无文件可处理", "ERROR")
         raise ValueError(f"source 目录中没有可处理的文件: {source_dir}")
 
-    # ── 2-5. 逐文件: 单文件流水线（compile/watch 共用入口）──
+    # 2-5. 逐文件: 单文件流水线（compile/watch 共用入口）
     pipeline = CompilePipeline(
         llm=llm,
         vlm=vlm,
@@ -434,7 +432,7 @@ async def compile_sources(
             if asyncio.iscoroutine(result):
                 await result
 
-    # ── 6. 汇总 ──────────────────────────────────────────
+    # 6. 汇总
     elapsed = time.monotonic() - started
     log(f"\n=== 编译完成: {elapsed:.1f}s ===")
     log(f"   文件加载: {files_loaded}")
@@ -462,7 +460,7 @@ async def compile_sources(
         retry_count = sum(1 for s in skip_errors if s.cause is not None and "未分类" not in str(s))
         log(f"  建议: 其中 {retry_count} 个失败可检查日志后重试该文件，未分类失败请排查代码")
 
-    # ── 7. Wiki 质量扫描（后处理兜底）──────────────────
+    # 7. Wiki 质量扫描（后处理兜底）
     log("\n=== Wiki 质量扫描 ===")
     await report("scan", current=0, total=1, message="正在扫描 Wiki 质量")
     issues = scan_wiki(wiki_dir)

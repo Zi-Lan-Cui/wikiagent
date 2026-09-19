@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from wiki_agent.compiler.models import ExtractResult, PageTarget, SourceChunk
 
-# ── prompt 内各内容段落的字符预算 ───────────────────────────
+# prompt 内各内容段落的字符预算
 _SEARCH_SUMMARY_CHARS = 8_000  # search: 文档摘要截断长度
 _SEARCH_INDEX_CHARS = 15_000  # search: index 截断长度（按条目）
 _ANALYZE_SUMMARY_CHARS = 8_000  # analyze: 文档摘要截断长度
@@ -22,9 +22,7 @@ _UPDATE_SUMMARY_CHARS = 10_000  # update: 新信息截断长度
 DIGEST_TARGET_TOKENS = 1_500
 
 
-# ════════════════════════════════════════════════════════════
-#  extract 阶段
-# ════════════════════════════════════════════════════════════
+# extract 阶段
 
 
 def chunk_system() -> str:
@@ -170,9 +168,7 @@ def rolling_user(
     )
 
 
-# ════════════════════════════════════════════════════════════
-#  integrate 阶段
-# ════════════════════════════════════════════════════════════
+# integrate 阶段
 
 
 def search_system() -> str:
@@ -324,7 +320,7 @@ def analyze_user(extract: ExtractResult, candidates: str) -> str:
 
 
 # 模式契约——compile 允许 new + update。
-# plan() 用它约束 _check_plan_json（refine 模块声明自己的 {"update"}）。
+# plan() 用它约束 check_plan_json（refine 模块声明自己的 {"update"}）。
 ALLOWED_DISPOSITIONS = {"new", "update"}
 
 
@@ -588,9 +584,7 @@ def update_user(target: PageTarget, existing: str, extract: ExtractResult) -> st
     )
 
 
-# ════════════════════════════════════════════════════════════
-#  prompt 格式化辅助
-# ════════════════════════════════════════════════════════════
+# prompt 格式化辅助
 
 
 def _truncate_index_by_entries(index: str, max_chars: int) -> str:

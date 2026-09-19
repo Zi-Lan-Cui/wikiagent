@@ -12,9 +12,7 @@ from wiki_agent.documents.chunkers import (
 )
 from wiki_agent.documents.converters.base import ConvertedFile
 
-# ════════════════════════════════════════════════════════════════
-#  工厂
-# ════════════════════════════════════════════════════════════════
+# 工厂
 
 
 def _make_file(ext: str, content: str, **kwargs) -> ConvertedFile:
@@ -27,9 +25,7 @@ def _make_file(ext: str, content: str, **kwargs) -> ConvertedFile:
     )
 
 
-# ════════════════════════════════════════════════════════════════
-#  Dispatcher
-# ════════════════════════════════════════════════════════════════
+# Dispatcher
 
 
 class TestDispatcher:
@@ -63,9 +59,7 @@ class TestDispatcher:
         assert len(chunks) == 1
 
 
-# ════════════════════════════════════════════════════════════════
-#  TextChunker — 语义切分
-# ════════════════════════════════════════════════════════════════
+# TextChunker — 语义切分
 
 
 class TestTextChunker:
@@ -138,9 +132,7 @@ class TestTextChunker:
         assert chunks == []
 
 
-# ════════════════════════════════════════════════════════════════
-#  StructuredChunker
-# ════════════════════════════════════════════════════════════════
+# StructuredChunker
 
 
 class TestStructuredChunker:
@@ -196,9 +188,7 @@ class TestStructuredChunker:
         assert not ck.can_process(file)
 
 
-# ════════════════════════════════════════════════════════════════
-#  can_process 边界
-# ════════════════════════════════════════════════════════════════
+# can_process 边界
 
 
 class TestCanProcess:

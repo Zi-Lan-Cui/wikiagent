@@ -182,7 +182,7 @@ def _parse_plan(raw: str) -> IntegrationPlan:
         try:
             disposition = Disposition(t.get("disposition", "new"))
         except ValueError:
-            # _check_plan_json 已拦住非法 disposition（retry 后仍非法才到这）
+            # check_plan_json 已拦住非法 disposition（retry 后仍非法才到这）
             logger.warning("非法 disposition %r，跳过该 target", t.get("disposition"))
             continue
         targets.append(

@@ -9,10 +9,6 @@ from pydantic import BaseModel, Field
 
 from wiki_agent.documents.converters.base import ConvertedFile
 
-# ════════════════════════════════════════════════════════════════
-#  ChunkedFileProperties — 统一输出
-# ════════════════════════════════════════════════════════════════
-
 
 class ChunkedFileProperties(BaseModel):
     """单个 chunk——一段完整语义单元。"""
@@ -21,11 +17,6 @@ class ChunkedFileProperties(BaseModel):
     content: str
     chunk_index: int
     metadata: dict = Field(default_factory=dict)
-
-
-# ════════════════════════════════════════════════════════════════
-#  BaseChunker — 抽象接口
-# ════════════════════════════════════════════════════════════════
 
 
 class BaseChunker(ABC):

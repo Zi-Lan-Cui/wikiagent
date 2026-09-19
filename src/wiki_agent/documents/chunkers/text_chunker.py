@@ -51,7 +51,7 @@ class TextChunker(BaseChunker):
     不接受结构化格式（.csv, .xlsx），由 StructuredChunker 处理。
     """
 
-    # ── 未处理项（已在 docstring 中说明，这里列出当前不覆盖的范围） ──
+    # 未处理项（已在 docstring 中说明，这里列出当前不覆盖的范围）
     # NOTE: 未来可加 _TABLE_PATTERN / _CODE_BLOCK_PATTERN 等局部优化
 
     def __init__(
@@ -63,7 +63,7 @@ class TextChunker(BaseChunker):
         self._max_chunk_size = max_chunk_size
         self._min_chunk_size = min_chunk_size
 
-    # ── BaseChunker 接口 ──────────────────────────────────
+    # BaseChunker 接口
 
     def can_process(self, file: ConvertedFile) -> bool:
         """只要模态是 text 且内容非空就接受——兜底 chunker。
@@ -117,7 +117,7 @@ class TextChunker(BaseChunker):
             for i, (chunk_text, heading) in enumerate(merged)
         ]
 
-    # ── Section 构建 ──────────────────────────────────────
+    # Section 构建
 
     def _build_sections(self, content: str) -> list[tuple[str, str]]:
         """将文本按 ``#`` / ``##`` 标题拆分为 (section, heading_path) 列表。
@@ -155,7 +155,7 @@ class TextChunker(BaseChunker):
 
         return sections
 
-    # ── Section → Chunk ───────────────────────────────────
+    # Section → Chunk
 
     def _sections_to_chunks(
         self,
@@ -192,7 +192,7 @@ class TextChunker(BaseChunker):
 
         return chunks
 
-    # ── 段落边界 ──────────────────────────────────────────
+    # 段落边界
 
     @staticmethod
     def _split_paragraphs(text: str) -> list[str]:
@@ -207,7 +207,7 @@ class TextChunker(BaseChunker):
         parts = re.split(r"\n\s*\n", text)
         return [p.strip() for p in parts if p.strip()]
 
-    # ── 超长降级 ──────────────────────────────────────────
+    # 超长降级
 
     def _split_oversized(self, text: str) -> list[str]:
         """单个内容过长时，先在句子边界切分；没有句子则折半。
@@ -249,7 +249,7 @@ class TextChunker(BaseChunker):
 
         return chunks
 
-    # ── 尾部合并 ──────────────────────────────────────────
+    # 尾部合并
 
     def _merge_tail(
         self,

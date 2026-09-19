@@ -47,7 +47,7 @@ class StructuredChunker(BaseChunker):
     def __init__(self, *, batch_size: int = 20):
         self._batch_size = batch_size
 
-    # ── BaseChunker 接口 ──────────────────────────────────
+    # BaseChunker 接口
 
     def can_process(self, file: ConvertedFile) -> bool:
         # 模态为 text 且扩展名匹配——文件可能已被 Converter 转义
@@ -68,7 +68,7 @@ class StructuredChunker(BaseChunker):
             return self._chunk_json(file)
         return []
 
-    # ── CSV ───────────────────────────────────────────────
+    # CSV
 
     def _chunk_csv(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
         """CSV → 按 batch_size 行分组的 chunk（保留表头）。
@@ -118,7 +118,7 @@ class StructuredChunker(BaseChunker):
         logger.info(f"CSV {file.name}: {chunk_index + 1} chunks")
         return chunks
 
-    # ── JSON ──────────────────────────────────────────────
+    # JSON
 
     def _chunk_json(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
         """JSON/JSONL → 结构化 chunk。
@@ -193,7 +193,7 @@ class StructuredChunker(BaseChunker):
         logger.info(f"JSON {file.name}: {len(chunks)} chunks")
         return chunks
 
-    # ── 辅助 ──────────────────────────────────────────────
+    # 辅助
 
     def _make_chunk(
         self,

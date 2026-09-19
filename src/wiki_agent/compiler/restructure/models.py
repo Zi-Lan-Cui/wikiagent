@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 _CONTENT_DIRS = ("concepts", "entities", "topics")
 
-# ── 重组超参数（暂定值——精细调参时统一校准，勿散落魔法数字）──────
+# 重组超参数（暂定值——精细调参时统一校准，勿散落魔法数字）
 _PROPOSE_MAX_TOKENS = 8_000  # 粗提输出预算（130 页 index 实测 2000 截断）
 _PROPOSE_MAX_COUNT = 12  # 粗提单次输出上限——召回不是枚举，只提最可疑的
 _RECHECK_MAX_TOKENS = 800  # 复判输出预算（确认/否决 + 方向 + 理由）

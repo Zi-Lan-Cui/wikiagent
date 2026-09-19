@@ -38,7 +38,7 @@ from wiki_agent.log import get_logger
 
 logger = get_logger("MINERU_CONVERTER")
 
-# ── 常量 ──────────────────────────────────────────────────
+# 常量
 
 # 需要 MinerU 解析的格式（非 Markdown、非纯文本）
 _NEEDS_PARSING = {
@@ -62,11 +62,6 @@ _IS_ALREADY_MARKDOWN = {"md", "markdown"}
 
 # 所有图片引用: ![任意alt](path)
 _RE_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
-
-
-# ════════════════════════════════════════════════════════════
-#  MinerUConverter
-# ════════════════════════════════════════════════════════════
 
 
 class MinerUConverter(BaseConverter):
@@ -94,7 +89,7 @@ class MinerUConverter(BaseConverter):
         # None = 不回填（只 caption 不改路径）。
         self._assets_dir = Path(assets_dir) if assets_dir else None
 
-    # ── BaseConverter ─────────────────────────────────────
+    # BaseConverter 接口实现
 
     def accepts(self, raw_file: RawFileProperties) -> bool:
         """是否支持该文件（MinerU 可用且扩展名在支持表内）。
@@ -143,11 +138,9 @@ class MinerUConverter(BaseConverter):
         logger.info("  MinerU 完成: %s → %d chars", raw_file.name, len(markdown))
         return ConvertedFile.from_raw(raw_file, markdown)
 
-    # ════════════════════════════════════════════════════════
-    #  步骤 1: 生成 Markdown
-    # ════════════════════════════════════════════════════════
+    # 步骤 1: 生成 Markdown
 
-    # ── 直接读取 .md ──────────────────────────────────────
+    # 直接读取 .md
 
     @staticmethod
     def _read_markdown_file(file_path: str) -> str:
@@ -162,7 +155,7 @@ class MinerUConverter(BaseConverter):
         with open(file_path, encoding="utf-8") as fh:
             return fh.read()
 
-    # ── MinerU 解析 ───────────────────────────────────────
+    # MinerU 解析
 
     async def _mineru_parse(self, file_path: str) -> str:
         """MinerU 解析 → 同步 caption → 返回 Markdown。
@@ -234,11 +227,9 @@ class MinerUConverter(BaseConverter):
                 images_dir = root
         return markdown, images_dir
 
-    # ════════════════════════════════════════════════════════
-    #  步骤 2: Caption（给 ![]() 填 alt text）
-    # ════════════════════════════════════════════════════════
+    # 步骤 2: Caption（给 ![]() 填 alt text）
 
-    # ── 异步入口（主 event loop） ─────────────────────────
+    # 异步入口（主 event loop）
 
     async def _caption_async(self, markdown: str, images_base_dir: str) -> str:
         """从 ``images_base_dir`` 解析 ``![]()`` 中的路径，并发 caption。
@@ -252,7 +243,7 @@ class MinerUConverter(BaseConverter):
         """
         return await self._apply_captions(markdown, images_base_dir)
 
-    # ── 同步入口（子线程） ────────────────────────────────
+    # 同步入口（子线程）
 
     def _caption_sync(self, markdown: str, images_base_dir: str) -> str:
         """在子线程中运行异步 caption（new_event_loop）。
@@ -270,7 +261,7 @@ class MinerUConverter(BaseConverter):
         finally:
             loop.close()
 
-    # ── 核心: 并发 caption + 回填 ─────────────────────────
+    # 核心: 并发 caption + 回填
 
     async def _apply_captions(self, markdown: str, images_base_dir: str) -> str:
         """找出所有 ``![]()``，并发 VLM caption，回填到 Markdown。
@@ -394,7 +385,7 @@ class MinerUConverter(BaseConverter):
             return candidate
         return None
 
-    # ── VLM 调用 ──────────────────────────────────────────
+    # VLM 调用
 
     async def _vlm_describe_image(self, image_path: str) -> str:
         """加载图片 → base64 → VLM → 返回描述文本。

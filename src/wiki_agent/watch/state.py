@@ -67,7 +67,7 @@ class WatchState:
         self._entries: dict[str, FileState] = {}
         self._load()
 
-    # ── 访问 ──────────────────────────────────────────────
+    # 访问
 
     def get(self, abs_path: str) -> FileState:
         """获取文件状态——不存在返回空 FileState（视为新文件）。
@@ -106,7 +106,7 @@ class WatchState:
         self._entries.pop(abs_path, None)
         self._entries.pop(abs_path, None)
 
-    # ── 持久化 ────────────────────────────────────────────
+    # 持久化
 
     def save(self) -> None:
         """原子写: 先写临时文件再 rename——避免中途崩溃留半个 JSON。"""
