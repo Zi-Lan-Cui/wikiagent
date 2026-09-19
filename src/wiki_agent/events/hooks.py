@@ -15,10 +15,6 @@ from wiki_agent.log import get_logger
 
 logger = get_logger("HOOK")
 
-# ────────────────────────────────────────────────────────────────
-#  Context — unified turn-level context for all hooks
-# ────────────────────────────────────────────────────────────────
-
 
 @dataclass(slots=True)
 class RunContext:
@@ -76,11 +72,6 @@ class CommandProgress:
     data: dict[str, Any] = field(default_factory=dict)
 
 
-# ────────────────────────────────────────────────────────────────
-#  AgentHook
-# ────────────────────────────────────────────────────────────────
-
-
 class AgentHook:
     """Lifecycle surface for agent‑run customisation.
 
@@ -119,7 +110,7 @@ class AgentHook:
         """
         self._reraise = reraise
 
-    # ── Run scope ──────────────────────────────────────────
+    # Run scope
 
     async def on_status(self, context: RunContext, status: str) -> None:
         """Agent 状态变更通知。
@@ -193,7 +184,7 @@ class AgentHook:
     ) -> None:
         """命令被取消。"""
 
-    # ── Iteration scope ────────────────────────────────────
+    # Iteration scope
 
     async def on_iteration_start(self, context: RunContext) -> None:
         """Called at the top of each agent loop iteration.
@@ -209,7 +200,7 @@ class AgentHook:
             context: 回合级上下文。
         """
 
-    # ── Stream scope ───────────────────────────────────────
+    # Stream scope
 
     async def on_stream_delta(self, context: RunContext, delta: str) -> None:
         """Called for each chunk of streamed LLM text output.
@@ -226,7 +217,7 @@ class AgentHook:
             context: 回合级上下文。
         """
 
-    # ── Tool scope ─────────────────────────────────────────
+    # Tool scope
 
     async def on_tool_call_start(
         self,
@@ -276,7 +267,7 @@ class AgentHook:
             error: 捕获到的异常对象。
         """
 
-    # ── Reasoning scope ────────────────────────────────────
+    # Reasoning scope
 
     async def on_reasoning_start(self, context: RunContext) -> None:
         """Called when the LLM begins emitting reasoning / thinking content.
@@ -300,7 +291,7 @@ class AgentHook:
             context: 回合级上下文。
         """
 
-    # ── Post‑processing ────────────────────────────────────
+    # Post‑processing
 
     def finalize_content(self, content: str | None) -> str | None:
         """Transform the final response text before it is returned.
@@ -315,11 +306,6 @@ class AgentHook:
             转换后的文本（可原样返回）。
         """
         return content
-
-
-# ────────────────────────────────────────────────────────────────
-#  CompositeHook
-# ────────────────────────────────────────────────────────────────
 
 
 class CompositeHook(AgentHook):
@@ -337,7 +323,7 @@ class CompositeHook(AgentHook):
         super().__init__()
         self._hooks = list(hooks)
 
-    # ── helpers ──
+    # helpers
 
     async def _fanout(self, method: Any, *args: Any, **kwargs: Any) -> None:
         """逐 hook 扇出调用。
@@ -363,7 +349,7 @@ class CompositeHook(AgentHook):
                     type(h).__name__,
                 )
 
-    # ── run ──
+    # run
 
     async def on_status(self, c: RunContext, status: str) -> None:
         await self._fanout(AgentHook.on_status, c, status)
@@ -392,7 +378,7 @@ class CompositeHook(AgentHook):
     async def on_command_cancelled(self, c: RunContext, command: str, task_id: str) -> None:
         await self._fanout(AgentHook.on_command_cancelled, c, command, task_id)
 
-    # ── iteration ──
+    # iteration
 
     async def on_iteration_start(self, c: RunContext) -> None:
         await self._fanout(AgentHook.on_iteration_start, c)
@@ -400,7 +386,7 @@ class CompositeHook(AgentHook):
     async def on_iteration_end(self, c: RunContext) -> None:
         await self._fanout(AgentHook.on_iteration_end, c)
 
-    # ── stream ──
+    # stream
 
     async def on_stream_delta(self, c: RunContext, delta: str) -> None:
         await self._fanout(AgentHook.on_stream_delta, c, delta)
@@ -408,7 +394,7 @@ class CompositeHook(AgentHook):
     async def on_stream_end(self, c: RunContext) -> None:
         await self._fanout(AgentHook.on_stream_end, c)
 
-    # ── tools ──
+    # tools
 
     async def on_tool_call_start(
         self, c: RunContext, name: str, tid: str, args: dict[str, Any]
@@ -421,7 +407,7 @@ class CompositeHook(AgentHook):
     async def on_tool_error(self, c: RunContext, name: str, tid: str, error: Any) -> None:
         await self._fanout(AgentHook.on_tool_error, c, name, tid, error)
 
-    # ── reasoning ──
+    # reasoning
 
     async def on_reasoning_start(self, c: RunContext) -> None:
         await self._fanout(AgentHook.on_reasoning_start, c)
@@ -432,7 +418,7 @@ class CompositeHook(AgentHook):
     async def on_reasoning_end(self, c: RunContext) -> None:
         await self._fanout(AgentHook.on_reasoning_end, c)
 
-    # ── pipeline (no isolation) ──
+    # pipeline (no isolation)
 
     def finalize_content(self, content: str | None) -> str | None:
         for h in self._hooks:

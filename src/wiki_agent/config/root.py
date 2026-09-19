@@ -90,7 +90,7 @@ class AgentConfig(BaseSettings):
     session_idle_minutes: int = 15
     session_tail_messages: int = 6
     dream_poll_interval: int = 60
-    # ── 治理参数（E3 收编——原散在 governor/builder 模块顶部）──
+    # 治理参数（E3 收编——原散在 governor/builder 模块顶部）
     tool_result_ttl_minutes: int = 30  # 可重复获得工具（导航三件套）驱逐时限
     tool_persist_length: int = 8_000  # 工具结果转存阈值（超限写文件）
     snip_safe_buffer: int = 1024  # token 估计安全余量
@@ -298,9 +298,7 @@ class PathsConfig(BaseSettings):
         return path if path.is_absolute() else self.project_root / path
 
 
-# ════════════════════════════════════════════════════════════
-#  MCP 配置——独立 mcp.json，判别联合按 type 校验
-# ════════════════════════════════════════════════════════════
+# MCP 配置——独立 mcp.json，判别联合按 type 校验
 
 
 class StdioMcpTransport(BaseModel):

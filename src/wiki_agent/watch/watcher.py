@@ -109,7 +109,7 @@ class FileWatcher:
         # 是运行时变量赋值（平台分发），Pylance 禁止变量进类型表达式
         self._observer: BaseObserver | None = None
 
-    # ── 事件桥（观察者线程侧）──────────────────────────────
+    # 事件桥（观察者线程侧）
 
     def _bridge_event(self, path: str) -> None:
         """线程安全转发到 loop——不阻塞观察者线程。
@@ -137,7 +137,7 @@ class FileWatcher:
 
         return Path(path).suffix.lower() in DataLoader.ext_to_modality
 
-    # ── 主循环 ─────────────────────────────────────────────
+    # 主循环
 
     async def run(self) -> None:
         """主循环——事件由 call_later 定时器自行驱动，这里只跑回退扫描。"""
@@ -174,7 +174,7 @@ class FileWatcher:
             self._observer.join(timeout=2)
             self._observer = None
 
-    # ── 去抖与单路径检查（loop 侧）────────────────────────
+    # 去抖与单路径检查（loop 侧）
 
     def _notify(self, path: str) -> None:
         """重置该路径的 settle 定时器——新事件重新计时（去抖核心）。
@@ -211,7 +211,7 @@ class FileWatcher:
         """
         p = Path(path)
 
-        # ── 删除: 路径在 state 但磁盘上没了 ──
+        # 删除: 路径在 state 但磁盘上没了
         if not p.exists():
             if path in self._state.all_paths():
                 return await self._emit_delete(path)
@@ -255,7 +255,7 @@ class FileWatcher:
         logger.info("  变更入队: %s", p.name)
         return [str(p)]
 
-    # ── 回退路径：全量扫描（轮询语义保留）──────────────────
+    # 回退路径：全量扫描（轮询语义保留）
 
     async def _poll_once(self) -> list[str]:
         """单轮全量扫描——inotify 溢出/丢事件的安全网 + 启动 reconcile。
@@ -295,7 +295,7 @@ class FileWatcher:
         self._state.save()
         return queued
 
-    # ── 扫描 ──────────────────────────────────────────────
+    # 扫描
 
     def _scan_files(self) -> list[Path]:
         """扫描源目录下所有受支持扩展名的文件（递归）。
@@ -312,7 +312,7 @@ class FileWatcher:
                 files.append(p)
         return files
 
-    # ── 判定 ──────────────────────────────────────────────
+    # 判定
 
     def _pass_change_gate(self, st: FileState, content: str, digest: str) -> bool:
         """两段确认 + 变更门（回退路径用）。

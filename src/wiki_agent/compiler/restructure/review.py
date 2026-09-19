@@ -209,9 +209,7 @@ async def recheck(
     return confirmed, rejected
 
 
-# ════════════════════════════════════════════════════════════
-#  LLM 复裁（callback retry）——冲突反馈回 LLM 重裁决
-# ════════════════════════════════════════════════════════════
+# LLM 复裁（callback retry）——冲突反馈回 LLM 重裁决
 
 
 def _check_re_arbitrate(content: str) -> tuple[bool, str]:

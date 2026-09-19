@@ -16,9 +16,7 @@ import re
 
 from wiki_agent.wiki.frontmatter import split_frontmatter
 
-# ════════════════════════════════════════════════════════════
-#  共享检测原子——quality 的 scan 与 normalize 的修复都建在这些原子上
-# ════════════════════════════════════════════════════════════
+# 共享检测原子——quality 的 scan 与 normalize 的修复都建在这些原子上
 
 # fence 配对 = 括号匹配（带标记的 ```python 是左括号，裸 ``` 是右括号，
 # 且右括号只在块内才有效——块内的 ```python 是内容不翻转）。
@@ -146,9 +144,7 @@ def _body_without_title(content: str) -> str:
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]")
 
 
-# ════════════════════════════════════════════════════════════
-#  页面 check 回调——返回 (ok, reason)，错误消息可执行
-# ════════════════════════════════════════════════════════════
+# 页面 check 回调——返回 (ok, reason)，错误消息可执行
 
 
 def _check_page_body(content: str) -> tuple[bool, str]:

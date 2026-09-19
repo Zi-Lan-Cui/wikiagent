@@ -76,9 +76,7 @@ def test_history_respects_last_consolidated():
     assert [m.content for m in result] == ["q3", "a3"]
 
 
-# ════════════════════════════════════════════════════════════
-#  checkpoint 往返
-# ════════════════════════════════════════════════════════════
+# checkpoint 往返
 
 
 def _make_manager(tmp: Path) -> SessionManager:

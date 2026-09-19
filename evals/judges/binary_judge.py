@@ -96,7 +96,7 @@ async def judge_claims(
         check=lambda content: check_judge_json(content, claim_ids),
         max_tokens=4096,
         temperature=0.0,
-        max_retries=2,
+        max_attempts=2,
     )
     import json
 

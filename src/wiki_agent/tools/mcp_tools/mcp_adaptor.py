@@ -201,7 +201,7 @@ async def connect_mcp_servers(
                 if stack is None:
                     return
 
-                # ── 健康监督: 定期 ping，失败判定连接假死 ──
+                # 健康监督: 定期 ping，失败判定连接假死
                 # 断开的异常发生在 SDK 内部后台 reader task，
                 # 不会冒到本 task——只能靠主动探测发现。
                 async def health_watch():
