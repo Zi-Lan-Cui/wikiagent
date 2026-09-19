@@ -6,9 +6,25 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+
+
+def digest_file_text(path: str | Path) -> tuple[str, str] | None:
+    """内容指纹唯一配方——read_text(errors=replace) + sha256。
+
+    watcher 判变更、consumer/ack 核账必须调用同一函数：两侧各自手写
+    哈希配方迟早漂移（digest 对不上 = 永远无法确认完成）。
+    读失败（消失/权限）返回 None。
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest(), text
 
 
 @dataclass
@@ -99,7 +115,27 @@ class WatchState:
             abs_path: 文件绝对路径。
         """
         self._entries.pop(abs_path, None)
-        self._entries.pop(abs_path, None)
+
+    # 完成账本——hash/text 的唯一写入口是 record，且只允许 job 成功时调用
+
+    def matches(self, abs_path: str, digest: str) -> bool:
+        """该内容是否已确认完成（幂等短路 + 扫描去重共用）。"""
+        return (
+            bool(digest)
+            and self._entries.get(abs_path) is not None
+            and (self._entries[abs_path].hash == digest)
+        )
+
+    def record(self, abs_path: str, digest: str, text: str) -> None:
+        """成功核账：把"确实进入 Wiki 的内容"记为已处理并落盘。"""
+        st = self._entries.get(abs_path) or FileState()
+        st.hash = digest
+        st.text = text
+        st.pending_text = None
+        st.pending_seen = 0
+        st.last_ingested_at = datetime.now().isoformat()
+        self._entries[abs_path] = st
+        self.save()
 
     # 持久化
 

@@ -4,9 +4,9 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from wiki_agent.jobs import DuplicateActiveJob, JobStore
-from wiki_agent.issues.models import IssueDraft, IssueKind, IssueStatus
+from wiki_agent.issues.models import IssueDraft, IssueKind
 from wiki_agent.issues.store import IssueStore
+from wiki_agent.jobs import DuplicateActiveJob, JobStore
 
 _LEGACY_JOBS_DDL = """
 CREATE TABLE jobs (

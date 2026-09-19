@@ -68,9 +68,7 @@ class IssueStore:
         return self.database.transaction(immediate=immediate)
 
     @contextmanager
-    def _tx(
-        self, _conn: sqlite3.Connection | None = None
-    ) -> Generator[sqlite3.Connection, None, None]:
+    def _tx(self, _conn: sqlite3.Connection | None = None) -> Generator[sqlite3.Connection]:
         """持 _conn 时并入调用方事务（job/issue 单事务联动），否则自管。"""
         if _conn is not None:
             yield _conn
@@ -256,7 +254,10 @@ class IssueStore:
             self._append_event(connection, issue_id, "reported", {}, now)
             return self._get_with_connection(connection, issue_id)
 
-    def get(self, issue_id: str) -> IssueRecord | None:
+    def get(self, issue_id: str, *, _conn: sqlite3.Connection | None = None) -> IssueRecord | None:
+        if _conn is not None:
+            row = _conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+            return self._row_to_record(row) if row is not None else None
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
         return self._row_to_record(row) if row is not None else None
