@@ -55,14 +55,32 @@ def test_interrupt_then_resume() -> None:
             json.dumps({"sources": _sources(root_path, sample_size, 20260831)}), encoding="utf-8"
         )
         base = [
-            sys.executable, "-m", "wiki_agent.application.compile_batches",
-            "--root", str(root_path), "--manifest", str(manifest), "--wiki-dir", str(wiki),
-            "--batch-size", "1", "--commit-scope", "source", "--state", str(state),
-            "--work-dir", str(work), "--init-git",
+            sys.executable,
+            "-m",
+            "wiki_agent.application.compile_batches",
+            "--root",
+            str(root_path),
+            "--manifest",
+            str(manifest),
+            "--wiki-dir",
+            str(wiki),
+            "--batch-size",
+            "1",
+            "--commit-scope",
+            "source",
+            "--state",
+            str(state),
+            "--work-dir",
+            str(work),
+            "--init-git",
         ]
         proc = subprocess.Popen(
-            base, cwd=ROOT, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, env=os.environ.copy(),
+            base,
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=os.environ.copy(),
         )
         time.sleep(interrupt_after)
         if proc.poll() is None:
@@ -79,7 +97,9 @@ def test_interrupt_then_resume() -> None:
         resumed = subprocess.run(
             base + ["--resume"], cwd=ROOT, text=True, capture_output=True, timeout=resume_timeout
         )
-        assert resumed.returncode == 0, f"resume 返回码 {resumed.returncode}: {resumed.stdout[-500:]}"
+        assert resumed.returncode == 0, (
+            f"resume 返回码 {resumed.returncode}: {resumed.stdout[-500:]}"
+        )
         final = json.loads(state.read_text(encoding="utf-8"))
         final_statuses = [i.get("status") for i in final.get("source_state", {}).values()]
         assert final_statuses and all(s == "committed" for s in final_statuses), (

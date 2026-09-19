@@ -329,59 +329,45 @@ class QueueCommand(Command):
             return CommandResult(text=f"# 问题中心\n\n✅ 已忽略: {item_id}")
 
         if args == "retry-all" or args.startswith("retry "):
-            from wiki_agent.compiler.workflows.retry import retry_source_failures
+            from wiki_agent.application.job_service import JobService
+            from wiki_agent.compiler.workflows.retry import SourceUnavailableError
+            from wiki_agent.issues import IssueAlreadyClaimedError, IssueKind
+            from wiki_agent.jobs import DuplicateActiveJob
 
+            job_service: JobService | None = getattr(ctx.agent, "job_service", None)
+            if job_service is None:
+                return CommandResult(
+                    text="# source 失败重试\n\n当前进程未接入 Job 队列（仅组装了 job_service 的入口可用）。"
+                )
             if args == "retry-all":
-                issue_id = None
+                ids = [
+                    card.id
+                    for card in issue_service.list(
+                        statuses={IssueStatus.OPEN}, kinds={IssueKind.INGESTION_FAILURE}
+                    )
+                ]
+                if not ids:
+                    return CommandResult(text="# source 失败重试\n\n没有待重试的资料失败项。")
             else:
-                issue_id = args[6:].strip()
-                if not issue_id:
+                one = args[6:].strip()
+                if not one:
                     return CommandResult(text="# /queue retry\n\n用法: `/queue retry <issue_id>`")
-                try:
-                    issue_service.store.require(issue_id)
-                except LookupError:
-                    return CommandResult(text=f"# source 失败重试\n\n未找到: {issue_id}")
-            wiki_dir = RefineCommand._wiki_dir(ctx)
-            if wiki_dir is None:
-                return CommandResult(
-                    text="# source 失败重试\n\n无法确定 wiki 目录（ReadFile 未注册）。"
-                )
-            try:
-                result = await retry_source_failures(
-                    issue_service.store,
-                    llm=ctx.agent.llm,
-                    vlm=ctx.agent.vlm,
-                    wiki_dir=wiki_dir,
-                    source_records_dir=ctx.agent.workspace / "provenance" / "sources",
-                    run_root=ctx.agent.workspace / "runs",
-                    compile_config=ctx.agent.compile_config,
-                    retry_config=ctx.agent.retry_config,
-                    issue_id=issue_id,
-                )
-            except Exception as exc:
-                return CommandResult(
-                    text=f"# source 失败重试\n\n执行失败：{type(exc).__name__}: {exc}"
-                )
+                ids = [one]
 
-            lines = ["# source 失败重试", ""]
-            for item in result["results"]:
-                lines.append(f"- `{item['id']}`: {item['status']}")
-            if result.get("committed"):
-                for outcome in result["results"]:
-                    if outcome["status"] == "succeeded":
-                        current = issue_service.store.require(outcome["id"])
-                        if current.status in {IssueStatus.OPEN, IssueStatus.BLOCKED}:
-                            issue_service.store.transition(
-                                current.id,
-                                IssueStatus.RESOLVED,
-                                resolution={"action": "source_retry"},
-                                event="source_retry_committed",
-                            )
-                lines.append("\n✅ 重试成功，Git 已提交。")
-            elif result.get("rolled_back"):
-                lines.append("\n⚠️ 本次未提交，Wiki 已回撤，问题仍保留。")
-            elif result.get("message"):
-                lines.append(f"\n{result['message']}")
+            lines = ["# source 失败重试（移交 Job 队列）", ""]
+            for issue_id in ids:
+                try:
+                    job = job_service.submit_issue_retry(issue_id)
+                except LookupError:
+                    lines.append(f"- `{issue_id}`: 未找到")
+                except SourceUnavailableError as exc:
+                    lines.append(f"- `{issue_id}`: 输入不可用 — {exc}")
+                except (DuplicateActiveJob, IssueAlreadyClaimedError, ValueError) as exc:
+                    lines.append(f"- `{issue_id}`: 已有在途任务 — {exc}")
+                else:
+                    lines.append(f"- `{issue_id}`: 已排队 `{job.id}`，由 Worker 串行执行")
+            lines.append("")
+            lines.append("执行结果稍后用 `/queue` 查看（成功自动销账，失败继续退避）。")
             return CommandResult(text="\n".join(lines))
 
         cards = issue_service.list(

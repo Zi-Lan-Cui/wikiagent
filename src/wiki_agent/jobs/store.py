@@ -200,6 +200,19 @@ class JobStore:
             )
             return self.get(job_id, _conn=db)
 
+    def coalesce_payload(
+        self, job_id: str, payload: dict[str, object], *, _conn: sqlite3.Connection | None = None
+    ) -> Job | None:
+        """合并意图进尚未执行的排队行（digest 前进覆盖）；已开始执行返回 None。"""
+        with self._tx(_conn) as db:
+            changed = db.execute(
+                "UPDATE jobs SET payload_json = ?, updated_at = ? WHERE id = ? AND status = 'queued'",
+                (json.dumps(payload, ensure_ascii=False), _now(), job_id),
+            ).rowcount
+            if not changed:
+                return None
+            return self.get(job_id, _conn=db)
+
     def claim_next(self, *, kinds: set[str] | None = None) -> Job | None:
         """按注册类型领取到期的排队 Job（next_run_at 未到期则跳过）。
 
@@ -258,8 +271,16 @@ class JobStore:
             raise LookupError(job_id)
         return row
 
-    def active_by_resource(self, resource: str) -> Job | None:
+    def active_by_resource(
+        self, resource: str, *, _conn: sqlite3.Connection | None = None
+    ) -> Job | None:
         """该资源当前的在途 Job（queued/running 至多一个，I1）。"""
+        if _conn is not None:
+            row = _conn.execute(
+                "SELECT * FROM jobs WHERE resource = ? AND status IN ('queued','running')",
+                (resource,),
+            ).fetchone()
+            return self._row(row) if row is not None else None
         with self.database.connect() as db:
             row = db.execute(
                 "SELECT * FROM jobs WHERE resource = ? AND status IN ('queued','running')",

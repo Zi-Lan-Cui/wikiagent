@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from wiki_agent.compiler.workflows.retry import (
-    SourceUnavailableError,
-    resolve_retry_source,
-    retry_source_failures,
-)
+from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.issues.models import (
+    IssueAlreadyClaimedError,
     IssueDraft,
     IssueKind,
     IssueSeverity,
@@ -19,6 +16,7 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.issues.projectors import available_actions, to_card
+from wiki_agent.jobs import DuplicateActiveJob
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
@@ -223,87 +221,22 @@ class IssueActionExecutor:
         *,
         progress: Callable[[str], None] | None = None,
     ) -> IssueCard:
+        """重试移交 Job 队列——claim + enqueue + PROCESSING 在单事务里完成。
+
+        本动作只做委托：action 账本以 completed 收口（result 挂
+        delegated_job_id），真实成败由 compile job 的终态联动回写 issue。
+        双击/并发提交被 claim CAS 与 I1 唯一索引共同挡下。
+        """
         record = self.store.require(issue_id)
         if record.kind != IssueKind.INGESTION_FAILURE:
             raise ValueError("只有资料处理失败问题可以执行来源重试")
-        action_id = self.store.claim_action(issue_id, "retry")
         try:
-            result = await retry_source_failures(
-                self.store,
-                llm=self.runtime.agent.llm,
-                vlm=self.runtime.agent.vlm,
-                wiki_dir=self.runtime.wiki_dir,
-                source_records_dir=self.runtime.source_records_dir,
-                run_root=self.runtime.runs_dir,
-                compile_config=self.runtime.config.compile,
-                retry_config=self.runtime.config.retry,
-                issue_id=issue_id,
-                on_progress=progress,
-                force=True,
-            )
-        except SourceUnavailableError as exc:
-            reason = str(exc)
-            self._mark_retry_unavailable(issue_id, reason)
-            self.store.fail_action(action_id, reason, blocked=True)
-            raise
-        except Exception as exc:
-            message = f"{type(exc).__name__}: {exc}"
-            latest = self.store.require(issue_id)
-            self.store.update_payloads(
-                issue_id,
-                diagnostics={
-                    **latest.diagnostics,
-                    "detail": message,
-                    "error_code": "retry_execution_failed",
-                },
-                retry={**latest.retry, "last_error": message},
-                event="retry_diagnostics_updated",
-            )
-            self.store.fail_action(action_id, message)
-            raise
-        succeeded = any(
-            item.get("id") == issue_id and item.get("status") == "succeeded"
-            for item in result.get("results", [])
-        )
-        if result.get("committed") and succeeded:
-            return to_card(
-                self.store.complete_action(
-                    action_id,
-                    status=IssueStatus.RESOLVED,
-                    result={"action": "retry", "result": "succeeded"},
-                )
-            )
-        message = str(result.get("message") or "重试未完成，Wiki 已回撤")
-        diagnostics_value = result.get("diagnostics")
-        failed_result = next(
-            (
-                item
-                for item in result.get("results", [])
-                if item.get("id") == issue_id and item.get("status") == "failed"
-            ),
-            None,
-        )
-        latest = self.store.require(issue_id)
-        diagnostics = dict(latest.diagnostics)
-        if isinstance(diagnostics_value, dict):
-            diagnostics.update(cast(JsonObject, diagnostics_value))
-        diagnostics["detail"] = str(diagnostics.get("detail") or message)
-        retry = dict(latest.retry)
-        retry["last_error"] = message
-        if failed_result is not None:
-            retry["attempts"] = int(failed_result.get("attempts", 0) or 0)
-        self.store.update_payloads(
-            issue_id,
-            diagnostics=diagnostics,
-            retry=retry,
-            event="retry_diagnostics_updated",
-        )
-        self.store.fail_action(
-            action_id,
-            message,
-            blocked=not result.get("results"),
-        )
-        raise RuntimeError(message)
+            self.runtime.job_service.submit_issue_retry(issue_id)
+        except (IssueAlreadyClaimedError, DuplicateActiveJob) as exc:
+            raise RuntimeError(f"该问题已有在途任务: {exc}") from exc
+        if progress is not None:
+            progress("已排入重试队列")
+        return to_card(self.store.require(issue_id))
 
     def _resolve_correction(self, issue_id: str, action: str) -> IssueCard:
         return resolve_correction_issue(
