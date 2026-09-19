@@ -126,7 +126,6 @@ class MinerUConverter(BaseConverter):
         logger.info("  MinerU 完成: %s → %d chars", raw_file.name, len(markdown))
         return ConvertedFile.from_raw(raw_file, markdown)
 
-
     @staticmethod
     def _read_markdown_file(file_path: str) -> str:
         """读取 .md / .markdown 文件。
@@ -139,7 +138,6 @@ class MinerUConverter(BaseConverter):
         """
         with open(file_path, encoding="utf-8") as fh:
             return fh.read()
-
 
     async def _mineru_parse(self, file_path: str) -> str:
         """MinerU 解析 → 同步 caption → 返回 Markdown。
@@ -211,7 +209,6 @@ class MinerUConverter(BaseConverter):
                 images_dir = root
         return markdown, images_dir
 
-
     async def _caption_async(self, markdown: str, images_base_dir: str) -> str:
         """从 ``images_base_dir`` 解析 ``![]()`` 中的路径，并发 caption。
 
@@ -223,7 +220,6 @@ class MinerUConverter(BaseConverter):
             回填 caption 后的 Markdown。
         """
         return await self._apply_captions(markdown, images_base_dir)
-
 
     def _caption_sync(self, markdown: str, images_base_dir: str) -> str:
         """在子线程中运行异步 caption（new_event_loop）。
@@ -240,7 +236,6 @@ class MinerUConverter(BaseConverter):
             return loop.run_until_complete(self._apply_captions(markdown, images_base_dir))
         finally:
             loop.close()
-
 
     async def _apply_captions(self, markdown: str, images_base_dir: str) -> str:
         """找出所有 ``![]()``，并发 VLM caption，回填到 Markdown。
@@ -363,7 +358,6 @@ class MinerUConverter(BaseConverter):
         if os.path.exists(candidate):
             return candidate
         return None
-
 
     async def _vlm_describe_image(self, image_path: str) -> str:
         """加载图片 → base64 → VLM → 返回描述文本。

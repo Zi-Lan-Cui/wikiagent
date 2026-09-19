@@ -93,8 +93,6 @@ class IngestError(WikiAgentError):
         self.raw = raw
 
 
-
-
 def translate_openai_error(exc: Exception) -> WikiAgentError:
     """把 OpenAI SDK 异常翻译成三分类。"""
     import openai

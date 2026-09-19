@@ -27,7 +27,6 @@ class StructuredChunker(BaseChunker):
         # 模态为 text 且扩展名匹配——文件可能已被 Converter 转义
         return file.modality == "text" and file.ext in self._SUPPORTED
 
-
     def chunk(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
         """按扩展名分派切分。
 

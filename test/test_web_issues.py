@@ -9,6 +9,8 @@ from typing import cast
 
 import httpx
 
+from wiki_agent.application.job_service import JobService
+from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
 from wiki_agent.log import emit_event
@@ -22,11 +24,20 @@ class _Runtime:
         self.wiki_dir.mkdir()
         self.issue_store = IssueStore(self.workspace)
         self.issue_service = IssueService(self.issue_store)
+        # 统一执行模型：web 装配从 runtime 拿 job_service/job_worker
+        self.job_service = JobService(self.workspace, wiki_dir=self.wiki_dir)
+        self.job_worker = JobWorker(self.job_service)
+        self._worker_task = None
 
     async def __aenter__(self):
+        self._worker_task = asyncio.create_task(self.job_worker.run())
         return self
 
     async def __aexit__(self, exc_type, exc, traceback):
+        self.job_worker.stop()
+        if self._worker_task is not None:
+            self._worker_task.cancel()
+            await asyncio.gather(self._worker_task, return_exceptions=True)
         return None
 
 
@@ -98,9 +109,13 @@ def test_long_issue_action_returns_pollable_task(tmp_path: Path):
     app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
 
     async def run():
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        # worker 循环由 lifespan 拉起（生产 uvicorn 必经），ASGITransport 需手动进入
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client,
+        ):
             response = await client.post(
                 f"/api/issues/{issue.id}/actions/rescan",
                 json={"payload": {}},

@@ -49,7 +49,6 @@ def _json_value(value: Any) -> Any:
 
 
 class TraceStore:
-
     def __init__(self, root: Path, *, trace_id: str, kind: str, metadata: dict[str, Any]):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
