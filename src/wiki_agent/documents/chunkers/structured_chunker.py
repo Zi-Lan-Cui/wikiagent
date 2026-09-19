@@ -1,28 +1,4 @@
-"""结构化数据块切割器——CSV / JSON / JSONL / Excel。
-
-适用于 DataLoader 读取的具有行列结构的内容。
-
-**已处理**:
-
-- CSV：按 ``batch_size`` 行分组为 chunk，保留表头
-- JSON：顶级 key 各自独立为 chunk（对象），数组按元素分组
-- JSONL：每行一个 chunk
-- 列名作为关键字注入 metadata
-
-**未处理**:
-
-- Excel（.xlsx / .xls）：当前 Excel 文件在 DataLoader 中被映射为 RICH 模态，
-  走 MinerUConverter 转为 Markdown 后由 TextChunker 处理，不经过此 chunker。
-  如需行级结构化处理，需将 Excel 改为 TEXT 模态并在此实现 ``openpyxl`` 读取。
-- 嵌套 JSON：深层嵌套对象不作为独立 chunk，仅在顶级 key 层面拆分
-- 超大 JSON 文件：全量读入内存，无流式读取
-- CSV 字段类型推断：所有字段当作文本，不做 number/date 类型推断
-- CSV 编码检测：默认 UTF-8，不自动检测其他编码
-- 缺失值处理：空字段保留为空字符串，不做填充或跳过
-- 大数值精度：不特殊处理，由 Python 默认行为决定
-- TSV 及其他分隔符：当前仅处理逗号分隔的 CSV
-- 有合并单元格的 Excel：不覆盖此场景（Excel 走 MinerU）
-"""
+"""结构化数据块切割器——CSV / JSON / JSONL / Excel"""
 
 from __future__ import annotations
 
@@ -47,11 +23,10 @@ class StructuredChunker(BaseChunker):
     def __init__(self, *, batch_size: int = 20):
         self._batch_size = batch_size
 
-    # BaseChunker 接口
-
     def can_process(self, file: ConvertedFile) -> bool:
         # 模态为 text 且扩展名匹配——文件可能已被 Converter 转义
         return file.modality == "text" and file.ext in self._SUPPORTED
+
 
     def chunk(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
         """按扩展名分派切分。
@@ -67,8 +42,6 @@ class StructuredChunker(BaseChunker):
         if file.ext in ("json", "jsonl"):
             return self._chunk_json(file)
         return []
-
-    # CSV
 
     def _chunk_csv(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
         """CSV → 按 batch_size 行分组的 chunk（保留表头）。
@@ -117,8 +90,6 @@ class StructuredChunker(BaseChunker):
 
         logger.info(f"CSV {file.name}: {chunk_index + 1} chunks")
         return chunks
-
-    # JSON
 
     def _chunk_json(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
         """JSON/JSONL → 结构化 chunk。
@@ -192,8 +163,6 @@ class StructuredChunker(BaseChunker):
 
         logger.info(f"JSON {file.name}: {len(chunks)} chunks")
         return chunks
-
-    # 辅助
 
     def _make_chunk(
         self,

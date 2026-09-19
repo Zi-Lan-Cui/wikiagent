@@ -3,18 +3,6 @@
 两阶段管线:
   1. 生成 Markdown: MinerU 解析（PDF/DOCX/PPTX/XLSX）或直接读取（.md）
   2. 图片 caption: 提取 ``![]()`` → VLM 描述 → 回填 alt text
-
-已完成:
-  ✅ pipeline 后端（CPU/GPU 均可）
-  ✅ .md 文件直接读取 + 相对路径图片 caption
-  ✅ PDF/DOCX 的 MinerU 解析 + tmp images caption（用完即清）
-  ✅ 并发 caption（asyncio.gather）
-
-未完成:
-  - caption 缓存: 相同图片（SHA256）跨文档复用
-  - caption 降级: LLM 不可用时保留空 alt text
-  - 表格图片 caption: 描述表格内容而非"这是一张表格"
-  - vlm-engine 后端: CUDA 版本不匹配时自动回退 pipeline
 """
 
 from __future__ import annotations
@@ -138,9 +126,6 @@ class MinerUConverter(BaseConverter):
         logger.info("  MinerU 完成: %s → %d chars", raw_file.name, len(markdown))
         return ConvertedFile.from_raw(raw_file, markdown)
 
-    # 步骤 1: 生成 Markdown
-
-    # 直接读取 .md
 
     @staticmethod
     def _read_markdown_file(file_path: str) -> str:
@@ -155,7 +140,6 @@ class MinerUConverter(BaseConverter):
         with open(file_path, encoding="utf-8") as fh:
             return fh.read()
 
-    # MinerU 解析
 
     async def _mineru_parse(self, file_path: str) -> str:
         """MinerU 解析 → 同步 caption → 返回 Markdown。
@@ -227,9 +211,6 @@ class MinerUConverter(BaseConverter):
                 images_dir = root
         return markdown, images_dir
 
-    # 步骤 2: Caption（给 ![]() 填 alt text）
-
-    # 异步入口（主 event loop）
 
     async def _caption_async(self, markdown: str, images_base_dir: str) -> str:
         """从 ``images_base_dir`` 解析 ``![]()`` 中的路径，并发 caption。
@@ -243,7 +224,6 @@ class MinerUConverter(BaseConverter):
         """
         return await self._apply_captions(markdown, images_base_dir)
 
-    # 同步入口（子线程）
 
     def _caption_sync(self, markdown: str, images_base_dir: str) -> str:
         """在子线程中运行异步 caption（new_event_loop）。
@@ -261,7 +241,6 @@ class MinerUConverter(BaseConverter):
         finally:
             loop.close()
 
-    # 核心: 并发 caption + 回填
 
     async def _apply_captions(self, markdown: str, images_base_dir: str) -> str:
         """找出所有 ``![]()``，并发 VLM caption，回填到 Markdown。
@@ -385,7 +364,6 @@ class MinerUConverter(BaseConverter):
             return candidate
         return None
 
-    # VLM 调用
 
     async def _vlm_describe_image(self, image_path: str) -> str:
         """加载图片 → base64 → VLM → 返回描述文本。

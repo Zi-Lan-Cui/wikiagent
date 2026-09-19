@@ -1,8 +1,4 @@
-"""终端渲染器——独立实体，直接作为 agent 的 hook 订阅事件并渲染。
-
-单实体设计: 渲染器本身就是 hook（不再有适配器/独立流式状态机
-两个中间层）。追加式流式输出——完整行即时渲染打印，增量即
-最终；工具行渲染是它的内部逻辑——一个类、一份状态、一个入口。
+"""终端渲染器——独立实体，作为 agent 的 hook 订阅事件并渲染。
 
 事件 → 渲染映射::
 
@@ -13,18 +9,6 @@
     on_tool_result      → 结果行（✓ + 摘要 + 耗时）
     on_tool_error       → 错误行（✗）
     on_run_end          → 打印未闭合尾行
-
-cli 用法::
-
-    renderer = TerminalRenderer(console)
-    agent = ReActAgent(..., hooks=[renderer])
-
-为什么是追加式: 旧设计 transient Live（流式预览）+ 收尾
-Markdown 重渲染，依赖擦除消除预览帧——长回答帧高超过终端
-高度时 cursor-up 被 clamp，滚入 scrollback 的帧行擦不掉，
-残留帧 + 重渲染 = 同一回答显示两遍。追加式没有预览、没有
-擦除、没有重渲染——架构上不存在双渲染。代价: 多行 markdown
-元素（表格/嵌套列表）按行渲染不如整篇渲染精致，可读性无损。
 """
 
 from __future__ import annotations

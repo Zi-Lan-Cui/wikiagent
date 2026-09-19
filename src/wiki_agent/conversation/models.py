@@ -78,8 +78,6 @@ class Message(BaseModel):
 
         return text
 
-    # openai_schema — 统一的消息序列化点
-
     def _build_content(self):
         """构造 OpenAI 格式的 content 字段。
 
