@@ -33,7 +33,7 @@ class MemoryStore:
         except (FileNotFoundError, ValueError):
             return 0
 
-    # ── 文件路径 (properties) ─────────────────────────────────
+    # 文件路径 (properties)
 
     @property
     def history_file(self) -> Path:
@@ -51,7 +51,7 @@ class MemoryStore:
     def memory_file(self) -> Path:
         return self.memory_dir / "memory.md"
 
-    # ── cursor 读写 ──────────────────────────────────────────
+    # cursor 读写
 
     def get_cursor(self) -> int:
         """
@@ -116,7 +116,7 @@ class MemoryStore:
     def update_dream_cursor(self, new_cursor: int, fsync: bool = False):
         self._atomic_write(self.dream_cursor_file, str(new_cursor), fsync=fsync)
 
-    # ── history 读写 ─────────────────────────────────────────
+    # history 读写
 
     def append_history(self, session: Session, summary: str, fsync: bool = False):
         """
@@ -171,7 +171,7 @@ class MemoryStore:
         except (FileNotFoundError, ValueError):
             return {}
 
-    # ── memory 读写 ──────────────────────────────────────────
+    # memory 读写
 
     def get_memory_text(self) -> str:
         """读用户画像文本。

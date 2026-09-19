@@ -186,7 +186,7 @@ class ContextGovernor:
         idx = find_first_legal_idx(saved_messages, extend_to_user=True)
         return system_messages + saved_messages[idx:]
 
-    # ── 窗口维度紧凑化（空间不够就丢可重取结果）──────────────
+    # 窗口维度紧凑化（空间不够就丢可重取结果）
 
     def _total_tokens(self, messages: list[Message]) -> int:
         return sum(estimate_text_tokens(m.text_schema) for m in messages)
@@ -312,7 +312,7 @@ class ContextGovernor:
                 continue
             self._maybe_persist_tool_result(session, message)
 
-    # ── 工具结果新鲜度 ─────────────────────────────────────
+    # 工具结果新鲜度
 
     def _tool_age_seconds(self, message: Message) -> float:
         """计算工具结果年龄——经 Message.created_at 查询接口。
@@ -392,9 +392,7 @@ class ContextGovernor:
         return messages
 
 
-# ════════════════════════════════════════════════════════════
-#  历史修复工具（模块级——原 _repair_broken_history 的嵌套闭包）
-# ════════════════════════════════════════════════════════════
+# 历史修复工具（模块级函数）
 
 
 def _get_orphan_tool_call_ids(messages: list[Message]) -> set[str]:

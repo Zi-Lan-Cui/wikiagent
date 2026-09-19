@@ -47,7 +47,7 @@ from wiki_agent.log import get_logger
 
 logger = get_logger("EXTRACTOR")
 
-# ── 默认 token 分配 ────────────────────────────────────────
+# 默认 token 分配
 _SYSTEM_TOKENS = 4_000
 _OUTPUT_TOKENS = 6_000
 _PER_CHUNK_MIN = 500  # 均匀分配时单个 chunk 最低 token
@@ -82,7 +82,7 @@ class Extractor:
         # prompt 模块（compile/refine）——模式差异由 pipeline 注入
         self._prompts = prompts
 
-    # ── 公开 API ──────────────────────────────────────────
+    # 公开 API
 
     async def extract(self, source: SourceDocument) -> ExtractResult:
         """从 ``SourceDocument`` 提取知识。
@@ -122,7 +122,7 @@ class Extractor:
         logger.info("  Extract 摘要完成: %d chunks → 开始合成", len(summaries))
         return await self._synthesize(source, summaries)
 
-    # ── 均匀分配 ──────────────────────────────────────────
+    # 均匀分配
 
     async def _extract_uniform(
         self,
@@ -143,7 +143,7 @@ class Extractor:
 
         return await asyncio.gather(*[summarize(c) for c in chunks])
 
-    # ── 滚动压缩 ──────────────────────────────────────────
+    # 滚动压缩
 
     async def _extract_rolling(
         self,
@@ -182,7 +182,7 @@ class Extractor:
 
         return summaries
 
-    # ── 合成 ──────────────────────────────────────────────
+    # 合成
 
     async def _synthesize(
         self,
@@ -279,7 +279,7 @@ class Extractor:
         page_path.write_text(content.strip() + "\n", encoding="utf-8")
         logger.info("  source page: %s (%d chars)", slug, len(content))
 
-    # ── 单个 chunk 摘要 ───────────────────────────────────
+    # 单个 chunk 摘要
 
     async def _summarize_chunk(self, chunk: SourceChunk, max_tokens: int) -> str:
         """单个 chunk 的摘要（均匀分配模式）。
@@ -305,7 +305,7 @@ class Extractor:
         )
         return response.content
 
-    # ── 工具 ──────────────────────────────────────────────
+    # 工具
 
     @staticmethod
     def _slugify_source(filename: str) -> str:

@@ -111,9 +111,7 @@ def test_repair_orphan_tool_result_removed():
     assert all(not (m.role == "tool" and m.tool_call_id == "ghost") for m in repaired)
 
 
-# ════════════════════════════════════════════════════════════
-#  工具结果 TTL 驱逐
-# ════════════════════════════════════════════════════════════
+# 工具结果 TTL 驱逐
 
 
 def _old_tool_message(name: str, age_seconds: float, content: str = "旧结果") -> Message:
@@ -203,9 +201,7 @@ def test_prepare_for_llm_includes_expiry():
     assert tool_msgs and "已过期" in tool_msgs[0].content
 
 
-# ════════════════════════════════════════════════════════════
-#  窗口维度紧凑化（inflight overflow）
-# ════════════════════════════════════════════════════════════
+# 窗口维度紧凑化（inflight overflow）
 
 
 def _big_tool_message(name: str, chars: int = 5000, call_id: str = "c9") -> Message:

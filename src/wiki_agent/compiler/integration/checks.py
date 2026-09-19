@@ -68,7 +68,7 @@ def check_analyze_json(
     if not isinstance(data, dict):
         return False, "JSON 尾巴必须是对象 {}。"
 
-    # ── entities ──
+    # entities
     entities = data.get("entities", [])
     if not isinstance(entities, list):
         return False, "entities 必须是数组。"
@@ -83,7 +83,7 @@ def check_analyze_json(
         if importance and importance not in _VALID_IMPORTANCE:
             return False, f"entities[{i}].importance 必须是 核心/边缘，当前: {importance}。"
 
-    # ── concepts ──
+    # concepts
     concepts = data.get("concepts", [])
     if not isinstance(concepts, list):
         return False, "concepts 必须是数组。"
@@ -96,7 +96,7 @@ def check_analyze_json(
         if importance and importance not in _VALID_IMPORTANCE:
             return False, f"concepts[{i}].importance 必须是 核心/边缘，当前: {importance}。"
 
-    # ── relationships ──
+    # relationships
     relationships = data.get("relationships", [])
     if not isinstance(relationships, list):
         return False, "relationships 必须是数组。"
@@ -249,7 +249,7 @@ def check_json_array(content: str) -> tuple[bool, str]:
     Returns:
         (是否通过, 可执行的错误消息)。
     """
-    # fence 容错——与 _check_plan_json 共享 _strip_fence
+    # fence 容错——与 check_plan_json 共享 _strip_fence
     cleaned = _strip_fence(content)
     try:
         data = json.loads(cleaned)

@@ -47,7 +47,7 @@ __all__ = [
 ]
 
 # 模式契约——refine 只允许 update（只拿不放）。
-# plan() 用它约束 _check_plan_json: LLM 输出 new 直接 retry 修正。
+# plan() 用它约束 check_plan_json: LLM 输出 new 直接 retry 修正。
 ALLOWED_DISPOSITIONS = {"update"}
 
 

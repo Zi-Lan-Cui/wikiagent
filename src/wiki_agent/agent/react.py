@@ -67,7 +67,7 @@ class ReActRunner:
             if not had_tools:
                 break
 
-    # ── 工具执行 ─────────────────────────────────────
+    # 工具执行
 
     async def _execute_tools(
         self,
@@ -224,7 +224,7 @@ class ReActRunner:
 
         return True
 
-    # ── 内部：流式调用 ───────────────────────────────
+    # 内部：流式调用
 
     async def _stream(
         self,
@@ -325,11 +325,6 @@ class ReActRunner:
             return False
 
 
-# ════════════════════════════════════════════════════════════════
-#  ReActAgent
-# ════════════════════════════════════════════════════════════════
-
-
 class ReActAgent(BaseAgent):
     SYSTEM_PROMPT = """
         # 用户画像
@@ -411,13 +406,13 @@ class ReActAgent(BaseAgent):
         # 不再维护 dict 视图（双真相：改配置忘同步视图就分叉）
         self.max_loop = self.agent_config.max_loop
 
-        # ── hooks ─────────────────────────────────────────
+        # hooks
         _raw = hooks or []
         self._hooks: AgentHook = (
             CompositeHook(_raw) if len(_raw) > 1 else _raw[0] if _raw else AgentHook()
         )
 
-        # ── runner ────────────────────────────────────────
+        # runner
         self._runner = ReActRunner(self)
 
     async def _run(
