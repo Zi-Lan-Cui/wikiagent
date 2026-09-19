@@ -2,22 +2,6 @@
 
 事件管道:
     watchdog 事件 → 每路径去抖（settle）→ 稳定性复读 → 变更门 → queue.put
-
-与轮询版的关系（两个入口共存，state 是共享真相源）:
-- **事件路径**: 事件 → settle 窗口（吸收编辑器原子保存的 2-4 事件）
-  → 稳定性复读（等价轮询版"两段确认"——同一内容隔 stability 仍
-  不变才定案，防半写文件）→ 变更门（相似度 ≥ 阈值跳过微调）→ 入队
-- **回退路径**: 每 fallback_interval 跑一次 _poll_once（全量扫描）。
-  inotify 事件队列可能溢出/丢失，全量扫描是安全网；进程重启后的
-  首次 reconcile 也走它。回退路径保留轮询版的两段确认（pending）。
-
-两段确认语义迁移: 轮询版 = 同一内容连续 2 个轮询周期见到（~10s）；
-事件版 = settle（事件静默 2s）+ 稳定性复读（再 2s 内容不变）。
-保护对象相同（保存抖动/半写文件），确认时间缩短。
-
-删除检测: 事件路径（文件消失时 settle 检查发现）+ 回退路径
-（state 与磁盘 diff）双入口，都产出 ("delete", name) 队列项——
-消费者契约不变。
 """
 
 from __future__ import annotations
@@ -109,8 +93,6 @@ class FileWatcher:
         # 是运行时变量赋值（平台分发），Pylance 禁止变量进类型表达式
         self._observer: BaseObserver | None = None
 
-    # 事件桥（观察者线程侧）
-
     def _bridge_event(self, path: str) -> None:
         """线程安全转发到 loop——不阻塞观察者线程。
 
@@ -136,8 +118,6 @@ class FileWatcher:
         from wiki_agent.documents.loader import DataLoader
 
         return Path(path).suffix.lower() in DataLoader.ext_to_modality
-
-    # 主循环
 
     async def run(self) -> None:
         """主循环——事件由 call_later 定时器自行驱动，这里只跑回退扫描。"""
@@ -173,8 +153,6 @@ class FileWatcher:
             self._observer.stop()
             self._observer.join(timeout=2)
             self._observer = None
-
-    # 去抖与单路径检查（loop 侧）
 
     def _notify(self, path: str) -> None:
         """重置该路径的 settle 定时器——新事件重新计时（去抖核心）。
@@ -255,8 +233,6 @@ class FileWatcher:
         logger.info("  变更入队: %s", p.name)
         return [str(p)]
 
-    # 回退路径：全量扫描（轮询语义保留）
-
     async def _poll_once(self) -> list[str]:
         """单轮全量扫描——inotify 溢出/丢事件的安全网 + 启动 reconcile。
 
@@ -295,8 +271,6 @@ class FileWatcher:
         self._state.save()
         return queued
 
-    # 扫描
-
     def _scan_files(self) -> list[Path]:
         """扫描源目录下所有受支持扩展名的文件（递归）。
 
@@ -311,8 +285,6 @@ class FileWatcher:
             if p.is_file() and p.suffix.lower() in supported:
                 files.append(p)
         return files
-
-    # 判定
 
     def _pass_change_gate(self, st: FileState, content: str, digest: str) -> bool:
         """两段确认 + 变更门（回退路径用）。
