@@ -5,7 +5,8 @@
 
 数据流:
     源目录 → 变更监视（事件驱动，去抖+稳定性确认，定时全量扫描兜底）
-           → 变更队列 → 消费端（串行） → 编译流水线
+           → 持久 Job 队列 → Worker（串行） → 编译流水线
+           → 成功核账写 watch state；失败进 issue 重试通道
 """
 
 import asyncio
@@ -18,10 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 from wiki_agent.application.job_service import JobService
 from wiki_agent.application.job_worker import JobWorker
-from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import load_config
-from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.log import begin_trace, configure_logging, get_logger, setup_event_log
 from wiki_agent.watch.consumer import WatchConsumer
@@ -71,33 +70,28 @@ async def main(source_dir: str | None = None):
         compile_config=cfg.compile,
     )
     state = WatchState(cfg.paths.resolved_watch_dir() / "state.json")
-    job_service = JobService(cfg.paths.resolved_workspace_dir())
-    queue: asyncio.Queue = asyncio.Queue()
+    # watch_state 注入成功核账入口——JobOutcomeHandler 在终态事务提交后落账
+    job_service = JobService(
+        cfg.paths.resolved_workspace_dir(), retry_config=cfg.retry, watch_state=state
+    )
 
     watcher = FileWatcher(
         source_path,
-        queue,
         state,
         wiki_dir=wiki_dir,
         settle_window=cfg.watch.settle_window,
         stability_delay=cfg.watch.stability_delay,
         fallback_interval=cfg.watch.fallback_interval,
         similarity_threshold=cfg.watch.similarity_threshold,
-        submit_job=lambda resource, deleted: job_service.submit_watch_change(
-            resource, deleted=deleted
+        submit_job=lambda resource, deleted, digest: job_service.submit_watch_change(
+            resource, deleted=deleted, digest=digest
         ),
     )
-    failures = SourceFailureHandler(
-        IssueService(IssueStore(cfg.paths.resolved_workspace_dir())),
-        mode="watch",
-    )
     consumer = WatchConsumer(
-        asyncio.Queue(),
         pipeline,
         state,
         wiki_dir=wiki_dir,
         source_records_dir=source_records_dir,
-        failure_handler=failures,
     )
     worker = JobWorker(job_service)
     worker.register("compile", consumer.handle_job)

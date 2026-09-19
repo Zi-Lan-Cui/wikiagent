@@ -66,14 +66,14 @@ class JobService:
             _conn=_conn,
         )
 
-    def submit_watch_change(self, resource: str, *, deleted: bool = False) -> Job:
-        """Submit a watcher change using a stable idempotency key."""
+    def submit_watch_change(self, resource: str, *, deleted: bool = False, digest: str = "") -> Job:
+        """提交 watcher 确认的变更；digest 是核账凭证（delete 无内容版本）。"""
         kind = "delete" if deleted else "compile"
         return self.submit(
             kind=kind,
             resource=resource,
             mode="watch",
-            payload={"deleted": deleted},
+            payload={"deleted": deleted, "digest": digest},
             idempotency_key=f"watch:{kind}:{resource}",
         )
 
