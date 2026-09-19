@@ -149,13 +149,16 @@ async def recheck(
                 check=_check_recheck,
                 temperature=0,  # 裁决任务——确定性判定
                 extra_body=_NO_THINKING,
-                max_retries=2,
+                max_attempts=2,
             )
         except Exception as e:
             err = translate_generic_error(e, context="restructure recheck")
             logger.error("  复判失败 %s: %s", prop.pages, str(err)[:200])
             emit_event(
-                "restructure_recheck_failed", pages=prop.pages, error=str(err), cause=type(e).__name__
+                "restructure_recheck_failed",
+                pages=prop.pages,
+                error=str(err),
+                cause=type(e).__name__,
             )
             continue
         data = _safe_parse_json(response.content)
@@ -284,7 +287,7 @@ async def re_arbitrate(
             check=_check_re_arbitrate,
             extra_body=_NO_THINKING,
             temperature=0,
-            max_retries=2,
+            max_attempts=2,
         )
     except Exception as e:
         # LLM 都仲裁不了 = 复裁失败——全部记录，不阻塞

@@ -100,7 +100,7 @@ async def _call(llm, messages: list[Message]) -> str:
         max_tokens=700,
         temperature=0,
         extra_body={"thinking": {"type": "disabled"}},
-        max_retries=2,
+        max_attempts=2,
         base_delay=0.2,
     )
     return (response.content or "").strip()

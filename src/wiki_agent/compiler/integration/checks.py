@@ -24,7 +24,7 @@ _VALID_PAGE_TYPES = {"concept", "entity", "topic"}
 _TYPE_DIRS = {"concept": "concepts", "entity": "entities", "topic": "topics"}
 
 
-def _check_analyze_json(
+def check_analyze_json(
     content: str,
     *,
     candidates: list[str] | None = None,
@@ -127,7 +127,7 @@ def _check_analyze_json(
     return True, ""
 
 
-def _check_plan_json(
+def check_plan_json(
     content: str,
     *,
     allowed_dispositions: set[str] | None = None,
@@ -240,7 +240,7 @@ def _check_plan_json(
     return True, ""
 
 
-def _check_json_array(content: str) -> tuple[bool, str]:
+def check_json_array(content: str) -> tuple[bool, str]:
     """校验 JSON 字符串数组输出。
 
     Args:

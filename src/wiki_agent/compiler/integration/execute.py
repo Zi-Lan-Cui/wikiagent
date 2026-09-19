@@ -105,7 +105,7 @@ class Executor:
             max_tokens=_UPDATE_TOKENS,
             check=_check_page_output,
             extra_body=_NO_THINKING,
-            max_retries=_PAGE_GEN_RETRIES,
+            max_attempts=_PAGE_GEN_RETRIES,
         )
         if not response.check_ok:
             raise IngestError(
