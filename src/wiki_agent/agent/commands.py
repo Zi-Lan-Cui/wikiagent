@@ -1,8 +1,8 @@
 """命令路由系统。
 
-参考 nanobot: RESTORE → COMPACT(轻量) → COMMAND → BUILD → RUN → SAVE。
-命令分发在 restore 之后、重压缩（maybe_consolidate）之前——
-命令需要 session 状态，但不应该触发昂贵的 LLM 压缩。
+回合流程: RESTORE → COMPACT(轻量) → COMMAND → BUILD → RUN → SAVE——
+命令分发在 restore 之后、重压缩之前：命令需要 session 状态，
+但不应触发昂贵的 LLM 压缩。
 
 所有命令统一 `/` 前缀: /help /session /retry
 """

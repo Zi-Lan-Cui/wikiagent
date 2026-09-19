@@ -1,8 +1,7 @@
-"""统一重试内核（llm.retry._retry_core + 两张适配面）的契约回归测试。
+"""统一 LLM 重试层的契约回归测试。
 
-覆盖: 空响应 check_ok 审计锁（历史 bug: 空分支跳过 check 默认 True 漏过）、
-耗尽混合态、Fatal/Cancelled 穿透、RuntimeError 消息格式、on_retry/on_rejected
-语义、react 适配面与流式重试提示。
+覆盖: 空响应必须标记校验失败、耗尽混合态、Fatal/Cancelled 穿透、
+耗尽异常消息格式、重试回调语义、通用面与流式重试提示。
 """
 
 import asyncio

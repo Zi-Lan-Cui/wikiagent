@@ -1,19 +1,14 @@
 """Compiler — LLM 知识编译器。
 
-Phase 1 (Extractor):  chunk → 摘要 → ExtractResult
-Phase 2 (Integrator): ExtractResult + index.md → 受影响页面 → 异步更新
-    四阶段独立成模块（integration/search·analyze·plan·execute），组装器与
-    工厂在 integration/workflow:
-    compile_integrator() = Searcher + Analyzer + CuratorPlanner + Executor
-    refine_integrator()  = Searcher + Analyzer + PolisherPlanner + Executor
+Phase 1 (提取):   结构化分块 → 文档摘要
+Phase 2 (集成):   摘要 + index → 受影响页面 → 异步更新
+                  （search / analyze / plan / execute 四阶段）
 
-子包按依赖方向分层（下层绝不 import 上层）:
-    models       纯数据（含 _NO_THINKING 共享常量）——最底
-    wiki/        frontmatter/rules/normalize/quality——无 LLM 的页面规则
-    extraction/  Extractor（Phase 1）
-    integration/ 四阶段 + parse/checks（Phase 2）+ workflow 组装
-    restructure/     结构重组 proposal/review/resolve/execute/rewrite/transaction
-    workflows/   ingest/refine/failures/retry 工作流编排
+compile 与 refine 两种模式共用同一批阶段，只差规划者身份：
+compile 是策展人（新建/更新开放决策），refine 是润色师（只更新本页）。
+
+子包按依赖方向分层：数据模型 → 页面规则（无 LLM）→ 提取 →
+集成 → 结构重组 → 工作流编排。
 """
 
 from wiki_agent.compiler.extraction import Extractor

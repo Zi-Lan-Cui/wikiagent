@@ -1,20 +1,15 @@
-"""结构化事件日志——JSON lines 到文件，机器可消费。
+"""结构化事件日志——JSON lines 落文件，机器可消费。
 
 设计边界:
-- 只记录**事件**（谁、何时、做了什么、结果、耗时），不存业务数据
-- 不阻塞主流程: 同步 append 小行 + 单进程串行写入，无锁竞争
-- 可被 jq / Langfuse / Phoenix 等工具直接消费
+- 只记录事件（谁、何时、做了什么、结果、耗时），不存业务数据
+- 不阻塞主流程
+- 可被 jq 等 JSONL 工具直接消费
 
 事件格式::
 
     {"ts": "...", "trace_id": "...", "span": "llm_call", "dur_ms": 1234,
      "model": "deepseek-v4-flash", "tokens": {"prompt": 1000, "completion": 200},
      "status": "ok"}
-
-用法::
-
-    from wiki_agent.log.events import emit_event
-    emit_event("llm_call", model="x", tokens={...}, dur_ms=123)
 """
 
 from __future__ import annotations

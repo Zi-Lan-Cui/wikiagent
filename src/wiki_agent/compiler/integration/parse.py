@@ -1,12 +1,8 @@
-"""集成层解析——把 LLM 原始输出变成模型对象（compile 四阶段专用）。
+"""集成层解析——把 LLM 原始输出变成模型对象。
 
-与 checks 的分界: checks 定义"什么算好输出"（校验），本模块执行
-"好输出 → 模型对象"（解析）。解析信任校验结果——能到这里的原始内容
-必然已通过 check（_parse_plan 直接 loads，失败是 bug 炸出来）。
-
-依赖方向: parse 不依赖 checks（checks import 本模块的 _strip_fence）。
-_strip_fence / _try_repair_trailing_braces 是 LLM 原始输出清洗的共享规约，
-restructure 层复用同一份（`from integration.parse import _strip_fence`）。
+与 checks 分工: checks 定义"什么算好输出"，本模块把校验过的输出
+变成对象。解析信任校验结果——能到这里的原始内容必然已通过 check，
+再解析失败是 bug，炸出来。
 """
 
 from __future__ import annotations

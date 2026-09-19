@@ -1,12 +1,12 @@
 """上下文构建——system prompt 组装 + history 拼接。
 
-system prompt 四块（build 阶段的核心扩展）:
-1. 用户画像       memory.md（Dreamer 加工）
-2. wiki 环境      purpose.md（知识库使命）+ schema.md（目录规范）
-                  + index.md（页面地图，行截断）
-3. 工具描述       tool registry
-4. 对话摘要       session.last_summary（压缩产物）
-纠错不再插入 system prompt，而是作为 history 之后、当前问题之前的
+system prompt 四块:
+1. 用户画像（记忆加工产物）
+2. wiki 环境（使命 + 目录规范 + 页面地图）
+3. 工具描述
+4. 对话摘要（压缩产物）
+
+纠错信息不插入 system prompt，而是作为 history 之后、当前问题之前的
 动态消息注入，避免改变稳定 system 前缀。
 """
 

@@ -1,14 +1,14 @@
 """Wiki Git 版本管理——存档、提交、失败恢复和历史回撤的唯一入口。
 
-业务层只负责写 Wiki 并执行 scan；GitManager 负责：
+业务层只负责写 Wiki 并执行 scan；Git 侧负责：
 
     begin → commit / abort → rollback
 
 设计约束：
 - 默认要求 scope 工作区干净，避免覆盖用户未提交修改。
 - 所有 Git 操作都限制在 scope 内；不使用无范围 reset/clean。
-- 当前运行失败恢复到 before_commit；已提交版本使用 git revert。
-- run.json/diff.patch 是审计存档，不混入 Wiki commit。
+- 当前运行失败恢复到运行前版本；已提交版本使用 revert。
+- 运行存档与差异 patch 独立归档，不混入 Wiki commit。
 """
 
 from __future__ import annotations

@@ -1,30 +1,4 @@
-"""文本块切割器——Markdown 感知 + 段落边界优先。
-
-适用于 Markdown、纯文本等由 MinerU / DataLoader 产出的文本内容。
-
-**已处理**:
-
-- 优先在 ``#`` / ``##`` 标题边界切分，保证每个 chunk 是完整 section
-- section 内优先在段落边界（``\\n\\n``）切分
-- 短 section 自动合并：累积到接近 ``max_chunk_size`` 再输出
-- 尾部短块合并：最后一段如果太短，合并到前一个 chunk
-- 单段落过长时在句子边界（``。！？.!?``）降级切分
-- 依赖 ``_build_sections`` 将内容解析为 section 列表，所有后续切分操作基于此列表
-
-**未处理**:
-
-- 三级及以下标题（``###``）：当前不做为 section 边界，保留在上级 section 内
-- 代码块（`` ``` ``）内的空行：可能会被误判为段落边界
-- 表格（`` |...| ``）：表格行之间被 ``\\n`` 分隔，当前不保证表格不被切开
-- 引用块（`` > ``）：不保留引用结构的连续性
-- 嵌套列表的缩进结构：纯文本化后缩进丢失，靠空行保留分组
-- LaTeX 公式块（``$$``）：不保证不被切分
-- 图片引用（``![]()``）：不特殊处理，作为普通文本
-- 中文 / 日文无空格文本：``len()`` 按字符数而非 token 数计算，高估 chunk 容量
-- Token-aware 切分：当前用 ``len()`` 近似，不做 tiktoken 精确计算
-- 跨 section 语义关联：不做相关的 section 合并（如 ``## 相关`` 应靠拢 ``# 主题``）
-- 页眉 / 页脚残留：如果 MinerU 未清除，chunker 不单独过滤
-"""
+"""文本块切割器——Markdown 感知 + 段落边界优先"""
 
 from __future__ import annotations
 
@@ -51,7 +25,7 @@ class TextChunker(BaseChunker):
     不接受结构化格式（.csv, .xlsx），由 StructuredChunker 处理。
     """
 
-    # 未处理项（已在 docstring 中说明，这里列出当前不覆盖的范围）
+    # ── 未处理项（已在 docstring 中说明，这里列出当前不覆盖的范围） ──
     # NOTE: 未来可加 _TABLE_PATTERN / _CODE_BLOCK_PATTERN 等局部优化
 
     def __init__(
@@ -62,8 +36,6 @@ class TextChunker(BaseChunker):
     ):
         self._max_chunk_size = max_chunk_size
         self._min_chunk_size = min_chunk_size
-
-    # BaseChunker 接口
 
     def can_process(self, file: ConvertedFile) -> bool:
         """只要模态是 text 且内容非空就接受——兜底 chunker。
@@ -117,8 +89,6 @@ class TextChunker(BaseChunker):
             for i, (chunk_text, heading) in enumerate(merged)
         ]
 
-    # Section 构建
-
     def _build_sections(self, content: str) -> list[tuple[str, str]]:
         """将文本按 ``#`` / ``##`` 标题拆分为 (section, heading_path) 列表。
 
@@ -155,8 +125,6 @@ class TextChunker(BaseChunker):
 
         return sections
 
-    # Section → Chunk
-
     def _sections_to_chunks(
         self,
         sections: list[tuple[str, str]],
@@ -192,7 +160,7 @@ class TextChunker(BaseChunker):
 
         return chunks
 
-    # 段落边界
+    # ── 段落边界 ──────────────────────────────────────────
 
     @staticmethod
     def _split_paragraphs(text: str) -> list[str]:
@@ -207,7 +175,7 @@ class TextChunker(BaseChunker):
         parts = re.split(r"\n\s*\n", text)
         return [p.strip() for p in parts if p.strip()]
 
-    # 超长降级
+    # ── 超长降级 ──────────────────────────────────────────
 
     def _split_oversized(self, text: str) -> list[str]:
         """单个内容过长时，先在句子边界切分；没有句子则折半。
@@ -249,7 +217,7 @@ class TextChunker(BaseChunker):
 
         return chunks
 
-    # 尾部合并
+    # ── 尾部合并 ──────────────────────────────────────────
 
     def _merge_tail(
         self,

@@ -1,8 +1,8 @@
 """refine 管线测试——prompt 契约 / 模式接线 / 只拿不放兜底 / 全链集成。
 
-无需真实 LLM：集成测试用 ScriptedLLM 按阶段脚本化响应，
-验证 refine 模式的完整数据流（index 排除自身 → 润色师 plan →
-filter 兜底 → 只更新自己 → 不存 source 档案）。
+无需真实 LLM：集成测试按阶段脚本化响应，验证 refine 模式的完整
+数据流（index 排除自身 → 润色师 plan → 兜底过滤 → 只更新自己 →
+不存 source 档案）。
 
 直接运行:  .venv/bin/python test/test_refine.py
 pytest 运行: pytest test/test_refine.py（纯同步测试函数 + asyncio.run）

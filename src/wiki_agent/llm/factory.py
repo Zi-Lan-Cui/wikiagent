@@ -1,10 +1,8 @@
 """LLM 客户端工厂。
 
-两种工厂函数，各自从配置创建独立的 LLMClient 实例：
-- ``create_llm(cfg)``  — 文本对话
-- ``create_vlm(cfg)`` — 多模态图片理解
-
-配置类型统一用新设计的 LLMConfig / VLMConfig。
+两种工厂函数，各自从配置创建独立客户端：
+- 文本对话
+- 多模态图片理解
 """
 
 from threading import Lock

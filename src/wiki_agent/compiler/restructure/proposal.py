@@ -1,6 +1,6 @@
 """结构重组的候选提议——LLM 见全库 index，提原子操作（merge/delete/create/trim）。
 
-LLM 只在本模块与 review 出现（蓝图约束）。
+LLM 只出现在提议与复判两阶段（蓝图约束）。
 """
 
 from __future__ import annotations

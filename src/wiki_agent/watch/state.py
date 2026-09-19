@@ -1,12 +1,7 @@
 """watch 状态持久层——记录每个文件的已知指纹与两段确认现场。
 
-这是 watcher 的持久层（队列本身不持久）:
-- 进程重启后凭 state 判断哪些文件变了（启动 reconcile 的数据源）
-- 两段确认（保存抖动过滤）的中间现场也存这里——重启不丢半次确认
-
-文件: ``wiki/.watch/state.json``
-格式: {"<绝对路径>": {"hash": str, "text": str|None, "pending_text": str|None,
-                      "pending_seen": int, "last_ingested_at": str}}
+进程重启后凭状态判断哪些文件变了（启动 reconcile 的数据源）；
+两段确认（保存抖动过滤）的中间现场也存这里——重启不丢半次确认。
 """
 
 from __future__ import annotations

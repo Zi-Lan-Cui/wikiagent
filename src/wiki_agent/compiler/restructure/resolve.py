@@ -1,7 +1,7 @@
 """结构重组的确定性冲突与依赖消解（无 LLM）——复判之后、确认之前。
 
-LLM 输出独立提议互不知情，冲突由代码归一化；无法确定性消解的收集为
-Conflict 交 review.re_arbitrate 或人工。
+LLM 输出的独立提议互不知情，冲突由代码归一化；
+无法确定性消解的收集为待仲裁项，交复裁或人工。
 """
 
 from __future__ import annotations

@@ -1,10 +1,8 @@
-"""单文件编译流水线——批量编译与 watch 消费者共用的领域入口。
+"""单文件编译流水线——批量编译与 watch 消费共用的领域入口。
 
-一个源文件 → convert → chunk → extract → search → analyze → plan → execute → index。
-阶段失败以 ``IngestError(stage=...)`` 冒出，边界自行处置（跳过/记录/重试）——
-流水线不决定失败策略，只报告失败发生在哪一段。
-
-调用方拿到 :class:`IngestOutcome` 做自己的事: 统计、artifact 存档、事件日志。
+一个源文件 → convert → chunk → extract → search → analyze → plan →
+execute → index。阶段失败带阶段信息冒出，流水线不决定失败策略，
+只报告失败发生在哪一段；调用方拿到结果自行统计与存档。
 """
 
 from __future__ import annotations

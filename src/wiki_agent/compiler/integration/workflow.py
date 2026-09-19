@@ -1,10 +1,8 @@
-"""Integrator——四阶段组装器（facade）+ 组装工厂。
+"""Integrator——四阶段组装器 + 组装工厂。
 
-与四个阶段模块的分层: search/analyze/plan/execute 是"执行者"
-（每个阶段怎么做），本模块是"组装"（哪四个执行者配成一条链）。
-
-模式知识只在这里: compile_integrator() = 策展人链，
-refine_integrator() = 润色师链。新模式的加入 = 新工厂函数。
+阶段模块是"执行者"（每个阶段怎么做），本模块是"组装"
+（哪四个执行者配成一条链）。模式知识集中于此: compile 与 refine
+各配一条链，新模式 = 新组装入口。
 """
 
 from __future__ import annotations

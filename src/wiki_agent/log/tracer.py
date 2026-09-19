@@ -1,8 +1,7 @@
-"""Trace 传播层——trace_id + span，基于 contextvars。
+"""Trace 传播层——trace_id + span，异步并发安全（任务间互不串扰）。
 
 - trace_id: 一次 agent.run() 一个，贯穿 LLM 调用/工具执行/压缩全链路
 - span: 嵌套计时区间，自动记录起止和耗时到事件日志
-- contextvars: async 安全——并发任务互不串扰
 
 用法::
 

@@ -1,11 +1,8 @@
-"""Phase 1 — 从结构化 SourceDocument 生成纯文档摘要。
-
-输入: ``SourceDocument``（包含 chunks + 标题路径 + 文件元信息）
-输出: ``ExtractResult``（纯 document_summary，不做实体提取）
+"""Phase 1 — 从结构化源文档生成纯文档摘要（不做实体提取）。
 
 两种摘要策略:
   - 均匀分配: chunk 少、上下文窗口大时，每个 chunk 独立并行摘要
-  - 滚动压缩: chunk 多时，逐 chunk 累积 global digest
+  - 滚动压缩: chunk 多时，逐 chunk 累积全局摘要
 """
 
 from __future__ import annotations

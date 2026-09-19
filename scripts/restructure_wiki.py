@@ -1,13 +1,12 @@
-"""结构重组正式入口（脚本壳）——调 application.restructure_service 编排。
+"""结构重组正式入口（脚本壳）。
 
 用法:
     .venv/bin/python scripts/restructure_wiki.py             # 交互逐条确认
     .venv/bin/python scripts/restructure_wiki.py --dry-run   # 只出报告不动手
     .venv/bin/python scripts/restructure_wiki.py --yes       # 跳过确认全执行
 
-流程与审计交给 service（写 run.log/events.jsonl）；本壳只管：run 目录、git 事务、
-交互式确认回调（input 属终端 UX）。输出不再分 stdout/日志流——摘要与明细统一走
-logger，console=INFO 时终端可见，全量落 run.log。
+流程编排与审计在应用层 service；本壳只管 run 目录、git 事务、交互式确认，
+输出统一走 logger（终端可见 + 落运行日志）。
 """
 
 import asyncio

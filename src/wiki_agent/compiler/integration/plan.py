@@ -1,8 +1,7 @@
-"""Plan 阶段——决策。Planner 接口 + 两个模式实现（策展人/润色师）。
+"""Plan 阶段——集成决策。
 
-- Planner 共享 LLM 调用 + 校验 + 解析；needs_current_page 决定组装器是否传 current_page
-- CuratorPlanner 策展人——compile（new/update 开放决策），不知道 current_page 存在
-- PolisherPlanner 润色师——refine（只更新自己），自己从 wiki_dir 读本页 frontmatter
+按模式提供两种规划者: compile 是策展人（new/update 开放决策），
+refine 是润色师（只更新输入页自身）。共享 LLM 调用 + 校验 + 解析流程。
 """
 
 from __future__ import annotations

@@ -1,8 +1,4 @@
-"""集成层共享工具——跨阶段复用的 index/slug 读取。
-
-依赖方向: common 只用 re/pathlib + models，被 search/plan/execute 复用，
-自身不 import 任何同级阶段模块（避免横向耦合）。
-"""
+"""集成层共享工具——跨阶段复用的 index/slug 读取。"""
 
 from __future__ import annotations
 

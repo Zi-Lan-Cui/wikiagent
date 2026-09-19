@@ -4,9 +4,8 @@
     uv run python scripts/watch_folder.py /path/to/source-folder
 
 数据流:
-    源目录 → FileWatcher(事件驱动 inotify：去抖+稳定性复读+变更门，
-             60s 回退全量扫描兜底) → asyncio.Queue
-           → WatchConsumer(单 worker 串行) → CompilePipeline.ingest_one
+    源目录 → 变更监视（事件驱动，去抖+稳定性确认，定时全量扫描兜底）
+           → 变更队列 → 消费端（串行） → 编译流水线
 """
 
 import asyncio

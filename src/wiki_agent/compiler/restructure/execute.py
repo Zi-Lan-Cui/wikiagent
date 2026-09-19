@@ -1,8 +1,6 @@
 """结构重组的原子执行（无 LLM）——内存算最终状态后按依赖序列落盘。
 
-复用 resolve（依赖序列 + 被吸收页判定）、rewrite（链接改写）、
-transaction（备份/回滚）、common（页面表）、wiki（related/normalize）。
-同 group_id 的 create+trim 是一个事务，失败整组回滚。
+同事务组内的写操作要么全部生效，失败整组回滚。
 """
 
 from __future__ import annotations
@@ -313,7 +311,9 @@ def execute(
             if missing:
                 logger.warning("  ✗ 跳过 %s: 页面已不存在 %s", prop.pages, missing)
                 result.skipped.append(f"{prop.op} {prop.pages}（页面不存在）")
-                emit_event("restructure_skipped", op=prop.op, pages=prop.pages, reason="page_missing")
+                emit_event(
+                    "restructure_skipped", op=prop.op, pages=prop.pages, reason="page_missing"
+                )
                 failed.add(prop.id)
                 group_failed = True
                 continue
