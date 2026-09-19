@@ -117,7 +117,7 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
             check=_check_propose_list,
             temperature=0,  # 召回任务——确定性输出，宁稳勿创
             extra_body=_NO_THINKING,
-            max_retries=2,
+            max_attempts=2,
         )
     except Exception as e:
         # LLM 失败不静默——分类后进事件流，返回空（结构健康是最安全的降级）

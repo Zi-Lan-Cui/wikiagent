@@ -165,7 +165,7 @@ def _parse_analysis(raw: str, source_identity: str) -> AnalysisResult:
 def _parse_plan(raw: str) -> IntegrationPlan:
     """解析 plan JSON 输出 → IntegrationPlan。
 
-    fence 容错与 _check_plan_json 共享 _strip_fence——能到这的
+    fence 容错与 check_plan_json 共享 _strip_fence——能到这的
     内容必然已通过校验，解析失败是 bug，炸出来而不是吞掉
     （旧 _try_parse_json 的 JSONDecodeError 抢救分支已不可达）。
 

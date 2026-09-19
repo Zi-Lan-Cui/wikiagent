@@ -12,7 +12,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from wiki_agent.compiler.integration.checks import _check_plan_json
+from wiki_agent.compiler.integration.checks import check_plan_json
 from wiki_agent.compiler.models import (
     Disposition,
     ExtractResult,
@@ -74,18 +74,18 @@ def test_check_blocks_new_in_refine():
         '{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
         '"disposition": "new", "reason": "x"}]}'
     )
-    ok, err = _check_plan_json(new_plan, allowed_dispositions=rp.ALLOWED_DISPOSITIONS)
+    ok, err = check_plan_json(new_plan, allowed_dispositions=rp.ALLOWED_DISPOSITIONS)
     assert not ok and "update" in err
 
     upd_plan = (
         '{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
         '"disposition": "update", "reason": "x"}]}'
     )
-    ok, err = _check_plan_json(upd_plan, allowed_dispositions=rp.ALLOWED_DISPOSITIONS)
+    ok, err = check_plan_json(upd_plan, allowed_dispositions=rp.ALLOWED_DISPOSITIONS)
     assert ok, err
 
     # compile 契约: new 现在必须带 page_type（单一权威契约）
-    ok, err = _check_plan_json(new_plan, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
+    ok, err = check_plan_json(new_plan, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
     assert not ok and "page_type" in err
 
 
@@ -100,7 +100,7 @@ def test_new_target_requires_page_type_consistent_with_directory():
         '{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
         '"disposition": "new", "reason": "x"}]}'
     )
-    ok, err = _check_plan_json(missing, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
+    ok, err = check_plan_json(missing, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
     assert not ok and "page_type" in err
 
     # 类型与目录不一致 → 拒绝（entities/ 目录 + concept 类型）
@@ -108,7 +108,7 @@ def test_new_target_requires_page_type_consistent_with_directory():
         '{"page_targets": [{"wiki_path": "entities/a.md", "title": "A", '
         '"disposition": "new", "page_type": "concept", "reason": "x"}]}'
     )
-    ok, err = _check_plan_json(mismatched, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
+    ok, err = check_plan_json(mismatched, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
     assert not ok and "目录不一致" in err
 
     # 一致 → 放行
@@ -116,11 +116,11 @@ def test_new_target_requires_page_type_consistent_with_directory():
         '{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
         '"disposition": "new", "page_type": "concept", "reason": "x"}]}'
     )
-    ok, err = _check_plan_json(consistent, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
+    ok, err = check_plan_json(consistent, allowed_dispositions=cp.ALLOWED_DISPOSITIONS)
     assert ok, err
 
     # update 目标不需要 page_type（沿用已有页面 type）
-    ok, err = _check_plan_json(
+    ok, err = check_plan_json(
         '{"page_targets": [{"wiki_path": "entities/a.md", "title": "A", '
         '"disposition": "update", "reason": "x"}]}',
         allowed_dispositions=cp.ALLOWED_DISPOSITIONS,
@@ -132,10 +132,7 @@ def test_metadata_injection_overrides_type_from_plan():
     """系统注入: plan 的 page_type 强制覆盖 generate 写的 type。"""
     from wiki_agent.wiki.normalize import inject_metadata
 
-    content = (
-        "---\ntype: concept\ntitle: A\nsummary: s\n"
-        'sources: ["old.md"]\n---\n# A\n正文'
-    )
+    content = '---\ntype: concept\ntitle: A\nsummary: s\nsources: ["old.md"]\n---\n# A\n正文'
     out = inject_metadata(
         content,
         source_identity="new.md",
@@ -146,9 +143,7 @@ def test_metadata_injection_overrides_type_from_plan():
     assert "type: entity" in out.split("---")[1]
     assert "type: concept" not in out.split("---")[1]
     # 无 page_type 时不动 type（update 目标）
-    out2 = inject_metadata(
-        content, source_identity="new.md", today="2026-09-10", existing=None
-    )
+    out2 = inject_metadata(content, source_identity="new.md", today="2026-09-10", existing=None)
     assert "type: concept" in out2.split("---")[1]
 
 
