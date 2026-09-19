@@ -1,4 +1,7 @@
-"""事件驱动 watcher——事件路径（去抖+稳定性+变更门）+ 回退路径（删除检测）。
+"""FileWatcher 纯生产者契约——确认只提交 Job，不写完成账。
+
+覆盖: 事件路径提交/微调跳过/删除、回退路径两段确认、
+提交不改 state.hash（I4）、delete 条目延迟清除（可重发现）。
 
 直接运行:  .venv/bin/python test/test_watcher.py
 """
@@ -7,120 +10,156 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from wiki_agent.watch.state import WatchState
+from wiki_agent.watch.state import WatchState, digest_file_text
 from wiki_agent.watch.watcher import FileWatcher
 
 
 def _make_env(tmp: Path):
     src = tmp / "src"
     src.mkdir()
-    state_path = tmp / "state.json"
-    queue: asyncio.Queue = asyncio.Queue()
-    return src, WatchState(state_path), queue
+    state = WatchState(tmp / "watch" / "state.json")
+    submits: list[tuple[str, bool, str]] = []
+    watcher = FileWatcher(
+        src,
+        state,
+        submit_job=lambda resource, deleted, digest: submits.append((resource, deleted, digest)),
+        settle_window=0.05,
+        stability_delay=0.05,
+        fallback_interval=3600,
+    )
+    return src, state, submits, watcher
 
 
-def _new_file(src: Path, name: str = "note.md", content: str = "hello") -> Path:
-    p = src / name
-    p.write_text(content, encoding="utf-8")
-    return p
+def _new_file(src: Path, content: str) -> Path:
+    f = src / "note.md"
+    f.write_text(content, encoding="utf-8")
+    return f
 
 
-def test_event_path_change_detection():
-    """事件路径: 文件变化 → settle → 稳定性复读 → 入队（大改动）。"""
+def test_event_path_submits_without_marking_hash(tmp_path: Path):
+    """大改动经 settle+稳定性 → 提交带 digest；state.hash 不动（I4）。"""
 
     async def run():
-        tmp = Path(tempfile.mkdtemp())
-        src, state, queue = _make_env(tmp)
-        watcher = FileWatcher(
-            src, queue, state, settle_window=0.1, stability_delay=0.1, fallback_interval=3600
-        )
-        # 先建立已知状态（新文件两段确认需 2 轮扫描）
+        src, state, submits, watcher = _make_env(tmp_path)
         f = _new_file(src, content="原文内容" * 20)
-        await watcher._poll_once()
-        await watcher._poll_once()
-        queue.get_nowait()  # 首次入队（建立已知状态）
-
-        # 大改动（相似度远低于阈值）
-        f.write_text("完全不同的新内容" * 30, encoding="utf-8")
-        # 事件路径: _notify → settle → 检查
         watcher._loop = asyncio.get_running_loop()
+
         watcher._notify(str(f))
-        await asyncio.sleep(0.5)  # settle 0.1 + stability 0.1 + 余量
-        # 大改动应入队
-        assert not queue.empty(), "大改动应入队"
-        item = queue.get_nowait()
-        assert str(item) == str(f)
+        await asyncio.sleep(0.4)
+
+        assert len(submits) == 1
+        resource, deleted, digest = submits[0]
+        assert resource == str(f) and deleted is False
+        assert len(digest) == 64, "提交必须携带内容指纹"
+        assert state.get(str(f)).hash == "", "提交不得写完成账"
+        assert state.get(str(f)).pending_text is None, "定案应清两段确认现场"
 
     asyncio.run(run())
 
 
-def test_event_path_micro_change_skipped():
-    """事件路径: 微调（相似度高）跳过变更门。"""
+def test_event_path_micro_change_skipped(tmp_path: Path):
+    """微调（相似度高）跳过变更门——不提交。"""
 
     async def run():
-        tmp = Path(tempfile.mkdtemp())
-        src, state, queue = _make_env(tmp)
-        watcher = FileWatcher(
-            src, queue, state, settle_window=0.1, stability_delay=0.1, fallback_interval=3600
-        )
+        src, state, submits, watcher = _make_env(tmp_path)
         base = "这是关于迭代器的基础内容" * 15
         f = _new_file(src, content=base)
-        await watcher._poll_once()  # 建立已知状态（两段确认 2 轮）
-        await watcher._poll_once()
-        queue.get_nowait()  # 清掉首次入队
+        await watcher._poll_once()  # 两段确认第一轮
+        await watcher._poll_once()  # 定案提交
+        digest, text = digest_file_text(f)
+        state.record(str(f), digest, text)  # 模拟成功核账完成
+        submits.clear()
 
-        # 微调: 改一个词（相似度极高）
         f.write_text(base.replace("基础", "基本"), encoding="utf-8")
         watcher._loop = asyncio.get_running_loop()
         watcher._notify(str(f))
-        await asyncio.sleep(0.5)
-        assert queue.empty(), "微调应被变更门跳过"
+        await asyncio.sleep(0.4)
+        assert submits == [], "微调应被变更门跳过"
 
     asyncio.run(run())
 
 
-def test_fallback_path_delete_detection():
-    """回退路径: 文件删除 → state drop + delete 事件入队。"""
+def test_fallback_two_phase_confirmation(tmp_path: Path):
+    """回退路径新文件: 第一轮只 pending 不提交，第二轮定案提交。"""
 
     async def run():
-        tmp = Path(tempfile.mkdtemp())
-        src, state, queue = _make_env(tmp)
-        watcher = FileWatcher(src, queue, state, fallback_interval=3600)
-        f = _new_file(src, "note.md", "内容")
-        await watcher._poll_once()
-        await watcher._poll_once()
-        queue.get_nowait()  # 首次入队
+        src, state, submits, watcher = _make_env(tmp_path)
+        f = _new_file(src, content="轮询确认内容" * 10)
 
+        await watcher._poll_once()
+        assert submits == [], "第一段确认不应提交"
+        assert state.get(str(f)).pending_seen == 1
+
+        await watcher._poll_once()
+        assert len(submits) == 1 and submits[0][0] == str(f)
+        assert state.get(str(f)).hash == "", "回退提交同样不落完成账"
+
+        submits.clear()
+        await watcher._poll_once()
+        assert submits == [], "同内容第三轮不再提交"
+
+    asyncio.run(run())
+
+
+def test_fallback_delete_detection_keeps_state_entry(tmp_path: Path):
+    """删除检测: 提交 delete job（resource=绝对路径、digest 空）；条目保留待成功核账清除。"""
+
+    async def run():
+        src, state, submits, watcher = _make_env(tmp_path)
+        f = _new_file(src, content="将被删除" * 10)
+        await watcher._poll_once()
+        await watcher._poll_once()
+        submits.clear()
         f.unlink()
-        queued = await watcher._poll_once()
-        assert any(q.startswith("delete:note.md") for q in queued)
-        item = queue.get_nowait()
-        assert item[0] == "delete" and item[1] == "note.md"
+
+        await watcher._poll_once()
+        assert submits == [(str(f), True, "")]
+        assert str(f) in state.all_paths(), "delete 成功前条目必须留存（可重发现）"
+
+        submits.clear()
+        await watcher._poll_once()
+        assert submits == [(str(f), True, "")], "在途期间重复提交由幂等吸收"
 
     asyncio.run(run())
 
 
-def test_event_path_delete_detection():
-    """事件路径: 文件消失 → settle 检查发现 → delete 入队。"""
+def test_event_path_delete_detection(tmp_path: Path):
+    """事件路径发现消失 → 提交 delete。"""
 
     async def run():
-        tmp = Path(tempfile.mkdtemp())
-        src, state, queue = _make_env(tmp)
-        watcher = FileWatcher(
-            src, queue, state, settle_window=0.1, stability_delay=0.1, fallback_interval=3600
-        )
-        f = _new_file(src, "note.md", "内容")
+        src, state, submits, watcher = _make_env(tmp_path)
+        f = _new_file(src, content="事件删除" * 10)
         await watcher._poll_once()
         await watcher._poll_once()
-        queue.get_nowait()
+        submits.clear()
+        f.unlink()
 
         watcher._loop = asyncio.get_running_loop()
-        f.unlink()
-        # 真实 watchdog 会发事件；这里直接走事件路径的检查
         watcher._notify(str(f))
-        await asyncio.sleep(0.5)
-        item = queue.get_nowait()
-        assert item[0] == "delete" and item[1] == "note.md"
+        await asyncio.sleep(0.3)
+        assert submits == [(str(f), True, "")]
+
+    asyncio.run(run())
+
+
+def test_unchanged_touch_ignored(tmp_path: Path):
+    """完成账在手、内容不变 → 事件与扫描都不提交。"""
+
+    async def run():
+        src, state, submits, watcher = _make_env(tmp_path)
+        f = _new_file(src, content="稳定内容" * 10)
+        await watcher._poll_once()
+        await watcher._poll_once()
+        digest, text = digest_file_text(f)
+        state.record(str(f), digest, text)
+        submits.clear()
+
+        f.write_text("稳定内容" * 10, encoding="utf-8")
+        await watcher._poll_once()
+        watcher._loop = asyncio.get_running_loop()
+        watcher._notify(str(f))
+        await asyncio.sleep(0.3)
+        assert submits == []
 
     asyncio.run(run())
 
@@ -128,11 +167,11 @@ def test_event_path_delete_detection():
 if __name__ == "__main__":
     import traceback
 
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
         try:
-            t()
+            t(Path(tempfile.mkdtemp()))
             print(f"  ✓ {t.__name__}")
         except Exception:
             failed += 1

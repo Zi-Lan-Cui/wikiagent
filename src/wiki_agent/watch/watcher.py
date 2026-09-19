@@ -1,19 +1,22 @@
-"""生产端——事件驱动监视源目录，把"变更待 ingest"的文件产出到队列。
+"""生产端——事件驱动监视源目录，把"变更待 ingest"的文件提交为 Job。
 
 事件管道: 变更事件 → 去抖（吸收编辑器保存抖动）→ 稳定性复读
 （同一内容隔窗口不变才定案，防半写文件）→ 变更门（相似度过阈值的
-微调跳过）→ 入队。
+微调跳过）→ submit_job(绝对路径, deleted, digest)。
+
+纯生产者：本模块只提交意图（digest = 确认时读到的内容指纹），**不写
+"已处理"账**。state.hash/text 只在 job 成功后由核账入口写入（I4）——
+提交未确认期间，后续扫描对同内容的重复提交由在途 Job 的唯一索引幂等
+吸收（I1），确定性失败让位于 issue 重试通道（I6）。
 
 另有周期性全量扫描兜底: 事件可能溢出/丢失，全量扫描是安全网，
-进程重启后的首次 reconcile 也走它。
-
-删除检测由事件与回退两条路径共同覆盖，消费端契约统一。
+进程重启后的首次 reconcile 也走它。删除检测由事件与回退两条路径共同
+覆盖；state 条目延迟到 delete job 成功后才清除（Job 失败可被重新发现）。
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from collections.abc import Callable
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -28,7 +31,7 @@ if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
 from wiki_agent.log import get_logger
-from wiki_agent.watch.state import FileState, WatchState
+from wiki_agent.watch.state import FileState, WatchState, digest_file_text
 
 logger = get_logger("WATCHER")
 
@@ -40,7 +43,7 @@ _MIN_SIMILARITY = 0.7
 # 事件路径时序（秒）
 _SETTLE_WINDOW = 2.0  # 事件静默窗口——编辑器保存的原子操作在此内吸收
 _STABILITY_DELAY = 2.0  # 稳定性复读间隔——第二次"看到同一内容"才定案
-_FALLBACK_INTERVAL = 60.0  # 回退全量扫描周期——inotify 溢出/丢事件的安全网
+_FALLBACK_INTERVAL = 60.0  # 回退全量扫描周期——事件溢出/丢事件的安全网
 
 
 class _FsEventHandler(FileSystemEventHandler):
@@ -64,12 +67,11 @@ class _FsEventHandler(FileSystemEventHandler):
 
 
 class FileWatcher:
-    """事件驱动文件监视器——事件经去抖+稳定性确认后入队，回退扫描兜底。"""
+    """事件驱动文件监视器——确认后的变更提交为 Job，回退扫描兜底。"""
 
     def __init__(
         self,
         source_dir: str | Path,
-        queue: asyncio.Queue,
         state: WatchState,
         *,
         wiki_dir: str | Path | None = None,
@@ -77,10 +79,9 @@ class FileWatcher:
         stability_delay: float = _STABILITY_DELAY,
         fallback_interval: float = _FALLBACK_INTERVAL,
         similarity_threshold: float = _MIN_SIMILARITY,
-        submit_job: Callable[[str, bool], object] | None = None,
+        submit_job: Callable[[str, bool, str], object],
     ):
         self._root = Path(source_dir).resolve()
-        self._queue = queue
         self._state = state
         # 源文件删除检测需要 Wiki 目录（清理旧式来源引用）——不传则只 drop state
         self._wiki_dir = Path(wiki_dir) if wiki_dir else None
@@ -88,8 +89,8 @@ class FileWatcher:
         self._stability = stability_delay
         self._fallback = fallback_interval
         self._threshold = similarity_threshold
-        # Optional durable dispatcher. When supplied, detected changes are
-        # recorded as Jobs instead of being delivered to the legacy queue.
+        # (resource, deleted, digest) → Job——提交是唯一出口；resource 一律
+        # 绝对路径字符串（与 issue 重试链共享 I1 身份空间）
         self._submit_job = submit_job
 
         # 每路径去抖定时器——新事件重置旧定时器（编辑器多事件合并为一次检查）
@@ -147,12 +148,12 @@ class FileWatcher:
             self._stop_observer()
 
     def _start_observer(self) -> None:
-        """启动 inotify 观察器。"""
+        """启动文件事件观察器。"""
         self._loop = asyncio.get_running_loop()
         self._observer = Observer()
         self._observer.schedule(_FsEventHandler(self), str(self._root), recursive=True)
         self._observer.start()
-        logger.info("inotify 观察器已启动: %s", self._root)
+        logger.info("文件观察器已启动: %s", self._root)
 
     def _stop_observer(self) -> None:
         """停止观察器并清理定时器。"""
@@ -187,103 +188,86 @@ class FileWatcher:
 
         self._timers[path] = self._loop.call_later(self._settle, _fire)
 
-    async def _check_path(self, path: str) -> list[str]:
+    async def _check_path(self, path: str) -> None:
         """settle 后检查单个路径——存在走变更门，不存在走删除。
 
-        定时器句柄已在 _fire 里弹出，这里不重复 pop（_notify 的
-        pop 语义是"取消旧定时器"——此处已无句柄）。
+        稳定性窗口可能跨越一次回退扫描，sleep 之后必须重取 st 再变更
+        （否则会把扫描期间别的写入冲掉）。
 
         Args:
             path: 文件路径。
-
-        Returns:
-            入队/删除的路径列表（事件路径用）。
         """
         p = Path(path)
 
         # 删除: 路径在 state 但磁盘上没了
         if not p.exists():
             if path in self._state.all_paths():
-                return await self._emit_delete(path)
-            return []
+                await self._emit_delete(path)
+            return
 
-        try:
-            content1 = p.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return []
-        digest1 = hashlib.sha256(content1.encode("utf-8")).hexdigest()
+        read = digest_file_text(p)
+        if read is None:
+            return
+        digest1, text1 = read
         st = self._state.get(path)
         self._state.set(path, st)
 
         # 内容没变: touch/无意义写入 → 忽略
         if st.hash == digest1:
-            return []
+            return
 
         # 变更门: 微调（相似度 ≥ 阈值）忽略
-        if st.hash and not self._is_major_change(st, content1):
+        if st.hash and not self._is_major_change(st, text1):
             logger.info("  %s: 相似度高于阈值，跳过（微调）", p.name)
-            return []
+            return
 
         # 稳定性复读——两段确认的事件版：隔 stability 内容不变才定案
         await asyncio.sleep(self._stability)
-        try:
-            content2 = p.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return []  # 复读时消失——删除路径由后续事件/回退扫描处理
-        digest2 = hashlib.sha256(content2.encode("utf-8")).hexdigest()
-        if digest2 != digest1:
+        read2 = digest_file_text(p)
+        if read2 is None:
+            return  # 复读时消失——删除路径由后续事件/回退扫描处理
+        if read2[0] != digest1:
             logger.debug("  %s: 稳定性窗口内又变化，重新进入 settle", p.name)
             self._notify(path)
-            return []
+            return
 
-        self._finalize_change(st, content2, digest2)
+        st = self._state.get(path)
+        self._clear_pending(st)
+        self._state.set(path, st)
         self._state.save()
-        if self._submit_job is not None:
-            self._submit_job(str(p), False)
-        else:
-            await self._queue.put(p)
-        logger.info("  变更入队: %s", p.name)
-        return [str(p)]
+        self._submit_job(str(p), False, digest1)
+        logger.info("  变更提交: %s", p.name)
 
     # 回退路径：全量扫描（轮询语义保留）
 
-    async def _poll_once(self) -> list[str]:
-        """单轮全量扫描——inotify 溢出/丢事件的安全网 + 启动 reconcile。
-
-        Returns:
-            入队/删除的路径列表。
-        """
-        queued: list[str] = []
+    async def _poll_once(self) -> None:
+        """单轮全量扫描——事件溢出/丢失的安全网 + 启动 reconcile。"""
         current = self._scan_files()
         logger.debug("回退扫描: %d 个文件", len(current))
 
         for path in current:
-            try:
-                content = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            read = digest_file_text(path)
+            if read is None:
                 continue
-            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            digest, text = read
             st = self._state.get(str(path))
             # 新文件不在 entries 里时 get 返回临时对象——
             # 登记回去，否则 _confirm 对 pending 的修改在 save 时丢失
             self._state.set(str(path), st)
 
-            if self._pass_change_gate(st, content, digest):
-                if self._submit_job is not None:
-                    self._submit_job(str(path), False)
-                else:
-                    await self._queue.put(path)
-                queued.append(str(path))
-                logger.info("  变更入队: %s", path.name)
+            if self._pass_change_gate(st, text, digest):
+                self._submit_job(str(path), False, digest)
+                logger.info("  变更提交: %s", path.name)
 
-        # 删除检测: state 里已不在磁盘上的文件 → 走共享 _emit_delete
+        # 删除检测: state 里已不在磁盘上的文件 → 共享 _emit_delete。
+        # 条目在 delete job 成功前保留——它是"这件事还没做完"的持久凭证，
+        # 每轮重提交被在途 Job 幂等吸收；崩溃/失败后重启可重新发现。
         disk = {str(p) for p in current}
         for old in self._state.all_paths():
             if old not in disk:
-                queued.extend(await self._emit_delete(old))
+                await self._emit_delete(old)
 
         self._state.save()
-        return queued
 
     # 扫描
 
@@ -304,59 +288,51 @@ class FileWatcher:
 
     # 判定
 
-    def _pass_change_gate(self, st: FileState, content: str, digest: str) -> bool:
+    def _pass_change_gate(self, st: FileState, text: str, digest: str) -> bool:
         """两段确认 + 变更门（回退路径用）。
 
-        返回 True → 入队（大改动确认）；False → 忽略或仅更新 pending。
+        返回 True → 提交 Job（大改动确认完成）；False → 忽略或仅更新 pending。
 
         Args:
             st: 文件状态。
-            content: 当前内容。
+            text: 当前内容。
             digest: 当前内容哈希。
 
         Returns:
-            True 表示应入队。
+            True 表示应提交。
         """
         # 新文件: 无已知状态 → 走两段确认（首次见存 pending）
         if not st.hash:
-            return self._confirm(st, content, digest)
+            return self._confirm(st, text, digest)
 
         # 内容没变: touch/无意义写入 → 忽略
         if digest == st.hash:
             return False
 
         # hash 变了: 相似度门——微调忽略，大改动走确认
-        if not self._is_major_change(st, content):
+        if not self._is_major_change(st, text):
             return False
-        return self._confirm(st, content, digest)
+        return self._confirm(st, text, digest)
 
-    async def _emit_delete(self, path: str) -> list[str]:
-        """删除事件共享实现——drop state + ("delete", name) 入队。
+    async def _emit_delete(self, path: str) -> None:
+        """删除事件共享实现——提交 delete Job（资源 = 绝对路径）。
 
-        事件路径（单路径检查发现消失）与回退路径（持久化快照/磁盘 diff）
-        都走这里——删除语义只有一处。
+        事件路径（单路径检查发现消失）与回退路径（state/磁盘 diff）
+        都走这里——删除语义只有一处。state 条目不在此清除：成功账由
+        JobOutcomeHandler 在 delete job 成功后落（延迟 drop，可自愈）。
 
         Args:
             path: 被删文件路径。
-
-        Returns:
-            ["delete:<name>"] 标记列表。
         """
-        name = Path(path).name
-        self._state.drop(path)
-        if self._submit_job is not None:
-            self._submit_job(name, True)
-        else:
-            await self._queue.put(("delete", name))
-        logger.info("  源文件删除检测: %s", name)
-        return [f"delete:{name}"]
+        self._submit_job(str(Path(path).resolve()), True, "")
+        logger.info("  源文件删除提交: %s", Path(path).name)
 
-    def _is_major_change(self, st: FileState, content: str) -> bool:
-        """与已知文本比相似度——低于阈值才算大改动。
+    def _is_major_change(self, st: FileState, text: str) -> bool:
+        """与已知内容比相似度——低于阈值才算大改动。
 
         Args:
             st: 文件状态（已知文本）。
-            content: 当前内容。
+            text: 当前内容。
 
         Returns:
             True 表示大改动。
@@ -364,48 +340,37 @@ class FileWatcher:
         if st.text is None:
             return True
         if not st.text:
-            return bool(content)
-        return SequenceMatcher(None, st.text, content).ratio() < self._threshold
+            return bool(text)
+        return SequenceMatcher(None, st.text, text).ratio() < self._threshold
 
-    def _confirm(self, st: FileState, content: str, digest: str) -> bool:
+    def _confirm(self, st: FileState, text: str, digest: str) -> bool:
         """两段确认: 同一内容连续出现 _CONFIRM_ROUNDS 轮才通过。
 
         Args:
             st: 文件状态（pending 现场读写）。
-            content: 当前内容。
+            text: 当前内容。
             digest: 当前内容哈希。
 
         Returns:
             True 表示确认通过。
         """
-        if st.pending_text is not None and st.pending_text == content:
+        if st.pending_text is not None and st.pending_text == text:
             st.pending_seen += 1
             if st.pending_seen >= _CONFIRM_ROUNDS:
-                self._finalize_change(st, content, digest)
+                self._clear_pending(st)
                 return True
             return False
 
-        st.pending_text = content
+        st.pending_text = text
         st.pending_seen = 1
         return False
 
-    def _finalize_change(
-        self,
-        st: FileState,
-        content: str,
-        digest: str,
-    ) -> None:
-        """定案——把确认过的内容写进 state（两个入口共享）。
+    def _clear_pending(self, st: FileState) -> None:
+        """确认定案——清两段确认现场。
 
-        事件路径（稳定性复读一致）与回退路径（两段确认通过）
-        最终都走这里落 state——状态写入只有一处。
-
-        Args:
-            st: 文件状态（就地写入）。
-            content: 定案内容。
-            digest: 定案内容哈希。
+        只清 pending，不写 hash/text：完成账本唯一写入口是
+        WatchState.record（job 成功后由 outcome 落），这是 I4 的
+        生产侧表达。
         """
-        st.hash = digest
-        st.text = content
         st.pending_text = None
         st.pending_seen = 0
