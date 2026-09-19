@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -21,8 +20,7 @@ from wiki_agent.application import (
     WikiAgentService,
 )
 from wiki_agent.application.issue_actions import IssueActionExecutor
-from wiki_agent.application.job_service import JobService
-from wiki_agent.application.job_worker import JobWorker
+from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError
 from wiki_agent.issues import (
@@ -61,24 +59,33 @@ def create_app(
     service = WikiAgentService(app_runtime)
     issue_actions = IssueActionExecutor(app_runtime)
     issue_actions.reconcile_retry_sources()
-    job_service = getattr(app_runtime, "job_service", JobService(app_runtime.workspace))
-    job_worker = JobWorker(job_service)
+    # worker/scheduler/reconciler 循环由 AppRuntime 统一装配与生命周期管理；
+    # web 只补 issue_action handler（executor 在 create_app 内构造）
+    job_service = app_runtime.job_service
+    job_worker = app_runtime.job_worker
 
     async def handle_issue_job(job, progress):
-        await issue_actions.execute(
-            job.resource,
-            job.mode,
-            job.payload,
-            progress=progress,
-        )
+        # 业务拒绝（来源丢失/已被领取/动作非法）是终态——返回 failed 结果，
+        # 不落成 transient 链式重试；账本已由 executor 写过事件。
+        try:
+            await issue_actions.execute(
+                job.resource,
+                job.mode,
+                job.payload,
+                progress=progress,
+            )
+        except (
+            SourceUnavailableError,
+            IssueAlreadyClaimedError,
+            ValueError,
+            RuntimeError,
+            LookupError,
+        ) as exc:
+            return JobResult(status="failed", detail={"error": str(exc)[:500]})
+        return JobResult(status="succeeded")
 
-    job_worker.register("issue_action", handle_issue_job)
-    worker_task = None
-
-    def _ensure_worker() -> None:
-        nonlocal worker_task
-        if worker_task is None or worker_task.done():
-            worker_task = asyncio.create_task(job_worker.run(), name="wiki-agent:job-worker")
+    if not job_worker.is_registered("issue_action"):
+        job_worker.register("issue_action", handle_issue_job)
 
     def _active_issue_ids() -> set[str]:
         return {
@@ -90,45 +97,44 @@ def create_app(
     def submit_issue_job(
         issue_id: str, action: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        _ensure_worker()
         job = job_service.submit_issue_action(issue_id, action, payload)
         return asdict(job)
 
     def _job_task(job) -> dict[str, Any]:
         item = asdict(job)
-        issue = service.get_issue(job.resource)
-        resource = str(issue.resource.get("path") or issue.resource.get("label") or job.resource)
-        item.update(
-            {
-                "issue_id": job.resource,
-                "action": job.mode,
-                "title": issue.title,
-                "resource": resource,
-                "current_stage": job.stage or ("等待执行" if job.status == "queued" else ""),
-                "stage_code": job.stage,
-                "stage_index": 0,
-                "stage_total": 0,
-            }
-        )
+        # issue_action 的 resource 是 issue_id；watch/compile 族走 issue_id 列
+        issue_id = job.resource if job.kind == "issue_action" else job.issue_id
+        item["issue_id"] = issue_id
+        item["action"] = job.mode
+        item["current_stage"] = job.stage or ("等待执行" if job.status == "queued" else "")
+        item["stage_code"] = job.stage
+        item["stage_index"] = 0
+        item["stage_total"] = 0
+        try:
+            issue = service.get_issue(issue_id) if issue_id else None
+        except LookupError:
+            issue = None
+        if issue is not None:
+            item["title"] = issue.title
+            item["resource"] = str(
+                issue.resource.get("path") or issue.resource.get("label") or job.resource
+            )
+        else:
+            item["title"] = f"{job.kind} {Path(job.resource).name}"
+            item["resource"] = job.resource
         if item["status"] == "succeeded":
             item["status"] = "completed"
-        if job.status == "succeeded":
-            item["result"] = asdict(service.get_issue(job.resource))
+        if job.status == "succeeded" and issue is not None:
+            item["result"] = asdict(issue)
         return item
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         setup_event_log(app_runtime.workspace / "logs" / "web-events.jsonl")
         try:
+            # start() 拉起 job_worker/retry_scheduler/reconciler 循环，close() 统一收尾
             async with app_runtime:
-                _ensure_worker()
-                try:
-                    yield
-                finally:
-                    job_worker.stop()
-                    if worker_task is not None:
-                        worker_task.cancel()
-                        await asyncio.gather(worker_task, return_exceptions=True)
+                yield
         finally:
             setup_event_log(None)
 

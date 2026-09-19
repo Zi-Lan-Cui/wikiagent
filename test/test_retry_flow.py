@@ -197,6 +197,60 @@ def test_scheduler_submits_only_due_and_produces_jobs(tmp_path: Path):
     assert asyncio.run(scheduler.run_due()) == 0
 
 
+# 对账
+
+
+def test_reconcile_orphan_processing_returns_open(tmp_path: Path):
+    """issue 挂 processing 而无在途 job（终态联动崩溃）→ 回落 open。"""
+    from wiki_agent.application.reconcile import Reconciler
+
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("内容" * 10, encoding="utf-8")
+    issue = _failure_issue(service, source)
+    job = service.submit_issue_retry(issue.id)
+    # 模拟"job 到终态但联动丢失"：直接改行不走 complete_with_outcome
+    service.store.update(job.id, status="failed")
+
+    result = Reconciler(service).run_once()
+    assert result["orphans"] == 1
+    assert service.issues.get(issue.id).status == IssueStatus.OPEN
+
+
+def test_reconcile_relinks_active_job_to_failure(tmp_path: Path):
+    """升级前遗留的无账在途 compile 行 → 按资源对上 open 失败账。"""
+    from wiki_agent.application.reconcile import Reconciler
+
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("内容" * 10, encoding="utf-8")
+    job = service.submit_watch_change(str(source.resolve()), digest="d1")
+    assert job.issue_id == ""
+    issue = _failure_issue(service, source)
+
+    result = Reconciler(service).run_once()
+    assert result["relinked"] == 1
+    assert service.store.get(job.id).issue_id == issue.id
+
+
+def test_reconcile_recovers_stale_running(tmp_path: Path):
+    """超时无心跳的 running 回队（进程崩溃自愈的第一环）。"""
+    from datetime import UTC, datetime, timedelta
+
+    from wiki_agent.application.reconcile import Reconciler
+
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    job = service.submit_watch_change("/stale", digest="d")
+    service.store.update(job.id, status="running")
+    stale_time = (datetime.now(UTC) - timedelta(seconds=900)).isoformat()
+    with service.store.database.transaction(immediate=True) as conn:
+        conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (stale_time, job.id))
+
+    result = Reconciler(service, max_age_seconds=300).run_once()
+    assert result["recovered"] == 1
+    assert service.store.get(job.id).status == "queued"
+
+
 if __name__ == "__main__":
     import traceback
 

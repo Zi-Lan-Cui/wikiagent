@@ -296,6 +296,35 @@ class JobStore:
             ).fetchall()
         return {str(row["issue_id"]): str(row["id"]) for row in rows}
 
+    def list_active_without_issue(self, *, kind: str = "compile") -> list[Job]:
+        """在途但没挂账 issue 的 job——对账补挂关系用。"""
+        with self.database.connect() as db:
+            rows = db.execute(
+                "SELECT * FROM jobs WHERE kind = ? AND status IN ('queued','running')"
+                " AND (issue_id IS NULL OR issue_id = '')",
+                (kind,),
+            ).fetchall()
+        return [self._row(row) for row in rows]
+
+    def cancel_queued_running(self, kind: str, *, reason: str) -> int:
+        """一次性迁移：把指定 kind 的在途行转终态让位新模型。"""
+        now = _now()
+        with self._tx() as db:
+            changed = db.execute(
+                "UPDATE jobs SET status='cancelled', stage='cancelled', error=?, updated_at=?"
+                " WHERE kind=? AND status IN ('queued','running')",
+                (reason[:500], now, kind),
+            ).rowcount
+        return int(changed)
+
+    def count_active(self) -> int:
+        """在途（queued/running）行数——脚本类调用方驱动队列到空的判据。"""
+        with self.database.connect() as db:
+            row = db.execute(
+                "SELECT COUNT(*) AS total FROM jobs WHERE status IN ('queued','running')"
+            ).fetchone()
+        return int(row["total"]) if row is not None else 0
+
     def has_active_job_by_issue(self, issue_id: str) -> bool:
         with self.database.connect() as db:
             row = db.execute(
