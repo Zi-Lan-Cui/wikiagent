@@ -8,6 +8,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 
+from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.job_service import JobService
 from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.retry_scheduler import RetryScheduler
@@ -195,6 +196,24 @@ def test_scheduler_submits_only_due_and_produces_jobs(tmp_path: Path):
     assert service.issues.get(due.id).status == IssueStatus.PROCESSING
     # 再来一轮：在途挡住重复排队
     assert asyncio.run(scheduler.run_due()) == 0
+
+
+def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
+    """重试成功：job succeeded 与 issue RESOLVED、WatchState 落账同批生效。"""
+    state = WatchState(tmp_path / "watch" / "state.json")
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki", watch_state=state)
+    source = tmp_path / "note.md"
+    source.write_text("重试输入", encoding="utf-8")
+    digest, text = digest_file_text(source)
+    issue = _failure_issue(service, source)
+
+    job = service.submit_issue_retry(issue.id)
+    final = service.complete_with_outcome(
+        job, JobResult(status="succeeded", detail={"digest": digest, "text": text})
+    )
+    assert final.status == "succeeded"
+    assert service.issues.get(issue.id).status == IssueStatus.RESOLVED
+    assert state.get(job.resource).hash == digest  # I4/I5：成功是唯一落账点
 
 
 # 对账
