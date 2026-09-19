@@ -18,3 +18,7 @@ class Job:
     payload: dict[str, object]
     created_at: str
     updated_at: str
+    # 关联的 issue（执行链回写账本用）；"" = 与 issue 无关的纯执行 job
+    issue_id: str = ""
+    # 退避重排的到期时间；"" = 立即可领取
+    next_run_at: str = ""
