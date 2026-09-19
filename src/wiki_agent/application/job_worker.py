@@ -1,14 +1,23 @@
-"""Single durable worker for application jobs."""
+"""Single durable worker for application jobs.
+
+Worker 是唯一的终态写入者（I2）：claim（按注册 kinds + 到期时间）→
+handler 返回 JobResult → complete_with_outcome 单事务落终态。
+handler 只表达业务结局；bug 抛异常由这里归为 transient 进链式退避。
+"""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
 
+from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.job_service import JobService
 from wiki_agent.jobs import Job
+from wiki_agent.log import get_logger
 
-JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[None]]
+JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[JobResult | None]]
+
+logger = get_logger("JOB_WORKER")
 
 
 class JobWorker:
@@ -33,28 +42,51 @@ class JobWorker:
             raise ValueError(f"重复注册 Job handler: {kind}")
         self._handlers[kind] = handler
 
+    @property
+    def registered_kinds(self) -> set[str]:
+        return set(self._handlers)
+
     async def run_once(self) -> Job | None:
-        job = self.service.claim_next()
+        # kinds 过滤 = 多进程共库的分工边界：只领本进程注册了 handler 的类型
+        job = self.service.claim_next(kinds=self.registered_kinds)
         if job is None:
             return None
         handler = self._handlers.get(job.kind)
         if handler is None:
-            self.service.fail(job.id, f"未注册 Job 类型: {job.kind}")
+            # kinds 过滤下理论不可达（外部显式 claim 的兜底），不重试
+            self.service.complete_with_outcome(
+                job,
+                JobResult(
+                    status="failed",
+                    detail={"error": f"未注册 Job 类型: {job.kind}"},
+                ),
+            )
             return job
 
         def progress(stage: str) -> None:
             self.service.mark_stage(job.id, stage)
 
         try:
-            await handler(job, progress)
+            result = await handler(job, progress)
         except asyncio.CancelledError:
-            self.service.cancel(job.id)
+            # 进程取消：终态 + 归还所挂 issue 单事务落库，再继续传播退出
+            self.service.cancel_terminal(job)
             raise
-        except Exception as exc:  # noqa: BLE001 - worker must persist all failures
-            self.service.fail(job.id, f"{type(exc).__name__}: {exc}")
-        else:
-            self.service.succeed(job.id)
-        return job
+        except Exception as exc:  # noqa: BLE001 - handler bug = transient 链式退避
+            result = JobResult(
+                status="failed",
+                error_type="transient",
+                detail={"error": f"{type(exc).__name__}: {str(exc)[:400]}"},
+            )
+        if result is None:  # 兼容返回 None 的旧 handler——语义 = 成功
+            result = JobResult(status="succeeded")
+        if not isinstance(result, JobResult):
+            result = JobResult(
+                status="failed",
+                error_type="transient",
+                detail={"error": f"handler 返回了 {type(result).__name__}，应为 JobResult"},
+            )
+        return self.service.complete_with_outcome(job, result)
 
     async def run(self) -> None:
         self._stopped.clear()
@@ -67,3 +99,24 @@ class JobWorker:
 
     def stop(self) -> None:
         self._stopped.set()
+
+
+def periodic(interval: float, fn: Callable[[], Awaitable[object]], *, name: str = ""):  # noqa: ANN201
+    """把 async 周期任务包成可 create_task 的常驻循环（scheduler/对账共用）。"""
+
+    async def loop() -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await fn()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 周期任务不因单次失败退出
+                logger.warning(
+                    "周期任务 %s 失败: %s: %s",
+                    name or getattr(fn, "__qualname__", fn),
+                    type(exc).__name__,
+                    str(exc)[:200],
+                )
+
+    return loop()

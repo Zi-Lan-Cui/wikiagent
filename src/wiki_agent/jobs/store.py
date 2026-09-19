@@ -39,9 +39,7 @@ class JobStore:
     # 连接与事务
 
     @contextmanager
-    def _tx(
-        self, _conn: sqlite3.Connection | None = None
-    ) -> Generator[sqlite3.Connection, None, None]:
+    def _tx(self, _conn: sqlite3.Connection | None = None) -> Generator[sqlite3.Connection]:
         """持 _conn 时用调用方事务（不再开新事务），否则自管 immediate 事务。"""
         if _conn is not None:
             yield _conn
