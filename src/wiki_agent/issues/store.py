@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -23,7 +25,7 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.persistence import Database
 
-_SCHEMA_VERSION = "1"
+_SCHEMA_VERSION = "2"
 
 
 def utc_now() -> str:
@@ -64,6 +66,26 @@ class IssueStore:
 
     def _transaction(self, *, immediate: bool = False):
         return self.database.transaction(immediate=immediate)
+
+    @contextmanager
+    def _tx(
+        self, _conn: sqlite3.Connection | None = None
+    ) -> Generator[sqlite3.Connection, None, None]:
+        """持 _conn 时并入调用方事务（job/issue 单事务联动），否则自管。"""
+        if _conn is not None:
+            yield _conn
+            return
+        with self._transaction(immediate=True) as db:
+            yield db
+
+    @staticmethod
+    def _resource_path(draft: IssueDraft) -> str:
+        """规范化来源路径列——与 Job.resource 同一身份空间（绝对路径字符串）。
+
+        优先 context.source_path（producer 已 resolve）；退回 resource.path
+        （文件名类资源，如 wiki 页）——查询侧按等值匹配，两侧写法必须同源。
+        """
+        return str(draft.context.get("source_path") or draft.resource.get("path") or "").strip()
 
     def _initialize(self) -> None:
         with self._connect() as connection:
@@ -126,16 +148,36 @@ class IssueStore:
                 ON issue_actions(issue_id, status);
                 """
             )
+            # schema v2：resource_path 冗余列——job resource 与 issue 来源的
+            # 等值匹配键（watch 提交让位于 open 失败、对账反查都靠它）。
+            # ALTER 幂等（OperationalError=duplicate column）；老行按
+            # context.source_path → resource.path 顺序回填。
+            try:
+                connection.execute("ALTER TABLE issues ADD COLUMN resource_path TEXT")
+            except sqlite3.OperationalError:
+                pass
+            connection.execute(
+                """
+                UPDATE issues SET resource_path = COALESCE(
+                    NULLIF(json_extract(context_json, '$.source_path'), ''),
+                    NULLIF(json_extract(resource_json, '$.path'), '')
+                ) WHERE resource_path IS NULL
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_issues_resource_path ON issues(resource_path, status)"
+            )
             connection.execute(
                 "INSERT OR REPLACE INTO issue_meta(key, value) VALUES('schema_version', ?)",
                 (_SCHEMA_VERSION,),
             )
 
-    def report(self, draft: IssueDraft) -> IssueRecord:
+    def report(self, draft: IssueDraft, *, _conn: sqlite3.Connection | None = None) -> IssueRecord:
         """Insert or merge a report using its stable fingerprint."""
         fingerprint = issue_fingerprint(draft)
+        resource_path = self._resource_path(draft)
         now = utc_now()
-        with self._transaction(immediate=True) as connection:
+        with self._tx(_conn) as connection:
             existing = connection.execute(
                 "SELECT * FROM issues WHERE fingerprint = ?", (fingerprint,)
             ).fetchone()
@@ -154,7 +196,7 @@ class IssueStore:
                         diagnostics_json = ?, retry_json = ?, evidence_json = ?,
                         resolution_json = CASE WHEN status IN ('resolved', 'dismissed')
                             THEN '{}' ELSE resolution_json END,
-                        context_json = ?
+                        context_json = ?, resource_path = COALESCE(?, resource_path)
                     WHERE id = ?
                     """,
                     (
@@ -169,6 +211,7 @@ class IssueStore:
                         self._dump(draft.retry),
                         self._dump(draft.evidence),
                         self._dump(draft.context),
+                        resource_path or None,
                         current.id,
                     ),
                 )
@@ -187,8 +230,9 @@ class IssueStore:
                 INSERT INTO issues(
                     id, kind, status, severity, title, summary, fingerprint,
                     created_at, updated_at, occurrences, origin_json, resource_json,
-                    diagnostics_json, retry_json, evidence_json, resolution_json, context_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, '{}', ?)
+                    diagnostics_json, retry_json, evidence_json, resolution_json, context_json,
+                    resource_path
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, '{}', ?, ?)
                 """,
                 (
                     issue_id,
@@ -206,6 +250,7 @@ class IssueStore:
                     self._dump(draft.retry),
                     self._dump(draft.evidence),
                     self._dump(draft.context),
+                    resource_path or None,
                 ),
             )
             self._append_event(connection, issue_id, "reported", {}, now)
@@ -228,6 +273,21 @@ class IssueStore:
         if record is None:
             raise IssueNotFoundError(issue_id)
         return record
+
+    def find_pending_failures(self, source_path: str) -> list[IssueRecord]:
+        """同一来源的待处理 ingestion 失败（open/blocked）——watch 提交让位查询。
+
+        processing 排除在外：已被认领即有 job 在途，让位由 I1 唯一索引表达。
+        source_path 与 Job.resource 同一身份空间（绝对路径字符串）。
+        """
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM issues WHERE resource_path = ?
+                   AND kind = ? AND status IN ('open','blocked')
+                   ORDER BY updated_at DESC""",
+                (source_path, IssueKind.INGESTION_FAILURE.value),
+            ).fetchall()
+        return [self._row_to_record(row) for row in rows]
 
     def list(
         self,
@@ -289,10 +349,11 @@ class IssueStore:
         resolution: JsonObject | None = None,
         expected: set[IssueStatus] | None = None,
         event: str = "status_changed",
+        _conn: sqlite3.Connection | None = None,
     ) -> IssueRecord:
         """Move one issue through the state machine with optional CAS semantics."""
         now = utc_now()
-        with self._transaction(immediate=True) as connection:
+        with self._tx(_conn) as connection:
             current = self._get_with_connection(connection, issue_id)
             if expected is not None and current.status not in expected:
                 raise IssueAlreadyClaimedError(
@@ -331,10 +392,11 @@ class IssueStore:
         diagnostics: JsonObject | None = None,
         resolution: JsonObject | None = None,
         event: str = "details_updated",
+        _conn: sqlite3.Connection | None = None,
     ) -> IssueRecord:
         """Update structured details without bypassing the audit stream."""
         now = utc_now()
-        with self._transaction(immediate=True) as connection:
+        with self._tx(_conn) as connection:
             current = self._get_with_connection(connection, issue_id)
             connection.execute(
                 """
@@ -353,11 +415,23 @@ class IssueStore:
             self._append_event(connection, issue_id, event, {}, now)
             return self._get_with_connection(connection, issue_id)
 
-    def claim_action(self, issue_id: str, action: str, payload: JsonObject | None = None) -> str:
-        """Atomically claim an issue so the same operation cannot run twice."""
+    def claim_action(
+        self,
+        issue_id: str,
+        action: str,
+        payload: JsonObject | None = None,
+        *,
+        _conn: sqlite3.Connection | None = None,
+    ) -> str:
+        """Atomically claim an issue so the same operation cannot run twice.
+
+        _conn 由 submit_issue_retry 用来把 claim + enqueue + transition
+        收进同一事务（I3：双击 retry 至多一个 job）。注意本方法在持
+        _conn 时不再自开 immediate 事务——外层事务是唯一提交点。
+        """
         now = utc_now()
         action_id = f"action_{uuid4().hex}"
-        with self._transaction(immediate=True) as connection:
+        with self._tx(_conn) as connection:
             current = self._get_with_connection(connection, issue_id)
             if current.status not in {IssueStatus.OPEN, IssueStatus.BLOCKED}:
                 raise IssueAlreadyClaimedError(
@@ -390,10 +464,11 @@ class IssueStore:
         *,
         status: IssueStatus,
         result: JsonObject | None = None,
+        _conn: sqlite3.Connection | None = None,
     ) -> IssueRecord:
         """Finish a claimed action and persist both result and issue state."""
         now = utc_now()
-        with self._transaction(immediate=True) as connection:
+        with self._tx(_conn) as connection:
             action_row = connection.execute(
                 "SELECT issue_id, action, status FROM issue_actions WHERE id = ?", (action_id,)
             ).fetchone()
@@ -422,11 +497,18 @@ class IssueStore:
             )
             return self._get_with_connection(connection, issue_id)
 
-    def fail_action(self, action_id: str, error: str, *, blocked: bool = False) -> IssueRecord:
+    def fail_action(
+        self,
+        action_id: str,
+        error: str,
+        *,
+        blocked: bool = False,
+        _conn: sqlite3.Connection | None = None,
+    ) -> IssueRecord:
         """Return a failed claim to open/blocked while retaining its audit trail."""
         now = utc_now()
         target = IssueStatus.BLOCKED if blocked else IssueStatus.OPEN
-        with self._transaction(immediate=True) as connection:
+        with self._tx(_conn) as connection:
             action_row = connection.execute(
                 "SELECT issue_id, action, status FROM issue_actions WHERE id = ?", (action_id,)
             ).fetchone()
