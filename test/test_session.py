@@ -1,4 +1,4 @@
-"""Session 模型 + 持久化——对齐现行 API（2026-08-15 重写）。
+"""Session 模型 + 持久化测试。
 
 覆盖: 消息管理 / history 窗口与合法起始 / checkpoint 往返 /
 压缩游标跨轮恢复 / manager 缓存与异常路径。

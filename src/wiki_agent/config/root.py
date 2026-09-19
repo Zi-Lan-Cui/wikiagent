@@ -8,9 +8,6 @@
 用法::
 
     cfg = load_config(project_root=Path("."))
-    llm = create_llm(cfg.llm)
-    agent = ReActAgent(llm=llm, vlm=vlm, tool_registry=..., workspace=...,
-                       wiki_dir=..., agent_config=cfg.agent, hooks=...)
 """
 
 from __future__ import annotations

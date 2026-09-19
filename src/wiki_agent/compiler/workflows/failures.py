@@ -1,7 +1,7 @@
 """compile/refine 共用的 source 级失败处理。
 
-Pipeline 内部保留 ``IngestError.stage/raw`` 的细节；边界统一把失败
-转换成一条 source 级待处理事项。watch 有自己的实时失败通道，不使用本模块。
+统一把流水线失败转换成一条 source 级待处理事项；
+watch 有自己的实时失败通道，不使用本模块。
 """
 
 from __future__ import annotations

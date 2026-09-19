@@ -1,13 +1,8 @@
 """页面规范化——LLM 草稿与最终落盘之间的全部加工（写路径）。
 
-主线: 修 LLM 的脏 → 盖系统权威戳 → 质检闸门。
-**顺序是领域知识**——normalize_page 编排，调用方不应自己组装。
-
-- fix:    fix_markdown_fence / fix_wikilinks    修 LLM 输出
-- inject: inject_metadata / extract_related     系统权威字段，代码说了算
-- 闸门:   normalize_page 最后一步调 quality.check_page_quality
-
-质检与全库体检在 quality.py（审计路径），本模块只负责"把页面做成最终形态"。
+主线: 修 LLM 输出 → 盖系统权威字段 → 质检闸门兜底。
+**顺序是领域知识**——由编排入口一次完成，调用方不应自己组装。
+质检与全库体检属审计路径（quality 模块），本模块只负责"把页面做成最终形态"。
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
     VIRTUAL_ENV= .venv/bin/python scripts/refine_wiki.py
 
 数据流:
-    wiki/{concepts,entities,topics}/*.md → CompilePipeline.ingest_one
+    wiki/{concepts,entities,topics}/*.md → 编译流水线
     （index 视图排除当前页条目；不存 source 档案页）
 """
 

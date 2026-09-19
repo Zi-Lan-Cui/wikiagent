@@ -1,10 +1,7 @@
-"""集成层校验——LLM 阶段输出"什么算好"的 check 回调。
+"""集成层校验——定义 LLM 阶段输出"什么算好"的 check 回调。
 
-与 parse 的分界: 本模块校验（返回 (ok, reason)，错误消息可执行——
-LLM 重试时知道错在哪），parse 解析。共享 _strip_fence（从 integration.parse）。
-
-页面级闸门不在这里——`_check_page_output` 等在 wiki/rules.py（无 LLM 底层），
-execute 与 wiki 体检复用的页面判定唯一来源。
+返回 (ok, reason)，错误消息可执行——LLM 重试时知道错在哪。
+与 parse 分工: 这里校验，parse 解析。
 """
 
 from __future__ import annotations
@@ -83,7 +80,7 @@ def check_analyze_json(
         if importance and importance not in _VALID_IMPORTANCE:
             return False, f"entities[{i}].importance 必须是 核心/边缘，当前: {importance}。"
 
-    # concepts 
+    # concepts
     concepts = data.get("concepts", [])
     if not isinstance(concepts, list):
         return False, "concepts 必须是数组。"

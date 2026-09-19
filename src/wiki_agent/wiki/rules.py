@@ -1,13 +1,8 @@
 """Wiki 页面检测原子与闸门——"什么算好页面"（无 LLM，底层）。
 
-原 checks.py 的 wiki 侧。分层（依赖单向）:
-    frontmatter.py  frontmatter 解析（被本模块复用）
-    rules.py        本模块——fence 状态机/正文提取原子 + 页面 check 回调
-    quality.py      体检（Issue 组装 + scan_wiki + 报告，判定复用本模块）
-    normalize.py    修内容（fix/inject）+ 定稿兜底
-
-页面闸门判定只在本模块一份定义——integration 生成时的执行闸门与 wiki
-落盘后的 scan 体检复用同一 `_check_page_output`，同一现象两种语境、一份判定。
+fence 状态机 / 正文提取原子 + 页面 check 回调。
+页面闸门判定只在本模块一份定义——集成层生成时的执行闸门与 wiki
+落盘后的 scan 体检复用同一判定，同一现象两种语境。
 """
 
 from __future__ import annotations

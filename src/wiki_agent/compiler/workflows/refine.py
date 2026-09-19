@@ -1,9 +1,9 @@
 """refine——wiki 自编译：以 wiki 页面自身为输入重跑编译链，刷新关系。
 
 与 compile/watch 的关键差异:
-- 输入 = wiki/{concepts,entities,topics}/*.md（页面自己更新自己）
-- index 视图排除当前页条目——否则 search 必然选中自己 → duplicate →
-  plan 按映射更新 → 用页面摘要重写页面（信息损耗）
+- 输入是 wiki 内容页（页面自己更新自己）
+- index 视图排除当前页条目——否则检索必然选中自己 → 判重 →
+  用页面摘要重写页面（信息损耗）
 - 不存 source 档案页（输入就是 wiki 页面，再存 = 自我复制）
 
 时机: 全文 index 建立后（增量生成时目标页面还不存在，链接先天不充分）。

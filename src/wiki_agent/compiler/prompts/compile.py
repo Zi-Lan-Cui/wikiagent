@@ -1,7 +1,6 @@
 """compile 模式 prompt——全量共享（watch 模式同用）。
 
-refine 模式继承本模块、只覆写 plan（见 refine.py）。
-签名约定见包 docstring——同名函数同签名，Integrator/Extractor 统一调用。
+refine 模式继承本模块、只覆写 plan。
 """
 
 from __future__ import annotations

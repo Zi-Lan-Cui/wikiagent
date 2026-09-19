@@ -1,11 +1,9 @@
 """日志模块——统一命名空间 + 单点配置。
 
-设计:
-- 所有 logger 挂在 ``wiki_agent`` 根下（get_logger 自动补前缀）
-- 根放行一切（DEBUG），handler 各自过滤:
-    - console handler: 默认 WARNING+（INFO 是内部细节，不打扰用户）
-    - file handler:   --debug 时全量 DEBUG 写文件
-- ``configure_logging`` 是唯一配置入口，CLI 等入口启动时调用一次
+- 所有 logger 挂在统一根下（get_logger 自动补前缀）
+- 终端默认 WARNING+（INFO 是内部细节，不打扰用户）；
+  配置了文件路径则全量细节另写运行日志
+- configure_logging 是唯一配置入口，入口程序启动时调用一次
 """
 
 import logging

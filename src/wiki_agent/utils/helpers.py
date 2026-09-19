@@ -1,8 +1,4 @@
-"""通用工具——路径 + token 估计。
-
-（消息合法性工具 find_first_legal_idx 已移到 message 模块——
-它依赖 Message 结构，是消息领域逻辑，不是通用工具。）
-"""
+"""通用工具——路径 + token 估计。"""
 
 from functools import lru_cache
 from pathlib import Path

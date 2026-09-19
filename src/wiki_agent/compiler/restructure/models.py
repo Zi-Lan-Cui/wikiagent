@@ -1,8 +1,4 @@
-"""结构重组的数据模型与超参数。
-
-四类数据结构 + 重组超参数集中于此（无 LLM、无副作用），被
-common/proposal/review/resolve/execute/transaction 复用。
-"""
+"""结构重组的数据模型与超参数——纯数据，无 LLM、无副作用。"""
 
 from __future__ import annotations
 

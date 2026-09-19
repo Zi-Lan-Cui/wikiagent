@@ -1,8 +1,6 @@
 """结构重组的工具——页面读取 / 证据收集 / LLM 输出安全解析。
 
-代码只做这些（收集证据），不做相似度阈值——裁决全给 LLM。
-被 proposal/review/execute 复用；自身只依赖 models + 底层
-（wiki.frontmatter / integration.parse），不 import 任何同级流程模块。
+代码只做证据收集，不做语义裁决——判断全给 LLM。
 """
 
 from __future__ import annotations

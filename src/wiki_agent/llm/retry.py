@@ -1,13 +1,12 @@
-"""LLM 调用重试层——唯一核心 + 两张适配面。
+"""LLM 调用重试层——编译链路与 agent 链路的统一重试实现。
 
-_retry_core 是唯一的重试实现：异常三分类、指数退避、共享尝试预算。
-- ``async_invoke_with_retry``（编译面）：核心之上注入输出校验 classify/on_rejected，
-  校验失败追加修正消息重试；异常耗尽按契约包装成 RuntimeError。
-- ``retry_llm_call``（通用面）：重试一次任意 LLM 调用闭包（invoke 或
-  stream 均可），classify=None（空内容+纯 tool_calls 是合法回合），
-  on_retry 回调供上层发 UI 提示；耗尽抛回原异常。
+- 编译面: 输出校验 + 自动重试——校验失败时追加修正消息让 LLM 重新输出，
+  空响应同样重发；耗尽后统一包装成调用失败异常。
+- 通用面: 重试一次任意 LLM 调用（非流式/流式皆可），不判定响应内容，
+  耗尽原样抛出——调用边界按异常类型决策。
 
-作为中间件运行在 LLMClient 之上，不修改其代码。
+共享语义: 瞬时失败指数退避，Fatal 类立即失败，取消原样传播；
+作为中间件运行在客户端之上，不修改客户端。
 """
 
 from __future__ import annotations
@@ -26,21 +25,16 @@ from wiki_agent.log import get_logger, span
 
 logger = get_logger("LLM_RETRY")
 
-# check 回调签名
-# (content: str) -> (ok: bool, reason: str)
-OutputCheck = Callable[[str], tuple[bool, str]]
 
-# 核心回调签名。classify 判定响应是否可接受：(response, attempt_no) -> (ok, code, reason)，
-# code ∈ {"empty", "check_failed"} 驱动 span 标记；on_retry 在决定重试后、退避前触发
-# (attempt_no, total, exc)；on_rejected 在响应被拒时触发 (response, code, reason, will_retry)。
-# 回调内抛出的异常原样冒泡——回调 bug 必须暴露，不伪装成 LLM 故障。
+# 核心回调签名
+OutputCheck = Callable[[str], tuple[bool, str]]
 _Classify = Callable[[LLMResponse, int], tuple[bool, str, str]]
 _OnRetry = Callable[[int, int, BaseException], Awaitable[None]]
 _OnRejected = Callable[[LLMResponse, str, str, bool], None]
 
 
 class _Exhausted(Exception):
-    """私有哨兵——仅"最后一次尝试抛了异常"时包裹原始异常抛出。
+    """最后一次尝试抛异常时，包裹原始异常抛出。
 
     Fatal/Cancelled 原样直抛、不经哨兵（尤其 FatalError 是 Exception 子类，
     适配面若 except Exception 会把"立即失败"契约吞掉）。两张适配面据此
@@ -117,13 +111,6 @@ async def _retry_core(
                 await _sleep_backoff(attempt, delay)
                 continue
             except Exception as exc:
-                # 翻译漏网的防御兜底（理论不可达: client 的所有异常都经
-                # translate_openai_error 翻译成 Fatal/Retryable，上面的分支已接住）。
-                # 漏网异常大概率是"新 SDK 异常类型"而非代码 bug——
-                # LLM 调用场景网络抖动概率远高于翻译函数出错，保守重试；
-                # 若是 bug，重试耗尽后照样抛出，无害。
-                # 与 translate_generic_error 的"未知默认 Fatal"不冲突:
-                # 那是本地 IO/工具语境（重试可能放大问题），这是网络语境。
                 logger.warning(
                     "未知异常 %d/%d: %s", attempt + 1, attempts, f"{type(exc).__name__}: {exc}"
                 )
@@ -281,10 +268,6 @@ async def async_invoke_with_retry(
         if ok:
             return True, "", ""
 
-        # I5 排查观测——截断之谜需要 finish_reason + usage 收集案例
-        # （380-480 字符处截断，max_tokens 远未达、thinking 已关）。
-        # cache_hit/cache_miss 顺带记录——prompt cache 命中率监控，
-        # 命中率骤降是有人破坏前缀稳定的第一信号。
         usage = response.usage or {}
         logger.warning(
             "校验失败 %d/%d: %s（finish=%s, content_len=%d, "

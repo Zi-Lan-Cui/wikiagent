@@ -1,7 +1,6 @@
 """Consolidator 测试——双策略/游标推进/防死循环。
 
-无 session 数据依赖（旧版读 workspace/key1.jsonl 的脆弱方式废弃）：
-全部用脚本化 LLM + 构造 session。
+全部用脚本化 LLM + 构造 session，无 session 数据依赖。
 
 直接运行:  .venv/bin/python test/test_consolidator.py
 """

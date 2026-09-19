@@ -1,11 +1,11 @@
-"""结构重组编排 service——脚本与 /refine 命令共用的核心流程。
+"""结构重组编排 service——脚本与交互命令共用的核心流程。
 
-只负责 propose→recheck→resolve→re_arbitrate→(确认)→execute 这一段，并把每步写进
-`logger`（run.log 审计）；git 事务、run 目录、面向用户的呈现（stdout / CommandResult
-文本）由各调用方负责（脚本与 /refine 的 git/交互语义不同，故不下沉到这里）。
+只负责 propose→recheck→resolve→re_arbitrate→(确认)→execute 这一段；
+git 事务、run 目录、面向用户的呈现由各调用方负责（脚本与命令的
+git/交互语义不同）。
 
-`confirm` 回调把"哪些有效提议真正执行"交给调用方决定：脚本=逐条 y/n 交互；
-`/refine`=批量全收（传 None）。dry_run 到此不出手。返回结构化结果供调用方渲染 + git 决策。
+`confirm` 回调把"哪些有效提议真正执行"交给调用方决定；返回结构化
+结果供调用方渲染与 git 决策。
 """
 
 from __future__ import annotations

@@ -1,19 +1,10 @@
-"""质检模块——全库体检 + 报告。
+"""质检模块——全库体检 + 报告（审计路径）。
 
-审计路径的完整职责: 查问题、汇总、出报告。
-- 页面级: check_page_quality（定稿兜底）、check_dead_links（链接有效性）
-- 全库级: scan_wiki（编译结束后调用）、format_scan_report（报告格式化）
+- 页面级: 定稿兜底检查、死链检查
+- 全库级: 编译结束后的整体扫描与报告格式化
 
-分层（依赖单向，均在本 wiki 无 LLM 包内）:
-    frontmatter.py  frontmatter 解析（唯一实现）
-    rules.py        检测原子 + 页面 check 回调——判定逻辑唯一所在
-    quality.py      体检（Issue 组装 + scan_wiki 扫描 + 报告）
-    normalize.py    修内容（fix/inject）→ 最后调 check_page_quality 兜底
-    normalize → quality → rules → frontmatter
-
-判定不重复: check_page_quality 直接调用 rules._check_page_output
-（与生成闸门同一判定），拿到 (ok, reason) 后组装 Issue——
-同一现象生成时 retry 修正、落盘后 scan 报告，一份判定两种语境。
+判定与生成时闸门共用同一份定义（检测原子在 rules）——
+同一现象，生成时 retry 修正、落盘后 scan 报告，一份判定两种语境。
 """
 
 from __future__ import annotations

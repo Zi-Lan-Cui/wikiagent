@@ -1,6 +1,6 @@
 """Chunker 分发器。
 
-按注入顺序遍历 chunker，首个 ``can_process()`` 返回 True 的负责处理。
+按注入顺序遍历，首个能处理该文件的 chunker 负责。
 """
 
 from __future__ import annotations

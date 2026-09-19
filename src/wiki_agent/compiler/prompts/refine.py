@@ -1,12 +1,11 @@
 """refine 模式 prompt——wiki 自编译（只拿不放）。
 
 角色与 compile 完全不同: compile 的 plan 是策展人（对外部文档做
-new/update 决策），refine 的 plan 是润色师（页面只更新自己——
-补交叉引用、刷新 gaps/summary）。
+new/update 决策），refine 的 plan 是润色师——页面只更新自己
+（补交叉引用、刷新 gaps/summary）。
 
-继承 compile 的 7 个 prompt（search/analyze/new_page/update 等
-在 refine 链路中同样适用），plan 完全独立实现（不继承——共享文本
-只会互相污染）。JSON 契约共用 page_targets，执行链零分叉。
+search/analyze 等阶段的 prompt 复用 compile，plan 完全独立实现——
+共享文本只会互相污染。
 """
 
 from __future__ import annotations
