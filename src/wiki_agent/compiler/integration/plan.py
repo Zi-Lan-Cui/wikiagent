@@ -11,7 +11,7 @@ from pathlib import Path
 
 from wiki_agent.compiler.integration.checks import (
     _VALID_DISPOSITIONS,
-    _check_plan_json,
+    check_plan_json,
 )
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import _normalize_wiki_path, _parse_plan
@@ -73,7 +73,7 @@ class Planner:
         allowed = getattr(self._prompts, "ALLOWED_DISPOSITIONS", _VALID_DISPOSITIONS)
 
         def check_plan(content: str) -> tuple[bool, str]:
-            return _check_plan_json(content, allowed_dispositions=allowed)
+            return check_plan_json(content, allowed_dispositions=allowed)
 
         response = await async_invoke_with_retry(
             self._llm,
@@ -84,7 +84,7 @@ class Planner:
             max_tokens=_PLAN_TOKENS,
             check=check_plan,
             extra_body=_NO_THINKING,
-            max_retries=2,
+            max_attempts=2,
         )
         raw = response.content
         if not response.check_ok:

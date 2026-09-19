@@ -2,30 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
-
-from openai.types.chat import ChatCompletionToolParam
 
 from wiki_agent.agent.base import BaseAgent
 from wiki_agent.agent.commands import create_command_router
 from wiki_agent.config import AgentConfig as AgentCfg
 from wiki_agent.config import CompileConfig, RetryConfig
 from wiki_agent.context import Consolidator, ContextBuilder, ContextGovernor
-from wiki_agent.conversation import LLMResponse, Message, Session, SessionManager
+from wiki_agent.conversation import Message, Session, SessionManager
 from wiki_agent.errors import RetryableError
 from wiki_agent.events import AgentHook, CompositeHook, RunContext
 from wiki_agent.issues import IssueService, IssueStore
-from wiki_agent.llm import LLMClient
+from wiki_agent.llm import LLMClient, retry_llm_call
 from wiki_agent.log import begin_trace, emit_event, get_logger, span
 from wiki_agent.memory import Dreamer, MemoryStore
 from wiki_agent.tools import RecordCorrection, ToolRegistry
 
-# ════════════════════════════════════════════════════════════════
-#  ReActRunner — 执行引擎（只跑 ReAct loop）
-# ════════════════════════════════════════════════════════════════
 logger = get_logger("REACT_RUNNER")
 
 
@@ -161,70 +155,7 @@ class ReActRunner:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._active_tasks.difference_update(tasks)
 
-    # ── 内部：LLM 调用（带重试）───────────────────────
-
-    async def _invoke_with_retry(
-        self,
-        messages: list[Message],
-        tools: list[ChatCompletionToolParam],
-        *,
-        max_tokens: int,
-        run_ctx: RunContext,
-        on_delta: Callable | None = None,
-    ) -> LLMResponse:
-        """LLM 调用包装——RetryableError 指数退避重试。
-
-        流式/非流式共用。流式重试时 on_delta 回调会重复收到已
-        生成增量——流式本就向前滚动，多刷一段可接受；非流式无回调。
-
-        Args:
-            messages: 发送给 LLM 的消息。
-            tools: OpenAI 工具 schema 列表。
-            max_tokens: 生成 token 上限。
-            run_ctx: 回合上下文（重试提示经 hook 事件显示）。
-            on_delta: 流式增量回调（流式路径传入）。
-
-        Returns:
-            最后一次成功的 LLMResponse。
-
-        Raises:
-            RetryableError: 重试耗尽后原样抛给上层（本轮失败，
-                CLI 边界处理，不会崩掉交互循环）。
-        """
-        retry = self._agent.retry_config
-        max_attempts = retry.llm_max_attempts
-        delay = retry.llm_base_delay_seconds
-        for attempt in range(max_attempts):
-            try:
-                if on_delta is not None:
-                    return await self._agent.llm.async_stream(
-                        messages, tools=tools, max_tokens=max_tokens, on_delta=on_delta
-                    )
-                return await self._agent.llm.async_invoke(
-                    messages, tools=tools, max_tokens=max_tokens
-                )
-            except RetryableError:
-                # 流式退避会让用户看到停顿——提示等待（非流式
-                # 屏幕无动态，静默退避即可）
-                if on_delta is not None and attempt < max_attempts - 1:
-                    await self._agent._hooks.on_stream_delta(
-                        run_ctx, f"_(网络抖动——重试中 {attempt + 1}/{max_attempts - 1})_"
-                    )
-                if attempt < max_attempts - 1:
-                    logger.warning(
-                        "LLM 调用失败 %d/%d（%s），%.1fs 后重试",
-                        attempt + 1,
-                        max_attempts,
-                        "流式" if on_delta is not None else "非流式",
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-                    delay *= 2
-                else:
-                    raise
-        raise RuntimeError("LLM retry loop exited unexpectedly")
-
-    # ── 内部：非流式调用 ─────────────────────────────
+    # 内部：非流式调用
 
     async def _invoke(
         self,
@@ -245,11 +176,15 @@ class ReActRunner:
             True 表示存在工具调用需继续循环；False 表示已出最终回答。
         """
         async with span("llm_call", model=self._agent.llm.model_id, stream=False) as s:
-            response = await self._invoke_with_retry(
-                runner_messages,
-                self._agent.tool_registry.get_all_schema_openai(),
-                max_tokens=self._agent.agent_config.max_tokens,
-                run_ctx=run_ctx,
+            # 瞬态失败退避重试统一走 llm.retry 唯一内核（retry_llm_call）；
+            # 非流式屏幕无动态，静默退避即可，不注入 on_retry。
+            response = await retry_llm_call(
+                lambda: self._agent.llm.async_invoke(
+                    runner_messages,
+                    tools=self._agent.tool_registry.get_all_schema_openai(),
+                    max_tokens=self._agent.agent_config.max_tokens,
+                ),
+                retry_config=self._agent.retry_config,
             )
             if response.usage:
                 s.set_attr("tokens", response.usage)
@@ -304,6 +239,11 @@ class ReActRunner:
         工作在 hook 信息之上（llm 侧 on_delta 支持 awaitable，
         hook 是 async 也按序触发）。
 
+        瞬态失败经 llm.retry 唯一内核（retry_llm_call）退避重试；
+        重试会重放已生成增量——流式本就向前滚动，多刷一段可接受。
+        网络抖动提示经 on_retry 走 hook 事件，属于 UI 反馈，
+        不写进通用核心。
+
         Args:
             session: 会话（usage 统计写入对象）。
             messages: 工作副本——追加 assistant 与 tool 消息。
@@ -314,13 +254,24 @@ class ReActRunner:
             True 表示存在工具调用需继续循环；False 表示已出最终回答
             （空响应时经 hook 发送兜底提示）。
         """
+
+        async def on_retry(attempt: int, total: int, exc: BaseException) -> None:
+            # 只对网络抖动提示——未知异常可能是代码 bug，不误导用户等网络
+            if isinstance(exc, RetryableError):
+                await self._agent._hooks.on_stream_delta(
+                    run_ctx, f"_(网络抖动——重试中 {attempt}/{total - 1})_"
+                )
+
         async with span("llm_call", model=self._agent.llm.model_id, stream=True) as s:
-            response = await self._invoke_with_retry(
-                runner_messages,
-                self._agent.tool_registry.get_all_schema_openai(),
-                max_tokens=self._agent.agent_config.max_tokens,
-                run_ctx=run_ctx,
-                on_delta=lambda delta: self._agent._hooks.on_stream_delta(run_ctx, delta),
+            response = await retry_llm_call(
+                lambda: self._agent.llm.async_stream(
+                    runner_messages,
+                    tools=self._agent.tool_registry.get_all_schema_openai(),
+                    max_tokens=self._agent.agent_config.max_tokens,
+                    on_delta=lambda delta: self._agent._hooks.on_stream_delta(run_ctx, delta),
+                ),
+                retry_config=self._agent.retry_config,
+                on_retry=on_retry,
             )
             if response.usage:
                 s.set_attr("tokens", response.usage)

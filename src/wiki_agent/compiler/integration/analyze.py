@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wiki_agent.compiler.integration.checks import _check_analyze_json
+from wiki_agent.compiler.integration.checks import check_analyze_json
 from wiki_agent.compiler.integration.parse import _extract_headings, _parse_analysis
 from wiki_agent.compiler.models import _NO_THINKING, AnalysisResult, ExtractResult, SearchResult
 from wiki_agent.conversation import Message
@@ -102,7 +102,7 @@ class Analyzer:
                 ),
             ],
             max_tokens=_ANALYZE_TOKENS,
-            check=lambda content: _check_analyze_json(
+            check=lambda content: check_analyze_json(
                 content,
                 candidates=result.rel_paths,
                 # 当前文档真实 slug 并入合法集——LLM 用真实路径自称
@@ -110,7 +110,7 @@ class Analyzer:
                 extra_refs={extract.source_identity},
             ),
             extra_body=_NO_THINKING,
-            max_retries=2,
+            max_attempts=2,
         )
         raw = response.content
         # 空响应/校验不过由 retry 层处理——这里只做穷尽后的显式报告。

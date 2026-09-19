@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wiki_agent.compiler.integration.checks import _check_json_array
+from wiki_agent.compiler.integration.checks import check_json_array
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import _parse_search_result
 from wiki_agent.compiler.models import _NO_THINKING, ExtractResult, SearchResult
@@ -83,9 +83,9 @@ class Searcher:
                 Message(role="user", content=self._prompts.search_user(extract, index_content)),
             ],
             max_tokens=_SEARCH_TOKENS,
-            check=_check_json_array,
+            check=check_json_array,
             extra_body=_NO_THINKING,
-            max_retries=2,
+            max_attempts=2,
         )
         # 校验穷尽后仍失败 → 显式 raise，不许静默降级成"0 候选"。
         if not response.check_ok:
