@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -23,10 +24,12 @@ from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import load_config
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.llm.factory import create_llm, create_vlm
-from wiki_agent.log import begin_trace, configure_logging, setup_event_log
+from wiki_agent.log import begin_trace, configure_logging, get_logger, setup_event_log
 from wiki_agent.watch.consumer import WatchConsumer
 from wiki_agent.watch.state import WatchState
 from wiki_agent.watch.watcher import FileWatcher
+
+logger = get_logger("WATCH_FOLDER")
 
 
 async def main(source_dir: str | None = None):
@@ -44,18 +47,20 @@ async def main(source_dir: str | None = None):
     wiki_dir = cfg.paths.resolved_wiki_dir().resolve()
     source_records_dir = cfg.paths.resolved_source_records_dir().resolve()
     if not source_path.is_dir():
-        print(f"源目录不存在: {source_path}")
+        # configure_logging 尚未执行（run 目录还没建）——WARNING 走 logging
+        # 的 lastResort handler 仍会到 stderr，退出码 1 供编排判断。
+        logger.error("源目录不存在: %s", source_path)
         sys.exit(1)
 
-    # ── 运行目录（与 compile 一致的 run 容器）────────────────
+    # 运行目录（与 compile 一致的 run 容器）
     run_dir = cfg.paths.resolved_runs_dir() / f"watch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    configure_logging(file_path=str(run_dir / "run.log"))
+    configure_logging(console_level=logging.INFO, file_path=str(run_dir / "run.log"))
     setup_event_log(run_dir / "events.jsonl")
     # 进程级 trace——watch 是常驻进程，一个 trace 贯穿整个会话
     begin_trace(trace_id=f"watch_{run_dir.name}")
 
-    # ── 初始化 ─────────────────────────────────────────────
+    # 初始化
     llm = create_llm(cfg.llm, cfg.retry)
     vlm = create_vlm(cfg.vlm, cfg.retry)
 
@@ -99,9 +104,9 @@ async def main(source_dir: str | None = None):
     worker.register("compile", consumer.handle_job)
     worker.register("delete", consumer.handle_job)
 
-    print(f"watch 模式启动: {source_path}")
-    print("检测: inotify 事件驱动（去抖 2s + 稳定性复读 2s） + 60s 回退全量扫描兜底")
-    print(f"事件流: {run_dir / 'events.jsonl'}")
+    logger.info("watch 模式启动: %s", source_path)
+    logger.info("检测: inotify 事件驱动（去抖 2s + 稳定性复读 2s） + 60s 回退全量扫描兜底")
+    logger.info("事件流: %s", run_dir / "events.jsonl")
 
     # 启动 reconcile: 先扫一轮存量变化（无变更则静默）
     await watcher._poll_once()
@@ -113,4 +118,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(sys.argv[1] if len(sys.argv) > 1 else None))
     except KeyboardInterrupt:
-        print("\nwatch 停止")
+        logger.info("watch 停止")

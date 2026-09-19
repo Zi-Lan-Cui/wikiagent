@@ -11,6 +11,7 @@
 import argparse
 import asyncio
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -23,16 +24,18 @@ from wiki_agent.config import load_config
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.llm.factory import create_llm, create_vlm
-from wiki_agent.log import begin_trace, configure_logging, setup_event_log
+from wiki_agent.log import begin_trace, configure_logging, get_logger, setup_event_log
 from wiki_agent.versioning import WikiGitManager
 from wiki_agent.wiki.quality import format_scan_report, scan_wiki
+
+logger = get_logger("REFINE_WIKI")
 
 
 async def main(
     wiki_dir: Path | None = None, project_root: Path = PROJECT_ROOT, limit: int | None = None
 ):
     """refine 主流程——备份 → 逐页精炼 → 扫描报告。"""
-    # ── 运行容器（runs/refine_<ts>——与 compile 容器区分）──────
+    # 运行容器（runs/refine_<ts>——与 compile 容器区分）
     project_root = Path(project_root).resolve()
     cfg = load_config(project_root=project_root)
     wiki_dir = (
@@ -50,7 +53,7 @@ async def main(
     git_manager = WikiGitManager(wiki_dir, run_root=runs_dir)
     git_run = git_manager.begin(run_id, mode="refine")
 
-    configure_logging(file_path=str(run_dir / "run.log"))
+    configure_logging(console_level=logging.INFO, file_path=str(run_dir / "run.log"))
     setup_event_log(run_dir / "events.jsonl")
     begin_trace(trace_id=f"refine_{run_dir.name}")
 
@@ -64,9 +67,9 @@ async def main(
     if limit is not None:
         pages = pages[:limit]
     if not pages:
-        print("无页面可 refine")
+        logger.warning("无页面可 refine")
         return
-    print(f"refine 输入: {len(pages)} 个页面 (concepts/entities/topics)")
+    logger.info("refine 输入: %d 个页面 (concepts/entities/topics)", len(pages))
 
     pipeline = CompilePipeline(
         llm=llm,
@@ -88,7 +91,10 @@ async def main(
 
     def on_page(page: Path, r) -> None:
         rel = page.relative_to(wiki_dir)
-        print(f"  [{'✗' if isinstance(r, Exception) else '✓'}] {rel}")
+        if isinstance(r, Exception):
+            logger.warning("[✗] %s — %s: %s", rel, type(r).__name__, r)
+        else:
+            logger.info("[✓] %s", rel)
         page_dir = artifacts_dir / str(rel).replace(".md", "").replace("/", "_")
         page_dir.mkdir(parents=True, exist_ok=True)
         (page_dir / "meta.json").write_text(
@@ -185,8 +191,9 @@ async def main(
         git_manager.abort(git_run, reason=f"refine exception: {exc}")
         raise
 
-    print("\n=== refine 完成 ===")
-    print(f"  成功: {stats['ok']}  无操作: {stats['noop']}  失败: {stats['failed']}")
+    logger.info(
+        "refine 完成: 成功 %d 无操作 %d 失败 %d", stats["ok"], stats["noop"], stats["failed"]
+    )
 
     # 收尾: 全库扫描报告
     issues = scan_wiki(wiki_dir)
@@ -197,11 +204,11 @@ async def main(
     )
     errors = [i for i in issues if i.level == "error"]
     warns = [i for i in issues if i.level == "warning"]
-    print(f"  扫描: {len(errors)} 错误, {len(warns)} 警告")
+    logger.info("扫描: %d 错误, %d 警告", len(errors), len(warns))
     (run_dir / "scan_report.md").write_text(format_scan_report(issues), encoding="utf-8")
     if errors:
         git_manager.abort(git_run, reason=f"scan errors: {len(errors)}")
-        print("  Git: 已恢复到运行前版本（scan 存在 error）")
+        logger.warning("Git: 已恢复到运行前版本（scan 存在 %d error）", len(errors))
     else:
         git_manager.commit(
             git_run,
@@ -209,8 +216,8 @@ async def main(
             scan_report=run_dir / "scan_report.md",
             metadata={"stats": stats, "scan_errors": len(errors), "scan_warnings": len(warns)},
         )
-        print(f"  Git: 已提交 {git_run.commit}")
-    print(f"  运行目录: {run_dir}")
+        logger.info("Git: 已提交 %s", git_run.commit)
+    logger.info("运行目录: %s", run_dir)
 
 
 if __name__ == "__main__":
