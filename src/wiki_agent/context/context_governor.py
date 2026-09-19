@@ -312,8 +312,6 @@ class ContextGovernor:
                 continue
             self._maybe_persist_tool_result(session, message)
 
-    # 工具结果新鲜度
-
     def _tool_age_seconds(self, message: Message) -> float:
         """计算工具结果年龄——经 Message.created_at 查询接口。
 

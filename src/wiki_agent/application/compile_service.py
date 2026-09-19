@@ -51,9 +51,6 @@ def log(msg: str, level: str = "INFO") -> None:
     _boundary_logger.log(_LEVEL_MAP.get(level, logging.INFO), msg)
 
 
-# 主流程
-
-
 async def compile_sources(
     source_dir: str | Path | None = None,
     *,

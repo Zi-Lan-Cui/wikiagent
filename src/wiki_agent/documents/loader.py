@@ -181,7 +181,6 @@ class DataLoader:
         logger.info(f"在 {dir_path} 中发现 {len(paths)} 个文件")
         return self._load_from_paths(paths)
 
-    # 内部
 
     def _load_from_paths(self, paths: list[Path]) -> LoadSummary:
         summary = LoadSummary(

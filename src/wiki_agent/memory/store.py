@@ -7,13 +7,6 @@ from pathlib import Path
 from wiki_agent.conversation import Session
 from wiki_agent.utils import helpers
 
-# 单用户模式：所有 session 共享同一个 history 文件，按 session.key 分组压缩更新 memory。
-
-# cursor 和 dream cursor 分别记录 history 长度和压缩进度。
-
-# 画像管道: append_history → Dreamer.dream（LLM 加工）→ memory.md。
-# Wiki 纠错属于问题域，由 IssueStore 持久化。
-
 
 class MemoryStore:
     def __init__(self, workspace: Path):
@@ -33,8 +26,6 @@ class MemoryStore:
         except (FileNotFoundError, ValueError):
             return 0
 
-    # 文件路径 (properties)
-
     @property
     def history_file(self) -> Path:
         return self.memory_dir / "history.jsonl"
@@ -50,8 +41,6 @@ class MemoryStore:
     @property
     def memory_file(self) -> Path:
         return self.memory_dir / "memory.md"
-
-    # cursor 读写
 
     def get_cursor(self) -> int:
         """
@@ -116,8 +105,6 @@ class MemoryStore:
     def update_dream_cursor(self, new_cursor: int, fsync: bool = False):
         self._atomic_write(self.dream_cursor_file, str(new_cursor), fsync=fsync)
 
-    # history 读写
-
     def append_history(self, session: Session, summary: str, fsync: bool = False):
         """
         追加一条压缩记录。
@@ -170,8 +157,6 @@ class MemoryStore:
             return group
         except (FileNotFoundError, ValueError):
             return {}
-
-    # memory 读写
 
     def get_memory_text(self) -> str:
         """读用户画像文本。

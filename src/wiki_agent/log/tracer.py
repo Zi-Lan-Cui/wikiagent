@@ -115,8 +115,6 @@ class span:
         )
         return self
 
-    # 观测属性写入接口（替代直接访问 _attrs 的跨模块耦合）
-
     def set_attr(self, key: str, value: Any) -> None:
         """补充观测属性——span 运行中收集上下文（成功数/游标等）。
 

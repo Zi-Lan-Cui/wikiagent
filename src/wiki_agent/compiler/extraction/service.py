@@ -6,24 +6,6 @@
 两种摘要策略:
   - 均匀分配: chunk 少、上下文窗口大时，每个 chunk 独立并行摘要
   - 滚动压缩: chunk 多时，逐 chunk 累积 global digest
-
-完成后自动保存源文档摘要到 workspace/provenance/sources/。
-
-已完成:
-  ✅ 均匀分配模式——每个 chunk 独立异步摘要
-  ✅ 滚动压缩模式——逐 chunk 累积 digest
-  ✅ 合成阶段——chunk 摘要 → 纯自然语言文档级概述
-  ✅ ``SourceChunk`` 携带 heading_path、index/total、source_name 等元信息
-  ✅ prompt 中包含 chunk 位置信息（标题路径、序号）
-  ✅ 所有 LLM 调用通过 async_invoke_with_retry 包装
-  ✅ 源文档摘要自动保存到 workspace/provenance/sources/
-
-未完成:
-  - [ ] 自适应 model_context: 当前硬编码 60k
-  - [ ] 摘要缓存: 相同 chunk（content hash）复用
-  - [ ] 图片引用保留: ``![]()`` 传递给 LLM
-  - [ ] 公式保留: ``$$`` / ``$`` 包裹的 LaTeX 不应被破坏
-  - [ ] 表格: Markdown 表格保留结构
 """
 
 from __future__ import annotations
