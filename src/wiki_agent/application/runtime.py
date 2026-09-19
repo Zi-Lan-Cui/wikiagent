@@ -31,7 +31,9 @@ class AppRuntime:
         self.source_records_dir = config.paths.resolved_source_records_dir()
         self.runs_dir = config.paths.resolved_runs_dir()
         self.issue_store = IssueStore(self.workspace)
-        self.job_service = JobService(self.workspace)
+        self.job_service = JobService(
+            self.workspace, retry_config=config.retry, wiki_dir=self.wiki_dir
+        )
         self.issue_service = IssueService(self.issue_store)
         self.interrupted_issue_actions = self.issue_store.recover_interrupted_actions()
         self.event_publisher = EventPublisher()
@@ -51,6 +53,7 @@ class AppRuntime:
             compile_config=config.compile,
             retry_config=config.retry,
             issue_service=self.issue_service,
+            job_service=self.job_service,
             hooks=[self.event_publisher, self.issue_reporter, *(hooks or [])],
         )
         self._mcp_connections: dict[str, Any] = {}

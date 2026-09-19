@@ -4,6 +4,7 @@ import asyncio
 import copy
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from wiki_agent.agent.base import BaseAgent
@@ -19,6 +20,10 @@ from wiki_agent.llm import LLMClient, retry_llm_call
 from wiki_agent.log import begin_trace, emit_event, get_logger, span
 from wiki_agent.memory import Dreamer, MemoryStore
 from wiki_agent.tools import RecordCorrection, ToolRegistry
+
+if TYPE_CHECKING:
+    # 类型引用不导运行时——application 组装 agent，反向 import 即环
+    from wiki_agent.application.job_service import JobService
 
 logger = get_logger("REACT_RUNNER")
 
@@ -369,8 +374,11 @@ class ReActAgent(BaseAgent):
         compile_config: CompileConfig | None = None,
         retry_config: RetryConfig | None = None,
         issue_service: IssueService | None = None,
+        job_service: JobService | None = None,
     ):
         super().__init__(name=name, workspace=workspace)
+        # /queue retry 等命令把重试移交持久 Job 队列——由 runtime 注入
+        self.job_service = job_service
         self.llm = llm
         # vlm 供 /refine 等编译类命令使用（CompilePipeline 需要）
         self.vlm = vlm

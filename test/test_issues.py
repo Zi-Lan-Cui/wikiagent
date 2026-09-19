@@ -6,13 +6,10 @@ import asyncio
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
-from typing import cast
 
 import pytest
 
-from wiki_agent.application.issue_actions import IssueActionExecutor, resolve_correction_issue
-from wiki_agent.application.runtime import AppRuntime
+from wiki_agent.application.issue_actions import resolve_correction_issue
 from wiki_agent.events import RunContext
 from wiki_agent.issues import (
     IssueAlreadyClaimedError,
@@ -138,7 +135,6 @@ def test_unavailable_source_disables_retry_and_resource_actions(tmp_path: Path):
     assert actions["open_resource"].disabled_reason == reason
 
 
-
 def test_run_error_hook_reports_fatal_turn_but_not_cancellation(tmp_path: Path):
     service = IssueService(IssueStore(tmp_path))
     hook = IssueReporterHook(service)
@@ -184,55 +180,73 @@ def test_content_conflict_only_advertises_implemented_actions(tmp_path: Path):
     assert actions == {"keep_disputed", "open_resource", "dismiss"}
 
 
-def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path, monkeypatch):
+def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
+    """统一执行模型：重试失败经 Job 结果回写——结构化页级诊断合并进同一 issue。
+
+    handler 上报（指纹 stage+error_code+resource）→ submit_issue_retry 挂账
+    → 再失败时 outcome 按同指纹合并（occurrences+1、diagnostics 刷新），
+    同时推进该 issue 的退避计数。
+    """
+    import json
+
+    from wiki_agent.application.job_results import JobResult
+    from wiki_agent.application.job_service import JobService
+    from wiki_agent.compiler.workflows.failures import SourceFailureHandler
+    from wiki_agent.errors import IngestError, IngestStage
+
     workspace = tmp_path / "workspace"
     wiki = tmp_path / "wiki"
     wiki.mkdir()
     source = tmp_path / "note.md"
     source.write_text("# note", encoding="utf-8")
-    store = IssueStore(workspace)
-    service = IssueService(store)
-    issue = service.report(
-        _draft(
-            origin={"mode": "compile"},
-            resource={"type": "input_file", "path": source.name},
-            context={"source_path": str(source)},
-        )
-    )
-    runtime = SimpleNamespace(
-        workspace=workspace,
-        wiki_dir=wiki,
-        source_records_dir=workspace / "provenance" / "sources",
-        runs_dir=workspace / "runs",
-        issue_store=store,
-        issue_service=service,
-        agent=SimpleNamespace(llm=object(), vlm=None),
-        config=SimpleNamespace(compile=object(), retry=object()),
-    )
 
-    async def failed_retry(*_args, **_kwargs):
-        return {
-            "committed": False,
-            "message": "1 个页面生成失败",
-            "diagnostics": {
-                "detail": "1 个页面生成失败",
+    service = JobService(workspace, wiki_dir=wiki)
+    handler = SourceFailureHandler(service.issue_service, mode="compile")
+    err = IngestError(
+        IngestStage.EXECUTE,
+        "1 个页面生成失败",
+        source=source.name,
+        raw=json.dumps(
+            [{"path": "concepts/example.md", "error": "frontmatter 缺少 title", "raw": "私有输出"}]
+        ),
+        error_code="page_generation_failed",
+        retry_policy="auto_retry",
+    )
+    handler.handle(err, source=source.name, source_path=source)
+    issue = service.issues.list()[0]
+
+    job = service.submit_issue_retry(issue.id)
+    assert service.issues.get(issue.id).status == IssueStatus.PROCESSING
+
+    service.complete_with_outcome(
+        job,
+        JobResult(
+            status="failed",
+            error_type="ingest_error",
+            detail={
+                "error": "1 个页面生成失败",
                 "stage": "execute",
-                "error_code": "page_generation_failed",
-                "failures": [{"path": "concepts/example.md", "reason": "frontmatter 缺少 title"}],
+                "source": source.name,
+                "source_path": str(source),
+                "retry_policy": "auto_retry",
+                "diagnostics": {
+                    "stage": "execute",
+                    "error_code": "page_generation_failed",
+                    "error_class": "transient",
+                    "failures": [
+                        {"path": "concepts/example.md", "reason": "frontmatter 缺少 title"}
+                    ],
+                },
             },
-            "results": [{"id": issue.id, "status": "failed", "attempts": 2}],
-        }
+        ),
+    )
 
-    monkeypatch.setattr("wiki_agent.application.issue_actions.retry_source_failures", failed_retry)
-
-    with pytest.raises(RuntimeError, match="1 个页面生成失败"):
-        asyncio.run(IssueActionExecutor(cast(AppRuntime, runtime))._retry_ingestion(issue.id))
-
-    updated = store.require(issue.id)
+    updated = service.issues.require(issue.id)
+    assert updated.occurrences == 2, "同指纹合并进同一问题"
     assert updated.diagnostics["stage"] == "execute"
     assert updated.diagnostics["error_code"] == "page_generation_failed"
     assert updated.diagnostics["failures"] == [
         {"path": "concepts/example.md", "reason": "frontmatter 缺少 title"}
     ]
     assert updated.retry["attempts"] == 2
-
+    assert updated.status == IssueStatus.OPEN, "未耗尽回 open 继续退避"

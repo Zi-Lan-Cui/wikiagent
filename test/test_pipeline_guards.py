@@ -172,6 +172,7 @@ def test_empty_search_candidates_still_reach_plan(tmp_path):
     导致结果依赖文件顺序、首篇永远 noop。修复后 analyze 收到空
     候选也执行，plan 拿到分析文本后自主决策。
     """
+
     class Converter:
         async def convert(self, _):
             return ConvertedFile(

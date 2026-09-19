@@ -21,17 +21,28 @@ from pathlib import Path
 import pytest
 
 RUNS_ROOT = Path(__file__).resolve().parents[1] / "workspace" / "evals" / "tmp"
-LATEST_RUN = next(iter(sorted((RUNS_ROOT / "seed-compile" / "workspace" / "runs").glob("compile_*"), reverse=True)), None)
+LATEST_RUN = next(
+    iter(
+        sorted((RUNS_ROOT / "seed-compile" / "workspace" / "runs").glob("compile_*"), reverse=True)
+    ),
+    None,
+)
 
 pytestmark = pytest.mark.skipif(LATEST_RUN is None, reason="无编译 run 证据")
 
 
 def _events(path: Path) -> list[dict]:
-    return [json.loads(line) for line in (path / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    return [
+        json.loads(line)
+        for line in (path / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
 
 
 def _transcript(path: Path) -> list[dict]:
-    return [json.loads(line) for line in (path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()]
+    return [
+        json.loads(line)
+        for line in (path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
 
 
 def _user_prompts(transcript: list[dict], marker: str) -> list[str]:
@@ -96,7 +107,9 @@ def test_plan_artifacts_match_transcript_responses() -> None:
     for source in ("baseline-lock.md", "baseline-retry.md"):
         artifact = LATEST_RUN / "artifacts" / source / "plan.json"
         plan = json.loads(artifact.read_text(encoding="utf-8"))
-        assert any(r.strip() == plan["raw"].strip() for r in responses), f"{source} plan raw 与响应不同源"
+        assert any(r.strip() == plan["raw"].strip() for r in responses), (
+            f"{source} plan raw 与响应不同源"
+        )
         for target in plan["page_targets"]:
             assert target.get("page_type"), f"{source} target 缺 page_type"
 
@@ -107,8 +120,7 @@ def test_material_chunks_are_fully_covered_by_extract_prompts() -> None:
     assert prompts, "transcript 中无 extract 类请求"
     # 每篇 source 的原文内容必须能在 chunk 请求中找到（用段落头验证覆盖）
     sources_root = (
-        Path(__file__).resolve().parents[1]
-        / "evals/corpora/reference-v1/baselines/seeded/source"
+        Path(__file__).resolve().parents[1] / "evals/corpora/reference-v1/baselines/seeded/source"
     )
     all_prompt_text = "\n".join(prompts)
     for source_path in sources_root.glob("baseline-*.md"):
@@ -143,8 +155,7 @@ def test_pages_archived_match_final_wiki() -> None:
     断言，只断言存档是合法页面且标题与最终 wiki 一致。
     """
     wiki_root = (
-        Path(__file__).resolve().parents[1]
-        / "evals/corpora/reference-v1/baselines/seeded/wiki"
+        Path(__file__).resolve().parents[1] / "evals/corpora/reference-v1/baselines/seeded/wiki"
     )
     pages_dir = LATEST_RUN / "artifacts" / "baseline-lock.md" / "pages"
     from wiki_agent.wiki.frontmatter import split_frontmatter

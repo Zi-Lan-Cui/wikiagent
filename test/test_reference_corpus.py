@@ -44,9 +44,7 @@ def test_judgements_cover_all_four_dimensions() -> None:
 
 def test_judgement_pages_and_sources_exist() -> None:
     root = MANIFEST_PATH.parent
-    gold = json.loads(
-        (root / "verdicts" / "judgements-v2.json").read_text(encoding="utf-8")
-    )
+    gold = json.loads((root / "verdicts" / "judgements-v2.json").read_text(encoding="utf-8"))
     for case in gold["cases"]:
         assert (root / "baselines" / "seeded" / "source" / case["source"]).is_file()
         for page in case["target"].get("pages", []):

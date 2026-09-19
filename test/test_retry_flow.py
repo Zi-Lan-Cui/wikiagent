@@ -1,0 +1,214 @@
+"""统一执行模型提交入口验收——issue retry 建 job、双击唯一、delete 取代、
+watch 让位/合并、失败不误标账、调度器只生产。
+
+直接运行:  .venv/bin/python test/test_retry_flow.py
+"""
+
+import asyncio
+import tempfile
+from pathlib import Path
+
+from wiki_agent.application.job_service import JobService
+from wiki_agent.application.job_worker import JobWorker
+from wiki_agent.application.retry_scheduler import RetryScheduler
+from wiki_agent.errors import IngestError, IngestStage
+from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
+from wiki_agent.issues.models import IssueAlreadyClaimedError
+from wiki_agent.watch.consumer import WatchConsumer
+from wiki_agent.watch.state import WatchState, digest_file_text
+
+
+def _failure_issue(service: JobService, source: Path, *, attempts: int = 1, next_retry: str = ""):
+    return service.issues.report(
+        IssueDraft(
+            kind=IssueKind.INGESTION_FAILURE,
+            title=f"{source.name} 处理失败",
+            summary="plan 失败",
+            resource={"type": "input_file", "path": source.name, "label": source.name},
+            context={"source_path": str(source)},
+            retry={"policy": "auto_retry", "attempts": attempts, "next_retry_at": next_retry},
+        )
+    )
+
+
+def test_issue_retry_creates_job(tmp_path: Path):
+    """验收 1：重试路径在 jobs 表新增 compile job，claim/action 同事务收口。"""
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("重试内容", encoding="utf-8")
+    issue = _failure_issue(service, source)
+
+    job = service.submit_issue_retry(issue.id)
+    assert job.kind == "compile" and job.mode == "issue_retry"
+    assert job.issue_id == issue.id and job.resource == str(source.resolve())
+    assert job.payload["digest"] == digest_file_text(source)[0]
+    assert service.issues.get(issue.id).status == IssueStatus.PROCESSING
+    # action 账本 completed/delegated
+    card = service.issue_service.get(issue.id)
+    actions = [a for a in service.issues.events(issue.id) if a["event"] == "action_completed"]
+    assert actions and card is not None
+
+
+def test_double_retry_click_single_job(tmp_path: Path):
+    """验收 5：双击 retry 至多一个 job（claim CAS 挡住第二次）。"""
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("重试内容", encoding="utf-8")
+    issue = _failure_issue(service, source)
+    first = service.submit_issue_retry(issue.id)
+    try:
+        service.submit_issue_retry(issue.id)
+        assert False, "第二次应被 claim 挡下"
+    except IssueAlreadyClaimedError:
+        pass
+    assert service.store.active_by_resource(str(source.resolve())).id == first.id
+    # 被拒的 claim 不留 action 悬挂
+    assert not [j for j in service.store.list(limit=50) if j.id != first.id]
+
+
+def test_delete_supersedes_running_compile(tmp_path: Path):
+    """delete 撞在途 compile → 同事务 cancel 让位；compile 挂的 issue 归还 open。"""
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("x" * 40, encoding="utf-8")
+    issue = _failure_issue(service, source)
+    compile_job = service.submit_issue_retry(issue.id)
+
+    delete_job = service.submit_watch_change(str(source.resolve()), deleted=True)
+    assert delete_job is not None and delete_job.kind == "delete"
+    assert service.store.get(compile_job.id).status == "cancelled"
+    assert service.issues.get(issue.id).status == IssueStatus.OPEN
+
+
+def test_failed_job_does_not_mark_hash(tmp_path: Path):
+    """验收 4：ingest 失败后 WatchState 无记录；issue 走 auto_retry 通道。"""
+    state = WatchState(tmp_path / "watch" / "state.json")
+    service = JobService(tmp_path, watch_state=state, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "src" / "note.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("失败输入" * 20, encoding="utf-8")
+    digest, _ = digest_file_text(source)
+
+    class _FailingPipeline:
+        async def ingest_one(self, raw_file):
+            raise IngestError(
+                IngestStage.PLAN, "校验失败", source=source.name, retry_policy="auto_retry"
+            )
+
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    consumer = WatchConsumer(
+        _FailingPipeline(),
+        state,
+        wiki_dir=tmp_path / "wiki",
+        source_records_dir=tmp_path / "provenance",
+    )
+    worker = JobWorker(service)
+    worker.register("compile", consumer.handle_job)
+    job = service.submit_watch_change(str(source.resolve()), digest=digest)
+    asyncio.run(worker.run_once())
+
+    assert service.store.get(job.id).status == "failed"
+    assert state.get(str(source.resolve())).hash == "", "失败绝不误标已处理"
+    failures = service.issues.list(kinds={IssueKind.INGESTION_FAILURE})
+    assert len(failures) == 1 and failures[0].retry["policy"] == "auto_retry"
+    assert failures[0].retry["next_retry_at"], "首档退避在调度器时间轴上"
+
+
+def test_watch_defers_to_undue_issue_and_links_due_one(tmp_path: Path):
+    """未到期 auto_retry 失败 → 提交让位 None；到期 → 直接续链带 issue_id。"""
+    from datetime import UTC, datetime, timedelta
+
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("内容" * 10, encoding="utf-8")
+    future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    issue = _failure_issue(service, source.resolve(), next_retry=future)
+
+    assert service.submit_watch_change(str(source.resolve()), digest="d1") is None
+
+    # 到期后：事件通道与调度器共用入口——提交并挂上该 issue
+    current = service.issues.require(issue.id)
+    service.issues.update_payloads(issue.id, retry={**current.retry, "next_retry_at": ""})
+    job = service.submit_watch_change(str(source.resolve()), digest="d1")
+    assert job is not None and job.issue_id == issue.id
+
+
+def test_queued_compile_coalesces_newer_digest(tmp_path: Path):
+    """排队未执行的 job 被新内容合并（意图前进），不产生第二行。"""
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    resource = str((tmp_path / "note.md").resolve())
+    first = service.submit_watch_change(resource, digest="d1")
+    second = service.submit_watch_change(resource, digest="d2")
+    assert second is not None and second.id == first.id
+    assert second.payload["digest"] == "d2"
+    # 执行中的行不合并（吞掉，后继靠扫描）
+    service.store.update(first.id, status="running")
+    assert service.submit_watch_change(resource, digest="d3") is None
+    assert service.store.get(first.id).payload["digest"] == "d2"
+
+
+def test_transient_chain_blocks_watch_resubmit(tmp_path: Path):
+    """未预期异常的链式 job 是在途行——watch 扫描重提交被 I1 吸收。"""
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("内容" * 10, encoding="utf-8")
+    resource = str(source.resolve())
+    job = service.submit_watch_change(resource, digest="d1")
+    worker = JobWorker(service)
+
+    async def crash(current, progress):
+        raise RuntimeError("infra bug")
+
+    worker.register("compile", crash)
+    asyncio.run(worker.run_once())  # failed → 链式 queued（next_run_at 在未来）
+    assert service.submit_watch_change(resource, digest="d2") is None, "链在途，吞掉"
+    chain = service.store.active_by_resource(resource)
+    assert chain is not None and chain.payload.get("attempt_no") == 2
+
+
+def test_scheduler_submits_only_due_and_produces_jobs(tmp_path: Path):
+    """调度器：到期/有策略/无在途才排队；永不执行 pipeline。"""
+    from datetime import UTC, datetime, timedelta
+
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("内容" * 10, encoding="utf-8")
+    due = _failure_issue(service, source)
+    # 不同资源另开一单（同指纹会合并进同一 issue）——这一单未到期
+    later = tmp_path / "later.md"
+    later.write_text("内容" * 12, encoding="utf-8")
+    past = _failure_issue(service, later)
+    current = service.issues.require(past.id)
+    service.issues.update_payloads(
+        past.id,
+        retry={
+            **current.retry,
+            "next_retry_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        },
+    )
+
+    scheduler = RetryScheduler(service)
+    submitted = asyncio.run(scheduler.run_due())
+    assert submitted == 1  # 未到期的不动
+    active = service.store.active_by_resource(str(source.resolve()))
+    assert active is not None and active.issue_id == due.id
+    assert service.issues.get(due.id).status == IssueStatus.PROCESSING
+    # 再来一轮：在途挡住重复排队
+    assert asyncio.run(scheduler.run_due()) == 0
+
+
+if __name__ == "__main__":
+    import traceback
+
+    failed = 0
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    for t in tests:
+        try:
+            t(Path(tempfile.mkdtemp()))
+            print(f"  ✓ {t.__name__}")
+        except Exception:
+            failed += 1
+            print(f"  ✗ {t.__name__}")
+            traceback.print_exc()
+    print(f"\n{len(tests) - failed}/{len(tests)} 通过")
+    raise SystemExit(1 if failed else 0)

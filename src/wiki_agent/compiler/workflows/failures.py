@@ -1,26 +1,22 @@
 """compile/refine 共用的 source 级失败处理。
 
-统一把流水线失败转换成一条 source 级待处理事项；
-watch 有自己的实时失败通道，不使用本模块。
+统一把流水线失败转换成一条 source 级待处理事项；watch 的失败经 Job
+结果由应用层的终态联动收口，不走这里的 handler。
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.config import RetryConfig
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import (
     IssueDraft,
     IssueKind,
-    IssueRecord,
     IssueService,
     IssueSeverity,
-    IssueStatus,
-    IssueStore,
 )
 from wiki_agent.log import emit_event, get_logger
 
@@ -163,133 +159,53 @@ class SourceFailureHandler:
         return err
 
 
-class SourceFailureConsumer:
-    """数据库中 source 失败问题的重试策略内核。
+# source 失败重试策略——纯函数。统一 Job 模型下不存在"队列执行器"：
+# 判定被 JobOutcomeHandler（失败推进退避）与 RetryScheduler（到期挑选）
+# 共用，次数/时限的真相只有一份代码。
 
-    ``processor`` 从 source 起点重新执行；消费者只负责策略、次数和
-    队列状态，避免把 compile/refine 两套流水线复制进队列层。
+
+def parse_retry_time(value: object) -> datetime | None:
+    text = str(value or "")
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def retry_attempt_count(retry: dict) -> int:
+    value = retry.get("attempts", 0)
+    return int(value) if isinstance(value, (str, int, float)) else 0
+
+
+def source_retry_decision(retry: dict, *, max_attempts: int, now: datetime | None = None) -> str:
+    """是否还值得自动重试：'retry' | 'manual'。
+
+    超过时限（expires_at）或次数上限即 manual——重试不再是自动权利，
+    归问题中心由人裁决。
     """
-
-    def __init__(
-        self,
-        store: IssueStore,
-        processor,
-        *,
-        retry_config: RetryConfig | None = None,
-        max_attempts: int | None = None,
-        base_delay_seconds: float | None = None,
-        max_delay_seconds: float | None = None,
-    ):
-        retry = retry_config or RetryConfig()
-        self._store = store
-        self._processor = processor
-        self._max_attempts = max_attempts if max_attempts is not None else retry.source_max_attempts
-        self._base_delay_seconds = (
-            base_delay_seconds
-            if base_delay_seconds is not None
-            else retry.source_base_delay_seconds
-        )
-        self._max_delay_seconds = (
-            max_delay_seconds if max_delay_seconds is not None else retry.source_max_delay_seconds
-        )
-
-    def classify(self, issue: IssueRecord) -> str:
-        policy = issue.retry.get("policy", "manual")
-        attempts_value = issue.retry.get("attempts", 0)
-        attempts = int(attempts_value) if isinstance(attempts_value, (str, int, float)) else 0
-        if self._is_expired(issue):
-            return "manual"
-        if policy == "auto_retry" and attempts < self._max_attempts:
-            return "retry"
-        if policy == "retry_once" and attempts < min(self._max_attempts, 2):
-            return "retry_once"
+    now = now or datetime.now(UTC)
+    deadline = parse_retry_time(retry.get("expires_at"))
+    if deadline is not None and now >= deadline:
         return "manual"
+    attempts = retry_attempt_count(retry)
+    policy = str(retry.get("policy") or "manual")
+    if policy == "auto_retry" and attempts < max_attempts:
+        return "retry"
+    if policy == "retry_once" and attempts < min(max_attempts, 2):
+        return "retry"
+    return "manual"
 
-    @staticmethod
-    def _parse_time(value: str) -> datetime | None:
-        if not value:
-            return None
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
 
-    def _is_expired(self, issue: IssueRecord) -> bool:
-        deadline = self._parse_time(str(issue.retry.get("expires_at", "")))
-        return deadline is not None and datetime.now() >= deadline
+def source_backoff_seconds(attempts: int, *, base: float, max_delay: float) -> float:
+    """第 attempts 次失败后的等待——指数退避封顶 max_delay。"""
+    return min(max_delay, base * (2 ** max(0, attempts - 1)))
 
-    def _is_deferred(self, issue: IssueRecord) -> bool:
-        next_retry = self._parse_time(str(issue.retry.get("next_retry_at", "")))
-        return next_retry is not None and datetime.now() < next_retry
 
-    async def consume(self, issue: IssueRecord, *, force: bool = False) -> dict:
-        """执行一个 source 问题，并将诊断与重试计数写回数据库。"""
-        decision = "retry" if force else self.classify(issue)
-        if decision == "manual":
-            if issue.status == IssueStatus.OPEN:
-                self._store.transition(
-                    issue.id, IssueStatus.BLOCKED, event="retry_requires_decision"
-                )
-            return {"id": issue.id, "status": "manual"}
-        if not force and self._is_deferred(issue):
-            return {
-                "id": issue.id,
-                "status": "deferred",
-                "next_retry_at": issue.retry.get("next_retry_at", ""),
-            }
-
-        attempts_value = issue.retry.get("attempts", 0)
-        attempts = (int(attempts_value) if isinstance(attempts_value, (str, int, float)) else 0) + 1
-        try:
-            await self._processor(issue)
-        except Exception as exc:
-            diagnostics, raw = _failure_diagnostics(exc)
-            expired = self._is_expired(issue)
-            policy_limit = (
-                min(self._max_attempts, 2)
-                if issue.retry.get("policy") == "retry_once"
-                else self._max_attempts
-            )
-            retryable = attempts < policy_limit and not expired
-            delay = min(
-                self._max_delay_seconds,
-                self._base_delay_seconds * (2 ** max(0, attempts - 1)),
-            )
-            next_retry_at = (
-                (datetime.now() + timedelta(seconds=delay)).isoformat() if retryable else ""
-            )
-            self._store.update_payloads(
-                issue.id,
-                retry={
-                    **issue.retry,
-                    "attempts": attempts,
-                    "next_retry_at": next_retry_at,
-                    "last_error": str(exc)[:500],
-                },
-                diagnostics={**issue.diagnostics, **diagnostics},
-                event="source_retry_failed",
-            )
-            emit_event(
-                "source_retry_failed",
-                issue_id=issue.id,
-                attempts=attempts,
-                error=str(exc),
-                diagnostics=diagnostics,
-                raw=raw,
-                next_retry_at=next_retry_at,
-            )
-            return {
-                "id": issue.id,
-                "status": "failed",
-                "attempts": attempts,
-                "next_retry_at": next_retry_at,
-                "error": str(exc)[:500],
-                "diagnostics": diagnostics,
-            }
-        self._store.update_payloads(
-            issue.id,
-            retry={**issue.retry, "attempts": attempts, "next_retry_at": "", "last_error": ""},
-            event="source_retry_succeeded",
-        )
-        emit_event("source_retry_succeeded", issue_id=issue.id, attempts=attempts)
-        return {"id": issue.id, "status": "succeeded", "attempts": attempts}
+def is_retry_due(retry: dict, *, now: datetime | None = None) -> bool:
+    """next_retry_at 到期（含未设置——新报失败立即可被调度）。"""
+    now = now or datetime.now(UTC)
+    next_retry = parse_retry_time(retry.get("next_retry_at"))
+    return next_retry is None or now >= next_retry

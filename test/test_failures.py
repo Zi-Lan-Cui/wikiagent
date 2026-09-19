@@ -1,15 +1,25 @@
-"""Source failure reporting and retry policy tests."""
+"""Source failure reporting 与重试策略测试（统一 Job 模型版）。
+
+handler 负责 compile/refine 内联上报；重试策略是纯函数；
+"执行→回写"联动在 JobOutcomeHandler（见 test_retry_flow）。
+"""
 
 from __future__ import annotations
 
-import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from wiki_agent.compiler.workflows.failures import SourceFailureConsumer, SourceFailureHandler
+from wiki_agent.application.job_results import JobResult
+from wiki_agent.application.job_service import JobService
+from wiki_agent.compiler.workflows.failures import (
+    SourceFailureHandler,
+    is_retry_due,
+    source_backoff_seconds,
+    source_retry_decision,
+)
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.errors import IngestError, IngestStage, RetryableError
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
@@ -59,79 +69,126 @@ def test_failure_handler_classifies_retryable_error(tmp_path: Path):
     assert issue.retry["policy"] == "auto_retry"
 
 
-def test_consumer_succeeds_and_persists_attempt(tmp_path: Path):
-    store, issue = _reported_failure(tmp_path)
-    called = False
-
-    async def process(_issue):
-        nonlocal called
-        called = True
-
-    result = asyncio.run(SourceFailureConsumer(store, process).consume(issue, force=True))
-    assert result["status"] == "succeeded"
-    assert called
-    assert store.require(issue.id).retry["attempts"] == 2
+# 策略纯函数
 
 
-def test_consumer_defers_and_backoffs_in_issue_store(tmp_path: Path):
-    store, issue = _reported_failure(tmp_path)
-    future = (datetime.now() + timedelta(hours=1)).isoformat()
-    store.update_payloads(issue.id, retry={**issue.retry, "next_retry_at": future})
-    issue = store.require(issue.id)
+def test_retry_decision_transitions():
+    now = datetime.now(UTC)
+    base = {"policy": "auto_retry", "attempts": 1, "expires_at": ""}
+    assert source_retry_decision(base, max_attempts=3, now=now) == "retry"
+    assert source_retry_decision({**base, "attempts": 3}, max_attempts=3, now=now) == "manual"
+    once = {"policy": "retry_once", "attempts": 1}
+    assert source_retry_decision(once, max_attempts=3, now=now) == "retry"
+    assert source_retry_decision({**once, "attempts": 2}, max_attempts=3, now=now) == "manual"
+    expired = {**base, "expires_at": (now - timedelta(seconds=1)).isoformat()}
+    assert source_retry_decision(expired, max_attempts=3, now=now) == "manual"
+    assert source_retry_decision({"policy": "manual", "attempts": 1}, max_attempts=3) == "manual"
 
-    async def process(_issue):
-        raise RuntimeError("still unavailable")
 
-    deferred = asyncio.run(SourceFailureConsumer(store, process).consume(issue))
-    assert deferred["status"] == "deferred"
-
-    failed = asyncio.run(
-        SourceFailureConsumer(
-            store,
-            process,
-            base_delay_seconds=10,
-            max_delay_seconds=100,
-        ).consume(issue, force=True)
+def test_retry_due_and_backoff():
+    now = datetime.now(UTC)
+    assert is_retry_due({}, now=now) is True
+    assert is_retry_due({"next_retry_at": (now + timedelta(hours=1)).isoformat()}, now=now) is False
+    assert (
+        is_retry_due({"next_retry_at": (now - timedelta(seconds=1)).isoformat()}, now=now) is True
     )
-    updated = store.require(issue.id)
-    assert failed["status"] == "failed"
-    assert updated.retry["attempts"] == 2
-    assert updated.retry["next_retry_at"]
+    assert source_backoff_seconds(1, base=10, max_delay=100) == 10
+    assert source_backoff_seconds(3, base=10, max_delay=100) == 40
+    assert source_backoff_seconds(9, base=10, max_delay=100) == 100
 
 
-def test_consumer_preserves_page_reasons_without_raw_output(tmp_path: Path):
-    store, issue = _reported_failure(tmp_path)
+def test_failure_diagnostics_sanitizes_raw():
+    """页级失败诊断只保留 path/reason——raw 大段输出不得进 issue。"""
+    from wiki_agent.compiler.workflows.failures import _failure_diagnostics
 
-    async def process(_issue):
-        raise IngestError(
-            IngestStage.EXECUTE,
-            "1 个页面生成失败",
-            raw=json.dumps(
-                [{"path": "concepts/example.md", "error": "缺少 title", "raw": "private"}]
-            ),
-            error_code="page_generation_failed",
-            error_class="transient",
-            retry_policy="auto_retry",
+    exc = IngestError(
+        IngestStage.EXECUTE,
+        "1 个页面生成失败",
+        raw=json.dumps([{"path": "concepts/example.md", "error": "缺少 title", "raw": "private"}]),
+        error_code="page_generation_failed",
+        error_class="transient",
+        retry_policy="auto_retry",
+    )
+    diagnostics, raw = _failure_diagnostics(exc)
+    assert diagnostics["failures"] == [{"path": "concepts/example.md", "reason": "缺少 title"}]
+    assert "private" not in json.dumps(diagnostics, ensure_ascii=False)
+    assert "private" in raw  # raw 只进事件日志
+
+
+# 重试链联动（outcome）
+
+
+def test_retry_job_failure_advances_backoff_and_returns_open(tmp_path: Path):
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("重试输入", encoding="utf-8")
+    issue = service.issues.report(
+        IssueDraft(
+            kind=IssueKind.INGESTION_FAILURE,
+            title="note.md 处理失败",
+            summary="plan 失败",
+            resource={"type": "input_file", "path": "note.md", "label": "note.md"},
+            context={"source_path": str(source)},
+            retry={"policy": "auto_retry", "attempts": 1, "next_retry_at": ""},
         )
-
-    result = asyncio.run(SourceFailureConsumer(store, process).consume(issue, force=True))
-    assert result["diagnostics"]["failures"] == [
-        {"path": "concepts/example.md", "reason": "缺少 title"}
-    ]
-    assert "private" not in json.dumps(store.require(issue.id).diagnostics, ensure_ascii=False)
-
-
-def test_expired_issue_becomes_blocked(tmp_path: Path):
-    store, issue = _reported_failure(tmp_path)
-    store.update_payloads(
-        issue.id,
-        retry={**issue.retry, "expires_at": (datetime.now() - timedelta(seconds=1)).isoformat()},
     )
-    result = asyncio.run(
-        SourceFailureConsumer(store, lambda _: None).consume(store.require(issue.id))
+    job = service.submit_issue_retry(issue.id)
+    assert service.issues.get(issue.id).status == IssueStatus.PROCESSING
+
+    service.complete_with_outcome(
+        job,
+        JobResult(
+            status="failed",
+            error_type="ingest_error",
+            detail={
+                "error": "again failed",
+                "stage": "plan",
+                "source": "note.md",
+                "source_path": str(source),
+                "diagnostics": {"error_code": "ingest_error"},
+            },
+        ),
     )
-    assert result["status"] == "manual"
-    assert store.require(issue.id).status == IssueStatus.BLOCKED
+    updated = service.issues.get(issue.id)
+    assert updated.status == IssueStatus.OPEN  # 归还给调度器继续退避
+    assert updated.retry["attempts"] == 2
+    assert updated.retry["next_retry_at"]  # 退避在后
+
+
+def test_retry_job_exhausted_blocks(tmp_path: Path):
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("重试输入", encoding="utf-8")
+    issue = service.issues.report(
+        IssueDraft(
+            kind=IssueKind.INGESTION_FAILURE,
+            title="note.md 处理失败",
+            summary="plan 失败",
+            resource={"type": "input_file", "path": "note.md", "label": "note.md"},
+            context={"source_path": str(source)},
+            retry={"policy": "auto_retry", "attempts": 3, "next_retry_at": ""},
+        )
+    )
+    job = service.submit_issue_retry(issue.id)
+    service.complete_with_outcome(
+        job,
+        JobResult(
+            status="failed",
+            error_type="ingest_error",
+            detail={
+                "error": "final failure",
+                "stage": "plan",
+                "source": "note.md",
+                "source_path": str(source),
+                "diagnostics": {"error_code": "ingest_error"},
+            },
+        ),
+    )
+    final = service.issues.get(issue.id)
+    assert final.status == IssueStatus.BLOCKED
+
+
+# 重试输入解析
 
 
 def test_retry_resolves_stale_refine_path_from_current_wiki(tmp_path: Path):

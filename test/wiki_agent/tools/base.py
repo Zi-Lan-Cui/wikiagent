@@ -46,7 +46,6 @@ def format_tool_error(
 
 
 class BaseTool(ABC):
-    
     name: str
     description: str
     parameters: dict

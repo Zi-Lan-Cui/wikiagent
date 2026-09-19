@@ -15,6 +15,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from wiki_agent.application.job_results import JobResult
+from wiki_agent.compiler.workflows.failures import (
+    retry_attempt_count,
+    source_backoff_seconds,
+    source_retry_decision,
+)
 from wiki_agent.config import RetryConfig
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
 from wiki_agent.issues.models import JsonObject
@@ -27,17 +32,6 @@ if TYPE_CHECKING:
 logger = get_logger("JOB_OUTCOMES")
 
 _RETRY_WINDOW_HOURS = 24
-
-
-def _parse_iso(value: object) -> datetime | None:
-    text = str(value or "")
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 class JobOutcomeHandler:
@@ -154,43 +148,48 @@ class JobOutcomeHandler:
     def _advance_issue_schedule(
         self, job: Job, result: JobResult, conn: sqlite3.Connection
     ) -> None:
+        """issue 重试链上的一次失败——推进退避，耗尽转 BLOCKED 归人裁决。"""
         issue = self._issues.get(job.issue_id, _conn=conn)
         if issue is None:
             return
-        attempts = _int(issue.retry.get("attempts")) + 1
-        policy_limit = (
-            min(self._retry.source_max_attempts, 2)
-            if issue.retry.get("policy") == "retry_once"
-            else self._retry.source_max_attempts
+        attempts = retry_attempt_count(issue.retry) + 1
+        retry: JsonObject = {
+            **issue.retry,
+            "attempts": attempts,
+            "last_error": str(result.detail.get("error") or "")[:500],
+        }
+        retryable = (
+            source_retry_decision(retry, max_attempts=self._retry.source_max_attempts) == "retry"
         )
-        expired_at = _parse_iso(issue.retry.get("expires_at"))
-        expired = expired_at is not None and datetime.now(UTC) >= expired_at
-        retryable = attempts < policy_limit and not expired
-        next_retry_at = ""
-        if retryable:
-            delay = min(
-                self._retry.source_max_delay_seconds,
-                self._retry.source_base_delay_seconds * (2 ** max(0, attempts - 1)),
-            )
-            next_retry_at = (datetime.now(UTC) + timedelta(seconds=delay)).isoformat()
+        retry["next_retry_at"] = (
+            (
+                datetime.now(UTC)
+                + timedelta(
+                    seconds=source_backoff_seconds(
+                        attempts,
+                        base=self._retry.source_base_delay_seconds,
+                        max_delay=self._retry.source_max_delay_seconds,
+                    )
+                )
+            ).isoformat()
+            if retryable
+            else ""
+        )
+        # update_payloads 整列替换——先并入 report 刚合并的结构化诊断
         self._issues.update_payloads(
             job.issue_id,
-            retry={
-                **issue.retry,
-                "attempts": attempts,
-                "next_retry_at": next_retry_at,
-                "last_error": str(result.detail.get("error") or "")[:500],
-            },
+            retry=retry,
+            diagnostics={**issue.diagnostics, "detail": retry["last_error"]},
             event="source_retry_failed",
             _conn=conn,
         )
-        if not retryable:
-            self._issues.transition(
-                job.issue_id,
-                IssueStatus.BLOCKED,
-                event="retry_requires_decision",
-                _conn=conn,
-            )
+        # 归还可调度状态：未耗尽回 open 等下一轮退避，耗尽转 blocked 归人
+        self._issues.transition(
+            job.issue_id,
+            IssueStatus.OPEN if retryable else IssueStatus.BLOCKED,
+            event="retry_requires_decision" if not retryable else "retry_backoff",
+            _conn=conn,
+        )
 
     def _on_transient(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
         if job.chain_attempt < self._retry.source_max_attempts:
@@ -248,10 +247,3 @@ class JobOutcomeHandler:
             retry=retry,
             context={"source_path": str(detail.get("source_path") or job.resource)},
         )
-
-
-def _int(value: object) -> int:
-    try:
-        return int(value if isinstance(value, (str, int, float)) else 0)
-    except (TypeError, ValueError):
-        return 0
