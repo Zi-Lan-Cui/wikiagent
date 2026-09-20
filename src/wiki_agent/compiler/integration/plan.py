@@ -9,14 +9,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from wiki_agent.compiler.integration.checks import (
-    _VALID_DISPOSITIONS,
+    VALID_DISPOSITIONS,
     check_plan_json,
 )
 from wiki_agent.compiler.integration.common import load_valid_slugs
-from wiki_agent.compiler.integration.parse import _normalize_wiki_path, _parse_plan
+from wiki_agent.compiler.integration.parse import normalize_wiki_path, parse_plan
 from wiki_agent.compiler.models import (
-    _JSON_MODE,
-    _NO_THINKING,
+    JSON_MODE,
+    NO_THINKING,
     AnalysisResult,
     Disposition,
     ExtractResult,
@@ -70,7 +70,7 @@ class Planner:
         Raises:
             IngestError: 校验穷尽后仍失败。
         """
-        allowed = getattr(self._prompts, "ALLOWED_DISPOSITIONS", _VALID_DISPOSITIONS)
+        allowed = getattr(self._prompts, "ALLOWED_DISPOSITIONS", VALID_DISPOSITIONS)
 
         def check_plan(content: str) -> tuple[bool, str]:
             return check_plan_json(content, allowed_dispositions=allowed)
@@ -83,9 +83,9 @@ class Planner:
             ],
             max_tokens=_PLAN_TOKENS,
             check=check_plan,
-            extra_body=_NO_THINKING,
+            extra_body=NO_THINKING,
             max_attempts=2,
-            response_format=_JSON_MODE,
+            response_format=JSON_MODE,
         )
         raw = response.content
         if not response.check_ok:
@@ -98,7 +98,7 @@ class Planner:
                 error_class="transient",
                 retry_policy="auto_retry",
             )
-        plan = _parse_plan(raw)
+        plan = parse_plan(raw)
         plan.raw = raw
         return plan
 
@@ -282,7 +282,7 @@ class PolisherPlanner(Planner):
         """
         kept = []
         for t in plan.page_targets:
-            t_slug = _normalize_wiki_path(t.wiki_path).replace(".md", "")
+            t_slug = normalize_wiki_path(t.wiki_path).replace(".md", "")
             if t.disposition != Disposition.UPDATE:
                 logger.warning("  refine 丢弃非 update target: %s", t.wiki_path)
                 continue

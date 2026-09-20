@@ -7,16 +7,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wiki_agent.compiler.integration.parse import _strip_fence
-from wiki_agent.compiler.models import _JSON_MODE, _NO_THINKING
+from wiki_agent.compiler.integration.parse import strip_fence
+from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
 from wiki_agent.compiler.restructure.common import (
-    _coerce_list,
-    _index_overview,
-    _safe_parse_json,
+    coerce_list,
+    index_overview,
+    safe_parse_json,
 )
 from wiki_agent.compiler.restructure.models import (
-    _PROPOSE_MAX_COUNT,
-    _PROPOSE_MAX_TOKENS,
+    PROPOSE_MAX_COUNT,
+    PROPOSE_MAX_TOKENS,
     Proposal,
 )
 from wiki_agent.conversation import Message
@@ -41,9 +41,9 @@ def _check_propose_list(content: str) -> tuple[bool, str]:
     """
     import json as _json
 
-    # fence 剥离统一走 integration.parse._strip_fence（与 check/parse 层同一
+    # fence 剥离统一走 integration.parse.strip_fence（与 check/parse 层同一
     # 规约，含 I5 尾部括号 repair——重组的 LLM 输出同样可能缺尾括号）
-    cleaned = _strip_fence(content)
+    cleaned = strip_fence(content)
     try:
         data = _json.loads(cleaned)
     except _json.JSONDecodeError as e:
@@ -85,7 +85,7 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
     Returns:
         提议列表；LLM 失败/坏内容时降级为空列表（不崩）。
     """
-    overview = _index_overview(wiki_dir)
+    overview = index_overview(wiki_dir)
     prompt = "\n\n".join(
         [
             "你是知识库的结构审查员。基于全库页面索引，提出结构重组的原子提议。",
@@ -106,7 +106,7 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
             "## 纪律",
             "- 有把握才提——相关但不同（讲同一主题的不同方面）不是 merge 对象。不确定时不提。",
             "- 拆分输出为 create + trim 两条操作；trim 的 depends_on 必须指向 create，使用同一个 group_id。",
-            f"- **最多输出 {_PROPOSE_MAX_COUNT} 条**——只提最可疑的，"
+            f"- **最多输出 {PROPOSE_MAX_COUNT} 条**——只提最可疑的，"
             "不是做全库盘点。写不完会截断，宁少勿多。",
             "",
             "## 全库页面索引",
@@ -123,12 +123,12 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
         response = await async_invoke_with_retry(
             llm,
             [Message(role="system", content=prompt)],
-            max_tokens=_PROPOSE_MAX_TOKENS,
+            max_tokens=PROPOSE_MAX_TOKENS,
             check=_check_propose_list,
             temperature=0,  # 召回任务——确定性输出，宁稳勿创
-            extra_body=_NO_THINKING,
+            extra_body=NO_THINKING,
             max_attempts=2,
-            response_format=_JSON_MODE,
+            response_format=JSON_MODE,
         )
     except Exception as e:
         # LLM 失败不静默——分类后进事件流，返回空（结构健康是最安全的降级）
@@ -136,7 +136,7 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
         logger.error("  粗提失败: %s", str(err)[:200])
         emit_event("restructure_propose_failed", error=str(err), cause=type(e).__name__)
         return []
-    items = _coerce_list(_safe_parse_json(response.content), "proposals")
+    items = coerce_list(safe_parse_json(response.content), "proposals")
     if items is None:
         # check 已通过但内容仍坏（截断残余）——降级为无提议，不崩
         emit_event("restructure_propose_failed", error="JSON 二次解析失败", cause="truncated")
@@ -155,7 +155,7 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
             summary=item.get("summary", ""),
             goal=item.get("goal", ""),
         )
-        for i, item in enumerate(items[:_PROPOSE_MAX_COUNT], 1)
+        for i, item in enumerate(items[:PROPOSE_MAX_COUNT], 1)
     ]
     emit_event("restructure_proposed", count=len(proposals), ops=[p.op for p in proposals])
     return proposals

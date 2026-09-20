@@ -19,8 +19,8 @@ from wiki_agent.compiler.restructure import (
     Conflict,
     Proposal,
     SurgeryResult,
-    _load_pages,
     execute,
+    load_pages,
     propose_from_index,
     re_arbitrate,
     recheck,
@@ -73,7 +73,7 @@ async def restructure_wiki(
         logger.info("复判全部否决——结构健康。")
         return out
 
-    clean, conflicts = resolve_conflicts(out.confirmed, _load_pages(wiki_dir))
+    clean, conflicts = resolve_conflicts(out.confirmed, load_pages(wiki_dir))
     if conflicts:
         logger.info("确定性消解后仍冲突 %d 组 → LLM 复裁", len(conflicts))
         arb = await re_arbitrate(llm, wiki_dir, conflicts)

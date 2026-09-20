@@ -6,8 +6,8 @@ from pathlib import Path
 
 from wiki_agent.compiler.integration.checks import check_paths_json
 from wiki_agent.compiler.integration.common import load_valid_slugs
-from wiki_agent.compiler.integration.parse import _parse_search_result
-from wiki_agent.compiler.models import _JSON_MODE, _NO_THINKING, ExtractResult, SearchResult
+from wiki_agent.compiler.integration.parse import parse_search_result
+from wiki_agent.compiler.models import JSON_MODE, NO_THINKING, ExtractResult, SearchResult
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
@@ -19,7 +19,7 @@ logger = get_logger("STAGES")
 _SEARCH_TOKENS = 2_048
 _SEARCH_PAGE_DIRS = {"concepts", "entities", "topics"}
 
-__all__ = ["Searcher", "_filter_search_paths", "load_valid_slugs"]
+__all__ = ["Searcher", "load_valid_slugs"]
 
 
 def _filter_search_paths(
@@ -84,9 +84,9 @@ class Searcher:
             ],
             max_tokens=_SEARCH_TOKENS,
             check=check_paths_json,
-            extra_body=_NO_THINKING,
+            extra_body=NO_THINKING,
             max_attempts=2,
-            response_format=_JSON_MODE,
+            response_format=JSON_MODE,
         )
         # 校验穷尽后仍失败 → 显式 raise，不许静默降级成"0 候选"。
         if not response.check_ok:
@@ -99,7 +99,7 @@ class Searcher:
                 error_class="transient",
                 retry_policy="auto_retry",
             )
-        paths = _parse_search_result(response.content)
+        paths = parse_search_result(response.content)
         paths, invalid_paths = _filter_search_paths(paths, self._wiki_dir)
         if invalid_paths:
             logger.warning(

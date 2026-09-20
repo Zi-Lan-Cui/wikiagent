@@ -23,12 +23,12 @@ class Disposition(StrEnum):
 # 思考段会静默吃掉整个 max_tokens 预算、content 留空（审计 C1 根因）。
 # 编译输出是"写页面"不是"解难题"，直接写更可靠也更便宜。
 # 单一来源：integration 四阶段与 restructure 复用此常量（勿再各存副本）。
-_NO_THINKING = {"thinking": {"type": "disabled"}}
+NO_THINKING = {"thinking": {"type": "disabled"}}
 
 # API 级 JSON 模式——输出必为合法 JSON 对象，fence/前言类格式噪声重试归零。
-# 单一来源同 _NO_THINKING；check/parse 层仍宽容旧顶层数组契约，
+# 单一来源同 NO_THINKING；check/parse 层仍宽容旧顶层数组契约，
 # 防兼容端点静默忽略该参数。
-_JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
+JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
 
 
 # Phase 1 输入 —— 来自 Chunker 的结构化 chunk

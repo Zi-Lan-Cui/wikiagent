@@ -71,7 +71,7 @@ def test_scan_command_returns_formatted_report(tmp_path: Path):
     (wiki / "concepts" / "x.md").write_text(_page(), encoding="utf-8")
 
     class _ReadFile:
-        _root = wiki
+        root = wiki  # 命令层经公开 root 属性取 wiki 根
 
     class _Registry:
         def get(self, name):
@@ -175,7 +175,7 @@ def test_compile_command_calls_reusable_compile_entry(tmp_path: Path, monkeypatc
     monkeypatch.setattr(compile_module, "compile_sources", fake_compile)
 
     class _ReadFile:
-        _root = wiki
+        root = wiki  # 命令层经公开 root 属性取 wiki 根
 
     class _Registry:
         def get(self, name):

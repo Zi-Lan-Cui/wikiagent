@@ -33,7 +33,7 @@ def test_tool_tasks_are_cancelled_and_joined():
 
     agent = SimpleNamespace(
         tool_registry=Registry(),
-        _hooks=Hooks(),
+        hooks=Hooks(),
     )
     runner = ReActRunner(agent)
     tc = ToolCall(id="t1", name="slow", arguments={})

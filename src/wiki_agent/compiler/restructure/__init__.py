@@ -1,9 +1,9 @@
 """Wiki 结构重组工作流的公开 API。"""
 
 from wiki_agent.compiler.restructure.common import (
-    _filter_valid_pages,
-    _index_overview,
-    _load_pages,
+    filter_valid_pages,
+    index_overview,
+    load_pages,
 )
 from wiki_agent.compiler.restructure.execute import execute
 from wiki_agent.compiler.restructure.models import (
@@ -21,9 +21,9 @@ __all__ = [
     "Conflict",
     "Proposal",
     "SurgeryResult",
-    "_filter_valid_pages",
-    "_index_overview",
-    "_load_pages",
+    "filter_valid_pages",
+    "index_overview",
+    "load_pages",
     "execute",
     "propose_from_index",
     "re_arbitrate",

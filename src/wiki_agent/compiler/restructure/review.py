@@ -8,19 +8,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wiki_agent.compiler.integration.parse import _strip_fence
-from wiki_agent.compiler.models import _JSON_MODE, _NO_THINKING
+from wiki_agent.compiler.integration.parse import strip_fence
+from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
 from wiki_agent.compiler.restructure.common import (
-    _coerce_list,
-    _filter_valid_pages,
-    _incoming_links,
-    _load_pages,
-    _safe_parse_json,
+    coerce_list,
+    filter_valid_pages,
+    incoming_links,
+    load_pages,
+    safe_parse_json,
 )
 from wiki_agent.compiler.restructure.models import (
-    _RE_ARBITRATE_MAX_TOKENS,
-    _RECHECK_BODY_CHARS,
-    _RECHECK_MAX_TOKENS,
+    RE_ARBITRATE_MAX_TOKENS,
+    RECHECK_BODY_CHARS,
+    RECHECK_MAX_TOKENS,
     ArbitrationResult,
     Conflict,
     Proposal,
@@ -44,7 +44,7 @@ def _check_recheck(content: str) -> tuple[bool, str]:
     """
     import json as _json
 
-    cleaned = _strip_fence(content)
+    cleaned = strip_fence(content)
     try:
         data = _json.loads(cleaned)
     except _json.JSONDecodeError as e:
@@ -71,8 +71,8 @@ def _recheck_prompt(prop: Proposal, pages: dict[str, dict]) -> str:
                 "你是知识库的结构复判员。复核一条合并提议——看全文，不看摘要。",
                 "## 提议",
                 f"merge: [[{a}]] ↔ [[{b}]]（粗提理由: {prop.reason}）",
-                f"## [[{a}]]\n{pages[a]['summary']}\n\n{pages[a]['body'][:_RECHECK_BODY_CHARS]}",
-                f"## [[{b}]]\n{pages[b]['summary']}\n\n{pages[b]['body'][:_RECHECK_BODY_CHARS]}",
+                f"## [[{a}]]\n{pages[a]['summary']}\n\n{pages[a]['body'][:RECHECK_BODY_CHARS]}",
+                f"## [[{b}]]\n{pages[b]['summary']}\n\n{pages[b]['body'][:RECHECK_BODY_CHARS]}",
                 "## 复判",
                 "1. 两页是否真的高度重叠（合并后信息基本无损）？",
                 "2. 若合并，谁吸收谁（内容更全/更系统的一页做目标）？",
@@ -91,7 +91,7 @@ def _recheck_prompt(prop: Proposal, pages: dict[str, dict]) -> str:
                 "## 提议",
                 f"{prop.op}: [[{slug}]]{target}（粗提理由: {prop.reason}）",
                 f"操作含义：{action}。指定章节：{prop.sections}",
-                f"## [[{slug}]]\n{pages[slug]['summary']}\n\n{pages[slug]['body'][:_RECHECK_BODY_CHARS]}",
+                f"## [[{slug}]]\n{pages[slug]['summary']}\n\n{pages[slug]['body'][:RECHECK_BODY_CHARS]}",
                 "## 复判",
                 "确认章节边界确实存在，且操作不会丢失原页主题的必要信息。",
                 '## 输出 JSON 对象: {"verdict": "confirm"|"reject", '
@@ -101,13 +101,13 @@ def _recheck_prompt(prop: Proposal, pages: dict[str, dict]) -> str:
         )
     # delete
     slug = prop.pages[0]
-    incoming = _incoming_links(pages, slug)
+    incoming = incoming_links(pages, slug)
     return "\n\n".join(
         [
             "你是知识库的结构复判员。复核一条删除提议——看全文和引用证据。",
             "## 提议",
             f"delete: [[{slug}]]（粗提理由: {prop.reason}）",
-            f"## [[{slug}]]\n{pages[slug]['summary']}\n\n{pages[slug]['body'][:_RECHECK_BODY_CHARS]}",
+            f"## [[{slug}]]\n{pages[slug]['summary']}\n\n{pages[slug]['body'][:RECHECK_BODY_CHARS]}",
             f"## 引用证据\n{len(incoming)} 个页面链接到它: {incoming[:10]}",
             "## 复判",
             "1. 该页内容是否已被其他页面覆盖（删除无信息损失）？",
@@ -133,9 +133,9 @@ async def recheck(
     Returns:
         (confirmed, rejected)——rejected 携带否决理由，调用方决定怎么呈现。
     """
-    pages = _load_pages(wiki_dir)
+    pages = load_pages(wiki_dir)
     # 幻觉 slug 防线——提议页面必须存在，否则复判读文件会 KeyError
-    proposals = _filter_valid_pages(proposals, pages)
+    proposals = filter_valid_pages(proposals, pages)
     confirmed: list[Proposal] = []
     rejected: list[tuple[Proposal, str]] = []
     for prop in proposals:
@@ -146,12 +146,12 @@ async def recheck(
             response = await async_invoke_with_retry(
                 llm,
                 [Message(role="system", content=_recheck_prompt(prop, pages))],
-                max_tokens=_RECHECK_MAX_TOKENS,
+                max_tokens=RECHECK_MAX_TOKENS,
                 check=_check_recheck,
                 temperature=0,  # 裁决任务——确定性判定
-                extra_body=_NO_THINKING,
+                extra_body=NO_THINKING,
                 max_attempts=2,
-                response_format=_JSON_MODE,
+                response_format=JSON_MODE,
             )
         except Exception as e:
             err = translate_generic_error(e, context="restructure recheck")
@@ -163,7 +163,7 @@ async def recheck(
                 cause=type(e).__name__,
             )
             continue
-        data = _safe_parse_json(response.content)
+        data = safe_parse_json(response.content)
         if data is None:
             emit_event(
                 "restructure_recheck_failed",
@@ -225,7 +225,7 @@ def _check_re_arbitrate(content: str) -> tuple[bool, str]:
     """
     import json as _json
 
-    cleaned = _strip_fence(content)
+    cleaned = strip_fence(content)
     try:
         data = _json.loads(cleaned)
     except _json.JSONDecodeError as e:
@@ -287,18 +287,18 @@ async def re_arbitrate(
         response = await async_invoke_with_retry(
             llm,
             [Message(role="system", content=prompt)],
-            max_tokens=_RE_ARBITRATE_MAX_TOKENS,
+            max_tokens=RE_ARBITRATE_MAX_TOKENS,
             check=_check_re_arbitrate,
-            extra_body=_NO_THINKING,
+            extra_body=NO_THINKING,
             temperature=0,
             max_attempts=2,
-            response_format=_JSON_MODE,
+            response_format=JSON_MODE,
         )
     except Exception as e:
         # LLM 都仲裁不了 = 复裁失败——全部记录，不阻塞
         logger.error("  复裁失败: %s——%d 组冲突记录待决策", str(e)[:120], len(conflicts))
         return ArbitrationResult(resolved=[], unresolved=list(conflicts))
-    data = _coerce_list(_safe_parse_json(response.content), "resolutions")
+    data = coerce_list(safe_parse_json(response.content), "resolutions")
     if data is None:
         logger.error("  复裁 JSON 二次解析失败——全部冲突记录待决策")
         return ArbitrationResult(resolved=[], unresolved=list(conflicts))

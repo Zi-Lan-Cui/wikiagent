@@ -18,12 +18,12 @@ from pathlib import Path
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.rules import (
-    _WIKILINK_RE,
-    _body_without_title,
-    _check_page_body,
-    _check_page_frontmatter,
-    _check_page_output,
-    _extract_body,
+    WIKILINK_RE,
+    body_without_title,
+    check_page_body,
+    check_page_frontmatter,
+    check_page_output,
+    extract_body,
     iter_text_outside_code,
 )
 
@@ -54,7 +54,7 @@ _PLACEHOLDER_VALUES = {
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # 内容页面所在的子目录（scan_wiki 扫描范围）
-_CONTENT_DIRS = ("concepts", "entities", "topics")
+CONTENT_DIRS = ("concepts", "entities", "topics")
 
 
 @dataclass
@@ -82,7 +82,7 @@ def _semantic_frontmatter_issues(
     """检查 frontmatter 语义；结构性错误与建议分开报告。"""
     fm, body = split_frontmatter(content)
     if not fm:
-        return []  # 必填/格式错误由 _check_page_output 统一报告
+        return []  # 必填/格式错误由 check_page_output 统一报告
 
     issues: list[Issue] = []
     rel_dir = Path(path).parts[0] if Path(path).parts else ""
@@ -161,7 +161,7 @@ def check_page_quality(
     path: str,
     valid_slugs: set[str] | None = None,
 ) -> list[Issue]:
-    """单页质量检测——判定与生成闸门（_check_page_output）完全同源。
+    """单页质量检测——判定与生成闸门（check_page_output）完全同源。
 
     Args:
         content: 页面内容
@@ -180,7 +180,7 @@ def check_page_quality(
         return [Issue("error", path, "内容为空")]
 
     # 判定唯一来源: 生成闸门。落盘后不过 = 页面损伤（error 报告）。
-    ok, reason = _check_page_output(content)
+    ok, reason = check_page_output(content)
     if not ok:
         issues.append(Issue("error", path, reason))
         return issues
@@ -194,12 +194,12 @@ def check_page_quality(
     )
 
     # 闸门是二元判定，不查长度——体检独有的 warning 观察在此补充
-    if len(_body_without_title(content)) < _MIN_BODY_CHARS:
+    if len(body_without_title(content)) < _MIN_BODY_CHARS:
         issues.append(
             Issue(
                 "warning",
                 path,
-                f"正文过短（{len(_body_without_title(content))} 字符），可能是提取失败的一话页",
+                f"正文过短（{len(body_without_title(content))} 字符），可能是提取失败的一话页",
             )
         )
 
@@ -216,19 +216,19 @@ def check_source_output(content: str, *, path: str) -> list[Issue]:
     issues: list[Issue] = []
     if not content or not content.strip():
         return [Issue("error", path, "内容为空")]
-    ok, reason = _check_page_frontmatter(content)
+    ok, reason = check_page_frontmatter(content)
     if not ok:
         return [Issue("error", path, reason)]
-    ok, reason = _check_page_body(content)
+    ok, reason = check_page_body(content)
     if not ok:
         return [Issue("error", path, reason)]
     issues.extend(_semantic_frontmatter_issues(content, path=path))
-    if len(_body_without_title(content)) < _MIN_BODY_CHARS:
+    if len(body_without_title(content)) < _MIN_BODY_CHARS:
         issues.append(
             Issue(
                 "warning",
                 path,
-                f"正文过短（{len(_body_without_title(content))} 字符），可能是提取失败的一话页",
+                f"正文过短（{len(body_without_title(content))} 字符），可能是提取失败的一话页",
             )
         )
     return issues
@@ -275,7 +275,7 @@ def scan_source(
                 path=rel,
                 valid_slugs={
                     str(p.relative_to(wiki)).removesuffix(".md")
-                    for sub in _CONTENT_DIRS
+                    for sub in CONTENT_DIRS
                     for p in (wiki / sub).rglob("*.md")
                     if (wiki / sub).is_dir()
                 },
@@ -301,9 +301,9 @@ def check_dead_links(content: str, *, path: str, valid_slugs: set[str]) -> list[
         return []
 
     issues: list[Issue] = []
-    body = _extract_body(content)
+    body = extract_body(content)
     text = "\n".join(iter_text_outside_code(body))
-    for m in _WIKILINK_RE.finditer(text):
+    for m in WIKILINK_RE.finditer(text):
         slug = m.group(1).strip().replace(".md", "")
         if slug not in valid_slugs:
             issues.append(
@@ -332,7 +332,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
     all_issues: list[Issue] = []
 
     pages: list[Path] = []
-    for sub in _CONTENT_DIRS:
+    for sub in CONTENT_DIRS:
         d = wiki / sub
         if d.is_dir():
             pages.extend(sorted(d.rglob("*.md")))
@@ -383,16 +383,16 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
         except OSError:
             continue
         current_slug = rel.removesuffix(".md")
-        body = "\n".join(iter_text_outside_code(_extract_body(content)))
+        body = "\n".join(iter_text_outside_code(extract_body(content)))
         linked: set[str] = set()
-        for match in _WIKILINK_RE.finditer(body):
+        for match in WIKILINK_RE.finditer(body):
             linked.add(match.group(1).strip().replace(".md", ""))
 
         # related 是 frontmatter 中的结构化关系，也应计入入链；解析失败
         # 已由语义校验报告，这里只提取其中形如 [[slug]] 的值。
         fm, _ = split_frontmatter(content)
         raw_related = str(fm.get("related", ""))
-        for match in _WIKILINK_RE.finditer(raw_related):
+        for match in WIKILINK_RE.finditer(raw_related):
             linked.add(match.group(1).strip().replace(".md", ""))
         for target in linked & valid_slugs:
             if target != current_slug:
@@ -426,7 +426,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
     except OSError:
         index_content = ""
 
-    # 3a. 根目录 .md——内容页面应全在 _CONTENT_DIRS 下，根目录的 .md
+    # 3a. 根目录 .md——内容页面应全在 CONTENT_DIRS 下，根目录的 .md
     #     只有 index/purpose/schema 等系统文件（垃圾页审计：wiki/.md）
     system_files = {"index.md", "purpose.md", "schema.md"}
     for f in sorted(wiki.glob("*.md")):
@@ -447,7 +447,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
 
     # 3c. 非标准内容目录——LLM 路由违规产物（实测 languages/ tools/）。
     #     三个内容目录之外的 .md 子目录在扫描与 search 中完全隐形。
-    known_dirs = set(_CONTENT_DIRS)
+    known_dirs = set(CONTENT_DIRS)
     for sub in sorted(wiki.iterdir()):
         if sub.is_dir() and sub.name not in known_dirs:
             mds = list(sub.rglob("*.md"))
@@ -457,7 +457,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
                         "warning",
                         f"{sub.name}/",
                         f"非标准目录含 {len(mds)} 个页面——应归入 "
-                        f"{'/'.join(_CONTENT_DIRS)}（LLM 路由违规）",
+                        f"{'/'.join(CONTENT_DIRS)}（LLM 路由违规）",
                     )
                 )
 

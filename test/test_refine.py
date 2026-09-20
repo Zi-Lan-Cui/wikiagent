@@ -27,7 +27,7 @@ from wiki_agent.compiler.workflows.refine import (
     refine_pages,
 )
 from wiki_agent.conversation import LLMResponse
-from wiki_agent.wiki.rules import _check_page_output
+from wiki_agent.wiki.rules import check_page_output
 
 # unit: prompt 契约与校验
 
@@ -153,28 +153,28 @@ def test_page_output_requires_frontmatter_fields():
         'goal: "讲清 X"\n'
         "---\n# X\n\n正文 [[concepts/y|Y页]]。\n"
     )
-    ok, err = _check_page_output(ok_page)
+    ok, err = check_page_output(ok_page)
     assert ok, err
 
     no_goal = ok_page.replace('goal: "讲清 X"\n', "")
-    ok, err = _check_page_output(no_goal)
+    ok, err = check_page_output(no_goal)
     assert not ok and "goal" in err
 
     no_fm = "# X\n\n没有 frontmatter。\n"
-    ok, err = _check_page_output(no_fm)
+    ok, err = check_page_output(no_fm)
     assert not ok and "frontmatter" in err
 
 
 def test_page_output_requires_body_content():
     """正文存在性进闸门（与 quality error 同语义）: 无正文/只有标题 → retry。"""
     no_body = '---\ntype: concept\ntitle: "X"\nsummary: "概述"\ngoal: "讲清 X"\n---\n'
-    ok, err = _check_page_output(no_body)
+    ok, err = check_page_output(no_body)
     assert not ok and "无正文" in err
 
     only_title = (
         '---\ntype: concept\ntitle: "X"\nsummary: "概述"\ngoal: "讲清 X"\n---\n# X\n\n## 小节\n'
     )
-    ok, err = _check_page_output(only_title)
+    ok, err = check_page_output(only_title)
     assert not ok and "只有标题" in err
 
 
@@ -347,7 +347,7 @@ def test_filter_refine_targets_all_violations_turn_noop():
 def test_search_paths_contract_lenient_both_shapes():
     """json_object 新契约 {"paths":[...]}；顶层数组（旧契约/端点忽略参数）宽容。"""
     from wiki_agent.compiler.integration.checks import check_paths_json
-    from wiki_agent.compiler.integration.parse import _parse_search_result
+    from wiki_agent.compiler.integration.parse import parse_search_result
 
     assert check_paths_json('{"paths": ["concepts/y.md"]}') == (True, "")
     assert check_paths_json('["concepts/y"]')[0] is True
@@ -355,9 +355,9 @@ def test_search_paths_contract_lenient_both_shapes():
     assert check_paths_json('{"unexpected": 1}')[0] is False
     assert check_paths_json("随便写点什么的")[0] is False
 
-    assert _parse_search_result('{"paths": ["wiki/concepts/y"]}') == ["concepts/y.md"]
-    assert _parse_search_result('["concepts/y"]') == ["concepts/y.md"]
-    assert _parse_search_result('{"paths": "notalist"}') == []
+    assert parse_search_result('{"paths": ["wiki/concepts/y"]}') == ["concepts/y.md"]
+    assert parse_search_result('["concepts/y"]') == ["concepts/y.md"]
+    assert parse_search_result('{"paths": "notalist"}') == []
 
 
 # integration: ingest_one 全链（脚本化 LLM）

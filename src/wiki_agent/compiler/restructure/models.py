@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-_CONTENT_DIRS = ("concepts", "entities", "topics")
+CONTENT_DIRS = ("concepts", "entities", "topics")
 
 # 重组超参数（暂定值——精细调参时统一校准，勿散落魔法数字）
-_PROPOSE_MAX_TOKENS = 8_000  # 粗提输出预算（130 页 index 实测 2000 截断）
-_PROPOSE_MAX_COUNT = 12  # 粗提单次输出上限——召回不是枚举，只提最可疑的
-_RECHECK_MAX_TOKENS = 800  # 复判输出预算（确认/否决 + 方向 + 理由）
-_RE_ARBITRATE_MAX_TOKENS = 1_000  # 复裁输出预算（冲突清单重提议）
-_RECHECK_BODY_CHARS = 2_000  # 复判时给 LLM 的页面正文截断长度
+PROPOSE_MAX_TOKENS = 8_000  # 粗提输出预算（130 页 index 实测 2000 截断）
+PROPOSE_MAX_COUNT = 12  # 粗提单次输出上限——召回不是枚举，只提最可疑的
+RECHECK_MAX_TOKENS = 800  # 复判输出预算（确认/否决 + 方向 + 理由）
+RE_ARBITRATE_MAX_TOKENS = 1_000  # 复裁输出预算（冲突清单重提议）
+RECHECK_BODY_CHARS = 2_000  # 复判时给 LLM 的页面正文截断长度
 
 
 @dataclass

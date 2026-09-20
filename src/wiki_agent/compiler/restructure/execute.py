@@ -9,11 +9,11 @@ import re
 from datetime import date
 from pathlib import Path
 
-from wiki_agent.compiler.restructure.common import _load_pages
+from wiki_agent.compiler.restructure.common import load_pages
 from wiki_agent.compiler.restructure.models import Proposal, SurgeryResult
-from wiki_agent.compiler.restructure.resolve import _src_of, _validate_operation_sequence
-from wiki_agent.compiler.restructure.rewrite import _plain_source_links, _rewrite_source_links
-from wiki_agent.compiler.restructure.transaction import _backup, _restore_group, _snapshot_group
+from wiki_agent.compiler.restructure.resolve import src_of, validate_operation_sequence
+from wiki_agent.compiler.restructure.rewrite import plain_source_links, rewrite_source_links
+from wiki_agent.compiler.restructure.transaction import backup, restore_group, snapshot_group
 from wiki_agent.errors import translate_generic_error
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
@@ -49,14 +49,14 @@ def execute_merge(wiki: Path, prop: Proposal) -> None:
     """
     source_slug = prop.pages[1] if prop.op == "merge_into_first" else prop.pages[0]
     target_slug = prop.target
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     target = pages[target_slug]
     source = pages[source_slug]
 
     # 1. 拼接（三处各自处理引用，然后写盘）
-    source_body = _rewrite_source_links(source["body"], source_slug, target_slug)
+    source_body = rewrite_source_links(source["body"], source_slug, target_slug)
     target_orig = target["path"].read_text(encoding="utf-8").rstrip()
-    target_orig = _plain_source_links(target_orig, source_slug, source["title"])
+    target_orig = plain_source_links(target_orig, source_slug, source["title"])
     merged = f"{target_orig}\n\n## 合并自 {source['title']} 的内容\n\n{source_body}\n"
     # related 由代码重推（extract_related 与 normalize 同源逻辑）
     valid = {s for s in pages if s != source_slug}
@@ -70,7 +70,7 @@ def execute_merge(wiki: Path, prop: Proposal) -> None:
             continue
         p = page["path"]
         content = p.read_text(encoding="utf-8")
-        new_content = _rewrite_source_links(content, source_slug, target_slug)
+        new_content = rewrite_source_links(content, source_slug, target_slug)
         if new_content != content:
             p.write_text(new_content, encoding="utf-8")
             logger.info("  链接重写: %s 中 [[%s]] → [[%s]]", p.name, source_slug, target_slug)
@@ -89,7 +89,7 @@ def execute_delete(wiki: Path, prop: Proposal) -> None:
         prop: delete 提议。
     """
     slug = prop.pages[0]
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     # 引用者链接转纯文本（死链防线同款语义）
     pattern = re.compile(rf"\[\[{re.escape(slug)}(?:\|([^\]]+?))?\]\]")
     for page in pages.values():
@@ -200,7 +200,7 @@ def _append_index_entry(wiki: Path, slug: str, content: str) -> None:
 def execute_create(wiki: Path, prop: Proposal) -> None:
     """create 原子：代码切章节、生成规范 frontmatter、写页、登记 index。"""
     source_slug = prop.pages[0]
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     if source_slug not in pages:
         raise FileNotFoundError(source_slug)
     if not prop.target or prop.target in pages or (wiki / f"{prop.target}.md").exists():
@@ -217,7 +217,7 @@ def execute_create(wiki: Path, prop: Proposal) -> None:
 def execute_trim(wiki: Path, prop: Proposal) -> None:
     """trim 原子：按章节标题移除正文，并重新计算 related，禁止空页落盘。"""
     slug = prop.pages[0]
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     if slug not in pages:
         raise FileNotFoundError(slug)
     source = pages[slug]
@@ -264,10 +264,10 @@ def execute(
         结构化执行结果。
     """
     wiki = Path(wiki_dir)
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     result = SurgeryResult(actions=[], skipped=[], backed_up=[])
 
-    proposals, invalid = _validate_operation_sequence(proposals, pages)
+    proposals, invalid = validate_operation_sequence(proposals, pages)
     for conflict in invalid:
         result.skipped.append(f"{conflict.kind}: {conflict.detail}")
         emit_event(
@@ -280,7 +280,7 @@ def execute(
     # 受影响页面集合 → 备份
     touched = {s for p in proposals for s in p.pages if s in pages}
     if backup_dir is not None:
-        result.backed_up = _backup(wiki, pages, touched, Path(backup_dir))
+        result.backed_up = backup(wiki, pages, touched, Path(backup_dir))
 
     # 同 group_id 的 create+trim 是一个事务；没有 group_id 的操作各自成组。
     groups: dict[str, list[Proposal]] = {}
@@ -291,7 +291,7 @@ def execute(
 
     for group in groups.values():
         snapshot = (
-            _snapshot_group(wiki, group) if any(p.op in ("create", "trim") for p in group) else None
+            snapshot_group(wiki, group) if any(p.op in ("create", "trim") for p in group) else None
         )
         group_action_count = len(result.actions)
         group_actions: list[str] = []
@@ -322,7 +322,7 @@ def execute(
                     execute_merge(wiki, prop)
                     result.actions.append(f"merge {prop.pages} -> {prop.target}")
                     # 更新内存页面表——被吸收页从表里移除，后续动作复核用
-                    src = _src_of(prop)
+                    src = src_of(prop)
                     del pages[src]
                     emit_event("restructure_merged", pages=prop.pages, target=prop.target)
                 elif prop.op == "delete":
@@ -346,7 +346,7 @@ def execute(
                 else:
                     raise ValueError(f"未知原子操作: {prop.op}")
                 completed.add(prop.id)
-                pages = _load_pages(wiki)
+                pages = load_pages(wiki)
                 group_actions.append(prop.id)
             except Exception as e:
                 err = translate_generic_error(e, context="restructure execute")
@@ -363,13 +363,13 @@ def execute(
                 group_failed = True
 
         if group_failed and snapshot is not None:
-            _restore_group(snapshot)
+            restore_group(snapshot)
             # 该组此前成功的动作也已回滚，不得被后续依赖使用。
             for op_id in group_actions:
                 completed.discard(op_id)
                 failed.add(op_id)
             result.actions = result.actions[:group_action_count]
             result.skipped.append(f"group {group[0].group_id or group[0].id}（事务回滚）")
-            pages = _load_pages(wiki)
+            pages = load_pages(wiki)
 
     return result

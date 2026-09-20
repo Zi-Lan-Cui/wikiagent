@@ -23,7 +23,7 @@ from wiki_agent.log import emit_event, get_logger
 logger = get_logger("REFINE")
 
 # refine 输入范围——知识页三目录（sources/ 是源档案页不参与；index 等系统文件排除）
-_CONTENT_DIRS = ("concepts", "entities", "topics")
+CONTENT_DIRS = ("concepts", "entities", "topics")
 
 
 def refine_pages(wiki_dir: str | Path) -> list[Path]:
@@ -37,7 +37,7 @@ def refine_pages(wiki_dir: str | Path) -> list[Path]:
     """
     wiki = Path(wiki_dir)
     pages: list[Path] = []
-    for sub in _CONTENT_DIRS:
+    for sub in CONTENT_DIRS:
         d = wiki / sub
         if d.is_dir():
             pages.extend(sorted(d.rglob("*.md")))

@@ -91,7 +91,7 @@ class ReActRunner:
         """
 
         for tc in tool_calls:
-            await self._agent._hooks.on_tool_call_start(
+            await self._agent.hooks.on_tool_call_start(
                 context=run_ctx,
                 tool_name=tc.name,
                 tool_call_id=tc.id,
@@ -102,7 +102,7 @@ class ReActRunner:
             async with span("tool_call", tool=tc.name, tool_call_id=tc.id) as s:
                 try:
                     result = await self._agent.tool_registry.execute(tc.name, params=tc.arguments)
-                    await self._agent._hooks.on_tool_result(
+                    await self._agent.hooks.on_tool_result(
                         context=run_ctx,
                         tool_name=tc.name,
                         tool_call_id=tc.id,
@@ -112,7 +112,7 @@ class ReActRunner:
                     s.set_attr("result_len", len(str(result)))
                     return tc, result, None
                 except Exception as exc:
-                    await self._agent._hooks.on_tool_error(
+                    await self._agent.hooks.on_tool_error(
                         context=run_ctx,
                         tool_name=tc.name,
                         tool_call_id=tc.id,
@@ -263,7 +263,7 @@ class ReActRunner:
         async def on_retry(attempt: int, total: int, exc: BaseException) -> None:
             # 只对网络抖动提示——未知异常可能是代码 bug，不误导用户等网络
             if isinstance(exc, RetryableError):
-                await self._agent._hooks.on_stream_delta(
+                await self._agent.hooks.on_stream_delta(
                     run_ctx, f"_(网络抖动——重试中 {attempt}/{total - 1})_"
                 )
 
@@ -273,7 +273,7 @@ class ReActRunner:
                     runner_messages,
                     tools=self._agent.tool_registry.get_all_schema_openai(),
                     max_tokens=self._agent.agent_config.max_tokens,
-                    on_delta=lambda delta: self._agent._hooks.on_stream_delta(run_ctx, delta),
+                    on_delta=lambda delta: self._agent.hooks.on_stream_delta(run_ctx, delta),
                 ),
                 retry_config=self._agent.retry_config,
                 on_retry=on_retry,
@@ -316,7 +316,7 @@ class ReActRunner:
                     getattr(response, "finish_reason", "?"),
                 )
                 # 给个兜底提示（经 hook 事件——渲染层统一显示）
-                await self._agent._hooks.on_stream_delta(run_ctx, "_(模型未生成回答，请重试)_")
+                await self._agent.hooks.on_stream_delta(run_ctx, "_(模型未生成回答，请重试)_")
             elif response.finish_reason == "length":
                 # 截断必须对用户可见——半截回答会被当作完整回答落盘
                 logger.warning(
@@ -324,7 +324,7 @@ class ReActRunner:
                     getattr(response, "usage", {}),
                     len(response.reasoning_content or ""),
                 )
-                await self._agent._hooks.on_stream_delta(
+                await self._agent.hooks.on_stream_delta(
                     run_ctx, "\n\n_(回答被 token 上限截断——调大 AGENT_MAX_TOKENS 或让我继续)_"
                 )
             return False
@@ -416,7 +416,7 @@ class ReActAgent(BaseAgent):
 
         # hooks
         _raw = hooks or []
-        self._hooks: AgentHook = (
+        self.hooks: AgentHook = (
             CompositeHook(_raw) if len(_raw) > 1 else _raw[0] if _raw else AgentHook()
         )
 
@@ -471,10 +471,10 @@ class ReActAgent(BaseAgent):
         run_ctx.exception = asyncio.CancelledError(reason)
         try:
             await asyncio.shield(self._runner.cancel_active_tools())
-            await asyncio.shield(self._hooks.on_run_error(run_ctx))
+            await asyncio.shield(self.hooks.on_run_error(run_ctx))
             # renderer 的 on_run_end 负责关闭未完成的 stream/tool UI；
             # 这里虽非成功结束，但必须执行其清理语义。
-            await asyncio.shield(self._hooks.on_run_end(run_ctx))
+            await asyncio.shield(self.hooks.on_run_end(run_ctx))
         except Exception as exc:
             logger.warning("取消收尾失败: %s: %s", type(exc).__name__, str(exc)[:160])
 
@@ -526,8 +526,8 @@ class ReActAgent(BaseAgent):
             run_ctx.error = str(exc)
             run_ctx.exception = exc
             try:
-                await self._hooks.on_run_error(run_ctx)
-                await self._hooks.on_run_end(run_ctx)
+                await self.hooks.on_run_error(run_ctx)
+                await self.hooks.on_run_end(run_ctx)
             finally:
                 raise
 
@@ -547,7 +547,7 @@ class ReActAgent(BaseAgent):
             user_input: 用户输入文本。
             stream: 为 True 时使用流式调用。
         """
-        await self._hooks.on_run_start(run_ctx)
+        await self.hooks.on_run_start(run_ctx)
 
         # command — 命令在 restore 之后、压缩之前分发
         # 命令需要 session 状态，但不应触发昂贵的 LLM 压缩
@@ -557,7 +557,7 @@ class ReActAgent(BaseAgent):
         if cmd_result is not None:
             if cmd_result.text:
                 # 命令输出经流式增量事件——渲染层订阅 hook 统一显示
-                await self._hooks.on_stream_delta(run_ctx, cmd_result.text + "\n\n")
+                await self.hooks.on_stream_delta(run_ctx, cmd_result.text + "\n\n")
             if cmd_result.rerun_with:
                 # /retry 类命令：替换 user_input 继续走完整流程
                 # （历史原封不动，追加的"不满意"指令就是新 user 消息）
@@ -565,12 +565,12 @@ class ReActAgent(BaseAgent):
             else:
                 # 命令路径不跑 LLM loop——手动收尾 run 事件
                 # （正常路径在 run_loop 结束后 on_run_end）
-                await self._hooks.on_run_end(run_ctx)
+                await self.hooks.on_run_end(run_ctx)
                 return
 
         # compact
         # 对会话进行压缩
-        await self._hooks.on_status(run_ctx, "compacting")
+        await self.hooks.on_status(run_ctx, "compacting")
         async with span("compaction", session=session.key) as s:
             consolidation = await self.consolidator.maybe_consolidate(
                 llm=self.llm,
@@ -637,13 +637,13 @@ class ReActAgent(BaseAgent):
 
         # on_run_end
         run_ctx.final_content = messages[-1].content if messages else ""
-        await self._hooks.on_run_end(run_ctx)
+        await self.hooks.on_run_end(run_ctx)
 
     def _ensure_dream_task(self) -> None:
         """首次运行时启动 idle 收尾与 Dream 后台任务。"""
         if self._dream_task is None or self._dream_task.done():
             self._dream_task = asyncio.create_task(
-                self._dream_loop(self.agent_config.dream_poll_interval),
+                self.dream_loop(self.agent_config.dream_poll_interval),
                 name="wiki-agent-dream",
             )
 
@@ -707,7 +707,7 @@ class ReActAgent(BaseAgent):
                 await asyncio.to_thread(self.session_manager.save_checkpoint, session=session)
         return changed
 
-    async def _dream_loop(self, interval: int = 60):
+    async def dream_loop(self, interval: int = 60):
         """定期结束 idle session，并处理已落账的 Dream 输入。
 
         Args:

@@ -8,10 +8,10 @@ from datetime import date
 from pathlib import Path
 
 from wiki_agent.compiler.integration.common import extract_slugs_from_index, load_valid_slugs
-from wiki_agent.compiler.integration.parse import _normalize_wiki_path
+from wiki_agent.compiler.integration.parse import normalize_wiki_path
 from wiki_agent.compiler.integration.plan import filter_plan_refs
 from wiki_agent.compiler.models import (
-    _NO_THINKING,
+    NO_THINKING,
     Disposition,
     ExtractResult,
     IntegrationPlan,
@@ -24,7 +24,7 @@ from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.normalize import extract_related, fix_wikilinks, normalize_page
-from wiki_agent.wiki.rules import _check_page_output
+from wiki_agent.wiki.rules import check_page_output
 
 logger = get_logger("STAGES")
 
@@ -64,7 +64,7 @@ class Executor:
             wiki_path: 页面相对路径（会做规范化）。
             content: 页面完整内容。
         """
-        wiki_path = _normalize_wiki_path(wiki_path)
+        wiki_path = normalize_wiki_path(wiki_path)
         full = self._wiki_dir / wiki_path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(content, encoding="utf-8")
@@ -103,8 +103,8 @@ class Executor:
                 Message(role="user", content=user_prompt),
             ],
             max_tokens=_UPDATE_TOKENS,
-            check=_check_page_output,
-            extra_body=_NO_THINKING,
+            check=check_page_output,
+            extra_body=NO_THINKING,
             max_attempts=_PAGE_GEN_RETRIES,
         )
         if not response.check_ok:
@@ -172,7 +172,7 @@ class Executor:
                 logger.info("  ✓ %s", target.wiki_path)
                 return target
             except Exception as exc:
-                failed_paths.add(_normalize_wiki_path(target.wiki_path))
+                failed_paths.add(normalize_wiki_path(target.wiki_path))
                 failed_details.append(
                     {
                         "path": target.wiki_path,
@@ -195,10 +195,10 @@ class Executor:
             actual_slugs.update(
                 t.wiki_path.replace(".md", "")
                 for t in plan.page_targets
-                if (self._wiki_dir / _normalize_wiki_path(t.wiki_path)).exists()
+                if (self._wiki_dir / normalize_wiki_path(t.wiki_path)).exists()
             )
             for t in plan.page_targets:
-                full = self._wiki_dir / _normalize_wiki_path(t.wiki_path)
+                full = self._wiki_dir / normalize_wiki_path(t.wiki_path)
                 if not full.exists():
                     continue
                 content = full.read_text(encoding="utf-8")

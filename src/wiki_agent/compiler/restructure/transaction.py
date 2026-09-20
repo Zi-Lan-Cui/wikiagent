@@ -15,7 +15,7 @@ from wiki_agent.log import get_logger
 logger = get_logger("RESTRUCTURE")
 
 
-def _backup(
+def backup(
     wiki: Path, pages: dict[str, dict], slugs: set[str], backup_dir: Path | None
 ) -> list[str]:
     """执行前备份受影响文件 + index——破坏性操作可回滚。
@@ -48,7 +48,7 @@ def _backup(
     return backed
 
 
-def _snapshot_group(wiki: Path, proposals: list[Proposal]) -> dict[Path, bytes | None]:
+def snapshot_group(wiki: Path, proposals: list[Proposal]) -> dict[Path, bytes | None]:
     """保存一组操作涉及的文件；None 表示执行前不存在。"""
     paths = {wiki / "index.md"}
     for prop in proposals:
@@ -58,7 +58,7 @@ def _snapshot_group(wiki: Path, proposals: list[Proposal]) -> dict[Path, bytes |
     return {path: path.read_bytes() if path.exists() else None for path in paths}
 
 
-def _restore_group(snapshot: dict[Path, bytes | None]) -> None:
+def restore_group(snapshot: dict[Path, bytes | None]) -> None:
     for path, content in snapshot.items():
         if content is None:
             if path.exists():

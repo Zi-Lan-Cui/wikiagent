@@ -54,6 +54,11 @@ class ReadFile(BaseTool):
         # tmp/ 前缀的转存路径解析到 workspace 下，其余相对路径解析到 wiki 下
         self._workspace = Path(workspace).resolve() if workspace else None
 
+    @property
+    def root(self) -> Path:
+        """wiki 根——跨模块定位知识库路径的公开口（命令层取 wiki_dir 用）。"""
+        return self._root
+
     def _resolve(self, file_path: str) -> Path | None:
         """解析相对路径: tmp/ 开头 → workspace/，否则 → wiki root/。
 

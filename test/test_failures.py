@@ -99,7 +99,7 @@ def test_retry_due_and_backoff():
 
 def test_failure_diagnostics_sanitizes_raw():
     """页级失败诊断只保留 path/reason——raw 大段输出不得进 issue。"""
-    from wiki_agent.compiler.workflows.failures import _failure_diagnostics
+    from wiki_agent.compiler.workflows.failures import failure_diagnostics
 
     exc = IngestError(
         IngestStage.EXECUTE,
@@ -109,7 +109,7 @@ def test_failure_diagnostics_sanitizes_raw():
         error_class="transient",
         retry_policy="auto_retry",
     )
-    diagnostics, raw = _failure_diagnostics(exc)
+    diagnostics, raw = failure_diagnostics(exc)
     assert diagnostics["failures"] == [{"path": "concepts/example.md", "reason": "缺少 title"}]
     assert "private" not in json.dumps(diagnostics, ensure_ascii=False)
     assert "private" in raw  # raw 只进事件日志
