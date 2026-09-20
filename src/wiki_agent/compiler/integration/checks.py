@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import json
 
-from wiki_agent.compiler.integration.parse import _extract_analyze_parts, _strip_fence
+from wiki_agent.compiler.integration.parse import extract_analyze_parts, strip_fence
 
 _VALID_RELATIONS = {"duplicate", "extends", "related", "contradicts", "unrelated"}
 # "重要" 是 LLM 的自然语言高频词（实测 refine 3 次违规全是它）——
 # 枚举拦截性价比低，并入合法集
 _VALID_IMPORTANCE = {"核心", "边缘", "重要"}
-_VALID_DISPOSITIONS = {"new", "update"}
+VALID_DISPOSITIONS = {"new", "update"}
 # 页面类型与目录的权威映射（与 quality._TYPE_DIRS 同义——plan 校验先行，
 # 落盘闸门兜底，两处一致）
 _VALID_PAGE_TYPES = {"concept", "entity", "topic"}
@@ -54,7 +54,7 @@ def check_analyze_json(
         if extra_refs:
             valid_refs |= {r.replace("wiki/", "").replace(".md", "").strip() for r in extra_refs}
 
-    _, json_part = _extract_analyze_parts(content)
+    _, json_part = extract_analyze_parts(content)
     if not json_part:
         return False, "缺少结构化尾巴——请按格式输出: 自由分析 + ```json {...}```。"
     try:
@@ -133,7 +133,7 @@ def check_plan_json(
 
     与 analyze 的尾巴校验同风格: 逐字段检查，错误消息可执行，
     让 LLM 在 retry 时知道自己错在哪。只校验'说得对不对'，
-    不校验'引用存不存在'——那由 _parse_plan 后的 filter_plan_refs 做。
+    不校验'引用存不存在'——那由 parse_plan 后的 filter_plan_refs 做。
 
     Args:
         content: LLM 原始输出。
@@ -144,11 +144,11 @@ def check_plan_json(
     Returns:
         (是否通过, 可执行的错误消息)。
     """
-    allowed = allowed_dispositions or _VALID_DISPOSITIONS
-    # fence/尾部缺括号是格式化噪声不是内容错误——与 _parse_plan 共享
-    # 同一格式规约（_strip_fence 内含 I5 repair）。关掉 thinking 后
+    allowed = allowed_dispositions or VALID_DISPOSITIONS
+    # fence/尾部缺括号是格式化噪声不是内容错误——与 parse_plan 共享
+    # 同一格式规约（strip_fence 内含 I5 repair）。关掉 thinking 后
     # LLM 输出风格变化（爱包裹 ```json、深嵌套少写尾部 }），必须容忍。
-    cleaned = _strip_fence(content)
+    cleaned = strip_fence(content)
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError as e:
@@ -249,8 +249,8 @@ def check_paths_json(content: str) -> tuple[bool, str]:
     Returns:
         (是否通过, 可执行的错误消息)。
     """
-    # fence 容错——与 check_plan_json 共享 _strip_fence
-    cleaned = _strip_fence(content)
+    # fence 容错——与 check_plan_json 共享 strip_fence
+    cleaned = strip_fence(content)
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError as e:

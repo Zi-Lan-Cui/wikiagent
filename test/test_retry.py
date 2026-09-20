@@ -460,7 +460,7 @@ def _make_runner(llm, hooks):
     agent = SimpleNamespace(
         llm=llm,
         retry_config=_FAST,
-        _hooks=hooks,
+        hooks=hooks,
         tool_registry=SimpleNamespace(get_all_schema_openai=lambda: []),
         agent_config=SimpleNamespace(max_tokens=10),
     )

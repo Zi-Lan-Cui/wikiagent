@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job
-from wiki_agent.watch.consumer import WatchConsumer, _clean_body_links
+from wiki_agent.watch.consumer import WatchConsumer, clean_body_links
 from wiki_agent.watch.state import WatchState, digest_file_text
 
 
@@ -192,7 +192,7 @@ def test_clean_body_links_replaces_aliases():
     """正文中 sources 页引用 → 别名纯文本。"""
     tmp = Path(tempfile.mkdtemp())
     wiki, _ = _make_wiki(tmp)
-    changed = _clean_body_links(wiki, "note")
+    changed = clean_body_links(wiki, "note")
     assert changed == 1
     content = (wiki / "concepts" / "page.md").read_text(encoding="utf-8")
     assert "[[sources/note" not in content

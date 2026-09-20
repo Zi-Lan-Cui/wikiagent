@@ -212,7 +212,7 @@ class CommandRouter:
         cmd, args = matched
         context = run_context or RunContext(session_key=session.key)
         task_id = f"{cmd.name}_{uuid4().hex[:12]}"
-        reporter = CommandReporter(agent._hooks, context, cmd.name, task_id)
+        reporter = CommandReporter(agent.hooks, context, cmd.name, task_id)
         ctx = CommandContext(
             raw=raw,
             key=cmd.name,
@@ -805,7 +805,7 @@ class RefineCommand(Command):
 
     @staticmethod
     def _wiki_dir(ctx: CommandContext) -> Path | None:
-        """从工具注册表拿 wiki 根（ReadFile._root）。
+        """从工具注册表拿 wiki 根（ReadFile 的公开 root 属性）。
 
         Args:
             ctx: 命令上下文。
@@ -819,7 +819,7 @@ class RefineCommand(Command):
         read_file = registry.get("ReadFile")
         if read_file is None:
             return None
-        return Path(read_file._root)
+        return Path(read_file.root)
 
 
 # 内置命令聚合

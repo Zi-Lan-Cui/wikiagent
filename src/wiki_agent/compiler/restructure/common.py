@@ -8,15 +8,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from wiki_agent.compiler.integration.parse import _strip_fence
-from wiki_agent.compiler.restructure.models import _CONTENT_DIRS, Proposal
+from wiki_agent.compiler.integration.parse import strip_fence
+from wiki_agent.compiler.restructure.models import CONTENT_DIRS, Proposal
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 
 logger = get_logger("RESTRUCTURE")
 
 
-def _load_pages(wiki_dir: str | Path) -> dict[str, dict]:
+def load_pages(wiki_dir: str | Path) -> dict[str, dict]:
     """读全库页面。
 
     Args:
@@ -27,7 +27,7 @@ def _load_pages(wiki_dir: str | Path) -> dict[str, dict]:
     """
     wiki = Path(wiki_dir)
     pages: dict[str, dict] = {}
-    for sub in _CONTENT_DIRS:
+    for sub in CONTENT_DIRS:
         d = wiki / sub
         if not d.is_dir():
             continue
@@ -46,7 +46,7 @@ def _load_pages(wiki_dir: str | Path) -> dict[str, dict]:
     return pages
 
 
-def _filter_valid_pages(
+def filter_valid_pages(
     proposals: list[Proposal],
     pages: dict[str, dict],
 ) -> list[Proposal]:
@@ -70,7 +70,7 @@ def _filter_valid_pages(
     return valid
 
 
-def _index_overview(wiki_dir: str | Path) -> str:
+def index_overview(wiki_dir: str | Path) -> str:
     """全库紧凑视野——slug + title + summary（粗提的输入）。
 
     Args:
@@ -79,7 +79,7 @@ def _index_overview(wiki_dir: str | Path) -> str:
     Returns:
         逐行索引文本。
     """
-    pages = _load_pages(wiki_dir)
+    pages = load_pages(wiki_dir)
     lines = []
     for slug in sorted(pages):
         p = pages[slug]
@@ -87,7 +87,7 @@ def _index_overview(wiki_dir: str | Path) -> str:
     return "\n".join(lines)
 
 
-def _incoming_links(pages: dict[str, dict], slug: str) -> list[str]:
+def incoming_links(pages: dict[str, dict], slug: str) -> list[str]:
     """收集谁引用了 slug——复判的证据（代码收集，LLM 裁决）。
 
     Args:
@@ -106,7 +106,7 @@ def _incoming_links(pages: dict[str, dict], slug: str) -> list[str]:
     return incoming
 
 
-def _safe_parse_json(content: str):
+def safe_parse_json(content: str):
     """剥 fence + loads——失败返回 None（不崩）。
 
     retry 的契约是"返回最后一次响应（即使校验未通过）"——
@@ -119,8 +119,8 @@ def _safe_parse_json(content: str):
     Returns:
         解析后的 JSON；解析失败返回 None。
     """
-    # fence 剥离统一走 integration.parse._strip_fence（含 I5 尾部括号 repair）
-    cleaned = _strip_fence(content)
+    # fence 剥离统一走 integration.parse.strip_fence（含 I5 尾部括号 repair）
+    cleaned = strip_fence(content)
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as e:
@@ -128,7 +128,7 @@ def _safe_parse_json(content: str):
         return None
 
 
-def _coerce_list(data: object, key: str) -> list | None:
+def coerce_list(data: object, key: str) -> list | None:
     """数组载荷归一——{"<key>": [...]} 与裸 [...] 双形态都收。
 
     json_object 模式只保证对象，契约键包裹数组；顶层数组保留对

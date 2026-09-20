@@ -24,7 +24,7 @@ def _page_quality(page: dict) -> int:
     return len(page["body"]) + 2 * len(page["summary"])
 
 
-def _src_of(prop: Proposal) -> str:
+def src_of(prop: Proposal) -> str:
     """返回 merge 的被吸收页。
 
     merge_into_first 吸收 pages[1]，反之 pages[0]。
@@ -96,7 +96,7 @@ def resolve_conflicts(
     for m in clean:
         if not m.op.startswith("merge"):
             continue
-        src = _src_of(m)
+        src = src_of(m)
         # 3. delete 被吸收页 → merge 赢
         if src in deletes:
             logger.info("  merge 覆盖 delete: %s（将被 %s 吸收）", src, m.target)
@@ -117,14 +117,14 @@ def resolve_conflicts(
     # 做一次依赖和目标校验。拓扑排序在 execute 中再次执行，防止调用方
     # 传入的列表顺序改变语义。
     clean.extend(p for p in unique if p.op in ("create", "trim"))
-    clean, dependency_conflicts = _validate_operation_sequence(clean, pages)
+    clean, dependency_conflicts = validate_operation_sequence(clean, pages)
     conflicts.extend(dependency_conflicts)
     if conflicts:
         emit_event("restructure_conflict", count=len(conflicts), kinds=[c.kind for c in conflicts])
     return clean, conflicts
 
 
-def _validate_operation_sequence(
+def validate_operation_sequence(
     proposals: list[Proposal],
     pages: dict[str, dict],
 ) -> tuple[list[Proposal], list[Conflict]]:

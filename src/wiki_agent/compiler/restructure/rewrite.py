@@ -10,7 +10,7 @@ import re
 _LINK_RE = re.compile(r"\[\[([^\]]+?)(?:\|([^\]]+?))?\]\]")
 
 
-def _rewrite_source_links(text: str, source_slug: str, target_slug: str) -> str:
+def rewrite_source_links(text: str, source_slug: str, target_slug: str) -> str:
     """源页正文内的自引用 → 指向合并后的目标页（内容搬家，链接跟着搬）。
 
     Args:
@@ -33,7 +33,7 @@ def _rewrite_source_links(text: str, source_slug: str, target_slug: str) -> str:
     )
 
 
-def _plain_source_links(text: str, source_slug: str, source_title: str) -> str:
+def plain_source_links(text: str, source_slug: str, source_title: str) -> str:
     """目标页原正文对源页的引用 → 纯文本（合并后成了自链，转别名）。
 
     Args:

@@ -34,7 +34,7 @@ def _find_ingest_error(error: Exception) -> IngestError | None:
     return None
 
 
-def _failure_diagnostics(error: Exception) -> tuple[dict[str, Any], str]:
+def failure_diagnostics(error: Exception) -> tuple[dict[str, Any], str]:
     """生成可持久化/展示的诊断，并将原始模型输出单独返回给事件日志。"""
     ingest_error = _find_ingest_error(error)
     diagnostics: dict[str, Any] = {"detail": str(error)[:1000]}
@@ -111,7 +111,7 @@ class SourceFailureHandler:
             )
         )
         stage = err.stage.value
-        diagnostics, _ = _failure_diagnostics(err)
+        diagnostics, _ = failure_diagnostics(err)
         retry_expires_at = (datetime.now() + self._retry_window).isoformat()
         private_source_path = str(Path(source_path).resolve()) if source_path else ""
         issue = self._issues.report(

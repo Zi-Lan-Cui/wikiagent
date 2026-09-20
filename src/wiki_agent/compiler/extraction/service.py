@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 from wiki_agent.compiler.models import (
-    _NO_THINKING,
+    NO_THINKING,
     ChunkSummary,
     ExtractResult,
     SourceChunk,
@@ -148,7 +148,7 @@ class Extractor:
                 ],
                 # digest 输出受控——目标长度的 2 倍留重写缓冲，防膨胀
                 max_tokens=min(budget, self._prompts.DIGEST_TARGET_TOKENS * 2),
-                extra_body=_NO_THINKING,
+                extra_body=NO_THINKING,
             )
             digest = response.content
             summaries.append(
@@ -197,7 +197,7 @@ class Extractor:
                 Message(role="user", content=joined),
             ],
             max_tokens=_OUTPUT_TOKENS,
-            extra_body=_NO_THINKING,
+            extra_body=NO_THINKING,
         )
         raw = response.content
         result = ExtractResult(
@@ -280,7 +280,7 @@ class Extractor:
                 Message(role="user", content=self._prompts.chunk_user(chunk)),
             ],
             max_tokens=max_tokens,
-            extra_body=_NO_THINKING,
+            extra_body=NO_THINKING,
         )
         return response.content
 

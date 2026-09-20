@@ -11,11 +11,11 @@ import re
 
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.quality import Issue, check_page_quality
-from wiki_agent.wiki.rules import _iter_code_runs, iter_text_outside_code
+from wiki_agent.wiki.rules import iter_code_runs, iter_text_outside_code
 
 logger = get_logger("NORMALIZE")
 
-_WIKILINK_RE = re.compile(r"\[\[([a-zA-Z0-9][^\]|]+?)(?:\|([^\]]+?))?\]\]")
+WIKILINK_RE = re.compile(r"\[\[([a-zA-Z0-9][^\]|]+?)(?:\|([^\]]+?))?\]\]")
 
 
 # fix —— 修 LLM 输出
@@ -99,8 +99,8 @@ def fix_wikilinks(content: str, *, valid_slugs: set[str]) -> str:
 
     # 逐行处理: 只在非代码行替换（括号配对 fence 状态机）
     lines: list[str] = []
-    for line, in_code in _iter_code_runs(content):
-        lines.append(line if in_code else _WIKILINK_RE.sub(_replace, line))
+    for line, in_code in iter_code_runs(content):
+        lines.append(line if in_code else WIKILINK_RE.sub(_replace, line))
     return "\n".join(lines)
 
 
@@ -140,7 +140,7 @@ def extract_related(content: str, *, valid_slugs: set[str]) -> str:
     slugs: list[str] = []
     seen: set[str] = set()
     body_text = "\n".join(iter_text_outside_code(body))
-    for wm in _WIKILINK_RE.finditer(body_text):
+    for wm in WIKILINK_RE.finditer(body_text):
         slug = wm.group(1).strip().replace(".md", "")
         if slug in valid_slugs and slug not in seen:
             seen.add(slug)

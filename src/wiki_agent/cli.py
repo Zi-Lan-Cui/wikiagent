@@ -27,7 +27,7 @@ def _footer(elapsed: float, total_tokens: int, win: int, cap: int) -> Panel:
 async def _interactive_loop(service: WikiAgentService, session_key: str) -> None:
     agent = service.runtime.agent
     console.print(Panel(f"模型: {agent.llm.model_id}\n会话: {session_key}", title="Wiki Agent"))
-    dream_task = asyncio.create_task(agent._dream_loop(interval=agent.agent_config.dream_interval))
+    dream_task = asyncio.create_task(agent.dream_loop(interval=agent.agent_config.dream_interval))
     try:
         while True:
             try:

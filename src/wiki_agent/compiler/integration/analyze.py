@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from wiki_agent.compiler.integration.checks import check_analyze_json
-from wiki_agent.compiler.integration.parse import _extract_headings, _parse_analysis
-from wiki_agent.compiler.models import _NO_THINKING, AnalysisResult, ExtractResult, SearchResult
+from wiki_agent.compiler.integration.parse import extract_headings, parse_analysis
+from wiki_agent.compiler.models import NO_THINKING, AnalysisResult, ExtractResult, SearchResult
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
@@ -72,7 +72,7 @@ class Analyzer:
             related = fm.get("related", "")
             gaps = fm.get("gaps", "")
             goal = fm.get("goal", "")
-            headings = _extract_headings(content)
+            headings = extract_headings(content)
             slug = path.replace("wiki/", "").replace(".md", "")
             meta = f"- [[{slug}]] — [{page_type}] {path} — {title}"
             if summary:
@@ -109,7 +109,7 @@ class Analyzer:
                 # 比固定标识 current-doc 自然（实测 refine 高频违规）
                 extra_refs={extract.source_identity},
             ),
-            extra_body=_NO_THINKING,
+            extra_body=NO_THINKING,
             max_attempts=2,
         )
         raw = response.content
@@ -124,7 +124,7 @@ class Analyzer:
                 error_class="transient",
                 retry_policy="auto_retry",
             )
-        analysis = _parse_analysis(raw, extract.source_identity)
+        analysis = parse_analysis(raw, extract.source_identity)
         logger.info(
             "  analysis: %d entities, %d concepts, %d relationships, 自由分析 %d chars",
             len(analysis.entities),

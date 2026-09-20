@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 
 from wiki_agent.application.job_results import JobResult
-from wiki_agent.compiler.workflows.failures import _failure_diagnostics
+from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
@@ -31,7 +31,7 @@ from wiki_agent.wiki.frontmatter import split_frontmatter
 logger = get_logger("WATCH_CONSUMER")
 
 
-def _clean_body_links(wiki: Path, slug: str) -> int:
+def clean_body_links(wiki: Path, slug: str) -> int:
     """全库正文中 [[sources/<slug>|别名]] → 别名纯文本。
 
     Args:
@@ -137,7 +137,7 @@ class WatchConsumer:
             else:
                 # 规则 2: 只剩被删文件 → 删除页面 + 正文引用换别名
                 page.unlink()
-                cleaned = _clean_body_links(wiki, slug)
+                cleaned = clean_body_links(wiki, slug)
                 action = f"delete {slug}（清理 {cleaned} 处正文引用）"
             logger.info("  %s", action)
             emit_event("watch_source_deleted", file=name, action=action)
@@ -205,7 +205,7 @@ class WatchConsumer:
             cause=type(exc.cause).__name__ if exc.cause else None,
             raw=exc.raw,
         )
-        diagnostics, _ = _failure_diagnostics(exc)
+        diagnostics, _ = failure_diagnostics(exc)
         return JobResult(
             status="failed",
             error_type="ingest_error",

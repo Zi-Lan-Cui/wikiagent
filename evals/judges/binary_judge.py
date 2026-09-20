@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from wiki_agent.compiler.integration.parse import _strip_fence
-from wiki_agent.compiler.models import _JSON_MODE
+from wiki_agent.compiler.integration.parse import strip_fence
+from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
 
@@ -63,7 +63,7 @@ def build_judge_messages(
 def check_judge_json(content: str, claim_ids: set[str]) -> tuple[bool, str]:
     """校验 judge 输出——judgements 齐全、id 与 verdict 合法。"""
     try:
-        data = __import__("json").loads(_strip_fence(content))
+        data = __import__("json").loads(strip_fence(content))
     except Exception as exc:  # JSONDecodeError 等
         return False, f"Judge 输出不是 JSON: {exc}"
     if not isinstance(data, dict) or "judgements" not in data:
@@ -98,11 +98,11 @@ async def judge_claims(
         max_tokens=4096,
         temperature=0.0,
         max_attempts=2,
-        response_format=_JSON_MODE,
+        response_format=JSON_MODE,
     )
     import json
 
-    data = json.loads(_strip_fence(response.content))
+    data = json.loads(strip_fence(response.content))
     verdict_map: dict[str, Any] = {}
     for item in data["judgements"]:
         value = item.get("verdict")

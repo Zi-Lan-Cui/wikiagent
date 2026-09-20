@@ -48,7 +48,7 @@ def _try_repair_trailing_braces(cleaned: str) -> str | None:
     return None
 
 
-def _strip_fence(content: str) -> str:
+def strip_fence(content: str) -> str:
     """剥 LLM 输出的格式噪声——校验与解析共享的格式规约。
 
     fence 是格式化噪声不是内容错误：check 层和 parse 层必须用
@@ -85,7 +85,7 @@ def _strip_fence(content: str) -> str:
     return cleaned
 
 
-def _parse_search_result(raw: str) -> list[str]:
+def parse_search_result(raw: str) -> list[str]:
     """解析 search 阶段 LLM 返回的 JSON 数组。
 
     路径规范化兜底: LLM 可能输出 wiki/ 前缀、缺 .md 后缀，
@@ -97,7 +97,7 @@ def _parse_search_result(raw: str) -> list[str]:
     Returns:
         规范化后的相对路径列表（坏数据跳过）。
     """
-    raw = _strip_fence(raw)
+    raw = strip_fence(raw)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -114,7 +114,7 @@ def _parse_search_result(raw: str) -> list[str]:
     for item in data:
         if not isinstance(item, str) or not item.strip():
             continue
-        path = _normalize_wiki_path(item)
+        path = normalize_wiki_path(item)
         if path in seen:
             continue
         seen.add(path)
@@ -122,7 +122,7 @@ def _parse_search_result(raw: str) -> list[str]:
     return paths
 
 
-def _parse_analysis(raw: str, source_identity: str) -> AnalysisResult:
+def parse_analysis(raw: str, source_identity: str) -> AnalysisResult:
     """解析 analyze 两段式输出 → AnalysisResult。
 
     Args:
@@ -132,7 +132,7 @@ def _parse_analysis(raw: str, source_identity: str) -> AnalysisResult:
     Returns:
         分析结果（自由文本缺失时回退用原始输出）。
     """
-    free_part, json_part = _extract_analyze_parts(raw)
+    free_part, json_part = extract_analyze_parts(raw)
 
     data: dict = {}
     if json_part:
@@ -162,10 +162,10 @@ def _parse_analysis(raw: str, source_identity: str) -> AnalysisResult:
     )
 
 
-def _parse_plan(raw: str) -> IntegrationPlan:
+def parse_plan(raw: str) -> IntegrationPlan:
     """解析 plan JSON 输出 → IntegrationPlan。
 
-    fence 容错与 check_plan_json 共享 _strip_fence——能到这的
+    fence 容错与 check_plan_json 共享 strip_fence——能到这的
     内容必然已通过校验，解析失败是 bug，炸出来而不是吞掉
     （旧 _try_parse_json 的 JSONDecodeError 抢救分支已不可达）。
 
@@ -175,7 +175,7 @@ def _parse_plan(raw: str) -> IntegrationPlan:
     Returns:
         集成计划（路径/标题规范化，非法 disposition 跳过）。
     """
-    data = json.loads(_strip_fence(raw))
+    data = json.loads(strip_fence(raw))
 
     targets = []
     for t in data.get("page_targets", []):
@@ -187,7 +187,7 @@ def _parse_plan(raw: str) -> IntegrationPlan:
             continue
         targets.append(
             PageTarget(
-                wiki_path=_normalize_wiki_path(t.get("wiki_path", "")),
+                wiki_path=normalize_wiki_path(t.get("wiki_path", "")),
                 title=_clean_title(t.get("title", "")),
                 disposition=disposition,
                 reason=t.get("reason", ""),
@@ -221,7 +221,7 @@ def _parse_references(raw: list | None) -> list[dict[str, str]]:
     return result
 
 
-def _extract_headings(content: str, max_depth: int = 3) -> str:
+def extract_headings(content: str, max_depth: int = 3) -> str:
     """提取页面标题（# / ## / ###），返回缩进大纲字符串。
 
     Args:
@@ -248,7 +248,7 @@ def _extract_headings(content: str, max_depth: int = 3) -> str:
     return "\n".join(lines_out) if lines_out else ""
 
 
-def _extract_analyze_parts(content: str) -> tuple[str, str]:
+def extract_analyze_parts(content: str) -> tuple[str, str]:
     """拆解 analyze 两段式输出 → (自由文本主体, JSON 尾巴文本)。
 
     支持三种形态:
@@ -292,7 +292,7 @@ def _clean_title(title: str) -> str:
     return title
 
 
-def _normalize_wiki_path(path: str) -> str:
+def normalize_wiki_path(path: str) -> str:
     """规范化 wiki 相对路径。
 
     去掉 LLM 可能输出的 wiki/ 前缀，补 .md 后缀。

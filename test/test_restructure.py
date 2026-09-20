@@ -8,9 +8,9 @@ from pathlib import Path
 
 from wiki_agent.compiler.restructure import (
     Proposal,
-    _filter_valid_pages,
-    _load_pages,
     execute,
+    filter_valid_pages,
+    load_pages,
     resolve_conflicts,
 )
 from wiki_agent.wiki.quality import scan_wiki
@@ -36,7 +36,7 @@ def test_resolve_conflicts_dedup():
     """完全重复的提议去重。"""
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     props = [
         Proposal(op="merge_into_first", pages=["concepts/a", "concepts/b"], target="concepts/a"),
         Proposal(op="merge_into_first", pages=["concepts/a", "concepts/b"], target="concepts/a"),
@@ -50,7 +50,7 @@ def test_resolve_conflicts_bidirectional_merge():
     """双向 merge → 质量高的一页做吸收方，另一条丢弃。"""
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     props = [
         Proposal(op="merge_into_first", pages=["concepts/a", "concepts/c"], target="concepts/a"),
         Proposal(op="merge_into_second", pages=["concepts/a", "concepts/c"], target="concepts/c"),
@@ -65,7 +65,7 @@ def test_resolve_conflicts_delete_absorbed_merge_wins():
     """delete 被吸收页 → merge 赢（merge 保留信息，delete 只减不增）。"""
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     props = [
         Proposal(op="merge_into_first", pages=["concepts/a", "concepts/b"], target="concepts/a"),
         Proposal(op="delete", pages=["concepts/b"]),
@@ -80,7 +80,7 @@ def test_resolve_conflicts_delete_target_conflict():
     """delete 吸收方 → Conflict（吸收方即将消失，需人工/复裁）。"""
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     props = [
         Proposal(op="merge_into_first", pages=["concepts/a", "concepts/b"], target="concepts/a"),
         Proposal(op="delete", pages=["concepts/a"]),
@@ -94,12 +94,12 @@ def test_filter_valid_pages_drops_hallucinated():
     """幻觉 slug 提议被丢弃（不 KeyError）。"""
     tmp = Path(tempfile.mkdtemp())
     wiki = _make_wiki(tmp)
-    pages = _load_pages(wiki)
+    pages = load_pages(wiki)
     props = [
         Proposal(op="merge", pages=["concepts/a", "concepts/ghost"], reason="x"),
         Proposal(op="delete", pages=["concepts/b"], reason="y"),
     ]
-    valid = _filter_valid_pages(props, pages)
+    valid = filter_valid_pages(props, pages)
     assert len(valid) == 1
     assert valid[0].pages == ["concepts/b"]
 
@@ -253,7 +253,7 @@ def test_split_end_to_end_scan_has_no_structural_errors():
             reason="拆出独立异步主题",
         ),
     ]
-    clean, conflicts = resolve_conflicts(proposals, _load_pages(wiki))
+    clean, conflicts = resolve_conflicts(proposals, load_pages(wiki))
     assert conflicts == []
     result = execute(wiki, clean)
     assert result.skipped == []
