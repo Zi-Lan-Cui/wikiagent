@@ -36,9 +36,7 @@ def validate_corpus(manifest_path: Path) -> tuple[CorpusManifest | None, list[st
     root = manifest_path.parent.resolve()
     errors: list[str] = []
     try:
-        manifest = CorpusManifest.model_validate_json(
-            manifest_path.read_text(encoding="utf-8")
-        )
+        manifest = CorpusManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
     except (OSError, ValidationError, ValueError) as exc:
         return None, [str(exc)]
 

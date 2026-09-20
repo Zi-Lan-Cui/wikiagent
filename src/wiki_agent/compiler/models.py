@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from openai.types.shared_params import ResponseFormatJSONObject
+
 
 class Disposition(StrEnum):
     """页面操作类型——只含要执行的决策。
@@ -22,6 +24,11 @@ class Disposition(StrEnum):
 # 编译输出是"写页面"不是"解难题"，直接写更可靠也更便宜。
 # 单一来源：integration 四阶段与 restructure 复用此常量（勿再各存副本）。
 _NO_THINKING = {"thinking": {"type": "disabled"}}
+
+# API 级 JSON 模式——输出必为合法 JSON 对象，fence/前言类格式噪声重试归零。
+# 单一来源同 _NO_THINKING；check/parse 层仍宽容旧顶层数组契约，
+# 防兼容端点静默忽略该参数。
+_JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
 
 
 # Phase 1 输入 —— 来自 Chunker 的结构化 chunk
