@@ -102,6 +102,10 @@ def _parse_search_result(raw: str) -> list[str]:
         data = json.loads(raw)
     except json.JSONDecodeError:
         return []
+    # 新契约 {"paths": [...]}；兼容顶层数组（老 run 的 raw 证据、
+    # 静默忽略 response_format 的端点）——解析宽进，prompt 严请。
+    if isinstance(data, dict):
+        data = data.get("paths", [])
     if not isinstance(data, list):
         return []
 

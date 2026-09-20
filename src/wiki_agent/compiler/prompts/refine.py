@@ -107,7 +107,7 @@ def plan_system(
             "此时补的是本页的 [[wikilink]]（指向对方），不是把本页内容写给对方。",
             "",
             "## 输出格式",
-            "纯 JSON（不要用 ```json 包裹）:",
+            "输出 JSON 对象:",
             '{"page_targets": [{"wiki_path": "wiki/concepts/本页.md", "title": "本页标题",',
             '"disposition": "update", "reason": "具体操作指令",',
             '"references": []}]}',

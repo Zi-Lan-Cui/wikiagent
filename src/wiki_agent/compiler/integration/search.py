@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wiki_agent.compiler.integration.checks import check_json_array
+from openai.types.shared_params import ResponseFormatJSONObject
+
+from wiki_agent.compiler.integration.checks import check_paths_json
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import _parse_search_result
 from wiki_agent.compiler.models import _NO_THINKING, ExtractResult, SearchResult
@@ -18,6 +20,9 @@ logger = get_logger("STAGES")
 
 _SEARCH_TOKENS = 2_048
 _SEARCH_PAGE_DIRS = {"concepts", "entities", "topics"}
+# API 级 JSON 模式——输出必为合法 JSON 对象，格式噪声重试（fence/前言）归零；
+# check/parse 仍宽容顶层数组，防端点静默忽略该参数
+_JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
 
 __all__ = ["Searcher", "_filter_search_paths", "load_valid_slugs"]
 
@@ -83,9 +88,10 @@ class Searcher:
                 Message(role="user", content=self._prompts.search_user(extract, index_content)),
             ],
             max_tokens=_SEARCH_TOKENS,
-            check=check_json_array,
+            check=check_paths_json,
             extra_body=_NO_THINKING,
             max_attempts=2,
+            response_format=_JSON_MODE,
         )
         # 校验穷尽后仍失败 → 显式 raise，不许静默降级成"0 候选"。
         if not response.check_ok:

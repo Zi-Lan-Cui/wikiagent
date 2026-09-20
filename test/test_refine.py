@@ -344,6 +344,22 @@ def test_filter_refine_targets_all_violations_turn_noop():
     assert plan.page_targets == []
 
 
+def test_search_paths_contract_lenient_both_shapes():
+    """json_object 新契约 {"paths":[...]}；顶层数组（旧契约/端点忽略参数）宽容。"""
+    from wiki_agent.compiler.integration.checks import check_paths_json
+    from wiki_agent.compiler.integration.parse import _parse_search_result
+
+    assert check_paths_json('{"paths": ["concepts/y.md"]}') == (True, "")
+    assert check_paths_json('["concepts/y"]')[0] is True
+    assert check_paths_json('{"paths": "不是数组"}')[0] is False
+    assert check_paths_json('{"unexpected": 1}')[0] is False
+    assert check_paths_json("随便写点什么的")[0] is False
+
+    assert _parse_search_result('{"paths": ["wiki/concepts/y"]}') == ["concepts/y.md"]
+    assert _parse_search_result('["concepts/y"]') == ["concepts/y.md"]
+    assert _parse_search_result('{"paths": "notalist"}') == []
+
+
 # integration: ingest_one 全链（脚本化 LLM）
 
 
@@ -367,7 +383,13 @@ class ScriptedLLM:
         self.calls: list[str] = []
 
     async def async_invoke(
-        self, messages, tools=None, max_tokens=None, temperature=0.5, extra_body=None
+        self,
+        messages,
+        tools=None,
+        max_tokens=None,
+        temperature=0.5,
+        extra_body=None,
+        response_format=None,
     ):
         # chunk/synthesis 是 system+user 双消息——扫描全部消息，
         # 只读 messages[-1] 会拿到 user 的 chunk 正文，分支永远不命中
@@ -378,7 +400,7 @@ class ScriptedLLM:
         if "基于一份文档的所有片段摘要" in content:
             return LLMResponse(content="文档摘要：讲 X 概念，与 Y 相关。")
         if "你是 Wiki 相关度过滤器" in content:
-            return LLMResponse(content='["concepts/y"]')
+            return LLMResponse(content='{"paths": ["concepts/y"]}')
         if "你是知识库的关系分析师" in content:
             return LLMResponse(
                 content=(
