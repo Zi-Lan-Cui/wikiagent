@@ -5,6 +5,7 @@ from typing import cast
 
 import openai
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
+from openai.types.chat.completion_create_params import ResponseFormat
 
 from wiki_agent.config import LLMConfig, RetryConfig
 from wiki_agent.conversation import LLMResponse, Message, ToolCall
@@ -181,11 +182,14 @@ class LLMClient:
         max_tokens: int | None = None,
         temperature: float = 0.5,
         extra_body: dict | None = None,
+        response_format: ResponseFormat | None = None,
     ) -> LLMResponse:
         """在全局请求预算内执行异步调用。"""
         estimated_tokens = self._estimate_request_tokens(messages, tools, max_tokens)
         async with self.request_limiter.async_slot(estimated_tokens):
-            return await self._async_invoke(messages, tools, max_tokens, temperature, extra_body)
+            return await self._async_invoke(
+                messages, tools, max_tokens, temperature, extra_body, response_format
+            )
 
     async def _async_invoke(
         self,
@@ -194,6 +198,7 @@ class LLMClient:
         max_tokens: int | None = None,
         temperature: float = 0.5,
         extra_body: dict | None = None,
+        response_format: ResponseFormat | None = None,
     ) -> LLMResponse:
         """异步非流式调用。
 
@@ -203,6 +208,8 @@ class LLMClient:
             max_tokens: 生成 token 上限。
             temperature: 采样温度。
             extra_body: 附加请求体参数（如 thinking 开关）。
+            response_format: API 级输出格式（如 {"type": "json_object"}）——
+                编译阶段用它消灭 fence/前言类格式噪声重试；None 不传。
 
         Returns:
             组装好的 LLMResponse（含 usage 与 cache_hit/cache_miss）。
@@ -218,6 +225,8 @@ class LLMClient:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 extra_body=self._request_extra_body(extra_body),
+                # SDK 签名不收 None——省略用 NOT_GIVEN 哨兵（等同不传）
+                response_format=response_format if response_format is not None else openai.omit,
             )
             llm_response = LLMResponse()
             llm_response.finish_reason = response.choices[0].finish_reason

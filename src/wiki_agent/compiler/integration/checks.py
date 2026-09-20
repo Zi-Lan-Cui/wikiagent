@@ -237,8 +237,11 @@ def check_plan_json(
     return True, ""
 
 
-def check_json_array(content: str) -> tuple[bool, str]:
-    """校验 JSON 字符串数组输出。
+def check_paths_json(content: str) -> tuple[bool, str]:
+    """校验 search 阶段输出——{"paths": ["entities/x.md", ...]}。
+
+    双格式宽容：search 调用已开 json_object，但兼容端点可能静默忽略
+    response_format——顶层数组（旧契约）同样放行。校验宽进、prompt 严请。
 
     Args:
         content: LLM 原始输出。
@@ -251,10 +254,14 @@ def check_json_array(content: str) -> tuple[bool, str]:
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        return False, f"JSON 格式错误: {e}。请输出合法的 JSON 字符串数组。"
+        return False, (
+            f'JSON 格式错误: {e}。请输出 {{"paths": ["entities/x.md", ...]}} 形式的 JSON 对象。'
+        )
+    if isinstance(data, dict):
+        data = data.get("paths")
     if not isinstance(data, list):
-        return False, '请输出 JSON 数组格式，如 ["a", "b"]。'
+        return False, 'paths 必须是字符串数组——{"paths": ["entities/x.md"]}，无结果时输出空数组。'
     for item in data:
         if not isinstance(item, str):
-            return False, "数组中每个元素必须是字符串。"
+            return False, "paths 中每个元素必须是字符串路径。"
     return True, ""

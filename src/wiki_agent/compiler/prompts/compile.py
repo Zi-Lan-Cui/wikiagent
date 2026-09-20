@@ -179,7 +179,8 @@ def search_system() -> str:
     return "\n\n".join(
         [
             "你是 Wiki 相关度过滤器。基于文档摘要和已有 index，选出与新文档相关的已有页面。",
-            '输出纯 JSON 字符串数组: ["entities/redis.md", "concepts/cache.md"]，不要其他内容。',
+            '输出 JSON 对象 {"paths": ["entities/redis.md", "concepts/cache.md"]}——'
+            "paths 为相对 wiki 的页面路径；没有相关页面时输出空数组。",
             "",
             "## 什么应该入选（选入规则）",
             "1. 可合并: 已有页面主题与新文档高度重叠 → 新内容应并入旧页",
@@ -410,7 +411,7 @@ def plan_system(
             "references 中的 slug 只能引用: 已有页面（见下方 index）/ 本次 plan 中的 new 页面。\n"
             "不确定时宁可不写交叉引用。\n"
             "\n## 输出\n"
-            '纯 JSON（不要用 ```json 包裹）: {"page_targets": [{"wiki_path": "wiki/...", '
+            '输出 JSON 对象 {"page_targets": [{"wiki_path": "wiki/...", '
             '"title": "...", "disposition": "...", "page_type": "concept", "reason": "具体操作指令",'
             ' "references": [{"slug": "entities/xxx", "reason": "对比参照"}]}'
         ),

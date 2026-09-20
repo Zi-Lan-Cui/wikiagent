@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openai.types.shared_params import ResponseFormatJSONObject
+
 from wiki_agent.compiler.integration.checks import (
     _VALID_DISPOSITIONS,
     check_plan_json,
@@ -32,6 +34,9 @@ from wiki_agent.wiki.frontmatter import split_frontmatter
 logger = get_logger("STAGES")
 
 _PLAN_TOKENS = 8_192
+# API 级 JSON 模式——plan 输出必为合法 JSON 对象，fence/前言类格式重试归零；
+# check_plan_json 语义校验与 _strip_fence 防御保持不变（端点可能静默忽略该参数）
+_JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
 
 
 class Planner:
@@ -84,6 +89,7 @@ class Planner:
             check=check_plan,
             extra_body=_NO_THINKING,
             max_attempts=2,
+            response_format=_JSON_MODE,
         )
         raw = response.content
         if not response.check_ok:

@@ -154,7 +154,7 @@ def test_transient_chain_blocks_watch_resubmit(tmp_path: Path):
     source = tmp_path / "note.md"
     source.write_text("内容" * 10, encoding="utf-8")
     resource = str(source.resolve())
-    job = service.submit_watch_change(resource, digest="d1")
+    service.submit_watch_change(resource, digest="d1")
     worker = JobWorker(service)
 
     async def crash(current, progress):

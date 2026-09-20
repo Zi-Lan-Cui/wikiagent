@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from typing import cast
 
 from openai.types.chat import ChatCompletionToolParam
+from openai.types.chat.completion_create_params import ResponseFormat
 
 from wiki_agent.config import RetryConfig
 from wiki_agent.conversation import LLMResponse, Message
@@ -187,6 +188,7 @@ async def async_invoke_with_retry(
     extra_body: dict | None = None,
     max_attempts: int | None = None,
     base_delay: float | None = None,
+    response_format: ResponseFormat | None = None,
 ) -> LLMResponse:
     """编译面：带输出校验 + 自动重试的 LLM 调用。
 
@@ -211,6 +213,7 @@ async def async_invoke_with_retry(
         extra_body: 附加请求体参数。
         max_attempts: 总尝试次数（不是重试次数）。
         base_delay: 退避基础延迟（秒）。
+        response_format: API 级输出格式（如 {"type": "json_object"}），透传给客户端。
 
     Returns:
         最后一次 LLMResponse（即使最终仍未通过校验，check_ok
@@ -302,10 +305,14 @@ async def async_invoke_with_retry(
         return await _retry_core(
             lambda: client.async_invoke(
                 msgs,
-                tools=tools,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                extra_body=extra_body,
+                **{
+                    "tools": tools,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "extra_body": extra_body,
+                    # 仅在需要时传——只实现基础签名的轻量测试替身保持兼容
+                    **({"response_format": response_format} if response_format else {}),
+                },
             ),
             attempts=attempts,
             delay=delay,
