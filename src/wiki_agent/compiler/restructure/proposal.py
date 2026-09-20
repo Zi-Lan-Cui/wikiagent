@@ -8,8 +8,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from wiki_agent.compiler.integration.parse import _strip_fence
-from wiki_agent.compiler.models import _NO_THINKING
-from wiki_agent.compiler.restructure.common import _index_overview, _safe_parse_json
+from wiki_agent.compiler.models import _JSON_MODE, _NO_THINKING
+from wiki_agent.compiler.restructure.common import (
+    _coerce_list,
+    _index_overview,
+    _safe_parse_json,
+)
 from wiki_agent.compiler.restructure.models import (
     _PROPOSE_MAX_COUNT,
     _PROPOSE_MAX_TOKENS,
@@ -26,6 +30,9 @@ logger = get_logger("RESTRUCTURE")
 def _check_propose_list(content: str) -> tuple[bool, str]:
     """校验粗提输出——原子提议数组。
 
+    新契约 {"proposals": [...]}（调用侧开 json_object）；宽容顶层数组
+    ——端点可能静默忽略 response_format，校验宽进、prompt 严请。
+
     Args:
         content: LLM 原始输出。
 
@@ -41,8 +48,10 @@ def _check_propose_list(content: str) -> tuple[bool, str]:
         data = _json.loads(cleaned)
     except _json.JSONDecodeError as e:
         return False, f"JSON 格式错误: {e}"
+    if isinstance(data, dict):
+        data = data.get("proposals")
     if not isinstance(data, list):
-        return False, "输出必须是数组（无提议输出 []）"
+        return False, '输出必须是 {"proposals": [...]}——无提议时 proposals 为空数组'
     for i, item in enumerate(data):
         if not isinstance(item, dict):
             return False, f"[{i}] 必须是对象"
@@ -103,10 +112,11 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
             "## 全库页面索引",
             overview,
             "",
-            "## 输出（纯 JSON 数组，不要 ``` 包裹）",
-            '[{"id": "op_1", "op": "merge", "pages": ["concepts/a", "concepts/b"], "reason": "..."},',
-            ' {"id": "op_2", "op": "create", "pages": ["concepts/a"], "target": "concepts/new", "sections": ["新主题"], "reason": "..."},',
-            ' {"id": "op_3", "op": "trim", "pages": ["concepts/a"], "sections": ["新主题"], "depends_on": ["op_2"], "group_id": "split_1", "reason": "..."}]',
+            "## 输出 JSON 对象",
+            '{"proposals": [',
+            '  {"id": "op_1", "op": "merge", "pages": ["concepts/a", "concepts/b"], "reason": "..."},',
+            '  {"id": "op_2", "op": "create", "pages": ["concepts/a"], "target": "concepts/new", "sections": ["新主题"], "reason": "..."},',
+            '  {"id": "op_3", "op": "trim", "pages": ["concepts/a"], "sections": ["新主题"], "depends_on": ["op_2"], "group_id": "split_1", "reason": "..."}]}',
         ]
     )
     try:
@@ -118,6 +128,7 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
             temperature=0,  # 召回任务——确定性输出，宁稳勿创
             extra_body=_NO_THINKING,
             max_attempts=2,
+            response_format=_JSON_MODE,
         )
     except Exception as e:
         # LLM 失败不静默——分类后进事件流，返回空（结构健康是最安全的降级）
@@ -125,8 +136,8 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
         logger.error("  粗提失败: %s", str(err)[:200])
         emit_event("restructure_propose_failed", error=str(err), cause=type(e).__name__)
         return []
-    data = _safe_parse_json(response.content)
-    if data is None:
+    items = _coerce_list(_safe_parse_json(response.content), "proposals")
+    if items is None:
         # check 已通过但内容仍坏（截断残余）——降级为无提议，不崩
         emit_event("restructure_propose_failed", error="JSON 二次解析失败", cause="truncated")
         return []
@@ -144,7 +155,7 @@ async def propose_from_index(llm, wiki_dir: str | Path) -> list[Proposal]:
             summary=item.get("summary", ""),
             goal=item.get("goal", ""),
         )
-        for i, item in enumerate(data[:_PROPOSE_MAX_COUNT], 1)
+        for i, item in enumerate(items[:_PROPOSE_MAX_COUNT], 1)
     ]
     emit_event("restructure_proposed", count=len(proposals), ops=[p.op for p in proposals])
     return proposals

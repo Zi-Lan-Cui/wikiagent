@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openai.types.shared_params import ResponseFormatJSONObject
-
 from wiki_agent.compiler.integration.checks import check_paths_json
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import _parse_search_result
-from wiki_agent.compiler.models import _NO_THINKING, ExtractResult, SearchResult
+from wiki_agent.compiler.models import _JSON_MODE, _NO_THINKING, ExtractResult, SearchResult
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
@@ -20,9 +18,6 @@ logger = get_logger("STAGES")
 
 _SEARCH_TOKENS = 2_048
 _SEARCH_PAGE_DIRS = {"concepts", "entities", "topics"}
-# API 级 JSON 模式——输出必为合法 JSON 对象，格式噪声重试（fence/前言）归零；
-# check/parse 仍宽容顶层数组，防端点静默忽略该参数
-_JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
 
 __all__ = ["Searcher", "_filter_search_paths", "load_valid_slugs"]
 

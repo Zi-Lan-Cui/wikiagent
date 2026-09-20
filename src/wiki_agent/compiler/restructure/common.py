@@ -126,3 +126,14 @@ def _safe_parse_json(content: str):
     except json.JSONDecodeError as e:
         logger.error("  JSON 二次解析失败（check 已通过但内容仍坏）: %s", str(e)[:120])
         return None
+
+
+def _coerce_list(data: object, key: str) -> list | None:
+    """数组载荷归一——{"<key>": [...]} 与裸 [...] 双形态都收。
+
+    json_object 模式只保证对象，契约键包裹数组；顶层数组保留对
+    旧输出/忽略该参数的端点的宽容。None/坏形态返回 None 交调用方降级。
+    """
+    if isinstance(data, dict):
+        data = data.get(key)
+    return data if isinstance(data, list) else None

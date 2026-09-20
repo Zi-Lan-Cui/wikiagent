@@ -85,8 +85,15 @@ def _summarize(results: list[dict]) -> dict:
     for item in results:
         dim = item["dimension"]
         bucket = per_dimension.setdefault(
-            dim, {"total": 0, "decided": 0, "unknown": 0, "agreed": 0,
-                  "false_positive": 0, "false_negative": 0}
+            dim,
+            {
+                "total": 0,
+                "decided": 0,
+                "unknown": 0,
+                "agreed": 0,
+                "false_positive": 0,
+                "false_negative": 0,
+            },
         )
         bucket["total"] += 1
         gold = item["gold"]
@@ -137,7 +144,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="二元判定一致性试点")
     parser.add_argument("gold", type=Path, nargs="?", default=_default_gold())
     parser.add_argument("--out", type=Path, default=None)
-    parser.add_argument("--repeats", type=int, default=1, help="每条 claim 判定重复次数（测稳定性）")
+    parser.add_argument(
+        "--repeats", type=int, default=1, help="每条 claim 判定重复次数（测稳定性）"
+    )
     args = parser.parse_args()
 
     gold_path = args.gold.resolve()

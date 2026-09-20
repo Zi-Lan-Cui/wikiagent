@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from wiki_agent.compiler.integration.parse import _strip_fence
+from wiki_agent.compiler.models import _JSON_MODE
 from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
 
@@ -29,7 +30,7 @@ JUDGE_SYSTEM = """你是知识库编译过程的二元判定员。你的判定�
   判定规则：claim 断言『决策成立（C1 ∧ ¬C3）』时，C1 不成立或 C3 成立 → false；claim 断言『决策不成立』时同理。只依据输入中的内容量与结构树 goal 判定，不评价未知的未来价值。
 - 不评价编译过程本身，只判定给定输入与产出之间的忠实关系。
 
-输出格式（纯 JSON，不要其他内容）：
+输出格式（JSON 对象）：
 {"judgements": [{"id": "...", "verdict": true, "evidence": "产出某处 + 输入某处", "reason": "一句话依据"}]}
 """
 
@@ -97,6 +98,7 @@ async def judge_claims(
         max_tokens=4096,
         temperature=0.0,
         max_attempts=2,
+        response_format=_JSON_MODE,
     )
     import json
 
