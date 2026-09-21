@@ -1,14 +1,13 @@
 """后台维护循环——事件通道会丢，真相以库为准，周期收敛一切脱缝。
 
-每轮四件事（全部幂等、只生产不执行；顺序固定）：
+每轮三件事（全部幂等、只生产不执行）：
 1. recover_stale：超时未心跳的 running 回队（进程崩溃/卡死自愈）；
 2. 到期重试：到退避时间且仍值得自动重试的失败账 → submit_issue_retry 排队
    ——与 watcher 事件是同一提交入口的两种触发器；
-3. 补挂关系：无 issue_id 的在途 compile 与 open 失败账对上，终态联动找得到账本；
-4. 孤儿 processing：issue 挂在 processing 却没有在途 job → CAS 回落 open。
+3. 补挂关系：无 issue_id 的在途 compile 与 open 失败账对上，终态联动找得到账本。
 
-到期重试排在孤儿回落之前：同一 issue 一轮至多推进一次——回落后的账等
-下一轮再投，不会出现"本轮刚回落、本轮即重领"的自循环。
+"在途"没有需要修复的镜像状态——它就是 jobs 表的实时形状；孤儿
+processing 这一整类崩溃残缝随 issue_actions 账本一起消失。
 
 只做 SQLite 状态修复与 Job 提交，永不触碰 pipeline/文件；执行与终态
 归 Worker + JobOutcomeHandler。
@@ -23,13 +22,8 @@ from wiki_agent.compiler.workflows.failures import (
     is_retry_due,
     source_retry_decision,
 )
-from wiki_agent.issues import (
-    InvalidIssueTransitionError,
-    IssueAlreadyClaimedError,
-    IssueKind,
-    IssueStatus,
-)
-from wiki_agent.jobs import DuplicateActiveJob
+from wiki_agent.compiler.workflows.retry import SourceUnavailableError
+from wiki_agent.issues import IssueKind, IssueStatus
 from wiki_agent.log import get_logger
 
 logger = get_logger("RECONCILE")
@@ -77,22 +71,6 @@ class MaintenanceLoop:
             store.attach_issue(job.id, pending[0].id)
             result["relinked"] += 1
 
-        result["orphans"] = 0
-        for issue in issues.list(statuses={IssueStatus.PROCESSING}, limit=1000):
-            if store.has_active_job_by_issue(issue.id):
-                continue
-            try:
-                issues.transition(
-                    issue.id,
-                    IssueStatus.OPEN,
-                    resolution={"reason": "reconcile: no active job"},
-                    expected={IssueStatus.PROCESSING},
-                    event="reconcile",
-                )
-                result["orphans"] += 1
-            except (IssueAlreadyClaimedError, InvalidIssueTransitionError):
-                continue
-
         if any(result.values()):
             logger.info("维护: %s", result)
         return result
@@ -116,8 +94,8 @@ class MaintenanceLoop:
                 continue
             try:
                 service.submit_issue_retry(issue.id)
-            except (IssueAlreadyClaimedError, DuplicateActiveJob) as exc:
-                logger.debug("重试调度让位在途任务 %s: %s", issue.id, exc)
+            except (SourceUnavailableError, LookupError, ValueError) as exc:
+                logger.debug("重试调度跳过 %s: %s", issue.id, exc)
             except Exception as exc:  # noqa: BLE001 - 单条失败不影响其余调度
                 logger.warning("重试调度 %s 失败: %s: %s", issue.id, type(exc).__name__, exc)
                 continue

@@ -25,7 +25,7 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.persistence import Database
 
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
 
 
 def utc_now() -> str:
@@ -127,23 +127,10 @@ class IssueStore:
                     created_at TEXT NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS issue_actions (
-                    id TEXT PRIMARY KEY,
-                    issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
-                    action TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    result_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
-                -- 子表按 issue_id 查询（事件时间线、动作领取/审计）——SQLite 不会自动为
+                -- 子表按 issue_id 查询（事件时间线）——SQLite 不会自动为
                 -- 外键列建索引，缺则全表扫；CREATE IF NOT EXISTS 对既有库同样补齐。
                 CREATE INDEX IF NOT EXISTS idx_issue_events_issue
                 ON issue_events(issue_id, sequence);
-                CREATE INDEX IF NOT EXISTS idx_issue_actions_issue
-                ON issue_actions(issue_id, status);
                 """
             )
             # schema v2：resource_path 冗余列——job resource 与 issue 来源的
@@ -165,6 +152,14 @@ class IssueStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_issues_resource_path ON issues(resource_path, status)"
             )
+            # schema v3：执行事实只有 jobs 表——"在途"由 job 挂账 join 派生。
+            # issue_actions 中间账本删除；processing 镜像态作废，存量行回落
+            # open（无条件 UPDATE 安全：新代码永不写 processing，跑一次即收敛）。
+            connection.execute(
+                "UPDATE issues SET status = 'open', updated_at = ? WHERE status = 'processing'",
+                (utc_now(),),
+            )
+            connection.execute("DROP TABLE IF EXISTS issue_actions")
             connection.execute(
                 "INSERT OR REPLACE INTO issue_meta(key, value) VALUES('schema_version', ?)",
                 (_SCHEMA_VERSION,),
@@ -278,7 +273,7 @@ class IssueStore:
     def find_pending_failures(self, source_path: str) -> list[IssueRecord]:
         """同一来源的待处理 ingestion 失败（open/blocked）——watch 提交让位查询。
 
-        processing 排除在外：已被认领即有 job 在途，让位由 I1 唯一索引表达。
+        "已认领"不是 issue 状态——在途与否由 jobs 表的 I1 唯一索引表达；
         source_path 与 Job.resource 同一身份空间（绝对路径字符串）。
         """
         with self._connect() as connection:
@@ -415,167 +410,6 @@ class IssueStore:
             )
             self._append_event(connection, issue_id, event, {}, now)
             return self._get_with_connection(connection, issue_id)
-
-    def claim_action(
-        self,
-        issue_id: str,
-        action: str,
-        payload: JsonObject | None = None,
-        *,
-        _conn: sqlite3.Connection | None = None,
-    ) -> str:
-        """Atomically claim an issue so the same operation cannot run twice.
-
-        _conn 由 submit_issue_retry 用来把 claim + enqueue + transition
-        收进同一事务（I3：双击 retry 至多一个 job）。注意本方法在持
-        _conn 时不再自开 immediate 事务——外层事务是唯一提交点。
-        """
-        now = utc_now()
-        action_id = f"action_{uuid4().hex}"
-        with self._tx(_conn) as connection:
-            current = self._get_with_connection(connection, issue_id)
-            if current.status not in {IssueStatus.OPEN, IssueStatus.BLOCKED}:
-                raise IssueAlreadyClaimedError(
-                    f"{issue_id} 当前状态为 {current.status.value}，不能重复执行"
-                )
-            connection.execute(
-                "UPDATE issues SET status = ?, updated_at = ? WHERE id = ?",
-                (IssueStatus.PROCESSING.value, now, issue_id),
-            )
-            connection.execute(
-                """
-                INSERT INTO issue_actions(
-                    id, issue_id, action, status, payload_json, result_json, created_at, updated_at
-                ) VALUES (?, ?, ?, 'running', ?, '{}', ?, ?)
-                """,
-                (action_id, issue_id, action, self._dump(payload or {}), now, now),
-            )
-            self._append_event(
-                connection,
-                issue_id,
-                "action_started",
-                {"action_id": action_id, "action": action},
-                now,
-            )
-        return action_id
-
-    def complete_action(
-        self,
-        action_id: str,
-        *,
-        status: IssueStatus,
-        result: JsonObject | None = None,
-        _conn: sqlite3.Connection | None = None,
-    ) -> IssueRecord:
-        """Finish a claimed action and persist both result and issue state."""
-        now = utc_now()
-        with self._tx(_conn) as connection:
-            action_row = connection.execute(
-                "SELECT issue_id, action, status FROM issue_actions WHERE id = ?", (action_id,)
-            ).fetchone()
-            if action_row is None:
-                raise IssueNotFoundError(action_id)
-            if action_row["status"] != "running":
-                raise IssueAlreadyClaimedError(f"操作已结束: {action_id}")
-            issue_id = str(action_row["issue_id"])
-            current = self._get_with_connection(connection, issue_id)
-            if current.status != IssueStatus.PROCESSING:
-                raise InvalidIssueTransitionError(f"{issue_id} 不在 processing 状态")
-            connection.execute(
-                "UPDATE issue_actions SET status = 'completed', result_json = ?, updated_at = ? WHERE id = ?",
-                (self._dump(result or {}), now, action_id),
-            )
-            connection.execute(
-                "UPDATE issues SET status = ?, updated_at = ?, resolution_json = ? WHERE id = ?",
-                (status.value, now, self._dump(result or {}), issue_id),
-            )
-            self._append_event(
-                connection,
-                issue_id,
-                "action_completed",
-                {"action_id": action_id, "action": action_row["action"], "status": status.value},
-                now,
-            )
-            return self._get_with_connection(connection, issue_id)
-
-    def fail_action(
-        self,
-        action_id: str,
-        error: str,
-        *,
-        blocked: bool = False,
-        _conn: sqlite3.Connection | None = None,
-    ) -> IssueRecord:
-        """Return a failed claim to open/blocked while retaining its audit trail."""
-        now = utc_now()
-        target = IssueStatus.BLOCKED if blocked else IssueStatus.OPEN
-        with self._tx(_conn) as connection:
-            action_row = connection.execute(
-                "SELECT issue_id, action, status FROM issue_actions WHERE id = ?", (action_id,)
-            ).fetchone()
-            if action_row is None:
-                raise IssueNotFoundError(action_id)
-            if action_row["status"] != "running":
-                raise IssueAlreadyClaimedError(f"操作已结束: {action_id}")
-            issue_id = str(action_row["issue_id"])
-            connection.execute(
-                "UPDATE issue_actions SET status = 'failed', result_json = ?, updated_at = ? WHERE id = ?",
-                (self._dump({"error": error[:1000]}), now, action_id),
-            )
-            connection.execute(
-                "UPDATE issues SET status = ?, updated_at = ? WHERE id = ?",
-                (target.value, now, issue_id),
-            )
-            self._append_event(
-                connection,
-                issue_id,
-                "action_failed",
-                {"action_id": action_id, "action": action_row["action"], "error": error[:1000]},
-                now,
-            )
-            return self._get_with_connection(connection, issue_id)
-
-    def recover_interrupted_actions(self, *, reason: str = "process_restarted") -> int:
-        """Move orphaned running actions to blocked after a process interruption."""
-        now = utc_now()
-        recovered = 0
-        with self._transaction(immediate=True) as connection:
-            rows = connection.execute(
-                "SELECT id, issue_id, action FROM issue_actions WHERE status = 'running'"
-            ).fetchall()
-            for row in rows:
-                issue_id = str(row["issue_id"])
-                connection.execute(
-                    """
-                    UPDATE issue_actions
-                    SET status = 'failed', result_json = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (self._dump({"error": reason}), now, row["id"]),
-                )
-                connection.execute(
-                    """
-                    UPDATE issues
-                    SET status = ?, resolution_json = ?, updated_at = ?
-                    WHERE id = ? AND status = ?
-                    """,
-                    (
-                        IssueStatus.BLOCKED.value,
-                        self._dump({"action": row["action"], "error": reason}),
-                        now,
-                        issue_id,
-                        IssueStatus.PROCESSING.value,
-                    ),
-                )
-                self._append_event(
-                    connection,
-                    issue_id,
-                    "action_interrupted",
-                    {"action_id": row["id"], "action": row["action"], "reason": reason},
-                    now,
-                )
-                recovered += 1
-        return recovered
 
     def events(self, issue_id: str) -> list[JsonObject]:
         with self._connect() as connection:

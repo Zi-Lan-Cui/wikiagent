@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.issues.models import (
-    IssueAlreadyClaimedError,
     IssueDraft,
     IssueKind,
     IssueSeverity,
@@ -16,7 +15,6 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.issues.projectors import available_actions, to_card
-from wiki_agent.jobs import DuplicateActiveJob
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
@@ -30,47 +28,48 @@ def resolve_correction_issue(
     issue_id: str,
     action: str,
 ) -> IssueCard:
-    """Apply one correction decision through the shared audited workflow."""
+    """Apply one correction decision; CAS on open/blocked makes double-decide fail loudly."""
     record = service.store.require(issue_id)
     if record.kind != IssueKind.CONTENT_CORRECTION:
         raise ValueError("该问题不是纠错类型")
-    action_id = service.store.claim_action(issue_id, action)
-    try:
-        if action == "reject":
-            target = IssueStatus.RESOLVED
-        elif action == "accept":
-            service.report(
-                IssueDraft(
-                    kind=IssueKind.QUALITY_ISSUE,
-                    severity=IssueSeverity.WARNING,
-                    title=f"{record.resource.get('path') or 'Wiki 页面'}需要修复",
-                    summary=record.summary,
-                    fingerprint=f"accepted-correction:{issue_id}",
-                    origin={"correction_issue_id": issue_id},
-                    resource=record.resource,
-                    diagnostics={"error_code": "accepted_correction"},
-                    evidence=record.evidence,
-                )
-            )
-            target = IssueStatus.RESOLVED
-        elif action == "keep_uncertain":
-            target = IssueStatus.BLOCKED
-        else:
-            raise ValueError(f"不支持的纠错操作: {action}")
-        return to_card(
-            service.store.complete_action(
-                action_id,
-                status=target,
-                result={"action": action, "correction_issue_id": issue_id},
+    if action == "reject":
+        target = IssueStatus.RESOLVED
+    elif action == "accept":
+        service.report(
+            IssueDraft(
+                kind=IssueKind.QUALITY_ISSUE,
+                severity=IssueSeverity.WARNING,
+                title=f"{record.resource.get('path') or 'Wiki 页面'}需要修复",
+                summary=record.summary,
+                fingerprint=f"accepted-correction:{issue_id}",
+                origin={"correction_issue_id": issue_id},
+                resource=record.resource,
+                diagnostics={"error_code": "accepted_correction"},
+                evidence=record.evidence,
             )
         )
-    except Exception as exc:
-        service.store.fail_action(action_id, f"{type(exc).__name__}: {exc}")
-        raise
+        target = IssueStatus.RESOLVED
+    elif action == "keep_uncertain":
+        target = IssueStatus.BLOCKED
+    else:
+        raise ValueError(f"不支持的纠错操作: {action}")
+    return to_card(
+        service.store.transition(
+            issue_id,
+            target,
+            resolution={"action": action, "correction_issue_id": issue_id},
+            expected={IssueStatus.OPEN, IssueStatus.BLOCKED},
+            event="correction_resolved",
+        )
+    )
 
 
 class IssueActionExecutor:
-    """Execute only actions advertised by the current issue projection."""
+    """Execute only actions advertised by the current issue projection.
+
+    retry 不在这里——三个入口（web/CLI/维护循环）统一直投
+    submit_issue_retry，本执行器只承接同步裁决与 rescan。
+    """
 
     def __init__(self, runtime: AppRuntime):
         self.runtime = runtime
@@ -140,7 +139,7 @@ class IssueActionExecutor:
             selected.append(issue_id)
         return selected
 
-    async def execute(
+    def execute(
         self,
         issue_id: str,
         action: str,
@@ -157,10 +156,8 @@ class IssueActionExecutor:
             return self.service.apply_simple_action(issue_id, action, payload)
         if action == "open_resource" or action == "open_log":
             return to_card(record)
-        if action == "retry":
-            return await self._retry_ingestion(record.id, progress=progress)
         if action in {"accept", "reject", "keep_uncertain"}:
-            return self._resolve_correction(record.id, action)
+            return resolve_correction_issue(self.service, record.id, action)
         if action == "rescan":
             return self._rescan(record.id, progress=progress)
         if action == "false_positive":
@@ -215,68 +212,41 @@ class IssueActionExecutor:
                 event="blocked_source_unavailable",
             )
 
-    async def _retry_ingestion(
-        self,
-        issue_id: str,
-        *,
-        progress: Callable[[str], None] | None = None,
-    ) -> IssueCard:
-        """重试移交 Job 队列——claim + enqueue + PROCESSING 在单事务里完成。
-
-        本动作只做委托：action 账本以 completed 收口（result 挂
-        delegated_job_id），真实成败由 compile job 的终态联动回写 issue。
-        双击/并发提交被 claim CAS 与 I1 唯一索引共同挡下。
-        """
-        record = self.store.require(issue_id)
-        if record.kind != IssueKind.INGESTION_FAILURE:
-            raise ValueError("只有资料处理失败问题可以执行来源重试")
-        try:
-            self.runtime.job_service.submit_issue_retry(issue_id)
-        except (IssueAlreadyClaimedError, DuplicateActiveJob) as exc:
-            raise RuntimeError(f"该问题已有在途任务: {exc}") from exc
-        if progress is not None:
-            progress("已排入重试队列")
-        return to_card(self.store.require(issue_id))
-
-    def _resolve_correction(self, issue_id: str, action: str) -> IssueCard:
-        return resolve_correction_issue(
-            self.service,
-            issue_id,
-            action,
-        )
-
     def _rescan(
         self,
         issue_id: str,
         *,
         progress: Callable[[str], None] | None = None,
     ) -> IssueCard:
+        """重新扫描并同步质量问题，按结果直接落 issue 终态。
+
+        防重复由承载它的 issue_action job 保证：同 issue 的在途行被
+        幂等键收敛（双击返回同一任务）；终态写带 CAS——扫描期间被人工
+        裁决掉的 issue 不被复活（expected 不满足即抛错，任务按业务失败收口）。
+        """
         before = self.store.require(issue_id)
-        action_id = self.store.claim_action(issue_id, "rescan")
-        try:
-            if progress is not None:
-                progress("scan")
-            findings = scan_wiki(self.runtime.wiki_dir)
-            if progress is not None:
-                progress("同步质量问题")
-            report_quality_findings(
-                self.service,
-                findings,
-                origin={"mode": "web", "trigger": "issue_rescan"},
+        if progress is not None:
+            progress("scan")
+        findings = scan_wiki(self.runtime.wiki_dir)
+        if progress is not None:
+            progress("同步质量问题")
+        report_quality_findings(
+            self.service,
+            findings,
+            origin={"mode": "web", "trigger": "issue_rescan"},
+        )
+        after_scan = self.store.require(issue_id)
+        still_present = after_scan.occurrences > before.occurrences
+        return to_card(
+            self.store.transition(
+                issue_id,
+                IssueStatus.BLOCKED if still_present else IssueStatus.RESOLVED,
+                resolution={
+                    "action": "rescan",
+                    "findings": len(findings),
+                    "still_present": still_present,
+                },
+                expected={IssueStatus.OPEN, IssueStatus.BLOCKED},
+                event="rescan_completed",
             )
-            after_scan = self.store.require(issue_id)
-            still_present = after_scan.occurrences > before.occurrences
-            return to_card(
-                self.store.complete_action(
-                    action_id,
-                    status=IssueStatus.BLOCKED if still_present else IssueStatus.RESOLVED,
-                    result={
-                        "action": "rescan",
-                        "findings": len(findings),
-                        "still_present": still_present,
-                    },
-                )
-            )
-        except Exception as exc:
-            self.store.fail_action(action_id, f"{type(exc).__name__}: {exc}")
-            raise
+        )

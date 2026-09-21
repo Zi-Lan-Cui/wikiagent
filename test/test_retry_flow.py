@@ -13,8 +13,7 @@ from wiki_agent.application.job_service import JobService
 from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.reconcile import MaintenanceLoop
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
-from wiki_agent.issues.models import IssueAlreadyClaimedError
+from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
 from wiki_agent.watch.consumer import WatchConsumer
 from wiki_agent.watch.state import WatchState, digest_file_text
 
@@ -33,7 +32,7 @@ def _failure_issue(service: JobService, source: Path, *, attempts: int = 1, next
 
 
 def test_issue_retry_creates_job(tmp_path: Path):
-    """验收 1：重试路径在 jobs 表新增 compile job，claim/action 同事务收口。"""
+    """验收 1：重试路径在 jobs 表新增挂账 compile job；提交不改 issue 状态。"""
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     source = tmp_path / "note.md"
     source.write_text("重试内容", encoding="utf-8")
@@ -43,28 +42,21 @@ def test_issue_retry_creates_job(tmp_path: Path):
     assert job.kind == "compile" and job.mode == "issue_retry"
     assert job.issue_id == issue.id and job.resource == str(source.resolve())
     assert job.payload["digest"] == digest_file_text(source)[0]
-    assert service.issues.get(issue.id).status == IssueStatus.PROCESSING
-    # action 账本 completed/delegated
-    card = service.issue_service.get(issue.id)
-    actions = [a for a in service.issues.events(issue.id) if a["event"] == "action_completed"]
-    assert actions and card is not None
+    # "在途"由 jobs join 表达——issue 保持 open，无镜像状态
+    assert service.issues.get(issue.id).status == IssueStatus.OPEN
+    assert service.store.has_active_job_by_issue(issue.id)
 
 
 def test_double_retry_click_single_job(tmp_path: Path):
-    """验收 5：双击 retry 至多一个 job（claim CAS 挡住第二次）。"""
+    """双击 retry 的等价性证明：提交点收敛为"同一 job、至多一个在途"。"""
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     source = tmp_path / "note.md"
     source.write_text("重试内容", encoding="utf-8")
     issue = _failure_issue(service, source)
     first = service.submit_issue_retry(issue.id)
-    try:
-        service.submit_issue_retry(issue.id)
-        assert False, "第二次应被 claim 挡下"
-    except IssueAlreadyClaimedError:
-        pass
-    assert service.store.active_by_resource(str(source.resolve())).id == first.id
-    # 被拒的 claim 不留 action 悬挂
-    assert not [j for j in service.store.list(limit=50) if j.id != first.id]
+    second = service.submit_issue_retry(issue.id)
+    assert second.id == first.id
+    assert service.store.count_active() == 1
 
 
 def test_delete_supersedes_running_compile(tmp_path: Path):
@@ -192,7 +184,8 @@ def test_maintenance_submits_only_due_and_produces_jobs(tmp_path: Path):
     assert loop.run_once()["retry_submitted"] == 1  # 未到期的不动
     active = service.store.active_by_resource(str(source.resolve()))
     assert active is not None and active.issue_id == due.id
-    assert service.issues.get(due.id).status == IssueStatus.PROCESSING
+    assert service.issues.get(due.id).status == IssueStatus.OPEN  # 在途=job 挂账形状
+    assert service.store.has_active_job_by_issue(due.id)
     # 再来一轮：在途挡住重复排队
     assert loop.run_once()["retry_submitted"] == 0
 
@@ -220,33 +213,79 @@ def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
 # 对账
 
 
-def test_maintenance_orphan_processing_returns_open(tmp_path: Path):
-    """issue 挂 processing 而无在途 job（终态联动崩溃）→ 回落 open。"""
+def test_legacy_processing_rows_migrated_to_open(tmp_path: Path):
+    """旧库残留：processing 行与 issue_actions 表在 schema v3 启动时一次收敛。"""
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     source = tmp_path / "note.md"
     source.write_text("内容" * 10, encoding="utf-8")
     issue = _failure_issue(service, source)
-    job = service.submit_issue_retry(issue.id)
-    # 模拟"job 到终态但联动丢失"：直接改行不走 complete_with_outcome
-    service.store.update(job.id, status="failed")
+    # 模拟旧模型现场：直接写 processing + 建旧账本表
+    with service.issues.database.transaction(immediate=True) as conn:
+        conn.execute("UPDATE issues SET status = 'processing' WHERE id = ?", (issue.id,))
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS issue_actions (id TEXT PRIMARY KEY, issue_id TEXT)"
+        )
+        conn.execute("INSERT INTO issue_actions VALUES ('a1', ?)", (issue.id,))
 
-    result = MaintenanceLoop(service).run_once()
-    assert result["orphans"] == 1
+    IssueStore(tmp_path)  # 重新初始化触发 v3 迁移
     assert service.issues.get(issue.id).status == IssueStatus.OPEN
+    with service.issues.database.connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='issue_actions'"
+        ).fetchone()
+    assert row is None
 
 
 def test_maintenance_relinks_active_job_to_failure(tmp_path: Path):
-    """升级前遗留的无账在途 compile 行 → 按资源对上 open 失败账。"""
+    """未到期的 open 失败账不会被重投，但按资源补挂到无账在途 compile。"""
+    from datetime import UTC, datetime, timedelta
+
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     source = tmp_path / "note.md"
     source.write_text("内容" * 10, encoding="utf-8")
     job = service.submit_watch_change(str(source.resolve()), digest="d1")
     assert job.issue_id == ""
     issue = _failure_issue(service, source)
+    service.issues.update_payloads(
+        issue.id,
+        retry={
+            **service.issues.require(issue.id).retry,
+            "next_retry_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        },
+    )
 
     result = MaintenanceLoop(service).run_once()
     assert result["relinked"] == 1
     assert service.store.get(job.id).issue_id == issue.id
+
+
+def test_retry_attaches_to_occupant_and_converges(tmp_path: Path):
+    """retry 撞他人占位：返回占位者并补挂 issue_id——不新建、不抛错。"""
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("内容" * 10, encoding="utf-8")
+    occupant = service.submit_watch_change(str(source.resolve()), digest="d1")
+    assert occupant.issue_id == ""
+    issue = _failure_issue(service, source)
+
+    result = service.submit_issue_retry(issue.id)
+    assert result.id == occupant.id
+    assert service.store.get(occupant.id).issue_id == issue.id
+    assert service.store.count_active() == 1
+
+
+def test_retry_three_entries_converge(tmp_path: Path):
+    """手工提交与维护循环并发同一 issue：汇到同一行（等价性回归位）。"""
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source = tmp_path / "note.md"
+    source.write_text("内容" * 10, encoding="utf-8")
+    issue = _failure_issue(service, source)
+
+    first = service.submit_issue_retry(issue.id)
+    # 维护循环到期重投——收敛返回同一行（has_active_job 预滤 + 提交点防线）
+    MaintenanceLoop(service).run_once()
+    assert service.store.count_active() == 1
+    assert service.store.active_by_resource(str(source.resolve())).id == first.id
 
 
 def test_maintenance_recovers_stale_running(tmp_path: Path):

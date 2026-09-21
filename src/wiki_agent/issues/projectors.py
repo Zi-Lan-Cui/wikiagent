@@ -16,8 +16,6 @@ from wiki_agent.issues.models import (
 
 
 def _attention(record: IssueRecord) -> str:
-    if record.status == IssueStatus.PROCESSING:
-        return "processing"
     if record.status in {IssueStatus.RESOLVED, IssueStatus.DISMISSED}:
         return "none"
     if record.kind == IssueKind.INGESTION_FAILURE:
@@ -30,9 +28,11 @@ def _attention(record: IssueRecord) -> str:
 
 
 def available_actions(record: IssueRecord) -> tuple[IssueAction, ...]:
-    """Derive legal user decisions from kind and current lifecycle state."""
-    if record.status == IssueStatus.PROCESSING:
-        return ()
+    """Derive legal user decisions from kind and current lifecycle state.
+
+    "在途不可重复操作"不在此表达——由提交点的 I1/幂等键收敛与
+    前端按活跃 job 过滤承担。
+    """
     if record.status in {IssueStatus.RESOLVED, IssueStatus.DISMISSED}:
         return (IssueAction("reopen", "重新打开"),)
 

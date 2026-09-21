@@ -171,13 +171,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .issue-status { flex: 0 0 auto; padding: 5px 9px; border-radius: 99px; font-size: 10px; font-weight: 750; }
 .status-open { color: #9a542d; background: #fff0e6; }
 .status-blocked { color: #8b5a0c; background: #fff4d6; }
-.status-processing { color: #2763a8; background: #eaf3fb; }
 .status-resolved { color: #24704c; background: #e4f4eb; }
 .status-dismissed { color: #667085; background: #edf0f3; }
 .attention-retryable { color: #24704c; background: #e4f4eb; }
 .attention-source_unavailable { color: #8a4652; background: #f8e9ed; }
 .attention-decision_required { color: #8b5a0c; background: #fff4d6; }
-.attention-processing { color: #2763a8; background: #eaf3fb; }
 .issue-detail-section { padding: 20px 0; border-bottom: 1px solid #edf1f5; }
 .issue-detail-section h4 { margin: 0 0 12px; color: #34465b; font-size: 13px; }
 .issue-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; }

@@ -22,10 +22,13 @@ class IssueKind(StrEnum):
 
 
 class IssueStatus(StrEnum):
-    """Persistent issue lifecycle states."""
+    """Persistent issue lifecycle states.
+
+    没有"processing"镜像态——"谁在处理"由 jobs 表（该 issue 是否有在途
+    挂账 job）派生，issue 状态只表达问题本身的生命周期。
+    """
 
     OPEN = "open"
-    PROCESSING = "processing"
     BLOCKED = "blocked"
     RESOLVED = "resolved"
     DISMISSED = "dismissed"
@@ -43,15 +46,6 @@ class IssueSeverity(StrEnum):
 ALLOWED_STATUS_TRANSITIONS: dict[IssueStatus, frozenset[IssueStatus]] = {
     IssueStatus.OPEN: frozenset(
         {
-            IssueStatus.PROCESSING,
-            IssueStatus.BLOCKED,
-            IssueStatus.RESOLVED,
-            IssueStatus.DISMISSED,
-        }
-    ),
-    IssueStatus.PROCESSING: frozenset(
-        {
-            IssueStatus.OPEN,
             IssueStatus.BLOCKED,
             IssueStatus.RESOLVED,
             IssueStatus.DISMISSED,
@@ -60,7 +54,6 @@ ALLOWED_STATUS_TRANSITIONS: dict[IssueStatus, frozenset[IssueStatus]] = {
     IssueStatus.BLOCKED: frozenset(
         {
             IssueStatus.OPEN,
-            IssueStatus.PROCESSING,
             IssueStatus.RESOLVED,
             IssueStatus.DISMISSED,
         }

@@ -170,6 +170,50 @@ def test_missing_retry_source_is_blocked_before_task_creation(tmp_path: Path):
     asyncio.run(run())
 
 
+def test_web_retry_returns_compile_task_and_converges(tmp_path: Path):
+    """retry 直投 compile job：202 携带挂账 task；双击收敛为同一 task_id。"""
+    runtime = _Runtime(tmp_path)
+    source = tmp_path / "available-retry.md"
+    source.write_text("# 可重试", encoding="utf-8")
+    issue = runtime.issue_service.report(
+        IssueDraft(
+            kind=IssueKind.INGESTION_FAILURE,
+            title="available-retry.md 处理失败",
+            summary="临时失败",
+            origin={"mode": "compile"},
+            resource={"type": "input_file", "path": source.name},
+            context={"source_path": str(source)},
+        )
+    )
+    app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
+
+    async def run():
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client,
+        ):
+            first = await client.post(f"/api/issues/{issue.id}/actions/retry", json={"payload": {}})
+            assert first.status_code == 202
+            task = first.json()
+            assert task["kind"] == "compile" and task["action"] == "issue_retry"
+            assert task["issue_id"] == issue.id
+            # 双击：提交点收敛返回同一 task——不再 409
+            second = await client.post(
+                f"/api/issues/{issue.id}/actions/retry", json={"payload": {}}
+            )
+            assert second.status_code == 202
+            assert second.json()["id"] == task["id"]
+            listed = (await client.get("/api/issue-tasks")).json()
+            assert [t["id"] for t in listed] == [task["id"]]
+            # issue 保持 open——在途由挂账 job 表达
+            card = (await client.get(f"/api/issues/{issue.id}")).json()
+            assert card["status"] == "open"
+
+    asyncio.run(run())
+
+
 def test_bulk_retry_enqueues_available_manual_sources(tmp_path: Path):
     runtime = _Runtime(tmp_path)
     source = tmp_path / "notes" / "available.md"

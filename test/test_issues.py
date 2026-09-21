@@ -70,32 +70,18 @@ def test_issue_store_filters_and_transitions(tmp_path: Path):
     assert store.count(statuses={IssueStatus.DISMISSED}) == 1
 
 
-def test_issue_store_claim_is_atomic_and_audited(tmp_path: Path):
+def test_transition_cas_guards_expected_state(tmp_path: Path):
+    """expected CAS 取代旧 claim 原子性：状态不符的操作方大声失败。"""
     store = IssueStore(tmp_path)
     issue = store.report(_draft())
-    action_id = store.claim_action(issue.id, "retry")
 
-    with pytest.raises(IssueAlreadyClaimedError):
-        store.claim_action(issue.id, "retry")
-
-    resolved = store.complete_action(
-        action_id, status=IssueStatus.RESOLVED, result={"run_id": "r1"}
+    store.transition(
+        issue.id, IssueStatus.RESOLVED, expected={IssueStatus.OPEN}, resolution={"run_id": "r1"}
     )
-    assert resolved.status == IssueStatus.RESOLVED
-    assert resolved.resolution == {"run_id": "r1"}
-    assert store.events(issue.id)[-1]["event"] == "action_completed"
-
-
-def test_issue_store_recovers_interrupted_action(tmp_path: Path):
-    store = IssueStore(tmp_path)
-    issue = store.report(_draft())
-    store.claim_action(issue.id, "retry")
-
-    recovered = IssueStore(tmp_path).recover_interrupted_actions()
-
-    assert recovered == 1
-    assert store.require(issue.id).status == IssueStatus.BLOCKED
-    assert store.events(issue.id)[-1]["event"] == "action_interrupted"
+    assert store.require(issue.id).status == IssueStatus.RESOLVED
+    # 二次操作（如迟到的裁决）被 CAS 挡下——账本只有一份真相
+    with pytest.raises(IssueAlreadyClaimedError):
+        store.transition(issue.id, IssueStatus.OPEN, expected={IssueStatus.OPEN})
 
 
 def test_issue_card_hides_absolute_paths_and_derives_retry_state(tmp_path: Path):
@@ -216,7 +202,8 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     issue = service.issues.list()[0]
 
     service.submit_issue_retry(issue.id)
-    assert service.issues.get(issue.id).status == IssueStatus.PROCESSING
+    assert service.issues.get(issue.id).status == IssueStatus.OPEN
+    assert service.store.has_active_job_by_issue(issue.id)
     job = service.claim_next(kinds={"compile"})
     assert job is not None
 

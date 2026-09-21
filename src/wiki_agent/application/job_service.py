@@ -15,7 +15,6 @@ from wiki_agent.application.job_results import JobResult
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.config import RetryConfig
 from wiki_agent.issues import IssueService, IssueStore
-from wiki_agent.issues.models import IssueStatus
 from wiki_agent.jobs import DuplicateActiveJob, Job, JobStore
 from wiki_agent.watch.state import WatchState, digest_file_text
 
@@ -179,11 +178,13 @@ class JobService:
             )
 
     def submit_issue_retry(self, issue_id: str) -> Job:
-        """重试请求 → compile Job：claim + enqueue + PROCESSING 单事务（I3）。
+        """重试请求 → compile Job：提交点三重防线收敛为"至多一个在途、返回既有"（I3）。
 
-        issue 终态由 compile job 的 outcome 落（成功 RESOLVED / 再失败推进
-        退避）——这里只负责"把请求变成在途任务"，双击由 claim CAS 与
-        I1 唯一索引共同挡下。
+        ① 挂账预查（该 issue 已有在途 job 直接返回）；② 幂等键命中在途行
+        返回既有；③ 撞 I1（他人占位）返回占位者、无账则补挂。retry 资格
+        （状态、来源可读）由各入口的 validate/调度过滤判定，这里只管执行
+        唯一性。issue 终态由 compile job 的 outcome 落（成功 RESOLVED /
+        再失败推进退避），提交本身不改变 issue 状态。
         """
         if self.wiki_dir is None:
             raise RuntimeError("submit_issue_retry 需要 wiki_dir")
@@ -194,11 +195,11 @@ class JobService:
         if read is None:
             raise SourceUnavailableError(f"重试输入不可读: {resource}")
         with self.store.database.transaction(immediate=True) as conn:
-            action_id = self.issues.claim_action(
-                issue_id, "retry", {"resource": resource}, _conn=conn
-            )
+            existing = self.store.active_job_by_issue(issue_id, _conn=conn)
+            if existing is not None:
+                return existing
             try:
-                job = self.store.enqueue(
+                return self.store.enqueue(
                     kind="compile",
                     resource=resource,
                     mode="issue_retry",
@@ -207,17 +208,13 @@ class JobService:
                     issue_id=issue_id,
                     _conn=conn,
                 )
-            except DuplicateActiveJob as exc:
-                self.issues.fail_action(action_id, "该资源已有在途任务", _conn=conn)
-                raise exc
-            # action 账本同事务收口为"已委托"——执行与终态归 compile job
-            self.issues.complete_action(
-                action_id,
-                status=IssueStatus.PROCESSING,
-                result={"delegated_job_id": job.id},
-                _conn=conn,
-            )
-        return job
+            except DuplicateActiveJob:
+                occupant = self.store.active_by_resource(resource, _conn=conn)
+                if occupant is None:  # I1 冲突必有占位者——防御性外抛
+                    raise
+                if not occupant.issue_id:
+                    occupant = self.store.attach_issue(occupant.id, issue_id, _conn=conn)
+                return occupant
 
     def submit_issue_action(
         self, issue_id: str, action: str, payload: dict[str, object] | None = None
@@ -228,6 +225,7 @@ class JobService:
             mode=action,
             payload=payload,
             idempotency_key=f"issue-action:{issue_id}:{action}",
+            issue_id=issue_id,
         )
 
     # 执行生命周期——Worker 独占
