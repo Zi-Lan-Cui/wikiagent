@@ -294,9 +294,7 @@ class JobService:
         同款终态 CAS——行已被取代（submit_replace）时静默跳过，不二次联动。
         """
         with self.store.database.transaction(immediate=True) as conn:
-            won = self.store.try_finalize(
-                job.id, status="cancelled", stage="cancelled", _conn=conn
-            )
+            won = self.store.try_finalize(job.id, status="cancelled", stage="cancelled", _conn=conn)
             if not won:
                 return
             self.outcomes.apply(

@@ -1,7 +1,7 @@
-"""watch 状态持久层——记录每个文件的已知指纹与两段确认现场。
+"""watch 状态持久层——记录每个文件的"已处理"账。
 
-进程重启后凭状态判断哪些文件变了（启动 reconcile 的数据源）；
-两段确认（保存抖动过滤）的中间现场也存这里——重启不丢半次确认。
+进程重启后凭状态判断哪些文件变了（回退扫描的数据源）；hash/text 只在
+job 成功后由 record 写入，watcher 侧不产生任何确认现场。
 """
 
 from __future__ import annotations
@@ -31,10 +31,8 @@ def digest_file_text(path: str | Path) -> tuple[str, str] | None:
 class FileState:
     """单个文件的已知状态。"""
 
-    hash: str = ""  # 已知内容哈希（sha256）
+    hash: str = ""  # 已处理内容的哈希（sha256，只在 job 成功时写）
     text: str | None = None  # 已 ingest 过的内容文本（None = 从未 ingest）
-    pending_text: str | None = None  # 两段确认的第一段内容（待第二次确认）
-    pending_seen: int = 0  # pending 内容被看到的轮询次数
     last_ingested_at: str = ""
 
     def to_dict(self) -> dict:
@@ -46,8 +44,6 @@ class FileState:
         return {
             "hash": self.hash,
             "text": self.text,
-            "pending_text": self.pending_text,
-            "pending_seen": self.pending_seen,
             "last_ingested_at": self.last_ingested_at,
         }
 
@@ -64,8 +60,6 @@ class FileState:
         return cls(
             hash=d.get("hash", ""),
             text=d.get("text"),
-            pending_text=d.get("pending_text"),
-            pending_seen=d.get("pending_seen", 0),
             last_ingested_at=d.get("last_ingested_at", ""),
         )
 
@@ -131,8 +125,6 @@ class WatchState:
         st = self._entries.get(abs_path) or FileState()
         st.hash = digest
         st.text = text
-        st.pending_text = None
-        st.pending_seen = 0
         st.last_ingested_at = datetime.now().isoformat()
         self._entries[abs_path] = st
         self.save()
