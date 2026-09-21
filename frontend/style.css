@@ -29,6 +29,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .summary-action { display: inline-flex; align-items: center; gap: 5px; color: #91a0b1; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
 .section-chevron { color: #d66b45; font-size: 17px; line-height: 10px; transition: transform .2s; }
 .sidebar-section[open] .section-chevron { transform: rotate(90deg); }
+.wiki-managed-note { margin: 4px 5px 6px; color: #91a0b1; font-size: 11px; line-height: 1.5; }
 .section-count { min-width: 21px; padding: 3px 6px; border-radius: 99px; color: #8391a3; background: #eef2f6; text-align: center; font-size: 10px; font-weight: 750; }
 .section-count.has-errors { color: #fff; background: #d66b45; }
 .wiki-files { display: grid; gap: 4px; max-height: 30vh; overflow-y: auto; padding: 0 5px 8px; }
