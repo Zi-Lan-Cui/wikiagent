@@ -1,8 +1,8 @@
-"""测试 utils/helpers.py"""
+"""测试 utils.py"""
 
 from pathlib import Path
 
-from wiki_agent.utils.helpers import ensure_dir, truncate_text_by_tokens
+from wiki_agent.utils import ensure_dir, truncate_text_by_tokens
 
 # truncate_text_by_tokens
 

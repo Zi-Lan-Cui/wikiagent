@@ -15,7 +15,7 @@ from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.log import emit_event
 from wiki_agent.sync.state import SyncState
-from wiki_agent.web.app import create_app
+from wiki_agent.web import create_app
 
 
 class _Runtime:

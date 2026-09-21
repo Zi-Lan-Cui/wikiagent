@@ -90,7 +90,7 @@ uv run wiki-agent
 启动本地 Web 界面，在浏览器中浏览 Wiki、进行问答并处理问题队列：
 
 ```bash
-uv run uvicorn wiki_agent.web.app:create_app --factory --port 8000
+uv run uvicorn wiki_agent.web:create_app --factory --port 8000
 ```
 
 打开 http://localhost:8000 即可使用。界面包含三个区域：

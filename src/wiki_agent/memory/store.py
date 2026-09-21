@@ -5,13 +5,13 @@ from datetime import datetime
 from pathlib import Path
 
 from wiki_agent.conversation import Session
-from wiki_agent.utils import helpers
+from wiki_agent.utils import ensure_dir
 
 
 class MemoryStore:
     def __init__(self, workspace: Path):
         self.workspace = workspace
-        memory_dir = helpers.ensure_dir(self.workspace / "memory_store")
+        memory_dir = ensure_dir(self.workspace / "memory_store")
         if memory_dir is None:
             raise OSError(f"无法创建记忆目录: {self.workspace / 'memory_store'}")
         self.memory_dir: Path = memory_dir

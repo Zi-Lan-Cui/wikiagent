@@ -12,7 +12,7 @@ from typing import Literal
 
 from wiki_agent.conversation.models import Message, find_first_legal_idx
 from wiki_agent.log import get_logger
-from wiki_agent.utils.helpers import (
+from wiki_agent.utils import (
     ensure_dir,
 )
 
