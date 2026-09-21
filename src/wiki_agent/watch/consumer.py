@@ -4,10 +4,13 @@
 存档，并发会互相覆盖——串行是硬需求。
 
 本模块不写"完成账"也不报失败 issue：
-- 成功时把 pre/post 一致的 digest+text 放进 JobResult.detail，
-  由 JobOutcomeHandler 在终态事务提交后写 WatchState（成功才落账、先库后文件）；
+- 成功时把**本次实际读到的** digest+text 放进 JobResult.detail，由
+  JobOutcomeHandler 在终态事务提交后写 WatchState（成功才落账、先库后文件）。
+  快照语义下读到的内容可以与提交时的 payload.digest 不同——那是合法的
+  版本滞后（记实际入账的那版，新内容归下一次 sync 追），无需凭证校验；
+- 快照后文件消失 → no-op succeeded（从未入账，无账可清、不算失败）；
 - 业务失败（IngestError）转成 failed/ingest_error 结果，issue 上报
-  同样收口在 outcome；未预期异常裸抛，Worker 归 transient 链式退避。
+  同样收口在 outcome；未预期异常裸抛，Worker 归 transient。
 
 源文件删除按确定性规则清理（纯代码，无 LLM）: 溯源记录只含被删文件 →
 删除记录；还含其他文件 → 仅移除该条目。
@@ -95,8 +98,8 @@ class WatchConsumer:
         """删除任务：文件复活则跳过清理；state 条目由成功账处理删除。"""
         path = Path(job.resource)
         if path.exists():
-            # 源文件复活——取消清理，条目照常删除：复活内容会被扫描
-            # 当作新文件两段确认重新接入，避免拿着旧指纹误判"已处理"
+            # 源文件复活——跳过清理，条目照常删除：复活内容相对账本是脏的，
+            # 下一次 sync 快照会重新编译它，不需要在这里猜内容状态
             logger.info("  源文件复活，跳过删除清理: %s", path.name)
             return JobResult(status="succeeded")
         self._process_delete(path.name)
@@ -145,18 +148,24 @@ class WatchConsumer:
     # compile
 
     async def _handle_compile(self, job: Job, progress) -> JobResult:
-        """ingest 一个源文件；成功时携带经 pre/post 双检的核账凭证。"""
+        """ingest 一个源文件；成功携带**本次实际读到内容**的核账凭证。
+
+        快照语义：读到什么记什么——与 payload.digest 不同也照常落账
+        （执行中文件被改是合法滞后，下一次 sync 追平），不再有 pre/post
+        三方凭证校验。
+        """
         path = Path(job.resource)
-        payload_digest = str(job.payload.get("digest") or "")
 
         read = digest_file_text(path)
         if read is None:
-            return self._ingest_error_result(
-                job, IngestError(IngestStage.LOAD, f"源文件已消失: {path.name}", source=path.name)
-            )
-        digest_pre, text_pre = read
+            # 快照后才消失：它从未进过账，无账可清也不该报失败——
+            # succeeded 静默了结，下一次 sync 的差集会处理真正的删除
+            emit_event("watch_skipped", file=path.name, reason="gone_after_snapshot")
+            return JobResult(status="succeeded")
+        digest, text = read
 
-        # 幂等短路：该内容已确认完成（崩溃重放/重复提交），不再过 LLM
+        # 幂等短路（廉价保险）：该快照内容已有完成账，不再烧 LLM
+        payload_digest = str(job.payload.get("digest") or "")
         if payload_digest and self._state.matches(str(path), payload_digest):
             emit_event("watch_skipped", file=path.name, reason="already_ingested")
             return JobResult(status="succeeded", detail={})
@@ -178,19 +187,7 @@ class WatchConsumer:
             emit_event("watch_noop", file=path.name)
         else:
             emit_event("watch_ingested", file=path.name, pages=len(outcome.pages_written))
-
-        # 核账凭证：pre（本次实际读到的）与 post（ingest 后未再变动）必须
-        # 同时等于 job 请求的 digest——执行期间内容翻动/前进都拒绝落账，
-        # 后继 Job 由提交侧保证存在
-        post = digest_file_text(path)
-        if payload_digest and post is not None and digest_pre == post[0] == payload_digest:
-            return JobResult(status="succeeded", detail={"digest": payload_digest, "text": post[1]})
-        if not payload_digest:
-            # 升级前的旧行没有 digest——无法核账；本轮不落账，扫描会以带
-            # digest 的后继收敛（最坏一次重复 ingest）
-            return JobResult(status="succeeded")
-        logger.info("  %s: 执行期间内容已前进/错配，不落账由后继 Job 接管", path.name)
-        return JobResult(status="succeeded")
+        return JobResult(status="succeeded", detail={"digest": digest, "text": text})
 
     def _ingest_error_result(self, job: Job, exc: IngestError) -> JobResult:
         """业务失败 → 结果化（issue 上报与事件在 outcome/此处收口）。"""
