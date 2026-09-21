@@ -14,6 +14,7 @@ from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
 from wiki_agent.log import emit_event
+from wiki_agent.watch.state import WatchState
 from wiki_agent.web.app import create_app
 
 
@@ -22,10 +23,16 @@ class _Runtime:
         self.workspace = root / "workspace"
         self.wiki_dir = root / "wiki"
         self.wiki_dir.mkdir()
+        self.materials_dir = root / "materials"
+        self.materials_dir.mkdir()
         self.issue_store = IssueStore(self.workspace)
         self.issue_service = IssueService(self.issue_store)
         # 统一执行模型：web 装配从 runtime 拿 job_service/job_worker
-        self.job_service = JobService(self.workspace, wiki_dir=self.wiki_dir)
+        self.job_service = JobService(
+            self.workspace,
+            wiki_dir=self.wiki_dir,
+            watch_state=WatchState(self.workspace / "watch" / "state.json"),
+        )
         self.job_worker = JobWorker(self.job_service)
         self._worker_task = None
 
@@ -242,5 +249,37 @@ def test_bulk_retry_enqueues_available_manual_sources(tmp_path: Path):
             assert response.status_code == 202
             assert response.json()["count"] == 1
             assert response.json()["tasks"][0]["status"] == "queued"
+
+    asyncio.run(run())
+
+
+def test_sync_endpoint_snapshots_and_mutex(tmp_path: Path):
+    """POST /api/sync 快照入队 202；同批未跑完再点 409；status 如实报数。"""
+    runtime = _Runtime(tmp_path)
+    (runtime.materials_dir / "a.md").write_text("同步内容" * 10, encoding="utf-8")
+    app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
+
+    async def run():
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client,
+        ):
+            status = (await client.get("/api/sync/status")).json()
+            assert status == {"dirty": 1, "removed": 0, "in_flight": 0}
+
+            first = await client.post("/api/sync")
+            assert first.status_code == 202
+            body = first.json()
+            assert body["count"] == 1
+            assert body["tasks"][0]["kind"] == "compile" and body["tasks"][0]["action"] == "sync"
+
+            # worker 只注册 issue_action（fixture 语义），compile 行保持 queued——
+            # 快照互斥闸拒绝叠放
+            second = await client.post("/api/sync")
+            assert second.status_code == 409
+            after = (await client.get("/api/sync/status")).json()
+            assert after["dirty"] == 1 and after["in_flight"] == 1
 
     asyncio.run(run())

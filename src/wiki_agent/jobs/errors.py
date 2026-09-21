@@ -13,3 +13,10 @@ class DuplicateInFlightJob(RuntimeError):
     def __init__(self, resource: str):
         super().__init__(f"resource 已有在途 Job: {resource}")
         self.resource = resource
+
+
+class SyncInProgress(RuntimeError):
+    """上一次 sync 的批次还在执行——sync 互斥串行，快照不允许叠加快照。"""
+
+    def __init__(self) -> None:
+        super().__init__("源执行队列未空闲：上一次 sync/重试尚未结束")

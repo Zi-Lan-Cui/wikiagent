@@ -1,7 +1,9 @@
 """watch 状态持久层——记录每个文件的"已处理"账。
 
-进程重启后凭状态判断哪些文件变了（回退扫描的数据源）；hash/text 只在
-job 成功后由 record 写入，watcher 侧不产生任何确认现场。
+hash/text 只在 job 成功后由 record 写入；本模块同时提供 sync 快照的
+两半：scan_disk（磁盘现状指纹表）与 WatchState.diff（现状 − 账本 =
+待同步/待清理）。sync 语义下"账本没有的内容"即脏，失败不写账 →
+失败内容保持脏 → 再次 sync 天然就是重试。
 """
 
 from __future__ import annotations
@@ -11,6 +13,25 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+
+def scan_disk(root: str | Path) -> dict[str, str]:
+    """受支持文件的指纹表：绝对路径 → digest。sync 快照的数据源。
+
+    读不到（权限/消失竞态）的文件跳过——下轮快照会再见到它。
+    """
+    from wiki_agent.documents.loader import DataLoader
+
+    supported = DataLoader.ext_to_modality
+    base = Path(root).resolve()
+    out: dict[str, str] = {}
+    for p in sorted(base.rglob("*")):
+        if not p.is_file() or p.suffix.lower() not in supported:
+            continue
+        read = digest_file_text(p)
+        if read is not None:
+            out[str(p.resolve())] = read[0]
+    return out
 
 
 def digest_file_text(path: str | Path) -> tuple[str, str] | None:
@@ -109,6 +130,25 @@ class WatchState:
             abs_path: 文件绝对路径。
         """
         self._entries.pop(abs_path, None)
+
+    def diff(self, disk: dict[str, str]) -> tuple[list[tuple[str, str]], list[str]]:
+        """sync 快照对比：磁盘现状 − 完成账。
+
+        dirty = 账上没有该 digest 的文件（新文件/改过/失败过——失败不写账
+        所以保持脏）；removed = 账上有成功记录但磁盘已无的文件（名册式的
+        空条目不参与删除判定：从未入账，无账可清）。
+
+        Args:
+            disk: scan_disk 产出的 绝对路径→digest 表。
+
+        Returns:
+            ([(路径, digest)], [待清理路径])。
+        """
+        dirty = [(path, digest) for path, digest in disk.items() if self.get(path).hash != digest]
+        removed = [
+            old for old in self.all_paths() if old not in disk and self._entries[old].hash != ""
+        ]
+        return dirty, removed
 
     # 完成账本——hash/text 的唯一写入口是 record，且只允许 job 成功时调用
 
