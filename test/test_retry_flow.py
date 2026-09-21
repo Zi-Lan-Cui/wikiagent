@@ -9,11 +9,11 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from wiki_agent.application.job_results import JobResult
-from wiki_agent.application.job_service import JobService
-from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
+from wiki_agent.jobs import JobResult
+from wiki_agent.jobs.service import JobService
+from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.sync.job_consumer import SyncConsumer
 from wiki_agent.sync.state import SyncState, digest_file_text
 

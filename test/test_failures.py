@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from wiki_agent.application.job_results import JobResult
-from wiki_agent.application.job_service import JobService
 from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.errors import IngestError, IngestStage, RetryableError
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
+from wiki_agent.jobs import JobResult
+from wiki_agent.jobs.service import JobService
 
 
 def _reported_failure(tmp_path: Path, *, error: IngestError | None = None):

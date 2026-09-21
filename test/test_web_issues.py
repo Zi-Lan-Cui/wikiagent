@@ -9,10 +9,10 @@ from typing import cast
 
 import httpx
 
-from wiki_agent.application.job_service import JobService
-from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
+from wiki_agent.jobs.service import JobService
+from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.log import emit_event
 from wiki_agent.sync.state import SyncState
 from wiki_agent.web.app import create_app

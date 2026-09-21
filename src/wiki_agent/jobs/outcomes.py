@@ -18,10 +18,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from wiki_agent.application.job_results import JobResult
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
 from wiki_agent.issues.models import JsonObject
-from wiki_agent.jobs import Job
+from wiki_agent.jobs import Job, JobResult
 from wiki_agent.log import emit_event, get_logger
 
 if TYPE_CHECKING:

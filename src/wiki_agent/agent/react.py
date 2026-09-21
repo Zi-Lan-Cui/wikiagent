@@ -23,7 +23,7 @@ from wiki_agent.tools import RecordCorrection, ToolRegistry
 
 if TYPE_CHECKING:
     # 类型引用不导运行时——application 组装 agent，反向 import 即环
-    from wiki_agent.application.job_service import JobService
+    from wiki_agent.jobs.service import JobService
 
 logger = get_logger("REACT_RUNNER")
 

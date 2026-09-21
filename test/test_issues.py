@@ -175,10 +175,10 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     """
     import json
 
-    from wiki_agent.application.job_results import JobResult
-    from wiki_agent.application.job_service import JobService
     from wiki_agent.compiler.workflows.failures import SourceFailureHandler
     from wiki_agent.errors import IngestError, IngestStage
+    from wiki_agent.jobs import JobResult
+    from wiki_agent.jobs.service import JobService
 
     workspace = tmp_path / "workspace"
     wiki = tmp_path / "wiki"

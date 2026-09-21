@@ -15,13 +15,13 @@ from types import TracebackType
 from typing import Any
 
 from wiki_agent.agent import ReActAgent
-from wiki_agent.application.job_service import JobService
-from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, load_config
 from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
+from wiki_agent.jobs.service import JobService
+from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.sync.job_consumer import SyncConsumer
 from wiki_agent.sync.state import SyncState

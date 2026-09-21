@@ -21,12 +21,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from wiki_agent.application.job_results import JobResult
 from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.jobs import Job
+from wiki_agent.jobs import Job, JobResult
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.sync.state import SyncState, digest_file_text
 from wiki_agent.wiki.frontmatter import split_frontmatter
