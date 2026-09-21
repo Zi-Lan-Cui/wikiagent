@@ -229,3 +229,5 @@ button { -webkit-tap-highlight-color: transparent; }
   .issue-task { grid-template-columns: 8px minmax(0, 1fr) auto; }
   .issue-task-context { display: none; }
 }
+
+.bulk-retry span.needs-sync { background: #d66b45; }
