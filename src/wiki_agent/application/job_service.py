@@ -218,14 +218,3 @@ class JobService:
 
     def list(self, *, limit: int = 100) -> list[Job]:
         return self.store.list(limit=limit)
-
-    # —— 兼容旧生命周期 API（Worker 之外不再有调用方的历史包袱）——
-
-    def succeed(self, job_id: str) -> Job:
-        return self.store.update(job_id, status="succeeded", stage="completed")
-
-    def fail(self, job_id: str, error: str) -> Job:
-        return self.store.update(job_id, status="failed", error=error)
-
-    def cancel(self, job_id: str) -> Job:
-        return self.store.update(job_id, status="cancelled", stage="cancelled")

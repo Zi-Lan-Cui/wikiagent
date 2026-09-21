@@ -68,7 +68,7 @@ def create_app(
 
     async def handle_issue_job(job, progress):
         # 业务拒绝（来源丢失/状态 CAS 不满足/动作非法/未实现）是终态——
-        # 返回 failed 结果，不落成 transient 链式重试。
+        # 返回无联动语义的 failed 结果，不落 run_failure 账。
         try:
             issue_actions.execute(job.resource, job.mode, job.payload, progress=progress)
         except (

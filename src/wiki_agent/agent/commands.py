@@ -366,7 +366,7 @@ class QueueCommand(Command):
                 else:
                     lines.append(f"- `{issue_id}`: 已排队 `{job.id}`，由 Worker 串行执行")
             lines.append("")
-            lines.append("执行结果稍后用 `/queue` 查看（成功自动销账，失败继续退避）。")
+            lines.append("执行结果稍后用 `/queue` 查看（成功自动销账，失败记回问题中心等人工处理）。")
             return CommandResult(text="\n".join(lines))
 
         cards = issue_service.list(statuses={IssueStatus.OPEN, IssueStatus.BLOCKED})
