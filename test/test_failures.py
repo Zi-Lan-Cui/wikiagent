@@ -1,25 +1,19 @@
-"""Source failure reporting 与重试策略测试（统一 Job 模型版）。
+"""Source failure 记账测试（手动重试模型版）。
 
-handler 负责 compile/refine 内联上报；重试策略是纯函数；
+handler 负责 compile/refine 内联上报；失败只记账不排程——retry 快照
+（attempts/last_error/policy=manual）由 IssueStore.report_failure 统一合成；
 "执行→回写"联动在 JobOutcomeHandler（见 test_retry_flow）。
 """
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.job_service import JobService
-from wiki_agent.compiler.workflows.failures import (
-    SourceFailureHandler,
-    is_retry_due,
-    source_backoff_seconds,
-    source_retry_decision,
-)
+from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.errors import IngestError, IngestStage, RetryableError
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
@@ -52,10 +46,13 @@ def test_source_failure_handler_writes_only_issue_store(tmp_path: Path):
     assert issue.resource["path"] == "note.md"
     assert issue.diagnostics["error_code"] == "ingest_error"
     assert issue.retry["attempts"] == 1
+    assert issue.retry["policy"] == "manual", "手动模型：策略字段恒为 manual"
+    assert "next_retry_at" not in issue.retry and "expires_at" not in issue.retry, "无排程字段"
     assert not (tmp_path / "queue.jsonl").exists()
 
 
-def test_failure_handler_classifies_retryable_error(tmp_path: Path):
+def test_failure_handler_classifies_error_in_diagnostics(tmp_path: Path):
+    """error_class 只进诊断展示——不再决定任何重试通道。"""
     _, issue = _reported_failure(
         tmp_path,
         error=IngestError(
@@ -66,131 +63,96 @@ def test_failure_handler_classifies_retryable_error(tmp_path: Path):
         ),
     )
     assert issue.diagnostics["error_class"] == "transient"
-    assert issue.retry["policy"] == "auto_retry"
+    assert issue.retry["policy"] == "manual"
 
 
-# 策略纯函数
+# retry 快照（同一指纹重复失败：attempts 递增、人注标记保留）
 
 
-def test_retry_decision_transitions():
-    now = datetime.now(UTC)
-    base = {"policy": "auto_retry", "attempts": 1, "expires_at": ""}
-    assert source_retry_decision(base, max_attempts=3, now=now) == "retry"
-    assert source_retry_decision({**base, "attempts": 3}, max_attempts=3, now=now) == "manual"
-    once = {"policy": "retry_once", "attempts": 1}
-    assert source_retry_decision(once, max_attempts=3, now=now) == "retry"
-    assert source_retry_decision({**once, "attempts": 2}, max_attempts=3, now=now) == "manual"
-    expired = {**base, "expires_at": (now - timedelta(seconds=1)).isoformat()}
-    assert source_retry_decision(expired, max_attempts=3, now=now) == "manual"
-    assert source_retry_decision({"policy": "manual", "attempts": 1}, max_attempts=3) == "manual"
+def test_report_failure_bumps_attempts_by_fingerprint(tmp_path: Path):
+    store = IssueStore(tmp_path)
 
-
-def test_retry_due_and_backoff():
-    now = datetime.now(UTC)
-    assert is_retry_due({}, now=now) is True
-    assert is_retry_due({"next_retry_at": (now + timedelta(hours=1)).isoformat()}, now=now) is False
-    assert (
-        is_retry_due({"next_retry_at": (now - timedelta(seconds=1)).isoformat()}, now=now) is True
-    )
-    assert source_backoff_seconds(1, base=10, max_delay=100) == 10
-    assert source_backoff_seconds(3, base=10, max_delay=100) == 40
-    assert source_backoff_seconds(9, base=10, max_delay=100) == 100
-
-
-def test_failure_diagnostics_sanitizes_raw():
-    """页级失败诊断只保留 path/reason——raw 大段输出不得进 issue。"""
-    from wiki_agent.compiler.workflows.failures import failure_diagnostics
-
-    exc = IngestError(
-        IngestStage.EXECUTE,
-        "1 个页面生成失败",
-        raw=json.dumps([{"path": "concepts/example.md", "error": "缺少 title", "raw": "private"}]),
-        error_code="page_generation_failed",
-        error_class="transient",
-        retry_policy="auto_retry",
-    )
-    diagnostics, raw = failure_diagnostics(exc)
-    assert diagnostics["failures"] == [{"path": "concepts/example.md", "reason": "缺少 title"}]
-    assert "private" not in json.dumps(diagnostics, ensure_ascii=False)
-    assert "private" in raw  # raw 只进事件日志
-
-
-# 重试链联动（outcome）
-
-
-def test_retry_job_failure_advances_backoff_and_returns_open(tmp_path: Path):
-    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
-    source = tmp_path / "note.md"
-    source.write_text("重试输入", encoding="utf-8")
-    issue = service.issues.report(
-        IssueDraft(
+    def draft(error: str) -> IssueDraft:
+        return IssueDraft(
             kind=IssueKind.INGESTION_FAILURE,
             title="note.md 处理失败",
-            summary="plan 失败",
+            summary=error,
             resource={"type": "input_file", "path": "note.md", "label": "note.md"},
-            context={"source_path": str(source)},
-            retry={"policy": "auto_retry", "attempts": 1, "next_retry_at": ""},
+            context={"source_path": "/abs/note.md"},
         )
+
+    first = store.report_failure(draft("第一次错"), "第一次错")
+    store.update_payloads(first.id, retry={**first.retry, "unavailable_reason": "来源不稳"})
+    second = store.report_failure(draft("第二次错"), "第二次错")
+
+    assert second.id == first.id, "同指纹合并入账，occurrences 递增"
+    assert store.require(first.id).occurrences == 2
+    record = store.require(first.id)
+    assert record.retry["attempts"] == 2
+    assert record.retry["last_error"] == "第二次错"
+    assert record.retry["unavailable_reason"] == "来源不稳", "人注标记跨失败保留"
+
+
+# 失败联动（outcome）——只记账，不排程，状态停 open
+
+
+def _ingest_error_result(source: Path, error: str) -> JobResult:
+    return JobResult(
+        status="failed",
+        error_type="ingest_error",
+        detail={
+            "error": error,
+            "stage": "plan",
+            "source": source.name,
+            "source_path": str(source),
+            "diagnostics": {"error_code": "ingest_error"},
+        },
     )
-    service.submit_issue_retry(issue.id)
-    assert service.issues.get(issue.id).status == IssueStatus.OPEN
-    assert service.store.has_in_flight_job_by_issue(issue.id)
-    job = service.claim_next(kinds={"compile"})
-    assert job is not None
-
-    service.complete_with_outcome(
-        job,
-        JobResult(
-            status="failed",
-            error_type="ingest_error",
-            detail={
-                "error": "again failed",
-                "stage": "plan",
-                "source": "note.md",
-                "source_path": str(source),
-                "diagnostics": {"error_code": "ingest_error"},
-            },
-        ),
-    )
-    updated = service.issues.get(issue.id)
-    assert updated.status == IssueStatus.OPEN  # 归还给调度器继续退避
-    assert updated.retry["attempts"] == 2
-    assert updated.retry["next_retry_at"]  # 退避在后
 
 
-def test_retry_job_exhausted_blocks(tmp_path: Path):
-    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+def test_ingest_error_merges_and_keeps_issue_open(tmp_path: Path):
+    """同一失败重复发生：outcome 按指纹合并进同一账——attempts 递增、停 open、无排程。"""
     source = tmp_path / "note.md"
     source.write_text("重试输入", encoding="utf-8")
-    issue = service.issues.report(
-        IssueDraft(
-            kind=IssueKind.INGESTION_FAILURE,
-            title="note.md 处理失败",
-            summary="plan 失败",
-            resource={"type": "input_file", "path": "note.md", "label": "note.md"},
-            context={"source_path": str(source)},
-            retry={"policy": "auto_retry", "attempts": 3, "next_retry_at": ""},
-        )
-    )
-    service.submit_issue_retry(issue.id)
-    job = service.claim_next(kinds={"compile"})
-    assert job is not None
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    service.submit(kind="compile", resource=str(source.resolve()), mode="sync")
+    claimed = service.claim_next(kinds={"compile"})
+    assert claimed is not None
+    service.complete_with_outcome(claimed, _ingest_error_result(source, "第一次失败"))
+
+    failures = service.issues.list(kinds={IssueKind.INGESTION_FAILURE})
+    assert len(failures) == 1
+    issue_id = failures[0].id
+    assert failures[0].status == IssueStatus.OPEN
+
+    # 人工 retry → 再失败：合并同账，不另开
+    service.submit_issue_retry(issue_id)
+    again = service.claim_next(kinds={"compile"})
+    assert again is not None
+    service.complete_with_outcome(again, _ingest_error_result(source, "第二次失败"))
+
+    merged = service.issues.get(issue_id)
+    assert service.issues.list(kinds={IssueKind.INGESTION_FAILURE}).__len__() == 1
+    assert merged.status == IssueStatus.OPEN, "失败停 open 等人——无退避、无耗尽转 BLOCKED"
+    assert merged.retry["attempts"] == 2
+    assert merged.retry["last_error"] == "第二次失败"
+    assert "next_retry_at" not in merged.retry
+
+
+def test_transient_failure_reports_run_failure_issue(tmp_path: Path):
+    """未预期异常 = run_failure 一笔账，不再有链式重试排程。"""
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    job = service.submit(kind="compile", resource="/abs/x.md", mode="sync", payload={"digest": "d"})
+    claimed = service.claim_next(kinds={"compile"})
+    assert claimed is not None
     service.complete_with_outcome(
-        job,
-        JobResult(
-            status="failed",
-            error_type="ingest_error",
-            detail={
-                "error": "final failure",
-                "stage": "plan",
-                "source": "note.md",
-                "source_path": str(source),
-                "diagnostics": {"error_code": "ingest_error"},
-            },
-        ),
+        claimed,
+        JobResult(status="failed", error_type="transient", detail={"error": "KeyError: boom"}),
     )
-    final = service.issues.get(issue.id)
-    assert final.status == IssueStatus.BLOCKED
+    failures = service.issues.list(kinds={IssueKind.RUN_FAILURE})
+    assert len(failures) == 1
+    assert "boom" in failures[0].summary
+    assert service.store.count_in_flight() == 0, "transient 不产生后继 job"
 
 
 # 重试输入解析

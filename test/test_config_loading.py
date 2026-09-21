@@ -91,7 +91,7 @@ def test_nested_overrides_are_deep_merged(tmp_path: Path) -> None:
     assert cfg.compile.chunk_size == 4096
 
 
-def test_retry_config_reads_env_and_allows_nested_override(tmp_path: Path) -> None:
+def test_retry_config_reads_env_and_ignores_legacy_source_fields(tmp_path: Path) -> None:
     cfg = load_config(
         project_root=tmp_path,
         env_file=_write_env(tmp_path),
@@ -99,8 +99,9 @@ def test_retry_config_reads_env_and_allows_nested_override(tmp_path: Path) -> No
     )
 
     assert cfg.retry.llm_max_attempts == 4
-    assert cfg.retry.source_base_delay_seconds == 5
-    assert cfg.retry.source_max_delay_seconds == 3_600
+    assert not hasattr(cfg.retry, "source_base_delay_seconds"), (
+        "source 排程字段已随手动重试模型作废，旧配置键被忽略"
+    )
     assert cfg.llm.thinking == "disabled"
 
 
@@ -129,7 +130,6 @@ def test_llm_and_vlm_limits_are_loaded_independently(tmp_path: Path) -> None:
         ({"agent": {"snip_ratio": 1}}, "AGENT_SNIP_RATIO 必须在"),
         ({"watch": {"fallback_interval": 0}}, "WATCH_SETTLE_WINDOW"),
         ({"retry": {"llm_max_attempts": 0}}, "RETRY_LLM_MAX_ATTEMPTS"),
-        ({"retry": {"source_max_delay_seconds": 1}}, "RETRY_SOURCE_MAX_DELAY_SECONDS"),
     ],
 )
 def test_invalid_runtime_boundaries_fail_at_config_load(

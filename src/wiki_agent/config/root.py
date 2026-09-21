@@ -149,24 +149,22 @@ class WatchConfig(BaseSettings):
 
 
 class RetryConfig(BaseSettings):
-    """远程 LLM 与 source 失败队列的重试策略（env 前缀 ``RETRY_``）。"""
+    """远程 LLM 调用的重试策略（env 前缀 ``RETRY_``）。
+
+    只管 LLM 层——source 级失败不排程（手动重试模型），故无 source_* 字段。
+    """
 
     model_config = SettingsConfigDict(env_prefix="RETRY_", frozen=True, extra="ignore")
 
     llm_max_attempts: int = 3
     llm_base_delay_seconds: float = 2.0
-    source_max_attempts: int = 3
-    source_base_delay_seconds: float = 30.0
-    source_max_delay_seconds: float = 3_600.0
 
     @model_validator(mode="after")
     def _check_bounds(self) -> RetryConfig:
-        if self.llm_max_attempts < 1 or self.source_max_attempts < 1:
-            raise ValueError("RETRY_LLM_MAX_ATTEMPTS 和 RETRY_SOURCE_MAX_ATTEMPTS 必须至少为 1")
-        if self.llm_base_delay_seconds <= 0 or self.source_base_delay_seconds <= 0:
-            raise ValueError("RETRY 的基础退避时间必须大于 0 秒")
-        if self.source_max_delay_seconds < self.source_base_delay_seconds:
-            raise ValueError("RETRY_SOURCE_MAX_DELAY_SECONDS 必须不小于基础退避时间")
+        if self.llm_max_attempts < 1:
+            raise ValueError("RETRY_LLM_MAX_ATTEMPTS 必须至少为 1")
+        if self.llm_base_delay_seconds <= 0:
+            raise ValueError("RETRY_LLM_BASE_DELAY_SECONDS 必须大于 0 秒")
         return self
 
 

@@ -5,12 +5,11 @@ handler（执行体）返回 JobResult 表达业务结局；只有 handler 自�
 （IngestError）必须由 handler 捕获转成 failed/ingest_error 结果——
 终态与 issue/watch 的联动只发生在 Worker 的单事务提交里。
 
-error_type 决定失败走哪条唯一通道（每类失败只有一条重试通道）：
-- "ingest_error": source 级业务失败 → 同事务上报 issue 中心（重试归它）；
-  detail 必须携带 draft 构造所需字段：error/stage/diagnostics/raw/
-  source/source_path/source_kind/retry_policy。
-- "transient":    未预期异常 →  attempts 内链式新 job 退避重排，
-  超限升级为 run_failure issue。
+error_type 决定失败进哪本账（手动重试模型：只记账，不排程）：
+- "ingest_error": source 级业务失败 → 同事务上报/合并 issue 中心，
+  等待人工重试（sync 或 retry 按钮）；detail 必须携带 draft 构造所需
+  字段：error/stage/diagnostics/raw/source/source_path/source_kind。
+- "transient":    未预期异常（bug/环境）→ run_failure issue，同样等人工。
 - "cancelled":    进程取消/被取代 → 不判失败；issue 全程未动状态，无账可还。
 - "":             终态失败但无联动语义（如未注册 kind 直接失败）。
 """
