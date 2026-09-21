@@ -54,7 +54,11 @@ class JobOutcomeHandler:
     def apply(
         self, job: Job, result: JobResult, conn: sqlite3.Connection
     ) -> list[Callable[[], None]]:
-        """把 result 的联动写入并入 conn 事务；返回 commit 后要执行的动作。"""
+        """把 result 的联动写入并入 conn 事务；返回 commit 后要执行的动作。
+
+        分支只覆盖 succeeded/ingest_error/transient——cancelled 刻意无
+        联动（无账可还），调用方不必为取消结果走本函数。
+        """
         post_commit: list[Callable[[], None]] = []
         if result.status == "succeeded":
             post_commit += self._on_succeeded(job, result)
@@ -68,7 +72,6 @@ class JobOutcomeHandler:
                     event="job_succeeded",
                     _conn=conn,
                 )
-        # cancelled 无联动：提交不改变 issue 状态，取消即无账可还
         elif result.error_type == "ingest_error":
             self._on_ingest_error(job, result, conn)
         elif result.error_type == "transient":

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from wiki_agent.issues.models import IssueDraft, IssueKind
 from wiki_agent.issues.store import IssueStore
-from wiki_agent.jobs import DuplicateActiveJob, JobStore
+from wiki_agent.jobs import DuplicateInFlightJob, JobStore
 
 _LEGACY_JOBS_DDL = """
 CREATE TABLE jobs (
@@ -40,7 +40,7 @@ def test_i1_unique_active_per_resource(tmp_path: Path):
     try:
         store.enqueue(kind="delete", resource="/src/a.md", mode="watch")
         assert False, "唯一在途索引应拒绝同资源第二个在途 job"
-    except DuplicateActiveJob as exc:
+    except DuplicateInFlightJob as exc:
         assert exc.resource == "/src/a.md"
 
     store.update(first.id, status="succeeded")
@@ -85,7 +85,7 @@ def test_legacy_duplicate_active_rows_migrated(tmp_path: Path):
     try:
         store.enqueue(kind="delete", resource="/dup", mode="watch")
         assert False, "迁移后唯一索引应生效"
-    except DuplicateActiveJob:
+    except DuplicateInFlightJob:
         pass
 
 
@@ -163,7 +163,7 @@ def test_conn_participates_in_caller_transaction(tmp_path: Path):
     except RuntimeError:
         pass
     assert issue_store.find_pending_failures("/abs/b.md") == []
-    assert job_store.active_by_resource("/abs/b.md") is None
+    assert job_store.in_flight_by_resource("/abs/b.md") is None
 
 
 def test_resource_path_written_and_queried(tmp_path: Path):

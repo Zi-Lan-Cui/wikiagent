@@ -15,7 +15,7 @@ from pathlib import Path
 from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import IssueAlreadyClaimedError
-from wiki_agent.jobs import DuplicateActiveJob
+from wiki_agent.jobs import DuplicateInFlightJob
 from wiki_agent.log import configure_logging, get_logger
 
 logger = get_logger("RETRY_FAILURES")
@@ -39,7 +39,7 @@ async def main(selected: str | None = None) -> None:
     for issue_id in issue_ids:
         try:
             job = service.submit_issue_retry(issue_id)
-        except (IssueAlreadyClaimedError, DuplicateActiveJob):
+        except (IssueAlreadyClaimedError, DuplicateInFlightJob):
             outcomes[issue_id] = "skipped（已有在途任务）"
         except SourceUnavailableError as exc:
             outcomes[issue_id] = f"unavailable — {exc}"
@@ -49,13 +49,13 @@ async def main(selected: str | None = None) -> None:
     # 本脚本即临时 worker：驱动到没有到期任务为止（transient 退避链未到
     # 期的部分留给后台进程，报告标注在途）
     worker = runtime.job_worker
-    while service.store.count_active() > 0:
+    while service.store.count_in_flight() > 0:
         job = await worker.run_once()
         if job is None:
             break  # 只剩 next_run_at 未到期的链式行
         outcomes[_issue_of(job.id, service)] = job.status
-    if service.store.count_active() > 0:
-        logger.info("仍有 %d 个退避重排在途，交给后台 worker", service.store.count_active())
+    if service.store.count_in_flight() > 0:
+        logger.info("仍有 %d 个退避重排在途，交给后台 worker", service.store.count_in_flight())
 
     for issue_id in issue_ids:
         status = outcomes.get(issue_id, "unknown")

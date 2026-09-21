@@ -82,9 +82,9 @@ def create_app(
     if not job_worker.is_registered("issue_action"):
         job_worker.register("issue_action", handle_issue_job)
 
-    def _active_issue_ids() -> set[str]:
+    def _in_flight_issue_ids() -> set[str]:
         # "在途"= 该 issue 有挂账的 queued/running job——一条 SQL，不扫内存
-        return set(job_service.store.open_issue_ids_with_active_job())
+        return set(job_service.store.open_issue_ids_with_in_flight_job())
 
     def submit_issue_job(
         issue_id: str, action: str, payload: dict[str, Any] | None = None
@@ -169,7 +169,7 @@ def create_app(
                 offset=offset,
             )
             if not include_active_tasks:
-                active_ids = _active_issue_ids()
+                active_ids = _in_flight_issue_ids()
                 cards = [card for card in cards if card.id not in active_ids]
             return [asdict(card) for card in cards]
         except ValueError as exc:
@@ -177,7 +177,7 @@ def create_app(
 
     @app.get("/api/issues/summary")
     async def issue_summary() -> dict[str, int]:
-        active_task_issues = _active_issue_ids()
+        active_task_issues = _in_flight_issue_ids()
         active_issues = service.list_issues(
             statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
             limit=1000,
@@ -192,7 +192,7 @@ def create_app(
     @app.post("/api/issues/actions/retry-eligible", status_code=202)
     async def retry_eligible_issues() -> dict[str, Any]:
         try:
-            issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_active_issue_ids())
+            issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_in_flight_issue_ids())
             tasks = [submit_retry_job(issue_id) for issue_id in issue_ids]
             return {"count": len(tasks), "tasks": tasks}
         except (IssueAlreadyClaimedError, SourceUnavailableError, ValueError) as exc:
