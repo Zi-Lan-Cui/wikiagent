@@ -99,7 +99,7 @@ def test_transient_exhausted_escalates_to_issue(tmp_path):
     max_attempts = RetryConfig().source_max_attempts
     service = JobService(tmp_path)
     first = service.submit(kind="compile", resource="/y", mode="watch")
-    # I1：/y 在途时排不出第二条——先让首行终态（链式世界里的正常传递）
+    # 唯一在途：/y 在途时排不出第二条——先让首行终态（链式世界里的正常传递）
     service.store.update(first.id, status="failed")
     service.store.enqueue(
         kind="compile",

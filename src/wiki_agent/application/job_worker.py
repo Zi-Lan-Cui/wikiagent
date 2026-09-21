@@ -1,6 +1,6 @@
 """Single durable worker for application jobs.
 
-Worker 是唯一的终态写入者（I2）：claim（按注册 kinds + 到期时间）→
+Worker 是唯一的终态写入者：claim（按注册 kinds + 到期时间）→
 handler 返回 JobResult → complete_with_outcome 单事务落终态。
 handler 只表达业务结局；bug 抛异常由这里归为 transient 进链式退避。
 """

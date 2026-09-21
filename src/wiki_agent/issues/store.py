@@ -273,7 +273,7 @@ class IssueStore:
     def find_pending_failures(self, source_path: str) -> list[IssueRecord]:
         """同一来源的待处理 ingestion 失败（open/blocked）——watch 提交让位查询。
 
-        "已认领"不是 issue 状态——在途与否由 jobs 表的 I1 唯一索引表达；
+        "已认领"不是 issue 状态——在途与否由 jobs 表的唯一索引表达；
         source_path 与 Job.resource 同一身份空间（绝对路径字符串）。
         """
         with self._connect() as connection:

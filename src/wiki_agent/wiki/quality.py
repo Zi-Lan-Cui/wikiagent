@@ -287,7 +287,7 @@ def scan_source(
 def check_dead_links(content: str, *, path: str, valid_slugs: set[str]) -> list[Issue]:
     """死链检测——正文中的 [[wikilink]] 指向不存在的页面。
 
-    跳过代码块（审计 I2）——代码里的 ``[[1, 2, 3]]`` 不是链接。
+    跳过代码块——代码里的 ``[[1, 2, 3]]`` 不是链接。
 
     Args:
         content: 页面内容。

@@ -23,9 +23,9 @@ logger = get_logger("PARSE")
 
 
 def _try_repair_trailing_braces(cleaned: str) -> str | None:
-    """确定性修复: 仅缺尾部闭合括号时补全（审计 I5 根因）。
+    """确定性修复: 仅缺尾部闭合括号时补全。
 
-    I5 实锤: 深嵌套 JSON（page_targets 数组套 references 数组）模型
+    实测事故：深嵌套 JSON（page_targets 数组套 references 数组）模型
     写完就停（finish=stop 非 token 截断），但少写一个尾部 }——重试
     两次仍犯同样错，烧 token 无收益。这里保守修复: 只尝试补
     ]} 组合，补完能 loads 才返回修复版，否则 None（不掩盖真截断）。
@@ -55,7 +55,7 @@ def strip_fence(content: str) -> str:
     同一份剥除逻辑，否则出现"check 剥了能过、parse 没剥就炸"
     （2026-08-15 full_pipeline 验收 run 事故）。
 
-    尾部缺闭合括号（I5）是同类格式化噪声——模型深嵌套 JSON
+    尾部缺闭合括号是同类格式化噪声——模型深嵌套 JSON
     少写一个 }。repair 也在此层: check 用修复版判定、parse 用
     修复版解析，两端自动一致。
 
@@ -63,7 +63,7 @@ def strip_fence(content: str) -> str:
         content: LLM 原始输出。
 
     Returns:
-        剥除 fence（可能含 I5 补全）后的文本。
+        剥除 fence（可能含尾部括号补全）后的文本。
     """
     cleaned = content.strip()
     cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
@@ -79,7 +79,7 @@ def strip_fence(content: str) -> str:
         repaired = _try_repair_trailing_braces(cleaned)
         if repaired is not None:
             logger.warning(
-                "JSON 尾部缺闭合括号——已补全 %d 字符（I5 repair）", len(repaired) - len(cleaned)
+                "JSON 尾部缺闭合括号——已补全 %d 字符", len(repaired) - len(cleaned)
             )
             return repaired
     return cleaned

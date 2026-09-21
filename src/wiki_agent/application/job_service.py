@@ -1,7 +1,7 @@
 """Unified durable job submission and lifecycle API.
 
 Job 是唯一执行事实来源：提交入口收口在这里，终态写入只有一个点
-（complete_with_outcome，I2——jobs 行、transient 链、issue 联动同事务）。
+（complete_with_outcome——jobs 行、transient 链、issue 联动同事务）。
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class JobService:
 
         compile：撞在途 → 排队行合并 digest（意图前进）、执行中行吞掉
         （成功后账会被 pre/post 拒掉，下一轮回退扫描重提交）；存在未到期
-        的 auto_retry 失败账 → 让位 issue 通道（I6 唯一重试通道）。
+        的 auto_retry 失败账 → 让位 issue 通道（每类失败唯一重试通道）。
         delete：撞任何在途 → 取代（同事务 cancel 让位；取消无账可还）。
         """
         kind = "delete" if deleted else "compile"
@@ -98,7 +98,7 @@ class JobService:
             return None
         result = self._submit_watch_row(kind, resource, payload, key, issue_id=due_issue)
         if result is None:
-            # 撞 I1（被其他 kind 占位）——只有排队中的普通 watch compile 行值得合并
+            # 撞唯一在途（被其他 kind 占位）——只有排队中的普通 watch compile 行值得合并
             active = self.store.active_by_resource(resource)
             if (
                 active is not None
@@ -178,10 +178,10 @@ class JobService:
             )
 
     def submit_issue_retry(self, issue_id: str) -> Job:
-        """重试请求 → compile Job：提交点三重防线收敛为"至多一个在途、返回既有"（I3）。
+        """重试请求 → compile Job：提交点三重防线收敛为"至多一个在途、返回既有"。
 
         ① 挂账预查（该 issue 已有在途 job 直接返回）；② 幂等键命中在途行
-        返回既有；③ 撞 I1（他人占位）返回占位者、无账则补挂。retry 资格
+        返回既有；③ 撞唯一在途（他人占位）返回占位者、无账则补挂。retry 资格
         （状态、来源可读）由各入口的 validate/调度过滤判定，这里只管执行
         唯一性。issue 终态由 compile job 的 outcome 落（成功 RESOLVED /
         再失败推进退避），提交本身不改变 issue 状态。
@@ -210,7 +210,7 @@ class JobService:
                 )
             except DuplicateActiveJob:
                 occupant = self.store.active_by_resource(resource, _conn=conn)
-                if occupant is None:  # I1 冲突必有占位者——防御性外抛
+                if occupant is None:  # 撞唯一索引必有占位者——防御性外抛
                     raise
                 if not occupant.issue_id:
                     occupant = self.store.attach_issue(occupant.id, issue_id, _conn=conn)
@@ -238,7 +238,7 @@ class JobService:
         return self.store.update(job_id, stage=stage)
 
     def complete_with_outcome(self, job: Job, result: JobResult) -> Job:
-        """唯一终态提交点：jobs 行、transient 链、issue 联动同事务（I2/I6）。
+        """唯一终态提交点：jobs 行、transient 链、issue 联动同事务。
 
         终态写入带 CAS（仅 running 可翻转）：行已被取代/取消时迟到写静默
         跳过——不排链、不联动、不记账，返回行的现状。
@@ -260,7 +260,7 @@ class JobService:
             )
             if not won:
                 return self.store.get(job.id, _conn=conn)
-            # transient 且未耗尽 → 先写终态再排链（同 resource，旧行不占 I1 索引）
+            # transient 且未耗尽 → 先写终态再排链（同 resource，旧行已不占唯一索引）
             if (
                 result.status == "failed"
                 and result.error_type == "transient"

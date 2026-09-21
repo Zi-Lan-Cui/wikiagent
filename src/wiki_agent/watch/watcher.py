@@ -5,10 +5,10 @@
 微调跳过）→ submit_job(绝对路径, deleted, digest)。
 
 纯生产者：本模块只提交意图（digest = 确认时读到的内容指纹），**不写
-"已处理"账**。state.hash/text 只在 job 成功后由核账入口写入（I4）；
+"已处理"账**。state.hash/text 只在 job 成功后由核账入口写入；
 state 条目本身只做存在名册（首次发现登记、delete 成功后清除），供删除
 检测与重启对账使用。提交未确认期间，后续扫描对同内容的重复提交由在途
-Job 的唯一索引幂等吸收（I1），确定性失败让位于 issue 重试通道（I6）。
+Job 的唯一索引幂等吸收，确定性失败让位于 issue 重试通道。
 
 另有周期性全量扫描兜底: 事件可能溢出/丢失，扫描是安全网，进程重启后的
 首轮也走它。扫描只做**发现**——把与账本有差异的路径喂进事件管线，去抖/
@@ -91,7 +91,7 @@ class FileWatcher:
         self._fallback = fallback_interval
         self._threshold = similarity_threshold
         # (resource, deleted, digest) → Job——提交是唯一出口；resource 一律
-        # 绝对路径字符串（与 issue 重试链共享 I1 身份空间）
+        # 绝对路径字符串（与 issue 重试链共享同一"唯一在途"身份空间）
         self._submit_job = submit_job
 
         # 每路径去抖定时器——新事件重置旧定时器（编辑器多事件合并为一次检查）
@@ -194,7 +194,7 @@ class FileWatcher:
         """唯一的定案管线——存在走"内容门+稳定性复读"，不存在走删除。
 
         事件去抖与回退扫描的发现都汇入这里；本方法不写任何账——
-        定案即提交 Job，完成账由 job 成功后的 outcome 落（I4）。
+        定案即提交 Job，完成账由 job 成功后的 outcome 落。
 
         Args:
             path: 文件路径。
@@ -212,8 +212,8 @@ class FileWatcher:
             return
         digest1, text1 = read
         # 名册登记（空条目）：删除检测凭"条目在账、磁盘不在"发现消失——
-        # 条目从首次存在起登记，到 delete job 成功后才清除；hash 仍只在
-        # 成功时由 outcome 写（I4 不受名册影响）
+        # 条目从首次存在起登记，到 delete job 成功后才清除；名册不是
+        # 完成账，hash 仍只在成功时由 outcome 写
         if path not in self._state.all_paths():
             self._state.set(path, FileState())
             self._state.save()
@@ -247,7 +247,7 @@ class FileWatcher:
         """单轮全量扫描——把与账本有差异的路径喂进定案管线。
 
         确认语义（去抖、变更门、稳定性复读）全部在 _check_path；未定案
-        路径下轮会被再次喂入，重复提交由在途 Job 的唯一索引吸收（I1）。
+        路径下轮会被再次喂入，重复提交由在途 Job 的唯一索引吸收。
         本方法不写任何账。
         """
         self._loop = self._loop or asyncio.get_running_loop()

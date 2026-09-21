@@ -5,7 +5,7 @@ handler（执行体）返回 JobResult 表达业务结局；只有 handler 自�
 （IngestError）必须由 handler 捕获转成 failed/ingest_error 结果——
 终态与 issue/watch 的联动只发生在 Worker 的单事务提交里。
 
-error_type 决定失败走哪条唯一通道（I6）：
+error_type 决定失败走哪条唯一通道（每类失败只有一条重试通道）：
 - "ingest_error": source 级业务失败 → 同事务上报 issue 中心（重试归它）；
   detail 必须携带 draft 构造所需字段：error/stage/diagnostics/raw/
   source/source_path/source_kind/retry_policy。

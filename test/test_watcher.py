@@ -1,8 +1,8 @@
 """FileWatcher 纯生产者契约——确认只提交 Job，不写完成账。
 
 覆盖: 事件路径提交/微调跳过/删除、回退扫描只做发现并喂进同一确认管线、
-提交不改 state.hash（I4）、delete 条目延迟清除（可重发现）、
-未定案路径重复喂入（吸收点在 job 层的 I1）。
+提交不改 state.hash、delete 条目延迟清除（可重发现）、
+未定案路径重复喂入（吸收点在 job 层的唯一在途索引）。
 
 直接运行:  .venv/bin/python test/test_watcher.py
 """
@@ -45,7 +45,7 @@ async def _ingest_via_scan(watcher, submits) -> None:
 
 
 def test_event_path_submits_without_marking_hash(tmp_path: Path):
-    """大改动经 settle+稳定性 → 提交带 digest；state.hash 不动（I4）。"""
+    """大改动经 settle+稳定性 → 提交带 digest；state.hash 不动——完成账只在成功时写。"""
 
     async def run():
         src, state, submits, watcher = _make_env(tmp_path)
@@ -100,7 +100,7 @@ def test_fallback_scan_discovers_into_pipeline(tmp_path: Path):
         assert state.get(str(f)).hash == "", "回退提交同样不落完成账"
         digest1 = submits[0][2]
 
-        # 未 ack（state 没记功）→ 下轮扫描再次喂入，重复由 I1 在 job 层吸收
+        # 未 ack（state 没记功）→ 下轮扫描再次喂入，重复由唯一在途索引在 job 层吸收
         submits.clear()
         await watcher._poll_once()
         await asyncio.sleep(0.3)

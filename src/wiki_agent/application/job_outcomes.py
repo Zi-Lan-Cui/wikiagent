@@ -1,9 +1,10 @@
 """Job 终态 → Issue 账本 / WatchState 的唯一联动点。
 
 由 JobService.complete_with_outcome 在终态事务内调用 apply(job, result, conn)：
-一切跨表写都并入该事务（I2）。WatchState 是 JSON 文件、参与不了 SQLite
-事务——apply 返回"提交后动作"清单，由 service 在 commit 之后立即执行（I5：
-崩溃窗口靠对账与 digest 幂等短路收敛，方向只能是"库里没记成就重做"）。
+一切跨表写都并入该事务。WatchState 是 JSON 文件、参与不了 SQLite
+事务——apply 返回"提交后动作"清单，由 service 在 commit 之后立即执行
+（先库后文件：崩溃窗口靠对账与 digest 幂等短路收敛，方向只能是
+"库里没记成就重做"）。
 """
 
 from __future__ import annotations
@@ -86,7 +87,7 @@ class JobOutcomeHandler:
         if state is None:
             return []
         if job.kind == "delete":
-            # 删除确认落账：state 条目由消费者清掉（延迟到 commit 后，同 I5 原则）
+            # 删除确认落账：state 条目由消费者清掉（延迟到 commit 后，先库后文件）
 
             def drop() -> None:
                 state.drop(job.resource)

@@ -1,4 +1,4 @@
-"""Job/Issue 数据层契约回归——I1 唯一索引、迁移、claim 过滤、_conn 同事务。"""
+"""Job/Issue 数据层契约回归——唯一在途索引、迁移、claim 过滤、_conn 同事务。"""
 
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -30,7 +30,7 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-# I1 唯一在途
+# 唯一在途
 
 
 def test_i1_unique_active_per_resource(tmp_path: Path):
@@ -39,7 +39,7 @@ def test_i1_unique_active_per_resource(tmp_path: Path):
     first = store.enqueue(kind="compile", resource="/src/a.md", mode="watch")
     try:
         store.enqueue(kind="delete", resource="/src/a.md", mode="watch")
-        assert False, "I1 应拒绝同资源第二个在途 job"
+        assert False, "唯一在途索引应拒绝同资源第二个在途 job"
     except DuplicateActiveJob as exc:
         assert exc.resource == "/src/a.md"
 
@@ -179,7 +179,7 @@ def test_resource_path_written_and_queried(tmp_path: Path):
     record = store.report(draft)
     found = store.find_pending_failures("/data/note.md")
     assert [r.id for r in found] == [record.id]
-    # 在途不让位在 job 层表达（I1 吸收重复提交），issue 保持 open 可被查到
+    # 在途不让位在 job 层表达（唯一索引吸收重复提交），issue 保持 open 可被查到
     # 无 source_path 的旧式 draft 回退 resource.path
     store.report(
         IssueDraft(

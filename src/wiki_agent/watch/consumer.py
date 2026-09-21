@@ -5,7 +5,7 @@
 
 本模块不写"完成账"也不报失败 issue：
 - 成功时把 pre/post 一致的 digest+text 放进 JobResult.detail，
-  由 JobOutcomeHandler 在终态事务提交后写 WatchState（I4/I5）；
+  由 JobOutcomeHandler 在终态事务提交后写 WatchState（成功才落账、先库后文件）；
 - 业务失败（IngestError）转成 failed/ingest_error 结果，issue 上报
   同样收口在 outcome；未预期异常裸抛，Worker 归 transient 链式退避。
 
