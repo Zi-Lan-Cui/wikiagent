@@ -34,6 +34,8 @@ const workbenchTaskTabCount = $("workbench-task-tab-count");
 const workbenchIssueTabCount = $("workbench-issue-tab-count");
 const retryEligibleButton = $("retry-eligible");
 const retryEligibleCount = $("retry-eligible-count");
+const syncButton = $("sync-now");
+const syncBadge = $("sync-badge");
 const wikiViewer = $("wiki-viewer");
 const wikiContent = $("wiki-content");
 const wikiViewerPath = $("wiki-viewer-path");
@@ -808,11 +810,22 @@ async function refreshIssues() {
   const kindFilter = $("issue-kind-filter")?.value || "";
   const params = new URLSearchParams({ status: statusFilter });
   if (kindFilter) params.set("kind", kindFilter);
-  const [response, summaryResponse] = await Promise.all([
+  const [response, summaryResponse, syncResponse] = await Promise.all([
     fetch(`/api/issues?${params}`),
     fetch("/api/issues/summary"),
+    fetch("/api/sync/status").catch(() => null),
   ]);
   if (!response.ok || !summaryResponse.ok) throw new Error("无法读取问题列表");
+  if (syncResponse && syncResponse.ok) {
+    const sync = await syncResponse.json();
+    const pending = (sync.dirty || 0) + (sync.removed || 0);
+    syncBadge.textContent = String(pending);
+    syncBadge.classList.toggle("needs-sync", pending > 0);
+    syncButton.disabled = (sync.in_flight || 0) > 0;
+    syncButton.title = syncButton.disabled
+      ? "上一次快照还在执行，等队列排空"
+      : `待同步变更 ${pending} 个：拍快照并入队编译`;
+  }
   state.issues = await response.json();
   const summary = await summaryResponse.json();
   const activeCount = summary.active || 0;
@@ -825,6 +838,18 @@ async function refreshIssues() {
   reconcileActiveIssue();
   renderIssueList();
   renderIssueDetail(state.issues.find((item) => item.id === state.activeIssue));
+}
+
+async function syncNow() {
+  syncButton.disabled = true;
+  setStatus("正在拍快照并入队编译……");
+  const response = await fetch("/api/sync", { method: "POST" });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || "无法发起同步");
+  for (const task of payload.tasks || []) upsertIssueTask(task);
+  renderIssueTasks();
+  setStatus(payload.count ? `快照入队 ${payload.count} 个任务` : "没有待同步变更");
+  await Promise.all([refreshIssues(), refreshIssueTasks()]);
 }
 
 async function retryEligibleIssues() {
@@ -972,6 +997,12 @@ retryEligibleButton.addEventListener("click", () => {
   retryEligibleIssues().catch(async (error) => {
     setStatus(error.message || "批量重试失败");
     await Promise.all([refreshIssues(), refreshIssueTasks()]);
+  });
+});
+syncButton.addEventListener("click", () => {
+  syncNow().catch(async (error) => {
+    setStatus(error.message || "同步失败");
+    await refreshIssues();
   });
 });
 document.addEventListener("keydown", (event) => {
