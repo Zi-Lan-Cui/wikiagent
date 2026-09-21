@@ -15,7 +15,7 @@ from wiki_agent.application.job_results import JobResult
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.config import RetryConfig
 from wiki_agent.issues import IssueService, IssueStore
-from wiki_agent.jobs import DuplicateActiveJob, Job, JobStore
+from wiki_agent.jobs import DuplicateInFlightJob, Job, JobStore
 from wiki_agent.watch.state import WatchState, digest_file_text
 
 
@@ -84,7 +84,7 @@ class JobService:
         key = f"watch:{kind}:{resource}"
         payload: dict[str, object] = {"deleted": deleted, "digest": digest}
         if deleted:
-            if self.store.active_by_resource(resource) is not None:
+            if self.store.in_flight_by_resource(resource) is not None:
                 return self.submit_replace(
                     kind="delete",
                     resource=resource,
@@ -93,13 +93,14 @@ class JobService:
                     idempotency_key=key,
                 )
             return self._submit_watch_row(kind, resource, payload, key, issue_id="")
+
         defer, due_issue = self._watch_deferral(resource)
         if defer:
             return None
         result = self._submit_watch_row(kind, resource, payload, key, issue_id=due_issue)
         if result is None:
             # 撞唯一在途（被其他 kind 占位）——只有排队中的普通 watch compile 行值得合并
-            active = self.store.active_by_resource(resource)
+            active = self.store.in_flight_by_resource(resource)
             if (
                 active is not None
                 and active.kind == "compile"
@@ -131,7 +132,7 @@ class JobService:
                 idempotency_key=key,
                 issue_id=issue_id,
             )
-        except DuplicateActiveJob:
+        except DuplicateInFlightJob:
             return None
 
     def _watch_deferral(self, resource: str) -> tuple[bool, str]:
@@ -162,12 +163,9 @@ class JobService:
     ) -> Job:
         """取代在途任务：同事务 cancel 旧行（cancelled 无联动）+ 排新行。"""
         with self.store.database.transaction(immediate=True) as conn:
-            active = self.store.active_by_resource(resource, _conn=conn)
+            active = self.store.in_flight_by_resource(resource, _conn=conn)
             if active is not None:
                 self.store.update(active.id, status="cancelled", stage="cancelled", _conn=conn)
-                self.outcomes.apply(
-                    active, JobResult(status="cancelled", error_type="cancelled"), conn
-                )
             return self.store.enqueue(
                 kind=kind,
                 resource=resource,
@@ -195,7 +193,7 @@ class JobService:
         if read is None:
             raise SourceUnavailableError(f"重试输入不可读: {resource}")
         with self.store.database.transaction(immediate=True) as conn:
-            existing = self.store.active_job_by_issue(issue_id, _conn=conn)
+            existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
             if existing is not None:
                 return existing
             try:
@@ -208,8 +206,8 @@ class JobService:
                     issue_id=issue_id,
                     _conn=conn,
                 )
-            except DuplicateActiveJob:
-                occupant = self.store.active_by_resource(resource, _conn=conn)
+            except DuplicateInFlightJob:
+                occupant = self.store.in_flight_by_resource(resource, _conn=conn)
                 if occupant is None:  # 撞唯一索引必有占位者——防御性外抛
                     raise
                 if not occupant.issue_id:
@@ -287,19 +285,12 @@ class JobService:
         return chain if chain is not None else self.store.get(job.id)
 
     def cancel_terminal(self, job: Job) -> None:
-        """进程取消路径：终态 cancelled，单事务（CAS，不二次写）。
+        """进程取消路径：终态 cancelled（CAS，不二次写）。
 
-        取消不背失败也不还账——提交从未改变 issue 状态，无账可还。
+        取消不背失败也不还账——提交从未改变 issue 状态，无账可还，
+        因此无需任何 issue/state 联动，一次条件写就是全部工作。
         """
-        with self.store.database.transaction(immediate=True) as conn:
-            won = self.store.try_finalize(job.id, status="cancelled", stage="cancelled", _conn=conn)
-            if not won:
-                return
-            self.outcomes.apply(
-                job,
-                JobResult(status="cancelled", error_type="cancelled"),
-                conn,
-            )
+        self.store.try_finalize(job.id, status="cancelled", stage="cancelled")
 
     def _transient_backoff(self, attempts: int) -> str:
         delay = self.retry_config.source_base_delay_seconds * (2 ** max(0, attempts - 1))

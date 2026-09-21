@@ -64,7 +64,7 @@ class MaintenanceLoop:
         result["retry_submitted"] = self._submit_due_retries()
 
         result["relinked"] = 0
-        for job in store.list_active_without_issue():
+        for job in store.list_in_flight_without_issue():
             pending = issues.find_pending_failures(job.resource)
             if not pending:
                 continue
@@ -90,7 +90,7 @@ class MaintenanceLoop:
                 continue
             if not is_retry_due(issue.retry):
                 continue
-            if service.store.has_active_job_by_issue(issue.id):
+            if service.store.has_in_flight_job_by_issue(issue.id):
                 continue
             try:
                 service.submit_issue_retry(issue.id)

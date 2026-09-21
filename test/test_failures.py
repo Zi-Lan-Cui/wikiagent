@@ -134,7 +134,7 @@ def test_retry_job_failure_advances_backoff_and_returns_open(tmp_path: Path):
     )
     service.submit_issue_retry(issue.id)
     assert service.issues.get(issue.id).status == IssueStatus.OPEN
-    assert service.store.has_active_job_by_issue(issue.id)
+    assert service.store.has_in_flight_job_by_issue(issue.id)
     job = service.claim_next(kinds={"compile"})
     assert job is not None
 

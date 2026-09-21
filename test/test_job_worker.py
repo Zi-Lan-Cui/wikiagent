@@ -84,7 +84,7 @@ def test_transient_failure_creates_backoff_chain(tmp_path):
 
     failed = service.store.get(job.id)
     assert failed.status == "failed"
-    chain = service.store.active_by_resource("/x")
+    chain = service.store.in_flight_by_resource("/x")
     assert chain is not None and chain.status == "queued"
     assert chain.next_run_at and chain.id != job.id
     assert chain.payload.get("retry_of") == job.id and chain.payload.get("attempt_no") == 2
@@ -116,7 +116,7 @@ def test_transient_exhausted_escalates_to_issue(tmp_path):
     worker.register("compile", crash)
     asyncio.run(worker.run_once())  # 领最后一代 → 失败即耗尽，无新链
 
-    assert service.store.active_by_resource("/y") is None
+    assert service.store.in_flight_by_resource("/y") is None
     issues = IssueStore(tmp_path).list(kinds={IssueKind.RUN_FAILURE})
     assert len(issues) == 1
     assert "still broken" in issues[0].summary
@@ -201,9 +201,9 @@ def test_terminal_cas_supersede_race(tmp_path):
     )
     assert final.status == "cancelled"
     # transient 链不产生——没有新的在途行
-    assert service.store.count_active() == 0
+    assert service.store.count_in_flight() == 0
 
     # 迟到的 cancel_terminal 同样幂等静默
     service.cancel_terminal(claimed)
     assert service.store.get(job.id).status == "cancelled"
-    assert service.store.count_active() == 0
+    assert service.store.count_in_flight() == 0

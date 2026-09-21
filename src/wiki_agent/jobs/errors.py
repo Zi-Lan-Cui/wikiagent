@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 
-class DuplicateActiveJob(RuntimeError):
-    """同一 resource 已存在 queued/running 的在途 Job——唯一在途约束冲突。
+class DuplicateInFlightJob(RuntimeError):
+    """同一 resource 已存在 queued/running 的在途（in-flight）Job——唯一在途约束冲突。
 
     resource 统一为绝对路径字符串——compile/delete/issue_retry 同族共享
-    这一身份，部分唯一索引 uq_jobs_active_resource 是强制点。
+    这一身份，部分唯一索引 uq_jobs_in_flight_resource 是强制点。
     """
 
     def __init__(self, resource: str):

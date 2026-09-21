@@ -1,9 +1,9 @@
 """Durable execution jobs shared by watch, CLI and Web entry points.
 
 Job 是唯一执行事实来源。关键不变式：
-- 同一 resource 至多一个 queued/running Job——由部分唯一索引
-  uq_jobs_active_resource 在数据库层强制（resource 一律规范化为
-  绝对路径字符串，compile/delete/issue_retry 同族共享此身份）。
+- 同一 resource 至多一个在途（in-flight = queued/running）Job——由部分
+  唯一索引 uq_jobs_in_flight_resource 在数据库层强制（resource 一律
+  规范化为绝对路径字符串，compile/delete/issue_retry 同族共享此身份）。
 - 所有写方法支持 ``_conn`` 透传：与 issue 账本同事务提交时由调用方
   持有连接，这里禁止自开事务。
 """
@@ -18,11 +18,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from wiki_agent.jobs.errors import DuplicateActiveJob
+from wiki_agent.jobs.errors import DuplicateInFlightJob
 from wiki_agent.jobs.models import Job
 from wiki_agent.persistence import Database
 
-_ACTIVE_STATUSES = ("queued", "running")
+# "在途"的唯一定义：queued + running。所有查询与唯一索引共用这一片段。
+_IN_FLIGHT_SQL = "status IN ('queued', 'running')"
 
 
 def _now() -> str:
@@ -80,18 +81,18 @@ class JobStore:
                     pass
             # 唯一索引前置迁移：既有重复在途行按 resource 保留最旧，其余转终态让位
             db.execute(
-                """
+                f"""
                 UPDATE jobs SET status = 'cancelled', stage = 'cancelled', updated_at = ?
-                WHERE status IN ('queued', 'running')
+                WHERE {_IN_FLIGHT_SQL}
                   AND rowid NOT IN (
                       SELECT MIN(rowid) FROM jobs
-                      WHERE status IN ('queued', 'running') GROUP BY resource
+                      WHERE {_IN_FLIGHT_SQL} GROUP BY resource
                   )
                 """,
                 (_now(),),
             )
             db.executescript(
-                """
+                f"""
                 CREATE INDEX IF NOT EXISTS idx_jobs_status_updated
                     ON jobs(status, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_jobs_issue_id
@@ -99,8 +100,10 @@ class JobStore:
                 CREATE INDEX IF NOT EXISTS idx_jobs_resource_status
                     ON jobs(resource, status);
                 -- 唯一在途约束：同一 resource 至多一个在途 job（数据库强制）
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_active_resource
-                    ON jobs(resource) WHERE status IN ('queued', 'running');
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_in_flight_resource
+                    ON jobs(resource) WHERE {_IN_FLIGHT_SQL};
+                -- 索引改名的幂等迁移（旧名 active 不表达"在途"）
+                DROP INDEX IF EXISTS uq_jobs_active_resource;
                 """
             )
 
@@ -121,13 +124,13 @@ class JobStore:
         """入队一个 Job。
 
         幂等键命中在途行 → 返回既有行（合并语义）；撞唯一索引 →
-        DuplicateActiveJob（调用方按语义吞掉、收敛或取代）。
+        DuplicateInFlightJob（调用方按语义吞掉、收敛或取代）。
         """
         now = _now()
         with self._tx(_conn) as db:
             if idempotency_key:
                 existing = db.execute(
-                    "SELECT * FROM jobs WHERE idempotency_key = ? AND status IN ('queued','running')",
+                    f"SELECT * FROM jobs WHERE idempotency_key = ? AND {_IN_FLIGHT_SQL}",
                     (idempotency_key,),
                 ).fetchone()
                 if existing is not None:
@@ -158,7 +161,7 @@ class JobStore:
                     ),
                 )
             except sqlite3.IntegrityError as exc:
-                raise DuplicateActiveJob(resource) from exc
+                raise DuplicateInFlightJob(resource) from exc
             return self.get(job_id, _conn=db)
 
     def update(
@@ -307,36 +310,32 @@ class JobStore:
             raise LookupError(job_id)
         return row
 
-    def active_by_resource(
+    def in_flight_by_resource(
         self, resource: str, *, _conn: sqlite3.Connection | None = None
     ) -> Job | None:
         """该资源当前的在途 Job（queued/running 至多一个，唯一在途约束）。"""
+        query = f"SELECT * FROM jobs WHERE resource = ? AND {_IN_FLIGHT_SQL}"
         if _conn is not None:
-            row = _conn.execute(
-                "SELECT * FROM jobs WHERE resource = ? AND status IN ('queued','running')",
-                (resource,),
-            ).fetchone()
-            return self._row(row) if row is not None else None
-        with self.database.connect() as db:
-            row = db.execute(
-                "SELECT * FROM jobs WHERE resource = ? AND status IN ('queued','running')",
-                (resource,),
-            ).fetchone()
+            row = _conn.execute(query, (resource,)).fetchone()
+        else:
+            with self.database.connect() as db:
+                row = db.execute(query, (resource,)).fetchone()
+        # 唯一在途约束保证命中至多一行
         return self._row(row) if row is not None else None
 
-    def open_issue_ids_with_active_job(self) -> dict[str, str]:
-        """issue_id → active job_id，对账补挂关系用。"""
+    def open_issue_ids_with_in_flight_job(self) -> dict[str, str]:
+        """issue_id → 在途 job_id，web"哪些问题上挂着执行"用。"""
         with self.database.connect() as db:
             rows = db.execute(
-                "SELECT issue_id, id FROM jobs WHERE issue_id IS NOT NULL AND status IN ('queued','running')"
+                f"SELECT issue_id, id FROM jobs WHERE issue_id IS NOT NULL AND {_IN_FLIGHT_SQL}"
             ).fetchall()
         return {str(row["issue_id"]): str(row["id"]) for row in rows}
 
-    def list_active_without_issue(self, *, kind: str = "compile") -> list[Job]:
+    def list_in_flight_without_issue(self, *, kind: str = "compile") -> list[Job]:
         """在途但没挂账 issue 的 job——对账补挂关系用。"""
         with self.database.connect() as db:
             rows = db.execute(
-                "SELECT * FROM jobs WHERE kind = ? AND status IN ('queued','running')"
+                f"SELECT * FROM jobs WHERE kind = ? AND {_IN_FLIGHT_SQL}"
                 " AND (issue_id IS NULL OR issue_id = '')",
                 (kind,),
             ).fetchall()
@@ -347,35 +346,36 @@ class JobStore:
         now = _now()
         with self._tx() as db:
             changed = db.execute(
-                "UPDATE jobs SET status='cancelled', stage='cancelled', error=?, updated_at=?"
-                " WHERE kind=? AND status IN ('queued','running')",
+                f"UPDATE jobs SET status='cancelled', stage='cancelled', error=?, updated_at=?"
+                f" WHERE kind=? AND {_IN_FLIGHT_SQL}",
                 (reason[:500], now, kind),
             ).rowcount
         return int(changed)
 
-    def count_active(self) -> int:
+    def count_in_flight(self) -> int:
         """在途（queued/running）行数——脚本类调用方驱动队列到空的判据。"""
         with self.database.connect() as db:
             row = db.execute(
-                "SELECT COUNT(*) AS total FROM jobs WHERE status IN ('queued','running')"
+                f"SELECT COUNT(*) AS total FROM jobs WHERE {_IN_FLIGHT_SQL}"
             ).fetchone()
         return int(row["total"]) if row is not None else 0
 
-    def has_active_job_by_issue(self, issue_id: str) -> bool:
+    def has_in_flight_job_by_issue(self, issue_id: str) -> bool:
+        """该 issue 是否有在途挂账 job——"在处理"的唯一真相（jobs join，非镜像状态）。"""
         with self.database.connect() as db:
             row = db.execute(
-                "SELECT 1 FROM jobs WHERE issue_id = ? AND status IN ('queued','running') LIMIT 1",
+                f"SELECT 1 FROM jobs WHERE issue_id = ? AND {_IN_FLIGHT_SQL} LIMIT 1",
                 (issue_id,),
             ).fetchone()
         return row is not None
 
-    def active_job_by_issue(
+    def in_flight_job_by_issue(
         self, issue_id: str, *, _conn: sqlite3.Connection | None = None
     ) -> Job | None:
         """该 issue 的在途挂账 job——retry 提交点的收敛预查。"""
         with self._tx(_conn) as db:
             row = db.execute(
-                "SELECT * FROM jobs WHERE issue_id = ? AND status IN ('queued','running')"
+                f"SELECT * FROM jobs WHERE issue_id = ? AND {_IN_FLIGHT_SQL}"
                 " ORDER BY created_at LIMIT 1",
                 (issue_id,),
             ).fetchone()

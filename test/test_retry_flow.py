@@ -44,7 +44,7 @@ def test_issue_retry_creates_job(tmp_path: Path):
     assert job.payload["digest"] == digest_file_text(source)[0]
     # "在途"由 jobs join 表达——issue 保持 open，无镜像状态
     assert service.issues.get(issue.id).status == IssueStatus.OPEN
-    assert service.store.has_active_job_by_issue(issue.id)
+    assert service.store.has_in_flight_job_by_issue(issue.id)
 
 
 def test_double_retry_click_single_job(tmp_path: Path):
@@ -56,7 +56,7 @@ def test_double_retry_click_single_job(tmp_path: Path):
     first = service.submit_issue_retry(issue.id)
     second = service.submit_issue_retry(issue.id)
     assert second.id == first.id
-    assert service.store.count_active() == 1
+    assert service.store.count_in_flight() == 1
 
 
 def test_delete_supersedes_running_compile(tmp_path: Path):
@@ -155,7 +155,7 @@ def test_transient_chain_blocks_watch_resubmit(tmp_path: Path):
     worker.register("compile", crash)
     asyncio.run(worker.run_once())  # failed → 链式 queued（next_run_at 在未来）
     assert service.submit_watch_change(resource, digest="d2") is None, "链在途，吞掉"
-    chain = service.store.active_by_resource(resource)
+    chain = service.store.in_flight_by_resource(resource)
     assert chain is not None and chain.payload.get("attempt_no") == 2
 
 
@@ -182,10 +182,10 @@ def test_maintenance_submits_only_due_and_produces_jobs(tmp_path: Path):
 
     loop = MaintenanceLoop(service)
     assert loop.run_once()["retry_submitted"] == 1  # 未到期的不动
-    active = service.store.active_by_resource(str(source.resolve()))
+    active = service.store.in_flight_by_resource(str(source.resolve()))
     assert active is not None and active.issue_id == due.id
     assert service.issues.get(due.id).status == IssueStatus.OPEN  # 在途=job 挂账形状
-    assert service.store.has_active_job_by_issue(due.id)
+    assert service.store.has_in_flight_job_by_issue(due.id)
     # 再来一轮：在途挡住重复排队
     assert loop.run_once()["retry_submitted"] == 0
 
@@ -271,7 +271,7 @@ def test_retry_attaches_to_occupant_and_converges(tmp_path: Path):
     result = service.submit_issue_retry(issue.id)
     assert result.id == occupant.id
     assert service.store.get(occupant.id).issue_id == issue.id
-    assert service.store.count_active() == 1
+    assert service.store.count_in_flight() == 1
 
 
 def test_retry_three_entries_converge(tmp_path: Path):
@@ -282,10 +282,10 @@ def test_retry_three_entries_converge(tmp_path: Path):
     issue = _failure_issue(service, source)
 
     first = service.submit_issue_retry(issue.id)
-    # 维护循环到期重投——收敛返回同一行（has_active_job 预滤 + 提交点防线）
+    # 维护循环到期重投——收敛返回同一行（在途挂账预滤 + 提交点防线）
     MaintenanceLoop(service).run_once()
-    assert service.store.count_active() == 1
-    assert service.store.active_by_resource(str(source.resolve())).id == first.id
+    assert service.store.count_in_flight() == 1
+    assert service.store.in_flight_by_resource(str(source.resolve())).id == first.id
 
 
 def test_maintenance_recovers_stale_running(tmp_path: Path):
