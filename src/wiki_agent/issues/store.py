@@ -26,7 +26,7 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.persistence import Database
 
-_SCHEMA_VERSION = "3"
+_SCHEMA_VERSION = "4"
 
 
 def utc_now() -> str:
@@ -161,6 +161,19 @@ class IssueStore:
                 (utc_now(),),
             )
             connection.execute("DROP TABLE IF EXISTS issue_actions")
+            # schema v4：conflict 两通道移除（内容正确性交还用户）——无解决动作
+            # 的死路账不迁移不保留，连同事件一并清除，避免枚举缺失读崩。
+            connection.execute(
+                """
+                DELETE FROM issue_events WHERE issue_id IN (
+                    SELECT id FROM issues
+                    WHERE kind IN ('content_conflict', 'restructure_conflict')
+                )
+                """
+            )
+            connection.execute(
+                "DELETE FROM issues WHERE kind IN ('content_conflict', 'restructure_conflict')"
+            )
             connection.execute(
                 "INSERT OR REPLACE INTO issue_meta(key, value) VALUES('schema_version', ?)",
                 (_SCHEMA_VERSION,),

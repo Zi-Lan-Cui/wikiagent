@@ -489,8 +489,6 @@ const issueKindLabels = {
   run_failure: "运行失败",
   quality_issue: "质量问题",
   content_correction: "用户纠错",
-  content_conflict: "内容冲突",
-  surgery_conflict: "结构冲突",
 };
 const issueStatusLabels = {
   open: "待处理",

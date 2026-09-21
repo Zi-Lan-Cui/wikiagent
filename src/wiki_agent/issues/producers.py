@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 from uuid import uuid4
 
 from wiki_agent.issues.models import (
@@ -12,28 +12,14 @@ from wiki_agent.issues.models import (
     IssueKind,
     IssueSeverity,
     JsonObject,
-    JsonValue,
 )
 from wiki_agent.issues.service import IssueService
-
-if TYPE_CHECKING:
-    from wiki_agent.compiler.restructure.models import Conflict, Proposal
 
 
 class QualityFinding(Protocol):
     level: str
     path: str
     message: str
-
-
-def _proposal_payload(proposal: Proposal) -> JsonObject:
-    pages: list[JsonValue] = list(proposal.pages)
-    return {
-        "op": proposal.op,
-        "pages": pages,
-        "target": proposal.target,
-        "reason": proposal.reason,
-    }
 
 
 def report_correction(
@@ -75,59 +61,21 @@ def report_quality_findings(
     *,
     origin: JsonObject | None = None,
 ) -> list[str]:
-    """Persist scan findings, promoting Disputed markers to content conflicts."""
+    """扫描发现记为质量问题账——内容正确性由用户裁决（复核/忽略）。"""
     issue_ids: list[str] = []
     for finding in findings:
-        conflict = "Disputed" in finding.message or "矛盾" in finding.message
-        kind = IssueKind.CONTENT_CONFLICT if conflict else IssueKind.QUALITY_ISSUE
         card = service.report(
             IssueDraft(
-                kind=kind,
+                kind=IssueKind.QUALITY_ISSUE,
                 severity=(
                     IssueSeverity.ERROR if finding.level == "error" else IssueSeverity.WARNING
                 ),
-                title=(
-                    f"{finding.path} 存在内容冲突" if conflict else f"{finding.path} 未通过质量检查"
-                ),
+                title=f"{finding.path} 未通过质量检查",
                 summary=finding.message,
                 origin={**(origin or {}), "stage": "scan"},
                 resource={"type": "wiki_page", "path": finding.path, "label": finding.path},
-                diagnostics={"error_code": "content_conflict" if conflict else "quality_scan"},
+                diagnostics={"error_code": "quality_scan"},
                 evidence=[{"key": finding.message, "path": finding.path, "claim": finding.message}],
-            )
-        )
-        issue_ids.append(card.id)
-    return issue_ids
-
-
-def report_restructure_conflicts(
-    service: IssueService,
-    conflicts: Iterable[Conflict],
-    *,
-    origin: JsonObject | None = None,
-) -> list[str]:
-    """Persist unresolved destructive proposals as user decisions."""
-    issue_ids: list[str] = []
-    for conflict in conflicts:
-        proposals: list[JsonValue] = [
-            _proposal_payload(proposal) for proposal in conflict.proposals
-        ]
-        pages = sorted({page for proposal in conflict.proposals for page in proposal.pages})
-        card = service.report(
-            IssueDraft(
-                kind=IssueKind.RESTRUCTURE_CONFLICT,
-                severity=IssueSeverity.WARNING,
-                title="Wiki 结构提案无法自动仲裁",
-                summary=conflict.detail or "多个高风险结构操作存在冲突。",
-                fingerprint=f"restructure:{conflict.kind}:{'|'.join(pages)}",
-                origin={**(origin or {}), "stage": "arbitration"},
-                resource={
-                    "type": "wiki_structure",
-                    "path": pages[0] if pages else "",
-                    "label": conflict.kind,
-                },
-                diagnostics={"error_code": "restructure_conflict"},
-                evidence=[{"key": conflict.detail or conflict.kind, "proposals": proposals}],
             )
         )
         issue_ids.append(card.id)

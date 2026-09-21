@@ -65,13 +65,6 @@ def available_actions(record: IssueRecord) -> tuple[IssueAction, ...]:
                 IssueAction("open_resource", "查看页面"),
             )
         )
-    elif record.kind == IssueKind.CONTENT_CONFLICT:
-        actions.extend(
-            (
-                IssueAction("keep_disputed", "保留争议"),
-                IssueAction("open_resource", "查看页面"),
-            )
-        )
     elif record.kind == IssueKind.QUALITY_ISSUE:
         actions.extend(
             (
@@ -80,8 +73,6 @@ def available_actions(record: IssueRecord) -> tuple[IssueAction, ...]:
                 IssueAction("false_positive", "标记误报"),
             )
         )
-    elif record.kind == IssueKind.RESTRUCTURE_CONFLICT:
-        actions.extend((IssueAction("defer", "稍后处理"),))
     else:
         if record.diagnostics.get("log"):
             actions.append(IssueAction("open_log", "查看日志"))

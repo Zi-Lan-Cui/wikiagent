@@ -17,8 +17,6 @@ class IssueKind(StrEnum):
     RUN_FAILURE = "run_failure"
     QUALITY_ISSUE = "quality_issue"
     CONTENT_CORRECTION = "content_correction"
-    CONTENT_CONFLICT = "content_conflict"
-    RESTRUCTURE_CONFLICT = "restructure_conflict"
 
 
 class IssueStatus(StrEnum):

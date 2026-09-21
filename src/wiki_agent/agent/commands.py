@@ -738,8 +738,6 @@ class RefineCommand(Command):
                 wiki,
                 confirm=None,  # 批量全收（无交互）
                 dry_run=dry_run,
-                issue_service=getattr(ctx.agent, "issue_service", None),
-                origin={"mode": "refine", "trigger": "refine_command"},
             )
             lines.append("")
             lines.append(

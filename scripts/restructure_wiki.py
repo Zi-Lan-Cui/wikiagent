@@ -61,8 +61,6 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
             wiki_dir,
             confirm=confirm,
             dry_run=dry_run,
-            issue_service=issue_service,
-            origin={"mode": "restructure", "run_id": run_dir.name},
         )
     except asyncio.CancelledError as exc:
         git_manager.abort(git_run, reason=f"restructure cancelled: {exc}")
