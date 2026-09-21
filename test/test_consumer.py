@@ -19,7 +19,7 @@ def _job(resource: str, *, kind: str = "compile", digest: str = "") -> Job:
         id="job_test",
         kind=kind,
         resource=resource,
-        mode="watch",
+        mode="sync",
         status="running",
         stage="",
         attempts=1,

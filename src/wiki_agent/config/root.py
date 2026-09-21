@@ -131,23 +131,6 @@ class AgentConfig(BaseSettings):
         return self
 
 
-class WatchConfig(BaseSettings):
-    """文件监听时间窗（env 前缀 WATCH_）。"""
-
-    model_config = SettingsConfigDict(env_prefix="WATCH_", frozen=True, extra="ignore")
-    settle_window: float = 2.0
-    stability_delay: float = 2.0
-    fallback_interval: float = 60.0
-
-    @model_validator(mode="after")
-    def _check_bounds(self) -> WatchConfig:
-        if self.settle_window <= 0 or self.stability_delay <= 0 or self.fallback_interval <= 0:
-            raise ValueError(
-                "WATCH_SETTLE_WINDOW、WATCH_STABILITY_DELAY、WATCH_FALLBACK_INTERVAL 必须大于 0"
-            )
-        return self
-
-
 class RetryConfig(BaseSettings):
     """远程 LLM 调用的重试策略（env 前缀 ``RETRY_``）。
 
@@ -363,7 +346,6 @@ class RootConfig(BaseSettings):
     compile: CompileConfig = Field(default_factory=CompileConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
-    watch: WatchConfig = Field(default_factory=WatchConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
 
@@ -418,7 +400,6 @@ def load_config(
     agent = AgentConfig(**env_source)
     compile_cfg = CompileConfig(**env_source)
     logging_cfg = LoggingConfig(**env_source)
-    watch_cfg = WatchConfig(**env_source)
     retry_cfg = RetryConfig(**env_source)
 
     # MCP: 独立 env/mcp.json（存在才加载）——结构与密钥分离
@@ -434,7 +415,6 @@ def load_config(
         compile=compile_cfg,
         logging=logging_cfg,
         paths=paths,
-        watch=watch_cfg,
         retry=retry_cfg,
         mcp=mcp_cfg,
     )

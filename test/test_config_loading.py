@@ -128,7 +128,6 @@ def test_llm_and_vlm_limits_are_loaded_independently(tmp_path: Path) -> None:
         ({"vlm": {"requests_per_minute": -1}}, "VLM_REQUESTS_PER_MINUTE"),
         ({"agent": {"max_tokens": 128_000}}, "AGENT_MAX_TOKENS 必须小于"),
         ({"agent": {"snip_ratio": 1}}, "AGENT_SNIP_RATIO 必须在"),
-        ({"watch": {"fallback_interval": 0}}, "WATCH_SETTLE_WINDOW"),
         ({"retry": {"llm_max_attempts": 0}}, "RETRY_LLM_MAX_ATTEMPTS"),
     ],
 )

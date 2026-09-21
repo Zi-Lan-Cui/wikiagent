@@ -36,26 +36,26 @@ def _now() -> str:
 def test_i1_unique_active_per_resource(tmp_path: Path):
     """同 resource 第二个在途 job 被数据库拒绝；终态后放行新版本。"""
     store = JobStore(tmp_path)
-    first = store.enqueue(kind="compile", resource="/src/a.md", mode="watch")
+    first = store.enqueue(kind="compile", resource="/src/a.md", mode="sync")
     try:
-        store.enqueue(kind="delete", resource="/src/a.md", mode="watch")
+        store.enqueue(kind="delete", resource="/src/a.md", mode="sync")
         assert False, "唯一在途索引应拒绝同资源第二个在途 job"
     except DuplicateInFlightJob as exc:
         assert exc.resource == "/src/a.md"
 
     store.update(first.id, status="succeeded")
-    second = store.enqueue(kind="compile", resource="/src/a.md", mode="watch")
+    second = store.enqueue(kind="compile", resource="/src/a.md", mode="sync")
     assert second.id != first.id
 
 
 def test_idempotency_key_hit_returns_existing(tmp_path: Path):
     store = JobStore(tmp_path)
-    a = store.enqueue(kind="compile", resource="/x", mode="watch", idempotency_key="k1")
-    b = store.enqueue(kind="compile", resource="/x", mode="watch", idempotency_key="k1")
+    a = store.enqueue(kind="compile", resource="/x", mode="sync", idempotency_key="k1")
+    b = store.enqueue(kind="compile", resource="/x", mode="sync", idempotency_key="k1")
     assert a.id == b.id
     # 终态行释放键，新版本不被历史阻塞
     store.update(a.id, status="succeeded")
-    c = store.enqueue(kind="compile", resource="/x", mode="watch", idempotency_key="k1")
+    c = store.enqueue(kind="compile", resource="/x", mode="sync", idempotency_key="k1")
     assert c.id != a.id
 
 
@@ -68,9 +68,9 @@ def test_legacy_duplicate_active_rows_migrated(tmp_path: Path):
         "INSERT INTO jobs(id,kind,resource,mode,status,created_at,updated_at)"
         " VALUES (?,?,?,?,?,?,?)",
         [
-            ("job_old1", "compile", "/dup", "watch", "queued", now, now),
-            ("job_old2", "compile", "/dup", "watch", "running", now, now),
-            ("job_old3", "delete", "/other", "watch", "queued", now, now),
+            ("job_old1", "compile", "/dup", "sync", "queued", now, now),
+            ("job_old2", "compile", "/dup", "sync", "running", now, now),
+            ("job_old3", "delete", "/other", "sync", "queued", now, now),
         ],
     )
     db.commit()
@@ -82,7 +82,7 @@ def test_legacy_duplicate_active_rows_migrated(tmp_path: Path):
     # issue_id 列已补上且默认空
     assert store.get("job_old1").issue_id == ""
     try:
-        store.enqueue(kind="delete", resource="/dup", mode="watch")
+        store.enqueue(kind="delete", resource="/dup", mode="sync")
         assert False, "迁移后唯一索引应生效"
     except DuplicateInFlightJob:
         pass
@@ -91,7 +91,7 @@ def test_legacy_duplicate_active_rows_migrated(tmp_path: Path):
 def test_claim_next_empty_kinds_returns_none(tmp_path: Path):
     """空 kinds = 没有注册类型，不领任何活——分工边界不许退化为不过滤。"""
     store = JobStore(tmp_path)
-    store.enqueue(kind="compile", resource="/e", mode="watch")
+    store.enqueue(kind="compile", resource="/e", mode="sync")
     assert store.claim_next(kinds=set()) is None
     # None 才是显式不过滤
     assert store.claim_next(kinds=None) is not None
@@ -100,7 +100,7 @@ def test_claim_next_empty_kinds_returns_none(tmp_path: Path):
 def test_try_finalize_cas(tmp_path: Path):
     """终态 CAS：只有 running 可翻转，迟到写不命中、不改写。"""
     store = JobStore(tmp_path)
-    job = store.enqueue(kind="compile", resource="/f", mode="watch")
+    job = store.enqueue(kind="compile", resource="/f", mode="sync")
     store.update(job.id, status="running")
     assert store.try_finalize(job.id, status="succeeded", stage="completed")
     assert not store.try_finalize(job.id, status="failed", error="late")

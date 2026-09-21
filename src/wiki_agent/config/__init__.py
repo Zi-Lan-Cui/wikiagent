@@ -19,6 +19,5 @@ from wiki_agent.config.root import (
     StdioMcpTransport,
     StreamableHttpTransport,
     VLMConfig,
-    WatchConfig,
     load_config,
 )

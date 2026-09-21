@@ -37,8 +37,8 @@ def scan_disk(root: str | Path) -> dict[str, str]:
 def digest_file_text(path: str | Path) -> tuple[str, str] | None:
     """内容指纹唯一配方——read_text(errors=replace) + sha256。
 
-    watcher 判变更、consumer/ack 核账必须调用同一函数：两侧各自手写
-    哈希配方迟早漂移（digest 对不上 = 永远无法确认完成）。
+    sync 判变更、consumer 落账必须调用同一函数：两侧各自手写哈希配方
+    迟早漂移（digest 对不上 = 永远无法确认完成）。
     读失败（消失/权限）返回 None。
     """
     try:
