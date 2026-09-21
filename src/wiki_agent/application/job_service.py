@@ -242,19 +242,26 @@ class JobService:
     def complete_with_outcome(self, job: Job, result: JobResult) -> Job:
         """唯一终态提交点：jobs 行、transient 链、issue 联动同事务（I2/I6）。
 
+        终态写入带 CAS（仅 running 可翻转）：行已被取代/取消时迟到写静默
+        跳过——不排链、不联动、不记账，返回行的现状。
         返回链式重试的新 job（如有）。WatchState 写文件在事务提交后执行。
         """
         post_commit: list = []
         chain: Job | None = None
         with self.store.database.transaction(immediate=True) as conn:
-            error = ""
-            if result.status == "succeeded":
-                self.store.update(job.id, status="succeeded", stage="completed", _conn=conn)
-            elif result.status == "cancelled":
-                self.store.update(job.id, status="cancelled", stage="cancelled", _conn=conn)
-            else:
-                error = str(result.detail.get("error") or "")[:500]
-                self.store.update(job.id, status="failed", error=error, _conn=conn)
+            won = self.store.try_finalize(
+                job.id,
+                status=result.status,
+                stage={"succeeded": "completed", "cancelled": "cancelled"}.get(result.status),
+                error=(
+                    str(result.detail.get("error") or "")[:500]
+                    if result.status == "failed"
+                    else None
+                ),
+                _conn=conn,
+            )
+            if not won:
+                return self.store.get(job.id, _conn=conn)
             # transient 且未耗尽 → 先写终态再排链（同 resource，旧行不占 I1 索引）
             if (
                 result.status == "failed"
@@ -282,9 +289,16 @@ class JobService:
         return chain if chain is not None else self.store.get(job.id)
 
     def cancel_terminal(self, job: Job) -> None:
-        """进程取消路径：终态 cancelled + 归还所挂 issue，单事务。"""
+        """进程取消路径：终态 cancelled + 归还所挂 issue，单事务。
+
+        同款终态 CAS——行已被取代（submit_replace）时静默跳过，不二次联动。
+        """
         with self.store.database.transaction(immediate=True) as conn:
-            self.store.update(job.id, status="cancelled", stage="cancelled", _conn=conn)
+            won = self.store.try_finalize(
+                job.id, status="cancelled", stage="cancelled", _conn=conn
+            )
+            if not won:
+                return
             self.outcomes.apply(
                 job,
                 JobResult(status="cancelled", error_type="cancelled"),

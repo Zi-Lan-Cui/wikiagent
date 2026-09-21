@@ -89,6 +89,26 @@ def test_legacy_duplicate_active_rows_migrated(tmp_path: Path):
         pass
 
 
+def test_claim_next_empty_kinds_returns_none(tmp_path: Path):
+    """空 kinds = 没有注册类型，不领任何活——分工边界不许退化为不过滤。"""
+    store = JobStore(tmp_path)
+    store.enqueue(kind="compile", resource="/e", mode="watch")
+    assert store.claim_next(kinds=set()) is None
+    # None 才是显式不过滤
+    assert store.claim_next(kinds=None) is not None
+
+
+def test_try_finalize_cas(tmp_path: Path):
+    """终态 CAS：只有 running 可翻转，迟到写不命中、不改写。"""
+    store = JobStore(tmp_path)
+    job = store.enqueue(kind="compile", resource="/f", mode="watch")
+    store.update(job.id, status="running")
+    assert store.try_finalize(job.id, status="succeeded", stage="completed")
+    assert not store.try_finalize(job.id, status="failed", error="late")
+    got = store.get(job.id)
+    assert got.status == "succeeded" and got.error == ""
+
+
 def test_claim_next_filters_kinds_and_due(tmp_path: Path):
     store = JobStore(tmp_path)
     future = (datetime.now(UTC) + timedelta(seconds=300)).isoformat()
