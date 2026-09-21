@@ -78,9 +78,7 @@ def strip_fence(content: str) -> str:
     except _json.JSONDecodeError:
         repaired = _try_repair_trailing_braces(cleaned)
         if repaired is not None:
-            logger.warning(
-                "JSON 尾部缺闭合括号——已补全 %d 字符", len(repaired) - len(cleaned)
-            )
+            logger.warning("JSON 尾部缺闭合括号——已补全 %d 字符", len(repaired) - len(cleaned))
             return repaired
     return cleaned
 

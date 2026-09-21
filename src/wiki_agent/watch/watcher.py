@@ -207,10 +207,10 @@ class FileWatcher:
                 await self._emit_delete(path)
             return
 
-        read = digest_file_text(p)
-        if read is None:
+        seen = digest_file_text(p)
+        if seen is None:
             return
-        digest1, text1 = read
+        digest, text = seen
         # 名册登记（空条目）：删除检测凭"条目在账、磁盘不在"发现消失——
         # 条目从首次存在起登记，到 delete job 成功后才清除；名册不是
         # 完成账，hash 仍只在成功时由 outcome 写
@@ -220,25 +220,25 @@ class FileWatcher:
         st = self._state.get(path)
 
         # 内容没变: touch/无意义写入 → 忽略
-        if st.hash == digest1:
+        if st.hash == digest:
             return
 
         # 变更门: 微调（相似度 ≥ 阈值）忽略
-        if st.hash and not self._is_major_change(st, text1):
+        if st.hash and not self._is_major_change(st, text):
             logger.info("  %s: 相似度高于阈值，跳过（微调）", p.name)
             return
 
         # 稳定性复读——隔 stability 内容不变才定案（防半写文件）
         await asyncio.sleep(self._stability)
-        read2 = digest_file_text(p)
-        if read2 is None:
+        recheck = digest_file_text(p)
+        if recheck is None:
             return  # 复读时消失——删除路径由后续事件/回退扫描处理
-        if read2[0] != digest1:
+        if recheck[0] != digest:
             logger.debug("  %s: 稳定性窗口内又变化，重新进入 settle", p.name)
             self._notify(path)
             return
 
-        self._submit_job(str(p), False, digest1)
+        self._submit_job(str(p), False, digest)
         logger.info("  变更提交: %s", p.name)
 
     # 回退路径：全量扫描——只做发现，不做确认

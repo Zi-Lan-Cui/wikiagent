@@ -98,13 +98,13 @@ def test_fallback_scan_discovers_into_pipeline(tmp_path: Path):
         await asyncio.sleep(0.3)
         assert len(submits) == 1 and submits[0][0] == str(f)
         assert state.get(str(f)).hash == "", "回退提交同样不落完成账"
-        digest1 = submits[0][2]
+        first_digest = submits[0][2]
 
         # 未 ack（state 没记功）→ 下轮扫描再次喂入，重复由唯一在途索引在 job 层吸收
         submits.clear()
         await watcher._poll_once()
         await asyncio.sleep(0.3)
-        assert submits == [(str(f), False, digest1)], "同 digest 重复喂入是契约而非缺陷"
+        assert submits == [(str(f), False, first_digest)], "同 digest 重复喂入是契约而非缺陷"
 
         # 记成功账后同内容不再提交
         submits.clear()

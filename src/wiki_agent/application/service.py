@@ -8,9 +8,9 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.conversation import Session
 from wiki_agent.events import AgentEvent
 from wiki_agent.issues import IssueCard, IssueKind, IssueStatus
@@ -21,6 +21,11 @@ from wiki_agent.wiki import (
     read_source,
     search_pages,
 )
+
+if TYPE_CHECKING:
+    # 装配根仅作类型注解（from __future__ import annotations）——真导入会把
+    # 整个执行栈（watch/agent/llm/…）拖进本模块的 import 环。
+    from wiki_agent.application.runtime import AppRuntime
 
 
 class ServiceError(Exception):
