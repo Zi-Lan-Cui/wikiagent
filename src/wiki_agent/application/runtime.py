@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -49,9 +50,8 @@ class AppRuntime:
             wiki_dir=self.wiki_dir,
             watch_state=self.watch_state,
         )
-        self._migrate_issue_action_rows()
+        self._migrate_legacy_retry_rows()
         self.issue_service = IssueService(self.issue_store)
-        self.interrupted_issue_actions = self.issue_store.recover_interrupted_actions()
         self.event_publisher = EventPublisher()
         self.issue_reporter = IssueReporterHook(self.issue_service)
         self.tool_registry = ToolRegistry()
@@ -72,8 +72,8 @@ class AppRuntime:
             job_service=self.job_service,
             hooks=[self.event_publisher, self.issue_reporter, *(hooks or [])],
         )
-        # —— 执行装配：worker 是唯一终态写入者，三 handler 全注册，
-        #    多进程共库按 kinds 分工，不存在"谁误领谁"的问题。
+        # 执行装配：worker 是唯一终态写入者；装配根注册 compile/delete，
+        # issue_action 由 web 适配器补挂，多进程共库按 kinds 分工。
         self.pipeline = CompilePipeline(
             llm=self.agent.llm,
             vlm=self.agent.vlm,
@@ -95,22 +95,27 @@ class AppRuntime:
         self._bg_tasks: list[asyncio.Task] = []
         self._started = False
 
-    def _migrate_issue_action_rows(self) -> None:
-        """一次性迁移（统一执行模型 Step5）：旧格式在途 issue_action 行让位。
+    def _migrate_legacy_retry_rows(self) -> None:
+        """一次性迁移：旧"委托壳"retry 在途行让位。
 
-        旧模型的 retry/rescan issue_action 可能残留 queued/running——新模型
-        里重试以 compile job 表达；meta 标志保证只跑一次，下个版本删代码。
+        账本删除后 retry 直投 compile job；遗留的 mode=="retry" issue_action
+        行已无执行语义，取消之（rescan 行仍可正常执行，保留）。meta 标志幂等。
         """
-        if self.issue_store.get_meta("issue_action_jobs_v2"):
+        if self.issue_store.get_meta("issue_retry_direct_v3"):
             return
-        cancelled = self.job_service.store.cancel_queued_running(
-            "issue_action", reason="统一执行模型迁移：重试改由 compile job 表达"
-        )
-        self.issue_store.set_meta("issue_action_jobs_v2", "1")
+        with self.job_service.store.database.transaction(immediate=True) as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET status='cancelled', stage='cancelled',"
+                " error='迁移：retry 已改为直投 compile job', updated_at=?"
+                " WHERE kind='issue_action' AND mode='retry' AND status IN ('queued','running')",
+                (datetime.now(UTC).isoformat(),),
+            )
+            cancelled = cur.rowcount
+        self.issue_store.set_meta("issue_retry_direct_v3", "1")
         if cancelled:
             from wiki_agent.log import get_logger
 
-            get_logger("RUNTIME").info("迁移取消旧格式 issue_action 在途行 %d 个", cancelled)
+            get_logger("RUNTIME").info("迁移取消委托壳 retry 在途行 %d 个", cancelled)
 
     @classmethod
     def from_project_root(

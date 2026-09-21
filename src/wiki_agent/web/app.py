@@ -24,6 +24,7 @@ from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError
 from wiki_agent.issues import (
+    InvalidIssueTransitionError,
     IssueAlreadyClaimedError,
     IssueKind,
     IssueNotFoundError,
@@ -65,21 +66,15 @@ def create_app(
     job_worker = app_runtime.job_worker
 
     async def handle_issue_job(job, progress):
-        # 业务拒绝（来源丢失/已被领取/动作非法）是终态——返回 failed 结果，
-        # 不落成 transient 链式重试；账本已由 executor 写过事件。
+        # 业务拒绝（来源丢失/状态 CAS 不满足/动作非法/未实现）是终态——
+        # 返回 failed 结果，不落成 transient 链式重试。
         try:
-            await issue_actions.execute(
-                job.resource,
-                job.mode,
-                job.payload,
-                progress=progress,
-            )
+            issue_actions.execute(job.resource, job.mode, job.payload, progress=progress)
         except (
             SourceUnavailableError,
             IssueAlreadyClaimedError,
+            InvalidIssueTransitionError,
             ValueError,
-            RuntimeError,
-            LookupError,
         ) as exc:
             return JobResult(status="failed", detail={"error": str(exc)[:500]})
         return JobResult(status="succeeded")
@@ -88,22 +83,22 @@ def create_app(
         job_worker.register("issue_action", handle_issue_job)
 
     def _active_issue_ids() -> set[str]:
-        return {
-            job.resource
-            for job in job_service.list(limit=1000)
-            if job.kind == "issue_action" and job.status in {"queued", "running"}
-        }
+        # "在途"= 该 issue 有挂账的 queued/running job——一条 SQL，不扫内存
+        return set(job_service.store.open_issue_ids_with_active_job())
 
     def submit_issue_job(
         issue_id: str, action: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         job = job_service.submit_issue_action(issue_id, action, payload)
-        return asdict(job)
+        return _job_task(job)
+
+    def submit_retry_job(issue_id: str) -> dict[str, Any]:
+        # retry 直投 compile job（三入口同一提交点）；双击被提交点收敛
+        return _job_task(job_service.submit_issue_retry(issue_id))
 
     def _job_task(job) -> dict[str, Any]:
         item = asdict(job)
-        # issue_action 的 resource 是 issue_id；watch/compile 族走 issue_id 列
-        issue_id = job.resource if job.kind == "issue_action" else job.issue_id
+        issue_id = job.issue_id  # 挂账关系统一走 issue_id 列
         item["issue_id"] = issue_id
         item["action"] = job.mode
         item["current_stage"] = job.stage or ("等待执行" if job.status == "queued" else "")
@@ -158,7 +153,7 @@ def create_app(
 
     @app.get("/api/issues")
     async def list_issues(
-        status: str = "open,blocked,processing",
+        status: str = "open,blocked",
         kind: str = "",
         limit: int = 200,
         offset: int = 0,
@@ -184,7 +179,7 @@ def create_app(
     async def issue_summary() -> dict[str, int]:
         active_task_issues = _active_issue_ids()
         active_issues = service.list_issues(
-            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED, IssueStatus.PROCESSING},
+            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
             limit=1000,
         )
         return {
@@ -198,7 +193,7 @@ def create_app(
     async def retry_eligible_issues() -> dict[str, Any]:
         try:
             issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_active_issue_ids())
-            tasks = [submit_issue_job(issue_id, "retry") for issue_id in issue_ids]
+            tasks = [submit_retry_job(issue_id) for issue_id in issue_ids]
             return {"count": len(tasks), "tasks": tasks}
         except (IssueAlreadyClaimedError, SourceUnavailableError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -222,11 +217,14 @@ def create_app(
     @app.post("/api/issues/{issue_id}/actions/{action}", response_model=None)
     async def execute_issue_action(issue_id: str, action: str, request: IssueActionRequest) -> Any:
         try:
-            if action in {"retry", "rescan"}:
+            if action == "retry":
+                issue_actions.validate(issue_id, action)
+                return JSONResponse(status_code=202, content=submit_retry_job(issue_id))
+            if action == "rescan":
                 issue_actions.validate(issue_id, action)
                 task = submit_issue_job(issue_id, action, request.payload)
                 return JSONResponse(status_code=202, content=task)
-            return asdict(await issue_actions.execute(issue_id, action, request.payload))
+            return asdict(issue_actions.execute(issue_id, action, request.payload))
         except IssueNotFoundError as exc:
             raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
         except IssueAlreadyClaimedError as exc:
@@ -246,7 +244,7 @@ def create_app(
     @app.get("/api/issue-tasks")
     async def list_issue_tasks(limit: int = 100) -> list[dict[str, Any]]:
         try:
-            jobs = [job for job in job_service.list(limit=limit) if job.kind == "issue_action"]
+            jobs = [job for job in job_service.list(limit=limit) if job.issue_id]
             return [_job_task(job) for job in jobs]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

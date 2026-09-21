@@ -165,7 +165,7 @@ class WikiAgentService:
 
     def count_active_issues(self) -> int:
         return self.runtime.issue_service.count(
-            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED, IssueStatus.PROCESSING}
+            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED}
         )
 
     def get_wiki_page(self, path: str) -> WikiPage:

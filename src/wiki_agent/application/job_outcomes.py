@@ -67,8 +67,7 @@ class JobOutcomeHandler:
                     event="job_succeeded",
                     _conn=conn,
                 )
-        elif result.status == "cancelled":
-            self._on_cancelled(job, conn)
+        # cancelled 无联动：提交不改变 issue 状态，取消即无账可还
         elif result.error_type == "ingest_error":
             self._on_ingest_error(job, result, conn)
         elif result.error_type == "transient":
@@ -103,19 +102,6 @@ class JobOutcomeHandler:
             state.record(job.resource, digest, text)
 
         return [record]
-
-    def _on_cancelled(self, job: Job, conn: sqlite3.Connection) -> None:
-        if not job.issue_id:
-            return
-        # 取消即归还：让位的 retry 请求回到 open，不背失败
-        self._issues.transition(
-            job.issue_id,
-            IssueStatus.OPEN,
-            resolution={"cancelled_job": job.id},
-            expected={IssueStatus.PROCESSING},
-            event="job_cancelled",
-            _conn=conn,
-        )
 
     def _on_ingest_error(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
         detail = result.detail

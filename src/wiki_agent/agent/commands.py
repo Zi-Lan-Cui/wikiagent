@@ -331,8 +331,7 @@ class QueueCommand(Command):
         if args == "retry-all" or args.startswith("retry "):
             from wiki_agent.application.job_service import JobService
             from wiki_agent.compiler.workflows.retry import SourceUnavailableError
-            from wiki_agent.issues import IssueAlreadyClaimedError, IssueKind
-            from wiki_agent.jobs import DuplicateActiveJob
+            from wiki_agent.issues import IssueKind
 
             job_service: JobService | None = getattr(ctx.agent, "job_service", None)
             if job_service is None:
@@ -362,17 +361,15 @@ class QueueCommand(Command):
                     lines.append(f"- `{issue_id}`: 未找到")
                 except SourceUnavailableError as exc:
                     lines.append(f"- `{issue_id}`: 输入不可用 — {exc}")
-                except (DuplicateActiveJob, IssueAlreadyClaimedError, ValueError) as exc:
-                    lines.append(f"- `{issue_id}`: 已有在途任务 — {exc}")
+                except ValueError as exc:
+                    lines.append(f"- `{issue_id}`: 不能重试 — {exc}")
                 else:
                     lines.append(f"- `{issue_id}`: 已排队 `{job.id}`，由 Worker 串行执行")
             lines.append("")
             lines.append("执行结果稍后用 `/queue` 查看（成功自动销账，失败继续退避）。")
             return CommandResult(text="\n".join(lines))
 
-        cards = issue_service.list(
-            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED, IssueStatus.PROCESSING}
-        )
+        cards = issue_service.list(statuses={IssueStatus.OPEN, IssueStatus.BLOCKED})
         lines = ["# 问题中心", ""]
         if not cards:
             return CommandResult(text="# 问题中心\n\n✅ 没有待处理问题。")

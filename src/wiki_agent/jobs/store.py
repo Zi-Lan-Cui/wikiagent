@@ -369,6 +369,18 @@ class JobStore:
             ).fetchone()
         return row is not None
 
+    def active_job_by_issue(
+        self, issue_id: str, *, _conn: sqlite3.Connection | None = None
+    ) -> Job | None:
+        """该 issue 的在途挂账 job——retry 提交点的收敛预查（I3）。"""
+        with self._tx(_conn) as db:
+            row = db.execute(
+                "SELECT * FROM jobs WHERE issue_id = ? AND status IN ('queued','running')"
+                " ORDER BY created_at LIMIT 1",
+                (issue_id,),
+            ).fetchone()
+        return self._row(row) if row is not None else None
+
     def list(self, *, limit: int = 100) -> list[Job]:
         with self.database.connect() as db:
             rows = db.execute(

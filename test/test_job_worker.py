@@ -144,8 +144,8 @@ def test_succeeded_writes_watch_state_after_commit(tmp_path):
     assert state.drops == ["/src/b.md"] and state.saved == 1
 
 
-def test_cancelled_returns_claimed_issue(tmp_path):
-    """cancel_terminal：挂 PROCESSING issue 的 job 被取消 → job cancelled + issue 回 open。"""
+def test_cancelled_leaves_linked_issue_open(tmp_path):
+    """cancel_terminal：挂账 job 被取消 → job cancelled；issue 全程 open 无账可还。"""
     from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 
     service = JobService(tmp_path)
@@ -158,7 +158,6 @@ def test_cancelled_returns_claimed_issue(tmp_path):
             context={"source_path": "/abs/note.md"},
         )
     )
-    service.issues.claim_action(issue.id, "retry")
     job = service.submit(
         kind="compile", resource="/abs/note.md", mode="issue_retry", issue_id=issue.id
     )
@@ -166,6 +165,8 @@ def test_cancelled_returns_claimed_issue(tmp_path):
     service.cancel_terminal(job)
     assert service.store.get(job.id).status == "cancelled"
     assert service.issues.get(issue.id).status == IssueStatus.OPEN
+    # 取消不产生任何 issue 事件——语义是 no-op
+    assert service.issues.events(issue.id)[-1]["event"] != "job_cancelled"
 
 
 def test_worker_claims_only_registered_kinds(tmp_path):

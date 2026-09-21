@@ -492,7 +492,6 @@ const issueKindLabels = {
 };
 const issueStatusLabels = {
   open: "待处理",
-  processing: "处理中",
   blocked: "等待决策",
   resolved: "已解决",
   dismissed: "已忽略",
@@ -501,7 +500,6 @@ const issueAttentionLabels = {
   retryable: "可重试",
   source_unavailable: "来源不可用",
   decision_required: "等待决策",
-  processing: "处理中",
 };
 
 function issueDisplayState(issue) {
@@ -722,7 +720,7 @@ const taskStatusLabels = {
   failed: "失败",
   cancelled: "已取消",
 };
-const taskActionLabels = { retry: "重试来源", rescan: "重新扫描" };
+const taskActionLabels = { retry: "重试来源", issue_retry: "重试来源", rescan: "重新扫描" };
 
 function upsertIssueTask(task) {
   const index = state.issueTasks.findIndex((item) => item.id === task.id);
@@ -806,7 +804,7 @@ async function refreshIssueTasks() {
 }
 
 async function refreshIssues() {
-  const statusFilter = $("issue-status-filter")?.value || "open,blocked,processing";
+  const statusFilter = $("issue-status-filter")?.value || "open,blocked";
   const kindFilter = $("issue-kind-filter")?.value || "";
   const params = new URLSearchParams({ status: statusFilter });
   if (kindFilter) params.set("kind", kindFilter);
