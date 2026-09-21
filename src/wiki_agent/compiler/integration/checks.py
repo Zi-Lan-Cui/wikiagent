@@ -146,7 +146,7 @@ def check_plan_json(
     """
     allowed = allowed_dispositions or VALID_DISPOSITIONS
     # fence/尾部缺括号是格式化噪声不是内容错误——与 parse_plan 共享
-    # 同一格式规约（strip_fence 内含 I5 repair）。关掉 thinking 后
+    # 同一格式规约（strip_fence 内含尾部括号补全）。关掉 thinking 后
     # LLM 输出风格变化（爱包裹 ```json、深嵌套少写尾部 }），必须容忍。
     cleaned = strip_fence(content)
     try:

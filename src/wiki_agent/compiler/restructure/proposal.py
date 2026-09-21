@@ -42,7 +42,7 @@ def _check_propose_list(content: str) -> tuple[bool, str]:
     import json as _json
 
     # fence 剥离统一走 integration.parse.strip_fence（与 check/parse 层同一
-    # 规约，含 I5 尾部括号 repair——重组的 LLM 输出同样可能缺尾括号）
+    # 规约，含尾部括号补全——重组的 LLM 输出同样可能缺尾括号）
     cleaned = strip_fence(content)
     try:
         data = _json.loads(cleaned)

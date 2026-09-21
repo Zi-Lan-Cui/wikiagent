@@ -119,7 +119,7 @@ def safe_parse_json(content: str):
     Returns:
         解析后的 JSON；解析失败返回 None。
     """
-    # fence 剥离统一走 integration.parse.strip_fence（含 I5 尾部括号 repair）
+    # fence 剥离统一走 integration.parse.strip_fence（含尾部括号补全）
     cleaned = strip_fence(content)
     try:
         return json.loads(cleaned)

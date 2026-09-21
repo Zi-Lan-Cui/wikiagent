@@ -1,7 +1,7 @@
 """Durable execution jobs shared by watch, CLI and Web entry points.
 
 Job 是唯一执行事实来源。关键不变式：
-- I1 同一 resource 至多一个 queued/running Job——由部分唯一索引
+- 同一 resource 至多一个 queued/running Job——由部分唯一索引
   uq_jobs_active_resource 在数据库层强制（resource 一律规范化为
   绝对路径字符串，compile/delete/issue_retry 同族共享此身份）。
 - 所有写方法支持 ``_conn`` 透传：与 issue 账本同事务提交时由调用方
@@ -98,7 +98,7 @@ class JobStore:
                     ON jobs(issue_id) WHERE issue_id IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS idx_jobs_resource_status
                     ON jobs(resource, status);
-                -- I1 不变式：同一 resource 至多一个在途 job（数据库强制）
+                -- 唯一在途约束：同一 resource 至多一个在途 job（数据库强制）
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_active_resource
                     ON jobs(resource) WHERE status IN ('queued', 'running');
                 """
@@ -120,8 +120,8 @@ class JobStore:
     ) -> Job:
         """入队一个 Job。
 
-        幂等键命中在途行 → 返回既有行（合并语义）；撞 I1 唯一索引 →
-        DuplicateActiveJob（调用方按语义吞掉或取代）。
+        幂等键命中在途行 → 返回既有行（合并语义）；撞唯一索引 →
+        DuplicateActiveJob（调用方按语义吞掉、收敛或取代）。
         """
         now = _now()
         with self._tx(_conn) as db:
@@ -310,7 +310,7 @@ class JobStore:
     def active_by_resource(
         self, resource: str, *, _conn: sqlite3.Connection | None = None
     ) -> Job | None:
-        """该资源当前的在途 Job（queued/running 至多一个，I1）。"""
+        """该资源当前的在途 Job（queued/running 至多一个，唯一在途约束）。"""
         if _conn is not None:
             row = _conn.execute(
                 "SELECT * FROM jobs WHERE resource = ? AND status IN ('queued','running')",
@@ -372,7 +372,7 @@ class JobStore:
     def active_job_by_issue(
         self, issue_id: str, *, _conn: sqlite3.Connection | None = None
     ) -> Job | None:
-        """该 issue 的在途挂账 job——retry 提交点的收敛预查（I3）。"""
+        """该 issue 的在途挂账 job——retry 提交点的收敛预查。"""
         with self._tx(_conn) as db:
             row = db.execute(
                 "SELECT * FROM jobs WHERE issue_id = ? AND status IN ('queued','running')"

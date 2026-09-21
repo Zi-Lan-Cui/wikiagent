@@ -141,7 +141,7 @@ def test_queued_compile_coalesces_newer_digest(tmp_path: Path):
 
 
 def test_transient_chain_blocks_watch_resubmit(tmp_path: Path):
-    """未预期异常的链式 job 是在途行——watch 扫描重提交被 I1 吸收。"""
+    """未预期异常的链式 job 是在途行——watch 扫描重提交被唯一在途索引吸收。"""
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     source = tmp_path / "note.md"
     source.write_text("内容" * 10, encoding="utf-8")
@@ -207,7 +207,7 @@ def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
     )
     assert final.status == "succeeded"
     assert service.issues.get(issue.id).status == IssueStatus.RESOLVED
-    assert state.get(job.resource).hash == digest  # I4/I5：成功是唯一落账点
+    assert state.get(job.resource).hash == digest  # 成功是唯一落账点（先库后文件）
 
 
 # 对账

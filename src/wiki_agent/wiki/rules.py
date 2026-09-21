@@ -59,7 +59,7 @@ def iter_code_runs(content: str):
 def iter_text_outside_code(content: str):
     """逐行产出非代码块文本行——fence 状态机（括号配对语义）。
 
-    用途（审计 I2）: ``[[1, 2, 3]]`` 这类代码块内的列表字面量被
+    用途: ``[[1, 2, 3]]`` 这类代码块内的列表字面量被
     wikilink 检测/修复误判——代码块不是链接语境，必须跳过。
 
     语义: 未闭合 fence 时尾部按"在代码里"处理（保守——宁可漏检测，
@@ -223,7 +223,7 @@ def _check_wikilink_has_text(content: str) -> tuple[bool, str]:
     body = extract_body(content) or content
 
     bare_links: list[str] = []
-    # 只查非代码行（审计 I2）——代码块里的 [[1, 2, 3]] 不是链接
+    # 只查非代码行——代码块里的 [[1, 2, 3]] 不是链接
     text = "\n".join(iter_text_outside_code(body))
     for m in WIKILINK_RE.finditer(text):
         # group(2) 是显示文本——None 说明没有 |，即裸链接

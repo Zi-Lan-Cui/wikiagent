@@ -74,7 +74,7 @@ def fix_markdown_fence(content: str) -> str:
 def fix_wikilinks(content: str, *, valid_slugs: set[str]) -> str:
     """去掉正文中指向不存在页面的 [[wikilink]]——变为纯文本。
 
-    跳过代码块（审计 I2）——代码里的 ``[[1, 2, 3]]`` 列表字面量
+    跳过代码块——代码里的 ``[[1, 2, 3]]`` 列表字面量
     不是链接，修复它们会破坏 Python 代码。
 
     Args:
@@ -136,7 +136,7 @@ def extract_related(content: str, *, valid_slugs: set[str]) -> str:
     frontmatter = content[:end]
     body = content[end:]
 
-    # 从正文提取有效链接（跳过代码块——审计 I2 同款）
+    # 从正文提取有效链接（跳过代码块——块内 wikilink 是示例文本不是引用）
     slugs: list[str] = []
     seen: set[str] = set()
     body_text = "\n".join(iter_text_outside_code(body))
