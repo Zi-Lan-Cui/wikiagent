@@ -60,9 +60,12 @@ def _service_with_state(tmp_path):
     return service, state
 
 
-def test_transient_failure_reports_issue_without_chain(tmp_path):
-    """handler 抛未预期异常 → failed 终态 + run_failure issue；无后继排程。"""
-    from wiki_agent.issues import IssueKind, IssueStore
+def test_handler_exception_fails_job_without_issue(tmp_path):
+    """handler 抛未预期异常 → failed 终态 + jobs.error；不进问题账本、不排后继。
+
+    代码错误由 Worker 的日志/事件承接——用户看到的账本只装业务失败。
+    """
+    from wiki_agent.issues import IssueStore
 
     service = JobService(tmp_path)
     job = service.submit(kind="compile", resource="/x", mode="sync")
@@ -74,11 +77,10 @@ def test_transient_failure_reports_issue_without_chain(tmp_path):
     worker.register("compile", crash)
     asyncio.run(worker.run_once())
 
-    assert service.store.get(job.id).status == "failed"
-    assert service.store.in_flight_by_resource("/x") is None, "手动模型不排链"
-    issues = IssueStore(tmp_path).list(kinds={IssueKind.RUN_FAILURE})
-    assert len(issues) == 1
-    assert "boom" in issues[0].summary
+    row = service.store.get(job.id)
+    assert row.status == "failed" and "boom" in row.error
+    assert service.store.in_flight_by_resource("/x") is None
+    assert IssueStore(tmp_path).list() == [], "bug 不落账"
 
 
 def test_succeeded_writes_sync_state_after_commit(tmp_path):

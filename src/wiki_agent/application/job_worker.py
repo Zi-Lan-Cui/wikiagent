@@ -2,7 +2,8 @@
 
 Worker 是唯一的终态写入者：claim（按注册 kinds）→
 handler 返回 JobResult → complete_with_outcome 单事务落终态。
-handler 只表达业务结局；bug 抛异常由这里归为 transient 进 run_failure 账。
+handler 只表达业务结局；bug 抛异常由这里归日志 + 事件——不进问题账本，
+代码错误不是用户的待办。
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.job_service import JobService
 from wiki_agent.jobs import Job
-from wiki_agent.log import get_logger
+from wiki_agent.log import emit_event, get_logger
 
 JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[JobResult | None]]
 
@@ -76,18 +77,27 @@ class JobWorker:
             # 进程取消：终态单事务落库（无联动），再继续传播退出
             self.service.cancel_terminal(job)
             raise
-        except Exception as exc:  # noqa: BLE001 - handler bug = transient 链式退避
+        except Exception as exc:  # noqa: BLE001 - handler bug 不是用户的待办：日志+事件承接
+            logger.exception("job %s handler 崩溃: %s", job.id, f"{type(exc).__name__}: {exc}")
+            emit_event(
+                "job_handler_crash",
+                job_id=job.id,
+                kind=job.kind,
+                resource=job.resource,
+                error=f"{type(exc).__name__}: {str(exc)[:400]}",
+            )
             result = JobResult(
                 status="failed",
-                error_type="transient",
                 detail={"error": f"{type(exc).__name__}: {str(exc)[:400]}"},
             )
         if result is None:  # 兼容返回 None 的旧 handler——语义 = 成功
             result = JobResult(status="succeeded")
         if not isinstance(result, JobResult):
+            # 契约违约同样是代码 bug：记日志/事件，账上不留给用户
+            logger.error("job %s handler 返回了 %s，应为 JobResult", job.id, type(result).__name__)
+            emit_event("job_handler_contract_violation", job_id=job.id, kind=job.kind)
             result = JobResult(
                 status="failed",
-                error_type="transient",
                 detail={"error": f"handler 返回了 {type(result).__name__}，应为 JobResult"},
             )
         return self.service.complete_with_outcome(job, result)
