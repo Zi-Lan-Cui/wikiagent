@@ -78,7 +78,7 @@ class JobService:
         compile：撞在途 → 排队行合并 digest（意图前进）、执行中行吞掉
         （成功后账会被 pre/post 拒掉，下一轮回退扫描重提交）；存在未到期
         的 auto_retry 失败账 → 让位 issue 通道（I6 唯一重试通道）。
-        delete：撞任何在途 → 取代（cancel 让位 + 同事务归还其 issue）。
+        delete：撞任何在途 → 取代（同事务 cancel 让位；取消无账可还）。
         """
         kind = "delete" if deleted else "compile"
         key = f"watch:{kind}:{resource}"
@@ -160,7 +160,7 @@ class JobService:
         payload: dict[str, object],
         idempotency_key: str | None = None,
     ) -> Job:
-        """取代在途任务：同事务 cancel 旧行（含归还其 issue）+ 排新行。"""
+        """取代在途任务：同事务 cancel 旧行（cancelled 无联动）+ 排新行。"""
         with self.store.database.transaction(immediate=True) as conn:
             active = self.store.active_by_resource(resource, _conn=conn)
             if active is not None:
@@ -287,9 +287,9 @@ class JobService:
         return chain if chain is not None else self.store.get(job.id)
 
     def cancel_terminal(self, job: Job) -> None:
-        """进程取消路径：终态 cancelled + 归还所挂 issue，单事务。
+        """进程取消路径：终态 cancelled，单事务（CAS，不二次写）。
 
-        同款终态 CAS——行已被取代（submit_replace）时静默跳过，不二次联动。
+        取消不背失败也不还账——提交从未改变 issue 状态，无账可还。
         """
         with self.store.database.transaction(immediate=True) as conn:
             won = self.store.try_finalize(job.id, status="cancelled", stage="cancelled", _conn=conn)

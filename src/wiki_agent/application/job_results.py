@@ -11,7 +11,7 @@ error_type 决定失败走哪条唯一通道（I6）：
   source/source_path/source_kind/retry_policy。
 - "transient":    未预期异常 →  attempts 内链式新 job 退避重排，
   超限升级为 run_failure issue。
-- "cancelled":    进程取消 → 不判失败，归还所挂 issue。
+- "cancelled":    进程取消/被取代 → 不判失败；issue 全程未动状态，无账可还。
 - "":             终态失败但无联动语义（如未注册 kind 直接失败）。
 """
 

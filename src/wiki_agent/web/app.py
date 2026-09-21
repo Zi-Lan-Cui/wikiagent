@@ -1,4 +1,4 @@
-"""Minimal FastAPI adapter for local single-user testing."""
+"""FastAPI adapter——本地单用户服务；后台循环由 AppRuntime 统一装配。"""
 
 from __future__ import annotations
 
