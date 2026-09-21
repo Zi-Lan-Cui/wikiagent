@@ -49,8 +49,8 @@ class JobOutcomeHandler:
     ) -> list[Callable[[], None]]:
         """把 result 的联动写入并入 conn 事务；返回 commit 后要执行的动作。
 
-        分支只覆盖 succeeded/ingest_error/transient——cancelled 刻意无
-        联动（无账可还），调用方不必为取消结果走本函数。
+        分支只覆盖 succeeded/ingest_error——cancelled 与无联动语义的失败
+        （handler bug 由 Worker 记日志+事件承接）在此都是 no-op。
         """
         post_commit: list[Callable[[], None]] = []
         if result.status == "succeeded":
@@ -67,9 +67,7 @@ class JobOutcomeHandler:
                 )
         elif result.error_type == "ingest_error":
             self._on_ingest_error(job, result, conn)
-        elif result.error_type == "transient":
-            self._on_transient(job, result, conn)
-        # error_type == ""：无联动语义（如未注册 kind），仅留 failed 行
+        # 其余（cancelled、handler bug 的无联动 failed）刻意零动作
         return post_commit
 
     # 各分支
@@ -121,21 +119,6 @@ class JobOutcomeHandler:
             logger.warning(
                 "retry job %s 的失败合并到了新 issue %s（预期 %s）", job.id, issue.id, job.issue_id
             )
-
-    def _on_transient(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
-        """未预期异常（bug/环境）→ run_failure 问题入账，同样不排程。"""
-        error = str(result.detail.get("error") or "未知异常")[:500]
-        draft = IssueDraft(
-            kind=IssueKind.RUN_FAILURE,
-            title=f"{Path(job.resource).name or job.resource} 执行失败",
-            summary=error,
-            origin={"mode": job.mode, "reported_by": f"job:{job.kind}", "stage": ""},
-            resource={"type": "job", "path": job.resource, "label": job.resource},
-            diagnostics={"error": error, "detail": error[:1000]},
-            context={"source_path": job.resource},
-        )
-        self._issues.report_failure(draft, error, _conn=conn)
-        logger.error("job %s transient: %s", job.id, error[:200])
 
     # 账本构造
 

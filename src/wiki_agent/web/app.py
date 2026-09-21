@@ -68,7 +68,7 @@ def create_app(
 
     async def handle_issue_job(job, progress):
         # 业务拒绝（来源丢失/状态 CAS 不满足/动作非法/未实现）是终态——
-        # 返回无联动语义的 failed 结果，不落 run_failure 账。
+        # 返回无联动语义的 failed 结果，问题账本不因拒绝动作而新增。
         try:
             issue_actions.execute(job.resource, job.mode, job.payload, progress=progress)
         except (

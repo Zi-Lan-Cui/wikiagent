@@ -9,9 +9,8 @@ error_type 决定失败进哪本账（手动重试模型：只记账，不排程
 - "ingest_error": source 级业务失败 → 同事务上报/合并 issue 中心，
   等待人工重试（sync 或 retry 按钮）；detail 必须携带 draft 构造所需
   字段：error/stage/diagnostics/raw/source/source_path/source_kind。
-- "transient":    未预期异常（bug/环境）→ run_failure issue，同样等人工。
-- "cancelled":    进程取消/被取代 → 不判失败；issue 全程未动状态，无账可还。
-- "":             终态失败但无联动语义（如未注册 kind 直接失败）。
+- "":             无联动语义的终态失败——含 handler bug（Worker 已用
+  日志+事件承接，代码错误不进用户的账）与未注册 kind。
 """
 
 from __future__ import annotations

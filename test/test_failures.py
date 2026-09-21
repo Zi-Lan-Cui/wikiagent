@@ -139,20 +139,18 @@ def test_ingest_error_merges_and_keeps_issue_open(tmp_path: Path):
     assert "next_retry_at" not in merged.retry
 
 
-def test_transient_failure_reports_run_failure_issue(tmp_path: Path):
-    """未预期异常 = run_failure 一笔账，不再有链式重试排程。"""
+def test_handler_bug_failure_does_not_record(tmp_path: Path):
+    """无联动语义的失败（handler bug 由 Worker 以日志/事件承接）不进问题账本。"""
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     job = service.submit(kind="compile", resource="/abs/x.md", mode="sync", payload={"digest": "d"})
     claimed = service.claim_next(kinds={"compile"})
     assert claimed is not None and claimed.id == job.id
-    service.complete_with_outcome(
-        claimed,
-        JobResult(status="failed", error_type="transient", detail={"error": "KeyError: boom"}),
+    final = service.complete_with_outcome(
+        claimed, JobResult(status="failed", detail={"error": "KeyError: boom"})
     )
-    failures = service.issues.list(kinds={IssueKind.RUN_FAILURE})
-    assert len(failures) == 1
-    assert "boom" in failures[0].summary
-    assert service.store.count_in_flight() == 0, "transient 不产生后继 job"
+    assert final.status == "failed"
+    assert "boom" in final.error
+    assert service.issues.list() == [], "代码错误不是用户的待办"
 
 
 # 重试输入解析
