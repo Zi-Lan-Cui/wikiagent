@@ -1,4 +1,4 @@
-"""WatchConsumer 测试——删除处理规则 + Job handler 核账凭证。
+"""WatchConsumer 测试——删除处理规则 + Job handler 快照凭证。
 
 直接运行:  .venv/bin/python test/test_consumer.py
 """
@@ -54,7 +54,7 @@ def _compile_env(tmp: Path, content: str = "编译器输入" * 8):
 
 
 def test_compile_success_returns_ack_evidence():
-    """成功返回经 pre/post 双检的 digest+text 凭证（落账由 outcome 完成）。"""
+    """成功返回本次实际读到的 digest+text 凭证（落账由 outcome 完成）。"""
 
     async def run():
         tmp = Path(tempfile.mkdtemp())
@@ -88,16 +88,19 @@ def test_compile_idempotent_short_circuit():
     asyncio.run(run())
 
 
-def test_compile_stale_disk_does_not_ack():
-    """job 请求的 digest 与实际读到的不符（磁盘已前进）→ 成功但不给凭证。"""
+def test_compile_stale_snapshot_lags_and_acks():
+    """快照语义：payload.digest 与实际读到的不符（执行中内容变了）→
+    照常携带**实际读到的**凭证落账——滞后一个版本合法，下次 sync 追平。"""
 
     async def run():
         tmp = Path(tempfile.mkdtemp())
         f, wiki, records, state = _compile_env(tmp)
+        digest, text = digest_file_text(f)
         pipeline = _FakePipeline()
         consumer = WatchConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(f), digest="0" * 64), lambda s: None)
-        assert result.status == "succeeded" and "digest" not in result.detail
+        assert result.status == "succeeded"
+        assert result.detail == {"digest": digest, "text": text}
 
     asyncio.run(run())
 
@@ -122,17 +125,18 @@ def test_compile_ingest_error_becomes_result_detail():
     asyncio.run(run())
 
 
-def test_compile_missing_file_is_load_error():
-    """文件消失 → ingest_error/stage=load，不炸 worker。"""
+def test_compile_missing_file_is_noop():
+    """快照后文件消失 → no-op succeeded（从未入账，无账可清也不算失败）。"""
 
     async def run():
         tmp = Path(tempfile.mkdtemp())
         f, wiki, records, state = _compile_env(tmp)
         f.unlink()
-        consumer = WatchConsumer(_FakePipeline(), state, wiki_dir=wiki, source_records_dir=records)
+        pipeline = _FakePipeline()
+        consumer = WatchConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(f), digest="a" * 64), lambda s: None)
-        assert result.status == "failed" and result.error_type == "ingest_error"
-        assert result.detail["stage"] == "load"
+        assert result.status == "succeeded" and "digest" not in result.detail
+        assert pipeline.calls == 0
 
     asyncio.run(run())
 
