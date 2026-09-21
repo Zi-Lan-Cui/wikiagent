@@ -56,7 +56,7 @@ class Extractor:
         self._safety_buffer = safety_buffer
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._source_records_dir = Path(source_records_dir) if source_records_dir else None
-        # compile/watch 存档源摘要页；refine 输入就是 wiki 页面，再存 = 自我复制
+        # compile/sync 存档源摘要页；refine 输入就是 wiki 页面，再存 = 自我复制
         self._save_sources = save_source_page
         # prompt 模块（compile/refine）——模式差异由 pipeline 注入
         self._prompts = prompts

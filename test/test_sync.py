@@ -9,7 +9,7 @@ from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.job_service import JobService
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 from wiki_agent.jobs import SyncInProgress
-from wiki_agent.watch.state import WatchState, digest_file_text
+from wiki_agent.sync.state import SyncState, digest_file_text
 
 
 def _svc(tmp: Path):
@@ -17,8 +17,8 @@ def _svc(tmp: Path):
     src.mkdir(parents=True, exist_ok=True)
     wiki = tmp / "wiki"
     wiki.mkdir(exist_ok=True)
-    state = WatchState(tmp / "watch" / "state.json")
-    return src, JobService(tmp, wiki_dir=wiki, watch_state=state)
+    state = SyncState(tmp / "watch" / "state.json")
+    return src, JobService(tmp, wiki_dir=wiki, sync_state=state)
 
 
 def _write(src: Path, name: str, content: str) -> Path:
@@ -35,13 +35,13 @@ def test_submit_sync_snapshot_diff(tmp_path: Path):
     gone = _write(src, "gone.md", "将被删除" * 10)
     digest_clean, text_clean = digest_file_text(clean)
     digest_gone, text_gone = digest_file_text(gone)
-    service.watch_state.record(str(clean.resolve()), digest_clean, text_clean)
-    service.watch_state.record(str(gone.resolve()), digest_gone, text_gone)
+    service.sync_state.record(str(clean.resolve()), digest_clean, text_clean)
+    service.sync_state.record(str(gone.resolve()), digest_gone, text_gone)
 
     _write(src, "new.md", "全新文件" * 10)
     changed = _write(src, "changed.md", "旧版本内容" * 10)
     digest_old, text_old = digest_file_text(changed)
-    service.watch_state.record(str(changed.resolve()), digest_old, text_old)
+    service.sync_state.record(str(changed.resolve()), digest_old, text_old)
     _write(src, "changed.md", "新版本内容" * 10)
     gone.unlink()
 
@@ -57,7 +57,7 @@ def test_submit_sync_excludes_roster_entries(tmp_path: Path):
     """名册式空条目（hash=""）不算 removed：从未入账，无账可清。"""
     src, service = _svc(tmp_path)
     ghost = src / "ghost.md"
-    service.watch_state.set(str(ghost.resolve()), service.watch_state.get(str(ghost.resolve())))
+    service.sync_state.set(str(ghost.resolve()), service.sync_state.get(str(ghost.resolve())))
     assert service.submit_sync(src) == []
 
 
@@ -98,7 +98,7 @@ def test_failure_keeps_dirty_resync_is_retry(tmp_path: Path):
     claimed = service.claim_next(kinds={"compile"})
     assert claimed is not None
     service.complete_with_outcome(claimed, JobResult(status="failed", detail={"error": "boom"}))
-    assert service.watch_state.get(str(f.resolve())).hash == ""
+    assert service.sync_state.get(str(f.resolve())).hash == ""
 
     # 失败行已终态（队列空闲）→ 再次 sync：同内容重新入队——这就是重试
     resync = service.submit_sync(src)
@@ -128,7 +128,7 @@ def test_success_records_and_links_issue(tmp_path: Path):
     service.complete_with_outcome(
         claimed, JobResult(status="succeeded", detail={"digest": digest, "text": text})
     )
-    assert service.watch_state.get(str(f.resolve())).hash == digest
+    assert service.sync_state.get(str(f.resolve())).hash == digest
     assert service.issues.get(issue.id).status == IssueStatus.RESOLVED
     assert service.submit_sync(src) == []
 

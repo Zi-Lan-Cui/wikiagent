@@ -1,6 +1,6 @@
 """refine——wiki 自编译：以 wiki 页面自身为输入重跑编译链，刷新关系。
 
-与 compile/watch 的关键差异:
+与 compile/sync 的关键差异:
 - 输入是 wiki 内容页（页面自己更新自己）
 - index 视图排除当前页条目——否则检索必然选中自己 → 判重 →
   用页面摘要重写页面（信息损耗）
@@ -80,7 +80,7 @@ async def refine_all(
     failure_handler: SourceFailureHandler,
     on_page: Callable[[Path, object], None] | None = None,
 ) -> dict:
-    """逐页 refine（串行——index 读写约束，与 compile/watch 一致）。
+    """逐页 refine（串行——index 读写约束，与 compile/sync 一致）。
 
     Args:
         pipeline: 组装好的 refine 流水线。

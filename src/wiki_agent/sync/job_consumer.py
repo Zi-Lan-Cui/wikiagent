@@ -1,11 +1,11 @@
-"""消费端——Job handler：ingest 执行 + 成功核账凭证。
+"""消费端——源文件 Job handler：ingest 执行 + 成功凭证。
 
 串行由 JobWorker 保证（一次一个 claim）；编译会更新 wiki 与工作区溯源
 存档，并发会互相覆盖——串行是硬需求。
 
 本模块不写"完成账"也不报失败 issue：
 - 成功时把**本次实际读到的** digest+text 放进 JobResult.detail，由
-  JobOutcomeHandler 在终态事务提交后写 WatchState（成功才落账、先库后文件）。
+  JobOutcomeHandler 在终态事务提交后写 SyncState（成功才落账、先库后文件）。
   快照语义下读到的内容可以与提交时的 payload.digest 不同——那是合法的
   版本滞后（记实际入账的那版，新内容归下一次 sync 追），无需凭证校验；
 - 快照后文件消失 → no-op succeeded（从未入账，无账可清、不算失败）；
@@ -28,10 +28,10 @@ from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.watch.state import WatchState, digest_file_text
+from wiki_agent.sync.state import SyncState, digest_file_text
 from wiki_agent.wiki.frontmatter import split_frontmatter
 
-logger = get_logger("WATCH_CONSUMER")
+logger = get_logger("SYNC_CONSUMER")
 
 
 def clean_body_links(wiki: Path, slug: str) -> int:
@@ -63,13 +63,13 @@ def clean_body_links(wiki: Path, slug: str) -> int:
     return changed
 
 
-class WatchConsumer:
-    """watch Job 的执行体——compile/delete 两类 handler。"""
+class SyncConsumer:
+    """sync/重试 Job 的执行体——compile/delete 两类 handler。"""
 
     def __init__(
         self,
         pipeline: CompilePipeline,
-        state: WatchState,
+        state: SyncState,
         *,
         wiki_dir: str | Path,
         source_records_dir: str | Path | None = None,
@@ -84,12 +84,12 @@ class WatchConsumer:
         )
 
     async def handle_job(self, job: Job, progress) -> JobResult:
-        """执行一个 watch Job，返回业务结局（bug 才抛）。"""
+        """执行一个源文件 Job，返回业务结局（bug 才抛）。"""
         progress("load")
         if job.kind == "delete":
             return self._handle_delete(job)
         if job.kind != "compile":
-            raise ValueError(f"unsupported watch job: {job.kind}")
+            raise ValueError(f"unsupported source job: {job.kind}")
         return await self._handle_compile(job, progress)
 
     # delete
@@ -143,7 +143,7 @@ class WatchConsumer:
                 cleaned = clean_body_links(wiki, slug)
                 action = f"delete {slug}（清理 {cleaned} 处正文引用）"
             logger.info("  %s", action)
-            emit_event("watch_source_deleted", file=name, action=action)
+            emit_event("sync_source_deleted", file=name, action=action)
 
     # compile
 
@@ -160,14 +160,14 @@ class WatchConsumer:
         if read is None:
             # 快照后才消失：它从未进过账，无账可清也不该报失败——
             # succeeded 静默了结，下一次 sync 的差集会处理真正的删除
-            emit_event("watch_skipped", file=path.name, reason="gone_after_snapshot")
+            emit_event("sync_skipped", file=path.name, reason="gone_after_snapshot")
             return JobResult(status="succeeded")
         digest, text = read
 
         # 幂等短路（廉价保险）：该快照内容已有完成账，不再烧 LLM
         payload_digest = str(job.payload.get("digest") or "")
         if payload_digest and self._state.matches(str(path), payload_digest):
-            emit_event("watch_skipped", file=path.name, reason="already_ingested")
+            emit_event("sync_skipped", file=path.name, reason="already_ingested")
             return JobResult(status="succeeded", detail={})
 
         loader = DataLoader()
@@ -184,9 +184,9 @@ class WatchConsumer:
             return self._ingest_error_result(job, exc)
 
         if outcome.noop:
-            emit_event("watch_noop", file=path.name)
+            emit_event("sync_noop", file=path.name)
         else:
-            emit_event("watch_ingested", file=path.name, pages=len(outcome.pages_written))
+            emit_event("sync_ingested", file=path.name, pages=len(outcome.pages_written))
         return JobResult(status="succeeded", detail={"digest": digest, "text": text})
 
     def _ingest_error_result(self, job: Job, exc: IngestError) -> JobResult:
@@ -195,7 +195,7 @@ class WatchConsumer:
         logger.error("  ingest 失败 [%s]: %s", exc.stage.value, str(exc)[:200])
         # 事件是机器通道——全量不截断（截断是给人看的习惯）
         emit_event(
-            "watch_failure",
+            "sync_failure",
             file=name,
             stage=exc.stage.value,
             error=str(exc),

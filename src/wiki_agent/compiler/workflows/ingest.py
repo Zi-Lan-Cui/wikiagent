@@ -1,4 +1,4 @@
-"""单文件编译流水线——批量编译与 watch 消费共用的领域入口。
+"""单文件编译流水线——批量编译与 sync 消费共用的领域入口。
 
 一个源文件 → convert → chunk → extract → search → analyze → plan →
 execute → index。阶段失败带阶段信息冒出，流水线不决定失败策略，
@@ -58,7 +58,7 @@ class IngestOutcome:
 class CompilePipeline:
     """组装 convert→chunk→extract→integrate 并串行处理单个文件。
 
-    compile_folder 与 watch 消费者各持一个实例——组件（LLM/VLM 客户端）
+    compile_folder 与 sync 消费者各持一个实例——组件（LLM/VLM 客户端）
     构造一次，跨文件复用。
     """
 

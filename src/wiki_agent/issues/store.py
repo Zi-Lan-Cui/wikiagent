@@ -135,7 +135,7 @@ class IssueStore:
                 """
             )
             # schema v2：resource_path 冗余列——job resource 与 issue 来源的
-            # 等值匹配键（watch 提交让位于 open 失败、对账反查都靠它）。
+            # 等值匹配键（sync 挂账查待处理失败、手动通道反查都靠它）。
             # ALTER 幂等（OperationalError=duplicate column）；老行按
             # context.source_path → resource.path 顺序回填。
             try:
@@ -293,7 +293,7 @@ class IssueStore:
         return record
 
     def find_pending_failures(self, source_path: str) -> list[IssueRecord]:
-        """同一来源的待处理 ingestion 失败（open/blocked）——watch 提交让位查询。
+        """同一来源的待处理 ingestion 失败（open/blocked）——sync 挂账/重试资格查询。
 
         "已认领"不是 issue 状态——在途与否由 jobs 表的唯一索引表达；
         source_path 与 Job.resource 同一身份空间（绝对路径字符串）。

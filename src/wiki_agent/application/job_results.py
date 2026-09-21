@@ -1,9 +1,9 @@
 """统一的 Job 执行结果——handler 与 Worker 之间的返回值契约。
 
 handler（执行体）返回 JobResult 表达业务结局；只有 handler 自身的 bug
-才抛未捕获异常（由 Worker 归为 transient 走链式退避）。业务失败
+才抛未捕获异常（由 Worker 归为 transient 一笔账）。业务失败
 （IngestError）必须由 handler 捕获转成 failed/ingest_error 结果——
-终态与 issue/watch 的联动只发生在 Worker 的单事务提交里。
+终态与 issue/完成账的联动只发生在 Worker 的单事务提交里。
 
 error_type 决定失败进哪本账（手动重试模型：只记账，不排程）：
 - "ingest_error": source 级业务失败 → 同事务上报/合并 issue 中心，

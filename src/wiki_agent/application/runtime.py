@@ -23,9 +23,9 @@ from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.llm.factory import create_llm, create_vlm
+from wiki_agent.sync.job_consumer import SyncConsumer
+from wiki_agent.sync.state import SyncState
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
-from wiki_agent.watch.consumer import WatchConsumer
-from wiki_agent.watch.state import WatchState
 
 
 class AppRuntime:
@@ -43,11 +43,11 @@ class AppRuntime:
         self.source_records_dir = config.paths.resolved_source_records_dir()
         self.runs_dir = config.paths.resolved_runs_dir()
         self.issue_store = IssueStore(self.workspace)
-        self.watch_state = WatchState(config.paths.resolved_watch_dir() / "state.json")
+        self.sync_state = SyncState(config.paths.resolved_sync_dir() / "state.json")
         self.job_service = JobService(
             self.workspace,
             wiki_dir=self.wiki_dir,
-            watch_state=self.watch_state,
+            sync_state=self.sync_state,
         )
         self._migrate_legacy_retry_rows()
         self.issue_service = IssueService(self.issue_store)
@@ -80,15 +80,15 @@ class AppRuntime:
             source_records_dir=self.source_records_dir,
             compile_config=config.compile,
         )
-        self.watch_consumer = WatchConsumer(
+        self.sync_consumer = SyncConsumer(
             self.pipeline,
-            self.watch_state,
+            self.sync_state,
             wiki_dir=self.wiki_dir,
             source_records_dir=self.source_records_dir,
         )
         self.job_worker = JobWorker(self.job_service)
-        self.job_worker.register("compile", self.watch_consumer.handle_job)
-        self.job_worker.register("delete", self.watch_consumer.handle_job)
+        self.job_worker.register("compile", self.sync_consumer.handle_job)
+        self.job_worker.register("delete", self.sync_consumer.handle_job)
         self._mcp_connections: dict[str, Any] = {}
         self._bg_tasks: list[asyncio.Task] = []
         self._started = False

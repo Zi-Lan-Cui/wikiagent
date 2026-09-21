@@ -1,4 +1,4 @@
-"""WatchConsumer 测试——删除处理规则 + Job handler 快照凭证。
+"""SyncConsumer 测试——删除处理规则 + Job handler 快照凭证。
 
 直接运行:  .venv/bin/python test/test_consumer.py
 """
@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job
-from wiki_agent.watch.consumer import WatchConsumer, clean_body_links
-from wiki_agent.watch.state import WatchState, digest_file_text
+from wiki_agent.sync.job_consumer import SyncConsumer, clean_body_links
+from wiki_agent.sync.state import SyncState, digest_file_text
 
 
 def _job(resource: str, *, kind: str = "compile", digest: str = "") -> Job:
@@ -49,7 +49,7 @@ def _compile_env(tmp: Path, content: str = "编译器输入" * 8):
     f = src / "note.md"
     f.write_text(content, encoding="utf-8")
     wiki, records = _make_wiki(tmp)
-    state = WatchState(tmp / "state.json")
+    state = SyncState(tmp / "state.json")
     return f, wiki, records, state
 
 
@@ -61,7 +61,7 @@ def test_compile_success_returns_ack_evidence():
         f, wiki, records, state = _compile_env(tmp)
         digest, text = digest_file_text(f)
         pipeline = _FakePipeline()
-        consumer = WatchConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
+        consumer = SyncConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(f), digest=digest), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail == {"digest": digest, "text": text}
@@ -80,7 +80,7 @@ def test_compile_idempotent_short_circuit():
         digest, text = digest_file_text(f)
         state.record(str(f), digest, text)
         pipeline = _FakePipeline()
-        consumer = WatchConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
+        consumer = SyncConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(f), digest=digest), lambda s: None)
         assert result.status == "succeeded" and result.detail == {}
         assert pipeline.calls == 0
@@ -97,7 +97,7 @@ def test_compile_stale_snapshot_lags_and_acks():
         f, wiki, records, state = _compile_env(tmp)
         digest, text = digest_file_text(f)
         pipeline = _FakePipeline()
-        consumer = WatchConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
+        consumer = SyncConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(f), digest="0" * 64), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail == {"digest": digest, "text": text}
@@ -114,7 +114,7 @@ def test_compile_ingest_error_becomes_result_detail():
         digest, _ = digest_file_text(f)
         err = IngestError(IngestStage.PLAN, "plan 输出校验失败", source=f.name)
         pipeline = _FakePipeline(raises=err)
-        consumer = WatchConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
+        consumer = SyncConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(f), digest=digest), lambda s: None)
         assert result.status == "failed" and result.error_type == "ingest_error"
         assert result.detail["stage"] == "plan"
@@ -133,7 +133,7 @@ def test_compile_missing_file_is_noop():
         f, wiki, records, state = _compile_env(tmp)
         f.unlink()
         pipeline = _FakePipeline()
-        consumer = WatchConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
+        consumer = SyncConsumer(pipeline, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(f), digest="a" * 64), lambda s: None)
         assert result.status == "succeeded" and "digest" not in result.detail
         assert pipeline.calls == 0
@@ -147,7 +147,7 @@ def test_delete_resurrection_skips_cleanup():
     async def run():
         tmp = Path(tempfile.mkdtemp())
         f, wiki, records, state = _compile_env(tmp)
-        consumer = WatchConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
+        consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(f), kind="delete"), lambda s: None)
         assert result.status == "succeeded"
         assert (records / "note.md").exists(), "复活文件不得触发溯源清理"
@@ -163,7 +163,7 @@ def test_delete_job_cleans_provenance():
         f, wiki, records, state = _compile_env(tmp)
         ghost = tmp / "src" / "other.md"
         ghost.unlink(missing_ok=True)
-        consumer = WatchConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
+        consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(ghost), kind="delete"), lambda s: None)
         assert result.status == "succeeded"
         assert "other.md" not in (records / "note.md").read_text(encoding="utf-8")
@@ -209,8 +209,8 @@ def test_process_delete_removes_only_entry():
     async def run():
         tmp = Path(tempfile.mkdtemp())
         wiki, records = _make_wiki(tmp)
-        state = WatchState(tmp / "state.json")
-        consumer = WatchConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
+        state = SyncState(tmp / "state.json")
+        consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
         # 手工触发删除处理（pipeline 为 None——删除路径不碰它）
         consumer._process_delete("other.md")
         content = (records / "note.md").read_text(encoding="utf-8")
@@ -227,8 +227,8 @@ def test_process_delete_keeps_page_with_multiple_sources():
     async def run():
         tmp = Path(tempfile.mkdtemp())
         wiki, records = _make_wiki(tmp)
-        state = WatchState(tmp / "state.json")
-        consumer = WatchConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
+        state = SyncState(tmp / "state.json")
+        consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
         consumer._process_delete("note.md")  # 删了 note 后 sources 只剩 other——页面删
         # note.md 被删后 sources 列表只剩 other.md——页还在
         assert (records / "note.md").exists()

@@ -2,7 +2,7 @@
 
 装配根（runtime/job_worker）经 ``__getattr__`` 在首次访问时才导入：
 子模块（job_results、compile_batches…）被单独 import 时不应连带拉起
-watch/agent/llm 整个执行栈——那会形成 consumer→application→runtime→
+sync/agent/llm 整个执行栈——那会形成 consumer→application→runtime→
 consumer 的导入环，只在测试导入顺序凑巧时才不炸。
 """
 

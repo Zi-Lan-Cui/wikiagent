@@ -14,7 +14,7 @@ from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
 from wiki_agent.log import emit_event
-from wiki_agent.watch.state import WatchState
+from wiki_agent.sync.state import SyncState
 from wiki_agent.web.app import create_app
 
 
@@ -31,7 +31,7 @@ class _Runtime:
         self.job_service = JobService(
             self.workspace,
             wiki_dir=self.wiki_dir,
-            watch_state=WatchState(self.workspace / "watch" / "state.json"),
+            sync_state=SyncState(self.workspace / "watch" / "state.json"),
         )
         self.job_worker = JobWorker(self.job_service)
         self._worker_task = None

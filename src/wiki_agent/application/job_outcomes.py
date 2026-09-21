@@ -1,7 +1,7 @@
-"""Job 终态 → Issue 账本 / WatchState 的唯一联动点。
+"""Job 终态 → Issue 账本 / SyncState 的唯一联动点。
 
 由 JobService.complete_with_outcome 在终态事务内调用 apply(job, result, conn)：
-一切跨表写都并入该事务。WatchState 是 JSON 文件、参与不了 SQLite
+一切跨表写都并入该事务。SyncState 是 JSON 文件、参与不了 SQLite
 事务——apply 返回"提交后动作"清单，由 service 在 commit 之后立即执行
 （先库后文件：崩溃窗口靠 recover_stale 与 digest 幂等短路收敛，方向
 只能是"库里没记成就重做"）。
@@ -25,7 +25,7 @@ from wiki_agent.jobs import Job
 from wiki_agent.log import emit_event, get_logger
 
 if TYPE_CHECKING:
-    from wiki_agent.watch.state import WatchState
+    from wiki_agent.sync.state import SyncState
 
 logger = get_logger("JOB_OUTCOMES")
 
@@ -37,10 +37,10 @@ class JobOutcomeHandler:
         self,
         issue_store: IssueStore,
         *,
-        watch_state: WatchState | None = None,
+        sync_state: SyncState | None = None,
     ):
         self._issues = issue_store
-        self._watch_state = watch_state
+        self._sync_state = sync_state
 
     # 唯一入口：终态事务内调用
 
@@ -75,7 +75,7 @@ class JobOutcomeHandler:
     # 各分支
 
     def _on_succeeded(self, job: Job, result: JobResult) -> list[Callable[[], None]]:
-        state = self._watch_state
+        state = self._sync_state
         if state is None:
             return []
         if job.kind == "delete":
