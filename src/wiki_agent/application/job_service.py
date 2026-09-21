@@ -9,14 +9,15 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 from wiki_agent.application.job_outcomes import JobOutcomeHandler
 from wiki_agent.application.job_results import JobResult
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.config import RetryConfig
 from wiki_agent.issues import IssueService, IssueStore
-from wiki_agent.jobs import DuplicateInFlightJob, Job, JobStore
-from wiki_agent.watch.state import WatchState, digest_file_text
+from wiki_agent.jobs import DuplicateInFlightJob, Job, JobStore, SyncInProgress
+from wiki_agent.watch.state import WatchState, digest_file_text, scan_disk
 
 
 class JobService:
@@ -34,6 +35,8 @@ class JobService:
         self.workspace = Path(workspace)
         # issue retry 解析重试输入需要 wiki 根（wiki_page 型资源的定位）
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
+        # sync 快照对比需要完成账本
+        self.watch_state = watch_state
         self.store = JobStore(workspace)
         self.issues = IssueStore(workspace)
         self.issue_service = IssueService(self.issues)
@@ -225,6 +228,63 @@ class JobService:
             idempotency_key=f"issue-action:{issue_id}:{action}",
             issue_id=issue_id,
         )
+
+    # sync 快照
+
+    def sync_status(self, source_dir: str | Path) -> dict[str, int]:
+        """只读快照预演：dirty/removed 计数与在途闸状态——不提交任何东西。"""
+        if self.watch_state is None:
+            raise RuntimeError("sync_status 需要 watch_state")
+        disk = scan_disk(source_dir)
+        dirty, removed = self.watch_state.diff(disk)
+        return {
+            "dirty": len(dirty),
+            "removed": len(removed),
+            "in_flight": self.store.in_flight_for_kinds(("compile", "delete")),
+        }
+
+    def submit_sync(self, source_dir: str | Path) -> list[Job]:
+        """快照同步：本事务内的"磁盘 − 账本"之差即本次批次，整批入队。
+
+        语义契约：sync 互斥串行（compile/delete 有在途则 SyncInProgress），
+        执行中的新改动属于下一次快照——"账本落后一个版本"是合法状态而非
+        事故，因此执行体无需凭证校验，失败不写账即保持脏、再次 sync 即重试。
+        脏文件若背着 open 失败账则顺手挂账 issue_id（成功即销账）。
+        """
+        if self.watch_state is None:
+            raise RuntimeError("submit_sync 需要 watch_state")
+        disk = scan_disk(source_dir)
+        with self.store.database.transaction(immediate=True) as conn:
+            if self.store.in_flight_for_kinds(("compile", "delete"), _conn=conn) > 0:
+                raise SyncInProgress()
+            dirty, removed = self.watch_state.diff(disk)
+            batch = f"sync_{uuid4().hex}"
+            jobs: list[Job] = []
+            for path, digest in dirty:
+                pending = self.issues.find_pending_failures(path)
+                jobs.append(
+                    self.store.enqueue(
+                        kind="compile",
+                        resource=path,
+                        mode="sync",
+                        payload={"deleted": False, "digest": digest},
+                        idempotency_key=f"{batch}:{path}",
+                        issue_id=pending[0].id if pending else "",
+                        _conn=conn,
+                    )
+                )
+            for path in removed:
+                jobs.append(
+                    self.store.enqueue(
+                        kind="delete",
+                        resource=path,
+                        mode="sync",
+                        payload={"deleted": True, "digest": ""},
+                        idempotency_key=f"{batch}:{path}",
+                        _conn=conn,
+                    )
+                )
+        return jobs
 
     # 执行生命周期——Worker 独占
 

@@ -360,6 +360,18 @@ class JobStore:
             ).fetchone()
         return int(row["total"]) if row is not None else 0
 
+    def in_flight_for_kinds(
+        self, kinds: tuple[str, ...], *, _conn: sqlite3.Connection | None = None
+    ) -> int:
+        """指定 kind 的在途行数——sync 互斥闸（compile+delete 未空闲则不许新快照）。"""
+        marks = ",".join("?" for _ in kinds)
+        with self._tx(_conn) as db:
+            row = db.execute(
+                f"SELECT COUNT(*) AS total FROM jobs WHERE {_IN_FLIGHT_SQL} AND kind IN ({marks})",
+                tuple(kinds),
+            ).fetchone()
+        return int(row["total"]) if row is not None else 0
+
     def has_in_flight_job_by_issue(self, issue_id: str) -> bool:
         """该 issue 是否有在途挂账 job——"在处理"的唯一真相（jobs join，非镜像状态）。"""
         with self.database.connect() as db:

@@ -30,6 +30,7 @@ from wiki_agent.issues import (
     IssueNotFoundError,
     IssueStatus,
 )
+from wiki_agent.jobs import SyncInProgress
 from wiki_agent.log import setup_event_log
 from wiki_agent.wiki import WikiPageNotFound
 
@@ -197,6 +198,19 @@ def create_app(
             return {"count": len(tasks), "tasks": tasks}
         except (IssueAlreadyClaimedError, SourceUnavailableError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/sync", status_code=202)
+    async def trigger_sync() -> dict[str, Any]:
+        """快照同步：拍 materials 现状入队一批；上一次批次未跑完则 409。"""
+        try:
+            jobs = job_service.submit_sync(app_runtime.materials_dir)
+        except SyncInProgress as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"count": len(jobs), "tasks": [_job_task(job) for job in jobs]}
+
+    @app.get("/api/sync/status")
+    async def sync_status() -> dict[str, int]:
+        return job_service.sync_status(app_runtime.materials_dir)
 
     @app.get("/api/issues/{issue_id}")
     async def get_issue(issue_id: str) -> dict[str, Any]:
