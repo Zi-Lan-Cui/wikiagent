@@ -72,10 +72,8 @@ async def main(source_dir: str | None = None):
     logger.info("检测: 事件驱动（去抖+稳定性复读） + 周期全量扫描兜底")
     logger.info("事件流: %s", run_dir / "events.jsonl")
 
-    async with runtime:  # 拉起 worker / retry scheduler / reconciler
-        # 启动 reconcile: 先扫一轮存量变化（无变更则静默）
-        await watcher._poll_once()
-        await watcher.run()
+    async with runtime:  # 拉起 worker 与后台对账循环
+        await watcher.run()  # 首轮全量对账在 run 内（无变更则静默）
 
 
 if __name__ == "__main__":

@@ -5,13 +5,16 @@
 微调跳过）→ submit_job(绝对路径, deleted, digest)。
 
 纯生产者：本模块只提交意图（digest = 确认时读到的内容指纹），**不写
-"已处理"账**。state.hash/text 只在 job 成功后由核账入口写入（I4）——
-提交未确认期间，后续扫描对同内容的重复提交由在途 Job 的唯一索引幂等
-吸收（I1），确定性失败让位于 issue 重试通道（I6）。
+"已处理"账**。state.hash/text 只在 job 成功后由核账入口写入（I4）；
+state 条目本身只做存在名册（首次发现登记、delete 成功后清除），供删除
+检测与重启对账使用。提交未确认期间，后续扫描对同内容的重复提交由在途
+Job 的唯一索引幂等吸收（I1），确定性失败让位于 issue 重试通道（I6）。
 
-另有周期性全量扫描兜底: 事件可能溢出/丢失，全量扫描是安全网，
-进程重启后的首次 reconcile 也走它。删除检测由事件与回退两条路径共同
-覆盖；state 条目延迟到 delete job 成功后才清除（Job 失败可被重新发现）。
+另有周期性全量扫描兜底: 事件可能溢出/丢失，扫描是安全网，进程重启后的
+首轮也走它。扫描只做**发现**——把与账本有差异的路径喂进事件管线，去抖/
+变更门/稳定性复读的确认语义唯一存在于 _check_path 一处；定案前重复喂入
+由在途 Job 的唯一索引吸收，不另设确认现场。删除检测由事件与回退两条路径
+共同覆盖；state 条目延迟到 delete job 成功后才清除（Job 失败可被重新发现）。
 """
 
 from __future__ import annotations
@@ -35,8 +38,6 @@ from wiki_agent.watch.state import FileState, WatchState, digest_file_text
 
 logger = get_logger("WATCHER")
 
-# 回退路径的两段确认（轮询语义保留）
-_CONFIRM_ROUNDS = 2
 # 变更门: 相似度低于该值才算"大改动"（0-1）
 _MIN_SIMILARITY = 0.7
 
@@ -141,6 +142,7 @@ class FileWatcher:
             self._fallback,
         )
         try:
+            await self._poll_once()  # 首轮全量对账（重启后补发现事件丢失的变更）
             while True:
                 await asyncio.sleep(self._fallback)
                 await self._poll_once()
@@ -189,10 +191,10 @@ class FileWatcher:
         self._timers[path] = self._loop.call_later(self._settle, _fire)
 
     async def _check_path(self, path: str) -> None:
-        """settle 后检查单个路径——存在走变更门，不存在走删除。
+        """唯一的定案管线——存在走"内容门+稳定性复读"，不存在走删除。
 
-        稳定性窗口可能跨越一次回退扫描，sleep 之后必须重取 st 再变更
-        （否则会把扫描期间别的写入冲掉）。
+        事件去抖与回退扫描的发现都汇入这里；本方法不写任何账——
+        定案即提交 Job，完成账由 job 成功后的 outcome 落（I4）。
 
         Args:
             path: 文件路径。
@@ -209,8 +211,13 @@ class FileWatcher:
         if read is None:
             return
         digest1, text1 = read
+        # 名册登记（空条目）：删除检测凭"条目在账、磁盘不在"发现消失——
+        # 条目从首次存在起登记，到 delete job 成功后才清除；hash 仍只在
+        # 成功时由 outcome 写（I4 不受名册影响）
+        if path not in self._state.all_paths():
+            self._state.set(path, FileState())
+            self._state.save()
         st = self._state.get(path)
-        self._state.set(path, st)
 
         # 内容没变: touch/无意义写入 → 忽略
         if st.hash == digest1:
@@ -221,7 +228,7 @@ class FileWatcher:
             logger.info("  %s: 相似度高于阈值，跳过（微调）", p.name)
             return
 
-        # 稳定性复读——两段确认的事件版：隔 stability 内容不变才定案
+        # 稳定性复读——隔 stability 内容不变才定案（防半写文件）
         await asyncio.sleep(self._stability)
         read2 = digest_file_text(p)
         if read2 is None:
@@ -231,17 +238,19 @@ class FileWatcher:
             self._notify(path)
             return
 
-        st = self._state.get(path)
-        self._clear_pending(st)
-        self._state.set(path, st)
-        self._state.save()
         self._submit_job(str(p), False, digest1)
         logger.info("  变更提交: %s", p.name)
 
-    # 回退路径：全量扫描（轮询语义保留）
+    # 回退路径：全量扫描——只做发现，不做确认
 
     async def _poll_once(self) -> None:
-        """单轮全量扫描——事件溢出/丢失的安全网 + 启动 reconcile。"""
+        """单轮全量扫描——把与账本有差异的路径喂进定案管线。
+
+        确认语义（去抖、变更门、稳定性复读）全部在 _check_path；未定案
+        路径下轮会被再次喂入，重复提交由在途 Job 的唯一索引吸收（I1）。
+        本方法不写任何账。
+        """
+        self._loop = self._loop or asyncio.get_running_loop()
         current = self._scan_files()
         logger.debug("回退扫描: %d 个文件", len(current))
 
@@ -249,15 +258,9 @@ class FileWatcher:
             read = digest_file_text(path)
             if read is None:
                 continue
-            digest, text = read
-            st = self._state.get(str(path))
-            # 新文件不在 entries 里时 get 返回临时对象——
-            # 登记回去，否则 _confirm 对 pending 的修改在 save 时丢失
-            self._state.set(str(path), st)
-
-            if self._pass_change_gate(st, text, digest):
-                self._submit_job(str(path), False, digest)
-                logger.info("  变更提交: %s", path.name)
+            key = str(path)
+            if self._state.get(key).hash != read[0]:
+                self._notify(key)
 
         # 删除检测: state 里已不在磁盘上的文件 → 共享 _emit_delete。
         # 条目在 delete job 成功前保留——它是"这件事还没做完"的持久凭证，
@@ -266,8 +269,6 @@ class FileWatcher:
         for old in self._state.all_paths():
             if old not in disk:
                 await self._emit_delete(old)
-
-        self._state.save()
 
     # 扫描
 
@@ -287,32 +288,6 @@ class FileWatcher:
         return files
 
     # 判定
-
-    def _pass_change_gate(self, st: FileState, text: str, digest: str) -> bool:
-        """两段确认 + 变更门（回退路径用）。
-
-        返回 True → 提交 Job（大改动确认完成）；False → 忽略或仅更新 pending。
-
-        Args:
-            st: 文件状态。
-            text: 当前内容。
-            digest: 当前内容哈希。
-
-        Returns:
-            True 表示应提交。
-        """
-        # 新文件: 无已知状态 → 走两段确认（首次见存 pending）
-        if not st.hash:
-            return self._confirm(st, text, digest)
-
-        # 内容没变: touch/无意义写入 → 忽略
-        if digest == st.hash:
-            return False
-
-        # hash 变了: 相似度门——微调忽略，大改动走确认
-        if not self._is_major_change(st, text):
-            return False
-        return self._confirm(st, text, digest)
 
     async def _emit_delete(self, path: str) -> None:
         """删除事件共享实现——提交 delete Job（资源 = 绝对路径）。
@@ -342,35 +317,3 @@ class FileWatcher:
         if not st.text:
             return bool(text)
         return SequenceMatcher(None, st.text, text).ratio() < self._threshold
-
-    def _confirm(self, st: FileState, text: str, digest: str) -> bool:
-        """两段确认: 同一内容连续出现 _CONFIRM_ROUNDS 轮才通过。
-
-        Args:
-            st: 文件状态（pending 现场读写）。
-            text: 当前内容。
-            digest: 当前内容哈希。
-
-        Returns:
-            True 表示确认通过。
-        """
-        if st.pending_text is not None and st.pending_text == text:
-            st.pending_seen += 1
-            if st.pending_seen >= _CONFIRM_ROUNDS:
-                self._clear_pending(st)
-                return True
-            return False
-
-        st.pending_text = text
-        st.pending_seen = 1
-        return False
-
-    def _clear_pending(self, st: FileState) -> None:
-        """确认定案——清两段确认现场。
-
-        只清 pending，不写 hash/text：完成账本唯一写入口是
-        WatchState.record（job 成功后由 outcome 落），这是 I4 的
-        生产侧表达。
-        """
-        st.pending_text = None
-        st.pending_seen = 0
