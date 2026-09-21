@@ -11,7 +11,7 @@ from pathlib import Path
 from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.job_service import JobService
 from wiki_agent.application.job_worker import JobWorker
-from wiki_agent.application.retry_scheduler import RetryScheduler
+from wiki_agent.application.reconcile import MaintenanceLoop
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 from wiki_agent.issues.models import IssueAlreadyClaimedError
@@ -167,8 +167,8 @@ def test_transient_chain_blocks_watch_resubmit(tmp_path: Path):
     assert chain is not None and chain.payload.get("attempt_no") == 2
 
 
-def test_scheduler_submits_only_due_and_produces_jobs(tmp_path: Path):
-    """调度器：到期/有策略/无在途才排队；永不执行 pipeline。"""
+def test_maintenance_submits_only_due_and_produces_jobs(tmp_path: Path):
+    """维护循环：到期/有策略/无在途才排队；永不执行 pipeline。"""
     from datetime import UTC, datetime, timedelta
 
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
@@ -188,14 +188,13 @@ def test_scheduler_submits_only_due_and_produces_jobs(tmp_path: Path):
         },
     )
 
-    scheduler = RetryScheduler(service)
-    submitted = asyncio.run(scheduler.run_due())
-    assert submitted == 1  # 未到期的不动
+    loop = MaintenanceLoop(service)
+    assert loop.run_once()["retry_submitted"] == 1  # 未到期的不动
     active = service.store.active_by_resource(str(source.resolve()))
     assert active is not None and active.issue_id == due.id
     assert service.issues.get(due.id).status == IssueStatus.PROCESSING
     # 再来一轮：在途挡住重复排队
-    assert asyncio.run(scheduler.run_due()) == 0
+    assert loop.run_once()["retry_submitted"] == 0
 
 
 def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
@@ -221,10 +220,8 @@ def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
 # 对账
 
 
-def test_reconcile_orphan_processing_returns_open(tmp_path: Path):
+def test_maintenance_orphan_processing_returns_open(tmp_path: Path):
     """issue 挂 processing 而无在途 job（终态联动崩溃）→ 回落 open。"""
-    from wiki_agent.application.reconcile import Reconciler
-
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     source = tmp_path / "note.md"
     source.write_text("内容" * 10, encoding="utf-8")
@@ -233,15 +230,13 @@ def test_reconcile_orphan_processing_returns_open(tmp_path: Path):
     # 模拟"job 到终态但联动丢失"：直接改行不走 complete_with_outcome
     service.store.update(job.id, status="failed")
 
-    result = Reconciler(service).run_once()
+    result = MaintenanceLoop(service).run_once()
     assert result["orphans"] == 1
     assert service.issues.get(issue.id).status == IssueStatus.OPEN
 
 
-def test_reconcile_relinks_active_job_to_failure(tmp_path: Path):
+def test_maintenance_relinks_active_job_to_failure(tmp_path: Path):
     """升级前遗留的无账在途 compile 行 → 按资源对上 open 失败账。"""
-    from wiki_agent.application.reconcile import Reconciler
-
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     source = tmp_path / "note.md"
     source.write_text("内容" * 10, encoding="utf-8")
@@ -249,16 +244,14 @@ def test_reconcile_relinks_active_job_to_failure(tmp_path: Path):
     assert job.issue_id == ""
     issue = _failure_issue(service, source)
 
-    result = Reconciler(service).run_once()
+    result = MaintenanceLoop(service).run_once()
     assert result["relinked"] == 1
     assert service.store.get(job.id).issue_id == issue.id
 
 
-def test_reconcile_recovers_stale_running(tmp_path: Path):
+def test_maintenance_recovers_stale_running(tmp_path: Path):
     """超时无心跳的 running 回队（进程崩溃自愈的第一环）。"""
     from datetime import UTC, datetime, timedelta
-
-    from wiki_agent.application.reconcile import Reconciler
 
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     job = service.submit_watch_change("/stale", digest="d")
@@ -267,7 +260,7 @@ def test_reconcile_recovers_stale_running(tmp_path: Path):
     with service.store.database.transaction(immediate=True) as conn:
         conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (stale_time, job.id))
 
-    result = Reconciler(service, max_age_seconds=300).run_once()
+    result = MaintenanceLoop(service, max_age_seconds=300).run_once()
     assert result["recovered"] == 1
     assert service.store.get(job.id).status == "queued"
 

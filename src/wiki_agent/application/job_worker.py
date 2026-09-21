@@ -103,24 +103,3 @@ class JobWorker:
 
     def stop(self) -> None:
         self._stopped.set()
-
-
-def periodic(interval: float, fn: Callable[[], Awaitable[object]], *, name: str = ""):  # noqa: ANN201
-    """把 async 周期任务包成可 create_task 的常驻循环（scheduler/对账共用）。"""
-
-    async def loop() -> None:
-        while True:
-            await asyncio.sleep(interval)
-            try:
-                await fn()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - 周期任务不因单次失败退出
-                logger.warning(
-                    "周期任务 %s 失败: %s: %s",
-                    name or getattr(fn, "__qualname__", fn),
-                    type(exc).__name__,
-                    str(exc)[:200],
-                )
-
-    return loop()

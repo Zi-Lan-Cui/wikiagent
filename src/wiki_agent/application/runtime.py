@@ -1,9 +1,8 @@
 """Application runtime: the single composition root for a Wiki Agent process.
 
-统一执行模型的装配点：Job 队列 + Worker（注册 compile/delete/issue_action
-全部 handler）+ RetryScheduler + Reconciler 在这里组装。宿主进程
-（web serve / watch 脚本）start() 即拥有完整后台循环；纯 CLI 交互进程
-start() 同样安全——jobs 表是唯一队列，谁领取都收敛。
+统一执行模型的装配点：Job 队列 + Worker + MaintenanceLoop（对账/到期重试）
+在这里组装。宿主进程（web serve / watch 脚本）start() 即拥有完整后台循环；
+纯 CLI 交互进程 start() 同样安全——jobs 表是唯一队列，谁领取都收敛。
 """
 
 from __future__ import annotations
@@ -16,8 +15,7 @@ from typing import Any
 from wiki_agent.agent import ReActAgent
 from wiki_agent.application.job_service import JobService
 from wiki_agent.application.job_worker import JobWorker
-from wiki_agent.application.reconcile import Reconciler
-from wiki_agent.application.retry_scheduler import RetryScheduler
+from wiki_agent.application.reconcile import MaintenanceLoop
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, load_config
 from wiki_agent.events import AgentHook, EventPublisher
@@ -92,8 +90,7 @@ class AppRuntime:
         self.job_worker = JobWorker(self.job_service)
         self.job_worker.register("compile", self.watch_consumer.handle_job)
         self.job_worker.register("delete", self.watch_consumer.handle_job)
-        self.retry_scheduler = RetryScheduler(self.job_service)
-        self.reconciler = Reconciler(self.job_service)
+        self.maintenance = MaintenanceLoop(self.job_service)
         self._mcp_connections: dict[str, Any] = {}
         self._bg_tasks: list[asyncio.Task] = []
         self._started = False
@@ -131,7 +128,7 @@ class AppRuntime:
         return cls(config, hooks=hooks)
 
     async def start(self) -> None:
-        """MCP 连接 + 执行后台循环（worker/scheduler/reconciler）一次性拉起。"""
+        """MCP 连接 + 执行后台循环（worker/维护循环）一次性拉起。"""
         if self._started:
             return
         if self.config.mcp.servers:
@@ -143,16 +140,14 @@ class AppRuntime:
             )
         self._bg_tasks = [
             asyncio.create_task(self.job_worker.run(), name="wiki-runtime:job-worker"),
-            asyncio.create_task(self.retry_scheduler.run(), name="wiki-runtime:retry-scheduler"),
-            asyncio.create_task(self.reconciler.run(), name="wiki-runtime:reconciler"),
+            asyncio.create_task(self.maintenance.run(), name="wiki-runtime:maintenance"),
         ]
         self._started = True
 
     async def close(self) -> None:
         """停后台循环、关 MCP、释放 runtime 资源。"""
         self.job_worker.stop()
-        self.retry_scheduler.stop()
-        self.reconciler.stop()
+        self.maintenance.stop()
         tasks, self._bg_tasks = self._bg_tasks, []
         for task in tasks:
             task.cancel()
