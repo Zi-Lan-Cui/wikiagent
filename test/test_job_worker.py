@@ -68,12 +68,12 @@ def _service_with_state(tmp_path):
     return service, state
 
 
-def test_transient_failure_creates_backoff_chain(tmp_path):
-    """handler 抛未预期异常 → failed 行 + 退避链 job；不产生 issue 噪音。"""
+def test_transient_failure_reports_issue_without_chain(tmp_path):
+    """handler 抛未预期异常 → failed 终态 + run_failure issue；无后继排程。"""
     from wiki_agent.issues import IssueKind, IssueStore
 
     service = JobService(tmp_path)
-    job = service.submit(kind="compile", resource="/x", mode="watch")
+    job = service.submit(kind="compile", resource="/x", mode="sync")
     worker = JobWorker(service)
 
     async def crash(current, progress):
@@ -82,44 +82,11 @@ def test_transient_failure_creates_backoff_chain(tmp_path):
     worker.register("compile", crash)
     asyncio.run(worker.run_once())
 
-    failed = service.store.get(job.id)
-    assert failed.status == "failed"
-    chain = service.store.in_flight_by_resource("/x")
-    assert chain is not None and chain.status == "queued"
-    assert chain.next_run_at and chain.id != job.id
-    assert chain.payload.get("retry_of") == job.id and chain.payload.get("attempt_no") == 2
-    assert IssueStore(tmp_path).list(kinds={IssueKind.RUN_FAILURE}) == []
-
-
-def test_transient_exhausted_escalates_to_issue(tmp_path):
-    """链式重试跑满 source_max_attempts → 无新链，run_failure issue 上报。"""
-    from wiki_agent.config import RetryConfig
-    from wiki_agent.issues import IssueKind, IssueStore
-
-    max_attempts = RetryConfig().source_max_attempts
-    service = JobService(tmp_path)
-    first = service.submit(kind="compile", resource="/y", mode="watch")
-    # 唯一在途：/y 在途时排不出第二条——先让首行终态（链式世界里的正常传递）
-    service.store.update(first.id, status="failed")
-    service.store.enqueue(
-        kind="compile",
-        resource="/y",
-        mode="watch",
-        payload={"attempt_no": max_attempts},  # 已是最后一代
-        next_run_at="2000-01-01T00:00:00+00:00",
-    )
-    worker = JobWorker(service)
-
-    async def crash(current, progress):
-        raise RuntimeError("still broken")
-
-    worker.register("compile", crash)
-    asyncio.run(worker.run_once())  # 领最后一代 → 失败即耗尽，无新链
-
-    assert service.store.in_flight_by_resource("/y") is None
+    assert service.store.get(job.id).status == "failed"
+    assert service.store.in_flight_by_resource("/x") is None, "手动模型不排链"
     issues = IssueStore(tmp_path).list(kinds={IssueKind.RUN_FAILURE})
     assert len(issues) == 1
-    assert "still broken" in issues[0].summary
+    assert "boom" in issues[0].summary
 
 
 def test_succeeded_writes_watch_state_after_commit(tmp_path):

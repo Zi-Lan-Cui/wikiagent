@@ -1,7 +1,7 @@
 """Job/Issue 数据层契约回归——唯一在途索引、迁移、claim 过滤、_conn 同事务。"""
 
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from wiki_agent.issues.models import IssueDraft, IssueKind
@@ -79,9 +79,8 @@ def test_legacy_duplicate_active_rows_migrated(tmp_path: Path):
     store = JobStore(tmp_path)
     assert store.get("job_old1").status == "queued"
     assert store.get("job_old2").status == "cancelled"
-    # 新列已补上且默认空
+    # issue_id 列已补上且默认空
     assert store.get("job_old1").issue_id == ""
-    assert store.get("job_old1").next_run_at == ""
     try:
         store.enqueue(kind="delete", resource="/dup", mode="watch")
         assert False, "迁移后唯一索引应生效"
@@ -109,22 +108,17 @@ def test_try_finalize_cas(tmp_path: Path):
     assert got.status == "succeeded" and got.error == ""
 
 
-def test_claim_next_filters_kinds_and_due(tmp_path: Path):
+def test_claim_next_filters_kinds(tmp_path: Path):
     store = JobStore(tmp_path)
-    future = (datetime.now(UTC) + timedelta(seconds=300)).isoformat()
-    store.enqueue(kind="compile", resource="/c", mode="watch", next_run_at=future)
-    deleted = store.enqueue(kind="delete", resource="/d", mode="watch")
+    compiled = store.enqueue(kind="compile", resource="/c", mode="sync")
+    deleted = store.enqueue(kind="delete", resource="/d", mode="sync")
     assert store.claim_next(kinds={"issue_action"}) is None
+    # 只领注册过的类型
+    assert store.claim_next(kinds={"delete"}).id == deleted.id
     claimed = store.claim_next(kinds={"compile", "delete"})
-    assert claimed is not None and claimed.id == deleted.id
+    assert claimed is not None and claimed.id == compiled.id
     assert claimed.status == "running" and claimed.attempts == 1
-    # 未到期 compile 不被领取；把到期时间改到过去后可领
     assert store.claim_next(kinds={"compile"}) is None
-    with store.database.transaction(immediate=True) as conn:
-        conn.execute(
-            "UPDATE jobs SET next_run_at = ? WHERE resource = '/c'", ("2000-01-01T00:00:00+00:00",)
-        )
-    assert store.claim_next(kinds={"compile"}).resource == "/c"
 
 
 # _conn 同事务线程化

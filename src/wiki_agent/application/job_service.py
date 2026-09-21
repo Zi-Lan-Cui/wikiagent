@@ -1,20 +1,19 @@
 """Unified durable job submission and lifecycle API.
 
 Job 是唯一执行事实来源：提交入口收口在这里，终态写入只有一个点
-（complete_with_outcome——jobs 行、transient 链、issue 联动同事务）。
+（complete_with_outcome——jobs 行与 issue 联动同事务、带 CAS）。
 """
 
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from wiki_agent.application.job_outcomes import JobOutcomeHandler
 from wiki_agent.application.job_results import JobResult
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
-from wiki_agent.config import RetryConfig
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.jobs import DuplicateInFlightJob, Job, JobStore, SyncInProgress
 from wiki_agent.watch.state import WatchState, digest_file_text, scan_disk
@@ -27,7 +26,6 @@ class JobService:
         self,
         workspace: str | Path,
         *,
-        retry_config: RetryConfig | None = None,
         outcomes: JobOutcomeHandler | None = None,
         watch_state: WatchState | None = None,
         wiki_dir: str | Path | None = None,
@@ -40,12 +38,7 @@ class JobService:
         self.store = JobStore(workspace)
         self.issues = IssueStore(workspace)
         self.issue_service = IssueService(self.issues)
-        self.retry_config = retry_config or RetryConfig()
-        self.outcomes = outcomes or JobOutcomeHandler(
-            self.issues,
-            watch_state=watch_state,
-            retry_config=self.retry_config,
-        )
+        self.outcomes = outcomes or JobOutcomeHandler(self.issues, watch_state=watch_state)
         self.recovered_jobs = self.store.recover_stale()
 
     # 提交
@@ -59,7 +52,6 @@ class JobService:
         payload: dict[str, object] | None = None,
         idempotency_key: str | None = None,
         issue_id: str = "",
-        next_run_at: str = "",
         _conn: sqlite3.Connection | None = None,
     ) -> Job:
         return self.store.enqueue(
@@ -69,7 +61,6 @@ class JobService:
             payload=payload,
             idempotency_key=idempotency_key,
             issue_id=issue_id,
-            next_run_at=next_run_at,
             _conn=_conn,
         )
 
@@ -296,14 +287,12 @@ class JobService:
         return self.store.update(job_id, stage=stage)
 
     def complete_with_outcome(self, job: Job, result: JobResult) -> Job:
-        """唯一终态提交点：jobs 行、transient 链、issue 联动同事务。
+        """唯一终态提交点：jobs 行与 issue 联动同事务。
 
         终态写入带 CAS（仅 running 可翻转）：行已被取代/取消时迟到写静默
-        跳过——不排链、不联动、不记账，返回行的现状。
-        返回链式重试的新 job（如有）。WatchState 写文件在事务提交后执行。
+        跳过——不联动、不记账，返回行的现状。WatchState 写文件在提交后执行。
+        手动重试模型下这里不产生任何后继 job：失败就是终态 + 一笔账。
         """
-        post_commit: list = []
-        chain: Job | None = None
         with self.store.database.transaction(immediate=True) as conn:
             won = self.store.try_finalize(
                 job.id,
@@ -318,31 +307,10 @@ class JobService:
             )
             if not won:
                 return self.store.get(job.id, _conn=conn)
-            # transient 且未耗尽 → 先写终态再排链（同 resource，旧行已不占唯一索引）
-            if (
-                result.status == "failed"
-                and result.error_type == "transient"
-                and job.chain_attempt < self.retry_config.source_max_attempts
-            ):
-                chain = self.store.enqueue(
-                    kind=job.kind,
-                    resource=job.resource,
-                    mode=job.mode,
-                    payload={
-                        **job.payload,
-                        "retry_of": job.id,
-                        "attempt_no": job.chain_attempt + 1,
-                    },
-                    issue_id=job.issue_id,
-                    next_run_at=self._transient_backoff(job.chain_attempt),
-                    _conn=conn,
-                )
-                # 链仍在途——本轮 transient 不产生 issue 联动
-            else:
-                post_commit += self.outcomes.apply(job, result, conn)
+            post_commit = self.outcomes.apply(job, result, conn)
         for action in post_commit:
             action()
-        return chain if chain is not None else self.store.get(job.id)
+        return self.store.get(job.id)
 
     def cancel_terminal(self, job: Job) -> None:
         """进程取消路径：终态 cancelled（CAS，不二次写）。
@@ -351,11 +319,6 @@ class JobService:
         因此无需任何 issue/state 联动，一次条件写就是全部工作。
         """
         self.store.try_finalize(job.id, status="cancelled", stage="cancelled")
-
-    def _transient_backoff(self, attempts: int) -> str:
-        delay = self.retry_config.source_base_delay_seconds * (2 ** max(0, attempts - 1))
-        delay = min(delay, self.retry_config.source_max_delay_seconds)
-        return (datetime.now(UTC) + timedelta(seconds=delay)).isoformat()
 
     # 读取
 

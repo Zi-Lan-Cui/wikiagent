@@ -7,6 +7,7 @@ import json
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -263,6 +264,27 @@ class IssueStore:
                 "SELECT * FROM issues WHERE fingerprint = ?", (fingerprint,)
             ).fetchone()
         return self._row_to_record(row) if row is not None else None
+
+    def next_retry_snapshot(self, draft: IssueDraft, error: str) -> JsonObject:
+        """手动模型的一次失败记账快照。
+
+        按指纹找既存账：attempts+1、last_error 刷新；unavailable_reason
+        等人注标记原样保留。不写任何排程字段——重试由人触发。
+        """
+        prev = self.get_by_fingerprint(issue_fingerprint(draft))
+        merged: JsonObject = dict(prev.retry) if prev is not None else {}
+        raw = merged.get("attempts")
+        attempts = raw + 1 if isinstance(raw, int) else 1
+        merged.update({"policy": "manual", "attempts": attempts, "last_error": error[:500]})
+        return merged
+
+    def report_failure(
+        self, draft: IssueDraft, error: str, *, _conn: sqlite3.Connection | None = None
+    ) -> IssueRecord:
+        """失败上报：先合成 retry 快照（IssueDraft 冻结，replace 出新实例），再合并入账。"""
+        return self.report(
+            replace(draft, retry=self.next_retry_snapshot(draft, error)), _conn=_conn
+        )
 
     def require(self, issue_id: str) -> IssueRecord:
         record = self.get(issue_id)

@@ -65,20 +65,20 @@ class JobStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     idempotency_key TEXT UNIQUE,
-                    issue_id TEXT,
-                    next_run_at TEXT
+                    issue_id TEXT
                 );
                 """
             )
             # schema v2：老库补列（幂等，OperationalError=duplicate column）
-            for ddl in (
-                "ALTER TABLE jobs ADD COLUMN issue_id TEXT",
-                "ALTER TABLE jobs ADD COLUMN next_run_at TEXT",
-            ):
-                try:
-                    db.execute(ddl)
-                except sqlite3.OperationalError:
-                    pass
+            try:
+                db.execute("ALTER TABLE jobs ADD COLUMN issue_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+            # schema v3：手动重试模型——排程列作废，老库的 next_run_at 删除
+            try:
+                db.execute("ALTER TABLE jobs DROP COLUMN next_run_at")
+            except sqlite3.OperationalError:
+                pass
             # 唯一索引前置迁移：既有重复在途行按 resource 保留最旧，其余转终态让位
             db.execute(
                 f"""
@@ -118,7 +118,6 @@ class JobStore:
         payload: dict[str, object] | None = None,
         idempotency_key: str | None = None,
         issue_id: str = "",
-        next_run_at: str = "",
         _conn: sqlite3.Connection | None = None,
     ) -> Job:
         """入队一个 Job。
@@ -145,8 +144,8 @@ class JobStore:
                 db.execute(
                     """INSERT INTO jobs
                     (id, kind, resource, mode, status, payload_json, created_at, updated_at,
-                     idempotency_key, issue_id, next_run_at)
-                    VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)""",
+                     idempotency_key, issue_id)
+                    VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)""",
                     (
                         job_id,
                         kind,
@@ -157,7 +156,6 @@ class JobStore:
                         now,
                         idempotency_key,
                         issue_id or None,
-                        next_run_at or None,
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -171,20 +169,12 @@ class JobStore:
         status: str | None = None,
         stage: str | None = None,
         error: str | None = None,
-        next_run_at: str | None = None,
         _conn: sqlite3.Connection | None = None,
     ) -> Job:
         fields, values = [], []
-        for name, value in (
-            ("status", status),
-            ("stage", stage),
-            ("error", error),
-            ("next_run_at", next_run_at),
-        ):
+        for name, value in (("status", status), ("stage", stage), ("error", error)):
             if value is None:
                 continue
-            if name == "next_run_at":
-                value = value or None  # "" 表示立即可领 → 存 NULL
             fields.append(f"{name} = ?")
             values.append(value)
         fields.append("updated_at = ?")
@@ -250,7 +240,7 @@ class JobStore:
             return self.get(job_id, _conn=db)
 
     def claim_next(self, *, kinds: set[str] | None = None) -> Job | None:
-        """按注册类型领取到期的排队 Job（next_run_at 未到期则跳过）。
+        """按注册类型领取最早排队的 Job。
 
         kinds 过滤是多进程共库下的分工边界：各进程只领自己注册了 handler
         的类型。空集合 = 没有任何注册类型，不领任何活（不是"不过滤"）；
@@ -258,9 +248,8 @@ class JobStore:
         """
         if kinds is not None and not kinds:
             return None
-        now = _now()
-        where = "status = 'queued' AND (next_run_at IS NULL OR next_run_at <= ?)"
-        values: list[object] = [now]
+        where = "status = 'queued'"
+        values: list[object] = []
         if kinds is not None:
             marks = ",".join("?" for _ in kinds)
             where += f" AND kind IN ({marks})"
@@ -290,7 +279,7 @@ class JobStore:
             ]
             for job_id in stale:
                 db.execute(
-                    "UPDATE jobs SET status='queued', next_run_at=NULL, updated_at=? WHERE id=?",
+                    "UPDATE jobs SET status='queued', updated_at=? WHERE id=?",
                     (_now(), job_id),
                 )
         return len(stale)
@@ -416,5 +405,4 @@ class JobStore:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             issue_id=str(row["issue_id"] or ""),
-            next_run_at=str(row["next_run_at"] or ""),
         )
