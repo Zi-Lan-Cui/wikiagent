@@ -264,8 +264,8 @@ class PathsConfig(BaseSettings):
         """返回编译、精炼、重试和重组的运行存档根目录。"""
         return self.resolved_workspace_dir() / "runs"
 
-    def resolved_watch_dir(self) -> Path:
-        """返回 watch 持久化状态目录。"""
+    def resolved_sync_dir(self) -> Path:
+        """返回 sync 完成账目录（历史目录名 watch，兼容既有账本）。"""
         return self.resolved_workspace_dir() / "watch"
 
     def _resolve(self, configured: Path | None, default_name: str) -> Path:

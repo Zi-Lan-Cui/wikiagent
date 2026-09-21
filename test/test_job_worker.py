@@ -36,7 +36,7 @@ def test_worker_with_no_registrations_claims_nothing(tmp_path):
 # 终态写入与 outcome 联动
 
 
-class _FakeWatchState:
+class _FakeSyncState:
     def __init__(self):
         self.records: list = []
         self.drops: list = []
@@ -55,8 +55,8 @@ class _FakeWatchState:
 def _service_with_state(tmp_path):
     from wiki_agent.application.job_service import JobService as _JS
 
-    state = _FakeWatchState()
-    service = _JS(tmp_path, watch_state=state)
+    state = _FakeSyncState()
+    service = _JS(tmp_path, sync_state=state)
     return service, state
 
 
@@ -81,7 +81,7 @@ def test_transient_failure_reports_issue_without_chain(tmp_path):
     assert "boom" in issues[0].summary
 
 
-def test_succeeded_writes_watch_state_after_commit(tmp_path):
+def test_succeeded_writes_sync_state_after_commit(tmp_path):
     """成功 outcome：commit 后 record(digest/text)；delete 成功 drop+save。"""
     service, state = _service_with_state(tmp_path)
     service.submit(kind="compile", resource="/src/a.md", mode="sync")

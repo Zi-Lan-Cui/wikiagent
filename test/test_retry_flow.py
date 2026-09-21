@@ -14,8 +14,8 @@ from wiki_agent.application.job_service import JobService
 from wiki_agent.application.job_worker import JobWorker
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
-from wiki_agent.watch.consumer import WatchConsumer
-from wiki_agent.watch.state import WatchState, digest_file_text
+from wiki_agent.sync.job_consumer import SyncConsumer
+from wiki_agent.sync.state import SyncState, digest_file_text
 
 
 def _failure_issue(service: JobService, source: Path):
@@ -74,9 +74,9 @@ def test_retry_attaches_to_occupant_and_converges(tmp_path: Path):
 
 
 def test_failed_job_does_not_mark_hash(tmp_path: Path):
-    """sync 快照下 ingest 失败：WatchState 无记录；issue 记账等人，不排程。"""
-    state = WatchState(tmp_path / "watch" / "state.json")
-    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki", watch_state=state)
+    """sync 快照下 ingest 失败：SyncState 无记录；issue 记账等人，不排程。"""
+    state = SyncState(tmp_path / "watch" / "state.json")
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki", sync_state=state)
     src = tmp_path / "materials"
     source = src / "note.md"
     source.parent.mkdir(parents=True)
@@ -87,7 +87,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
             raise IngestError(IngestStage.PLAN, "校验失败", source=source.name)
 
     (tmp_path / "wiki" / "concepts").mkdir(parents=True)
-    consumer = WatchConsumer(
+    consumer = SyncConsumer(
         _FailingPipeline(),
         state,
         wiki_dir=tmp_path / "wiki",
@@ -108,9 +108,9 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
 
 
 def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
-    """重试成功：job succeeded 与 issue RESOLVED、WatchState 落账同批生效。"""
-    state = WatchState(tmp_path / "watch" / "state.json")
-    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki", watch_state=state)
+    """重试成功：job succeeded 与 issue RESOLVED、SyncState 落账同批生效。"""
+    state = SyncState(tmp_path / "watch" / "state.json")
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki", sync_state=state)
     source = tmp_path / "note.md"
     source.write_text("重试输入", encoding="utf-8")
     digest, text = digest_file_text(source)

@@ -1,4 +1,4 @@
-"""Durable execution jobs shared by watch, CLI and Web entry points.
+"""Durable execution jobs shared by sync, CLI and Web entry points.
 
 Job 是唯一执行事实来源。关键不变式：
 - 同一 resource 至多一个在途（in-flight = queued/running）Job——由部分

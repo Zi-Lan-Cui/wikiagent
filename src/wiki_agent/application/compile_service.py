@@ -187,7 +187,7 @@ async def compile_sources(
         log("无文件可处理", "ERROR")
         raise ValueError(f"source 目录中没有可处理的文件: {source_dir}")
 
-    # 2-5. 逐文件: 单文件流水线（compile/watch 共用入口）
+    # 2-5. 逐文件: 单文件流水线（compile/sync 共用入口）
     pipeline = CompilePipeline(
         llm=llm,
         vlm=vlm,

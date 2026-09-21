@@ -1,7 +1,7 @@
-"""watch 状态持久层——记录每个文件的"已处理"账。
+"""sync 完成账持久层——记录每个文件的"已处理"账。
 
 hash/text 只在 job 成功后由 record 写入；本模块同时提供 sync 快照的
-两半：scan_disk（磁盘现状指纹表）与 WatchState.diff（现状 − 账本 =
+两半：scan_disk（磁盘现状指纹表）与 SyncState.diff（现状 − 账本 =
 待同步/待清理）。sync 语义下"账本没有的内容"即脏，失败不写账 →
 失败内容保持脏 → 再次 sync 天然就是重试。
 """
@@ -85,7 +85,7 @@ class FileState:
         )
 
 
-class WatchState:
+class SyncState:
     """state.json 的读写封装——原子写，读失败回空（首次运行无状态文件）。"""
 
     def __init__(self, path: str | Path):

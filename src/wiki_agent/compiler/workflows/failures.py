@@ -1,6 +1,6 @@
 """compile/refine 共用的 source 级失败处理。
 
-统一把流水线失败转换成一条 source 级待处理事项；watch 的失败经 Job
+统一把流水线失败转换成一条 source 级待处理事项；sync/重试的失败经 Job
 结果由应用层的终态联动收口，不走这里的 handler。
 """
 
@@ -74,7 +74,7 @@ def failure_diagnostics(error: Exception) -> tuple[dict[str, Any], str]:
 
 
 class SourceFailureHandler:
-    """将 compile/refine/watch 失败写入统一问题库。"""
+    """将 compile/refine 失败写入统一问题库。"""
 
     def __init__(
         self,

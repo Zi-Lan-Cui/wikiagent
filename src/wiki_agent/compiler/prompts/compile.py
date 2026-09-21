@@ -1,4 +1,4 @@
-"""compile 模式 prompt——全量共享（watch 模式同用）。
+"""compile 模式 prompt——全量共享（sync 编译同用）。
 
 refine 模式继承本模块、只覆写 plan。
 """

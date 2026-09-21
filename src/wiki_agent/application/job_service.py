@@ -15,7 +15,7 @@ from wiki_agent.application.job_results import JobResult
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.jobs import DuplicateInFlightJob, Job, JobStore, SyncInProgress
-from wiki_agent.watch.state import WatchState, digest_file_text, scan_disk
+from wiki_agent.sync.state import SyncState, digest_file_text, scan_disk
 
 
 class JobService:
@@ -26,18 +26,18 @@ class JobService:
         workspace: str | Path,
         *,
         outcomes: JobOutcomeHandler | None = None,
-        watch_state: WatchState | None = None,
+        sync_state: SyncState | None = None,
         wiki_dir: str | Path | None = None,
     ):
         self.workspace = Path(workspace)
         # issue retry 解析重试输入需要 wiki 根（wiki_page 型资源的定位）
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         # sync 快照对比需要完成账本
-        self.watch_state = watch_state
+        self.sync_state = sync_state
         self.store = JobStore(workspace)
         self.issues = IssueStore(workspace)
         self.issue_service = IssueService(self.issues)
-        self.outcomes = outcomes or JobOutcomeHandler(self.issues, watch_state=watch_state)
+        self.outcomes = outcomes or JobOutcomeHandler(self.issues, sync_state=sync_state)
         self.recovered_jobs = self.store.recover_stale()
 
     # 提交
@@ -118,10 +118,10 @@ class JobService:
 
     def sync_status(self, source_dir: str | Path) -> dict[str, int]:
         """只读快照预演：dirty/removed 计数与在途闸状态——不提交任何东西。"""
-        if self.watch_state is None:
-            raise RuntimeError("sync_status 需要 watch_state")
+        if self.sync_state is None:
+            raise RuntimeError("sync_status 需要 sync_state")
         disk = scan_disk(source_dir)
-        dirty, removed = self.watch_state.diff(disk)
+        dirty, removed = self.sync_state.diff(disk)
         return {
             "dirty": len(dirty),
             "removed": len(removed),
@@ -136,13 +136,13 @@ class JobService:
         事故，因此执行体无需凭证校验，失败不写账即保持脏、再次 sync 即重试。
         脏文件若背着 open 失败账则顺手挂账 issue_id（成功即销账）。
         """
-        if self.watch_state is None:
-            raise RuntimeError("submit_sync 需要 watch_state")
+        if self.sync_state is None:
+            raise RuntimeError("submit_sync 需要 sync_state")
         disk = scan_disk(source_dir)
         with self.store.database.transaction(immediate=True) as conn:
             if self.store.in_flight_for_kinds(("compile", "delete"), _conn=conn) > 0:
                 raise SyncInProgress()
-            dirty, removed = self.watch_state.diff(disk)
+            dirty, removed = self.sync_state.diff(disk)
             batch = f"sync_{uuid4().hex}"
             jobs: list[Job] = []
             for path, digest in dirty:
@@ -184,7 +184,7 @@ class JobService:
         """唯一终态提交点：jobs 行与 issue 联动同事务。
 
         终态写入带 CAS（仅 running 可翻转）：行已被取代/取消时迟到写静默
-        跳过——不联动、不记账，返回行的现状。WatchState 写文件在提交后执行。
+        跳过——不联动、不记账，返回行的现状。SyncState 写文件在提交后执行。
         手动重试模型下这里不产生任何后继 job：失败就是终态 + 一笔账。
         """
         with self.store.database.transaction(immediate=True) as conn:

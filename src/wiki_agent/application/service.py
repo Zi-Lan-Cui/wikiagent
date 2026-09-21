@@ -24,7 +24,7 @@ from wiki_agent.wiki import (
 
 if TYPE_CHECKING:
     # 装配根仅作类型注解（from __future__ import annotations）——真导入会把
-    # 整个执行栈（watch/agent/llm/…）拖进本模块的 import 环。
+    # 整个执行栈（sync/agent/llm/…）拖进本模块的 import 环。
     from wiki_agent.application.runtime import AppRuntime
 
 
