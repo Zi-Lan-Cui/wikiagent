@@ -219,15 +219,14 @@ async def run_batches(
         state["updated_at"] = _now()
         _write_json_atomic(state_path, state)
         try:
-            run_dir = await compile_sources(
+            result = await compile_sources(
                 batch_dir, wiki_dir=wiki_dir, source_checkpoint=checkpoint
             )
-            run_record = _read_json(run_dir / "run.json")
-            record["run_dir"] = str(run_dir)
-            record["commit"] = run_record.get("commit")
-            record["failed_source_ids"] = _failed_source_ids(run_dir, source_batch)
+            record["run_dir"] = str(result.run_dir)
+            record["commit"] = result.commit
+            record["failed_source_ids"] = _failed_source_ids(result.run_dir, source_batch)
             record["finished_at"] = _now()
-            if run_record.get("status") == "committed" and not record["failed_source_ids"]:
+            if result.committed and not record["failed_source_ids"]:
                 record["status"] = "committed"
                 for source_id in record["source_ids"]:
                     state["source_state"][source_id].update(
@@ -242,7 +241,7 @@ async def run_batches(
                     )
             else:
                 record["status"] = "failed"
-                record["error"] = f"run status: {run_record.get('status')}"
+                record["error"] = "run 未提交：scan error 触发全批回撤"
         except BaseException as exc:
             record.update(
                 {

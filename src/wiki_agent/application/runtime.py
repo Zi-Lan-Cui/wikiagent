@@ -26,6 +26,7 @@ from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.sync.job_consumer import SyncConsumer
 from wiki_agent.sync.state import SyncState
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
+from wiki_agent.versioning import WikiGitManager
 
 
 class AppRuntime:
@@ -44,10 +45,13 @@ class AppRuntime:
         self.runs_dir = config.paths.resolved_runs_dir()
         self.issue_store = IssueStore(self.workspace)
         self.sync_state = SyncState(config.paths.resolved_sync_dir() / "state.json")
+        # wiki 版本面：HEAD=最近已结算状态，sync/retry 逐 job 提交由 consumer 执行
+        self.git_manager = WikiGitManager(self.wiki_dir)
         self.job_service = JobService(
             self.workspace,
             wiki_dir=self.wiki_dir,
             sync_state=self.sync_state,
+            source_records_dir=self.source_records_dir,
         )
         self._migrate_legacy_retry_rows()
         self.issue_service = IssueService(self.issue_store)
@@ -85,6 +89,7 @@ class AppRuntime:
             self.sync_state,
             wiki_dir=self.wiki_dir,
             source_records_dir=self.source_records_dir,
+            git=self.git_manager,
         )
         self.job_worker = JobWorker(self.job_service)
         self.job_worker.register("compile", self.sync_consumer.handle_job)

@@ -1,13 +1,11 @@
-"""WikiGitManager 的版本生命周期测试。"""
+"""WikiGitManager Git 原语层测试——restore/commit/revert 与批尾注。"""
 
 import asyncio
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
-from wiki_agent.versioning import GitWorkspaceDirty, WikiGitManager
+from wiki_agent.versioning import WikiGitManager
 
 
 def test_tool_tasks_are_cancelled_and_joined():
@@ -70,7 +68,7 @@ def test_initializes_a_standalone_repository_when_wiki_is_not_managed(tmp_path: 
     wiki.mkdir()
     (wiki / "index.md").write_text("# Notes\n", encoding="utf-8")
 
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
+    manager = WikiGitManager(wiki)
 
     assert manager.repo_root == wiki
     assert (wiki / ".git").is_dir()
@@ -95,54 +93,63 @@ def test_ignored_wiki_uses_a_nested_repository(tmp_path: Path):
     (repo / ".gitignore").write_text("/wiki/\n", encoding="utf-8")
     (wiki / "index.md").write_text("# Private notes\n", encoding="utf-8")
 
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
+    manager = WikiGitManager(wiki)
 
     assert manager.repo_root == wiki
     assert (wiki / ".git").is_dir()
     assert manager.status() == []
 
 
-def test_commit_and_rollback_create_revert_commit(tmp_path: Path):
+def test_commit_all_then_revert_restores_content(tmp_path: Path):
     repo, wiki = _repo(tmp_path)
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
-    run = manager.begin("r1", mode="refine")
+    manager = WikiGitManager(wiki)
+    assert (repo / ".git" / "wiki-agent.lock").exists() is False  # 锁已随 run 容器退役
     (wiki / "index.md").write_text("new\n", encoding="utf-8")
     (wiki / "concepts").mkdir()
     (wiki / "concepts" / "new.md").write_text("page\n", encoding="utf-8")
-    scan_report = tmp_path / "runs" / "refine_r1" / "scan_report.md"
-    scan_report.parent.mkdir(parents=True, exist_ok=True)
-    scan_report.write_text("# scan\n", encoding="utf-8")
-    committed = manager.commit(
-        run,
-        message="wiki: test",
-        metadata={"scan_errors": 0},
-        scan_report=scan_report,
-    )
-    assert committed.status == "committed"
-    assert committed.commit != committed.before_commit
-    assert (committed.run_dir / "run.json").exists()
 
-    rollback_commit = manager.rollback(committed.commit, run_id=committed.run_id)
-    assert rollback_commit
+    commit = manager.commit_all("sync: note.md")
+    assert commit
+    assert manager.is_clean()
+
+    rollback = manager.revert_commit(commit)
+    assert rollback != commit
     assert (wiki / "index.md").read_text(encoding="utf-8") == "old\n"
     assert not (wiki / "concepts" / "new.md").exists()
-    assert (repo / ".git" / "wiki-agent.lock").exists() is False
 
 
-def test_abort_restores_tracked_and_removes_new_files(tmp_path: Path):
+def test_commit_all_returns_none_without_changes(tmp_path: Path):
+    """noop 成功（plan 空/内容未变）不造空提交。"""
     _, wiki = _repo(tmp_path)
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
-    run = manager.begin("r2", mode="restructure")
+    manager = WikiGitManager(wiki)
+    assert manager.commit_all("sync: unchanged.md") is None
+
+
+def test_restore_reverts_tracked_and_removes_untracked_debris(tmp_path: Path):
+    _, wiki = _repo(tmp_path)
+    manager = WikiGitManager(wiki)
     (wiki / "index.md").write_text("broken\n", encoding="utf-8")
     (wiki / "new.md").write_text("untracked page\n", encoding="utf-8")
     unicode_page = wiki / "sources" / "数据类型及色彩空间变换.md"
     unicode_page.parent.mkdir()
     unicode_page.write_text("untracked unicode page\n", encoding="utf-8")
-    manager.abort(run, reason="scan error")
+
+    manager.restore()
+
     assert (wiki / "index.md").read_text(encoding="utf-8") == "old\n"
     assert not (wiki / "new.md").exists()
     assert not unicode_page.exists()
-    assert run.status == "aborted"
+    assert not (wiki / "sources").exists()  # 残骸空目录一并清理
+    assert manager.is_clean()
+
+
+def test_restore_tolerates_dirty_start_no_lock_no_check(tmp_path: Path):
+    """人禁止改 wiki：未提交内容=残骸，restore 无条件收敛，不存在 dirty 拒绝。"""
+    _, wiki = _repo(tmp_path)
+    (wiki / "index.md").write_text("user wiki change\n", encoding="utf-8")
+    manager = WikiGitManager(wiki)
+    manager.restore()  # 不抛
+    assert (wiki / "index.md").read_text(encoding="utf-8") == "old\n"
 
 
 def test_change_summary_includes_untracked_and_deleted_files(tmp_path: Path):
@@ -150,73 +157,78 @@ def test_change_summary_includes_untracked_and_deleted_files(tmp_path: Path):
     (wiki / "removed.md").write_text("to remove\n", encoding="utf-8")
     subprocess.run(["git", "add", "wiki/removed.md"], cwd=wiki.parent, check=True)
     subprocess.run(["git", "commit", "-qm", "add removable"], cwd=wiki.parent, check=True)
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
-    run = manager.begin("summary1", mode="compile")
+    manager = WikiGitManager(wiki)
+    since = manager.head()
     (wiki / "index.md").write_text("changed\n", encoding="utf-8")
     (wiki / "removed.md").unlink()
     (wiki / "new.md").write_text("new\n", encoding="utf-8")
 
-    summary = manager.change_summary(run)
+    summary = manager.change_summary(since)
     assert summary["added"] == ["wiki/new.md"]
     assert summary["modified"] == ["wiki/index.md"]
     assert summary["deleted"] == ["wiki/removed.md"]
-    manager.abort(run, reason="test cleanup")
+    manager.restore()
 
 
-def test_abort_stale_requires_dead_lock_and_restores_run(tmp_path: Path):
+def test_working_patch_captures_debris_without_moving_state(tmp_path: Path):
+    """失败残骸快照：新文件内容要进 patch（intent-to-add），且拍完仍脏。"""
     _, wiki = _repo(tmp_path)
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
-    run = manager.begin("stale1", mode="refine")
-    (wiki / "index.md").write_text("partial\n", encoding="utf-8")
-    (wiki / "new.md").write_text("half-built\n", encoding="utf-8")
-    manager._release_lock()
-    lock = manager._lock_path
-    lock.write_text("pid=9999999\nstarted_at=old\n", encoding="utf-8")
+    manager = WikiGitManager(wiki)
+    (wiki / "concepts").mkdir()
+    (wiki / "concepts" / "partial.md").write_text("half-written\n", encoding="utf-8")
+    (wiki / "index.md").write_text("edited\n", encoding="utf-8")
 
-    aborted = manager.abort_stale(run.run_id)
-    assert aborted.status == "aborted"
-    assert (wiki / "index.md").read_text(encoding="utf-8") == "old\n"
-    assert not (wiki / "new.md").exists()
-    assert not lock.exists()
+    patch = manager.working_patch()
+
+    assert "half-written" in patch
+    assert "edited" in patch
+    assert not manager.is_clean()  # 只借 index 拍快照，不结算
+    manager.restore()
+    assert manager.is_clean()
 
 
-def test_abort_stale_rejects_live_lock(tmp_path: Path):
+def test_commit_handles_unicode_paths(tmp_path: Path):
     _, wiki = _repo(tmp_path)
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
-    run = manager.begin("live1", mode="refine")
-    try:
-        with pytest.raises(Exception, match="仍由"):
-            manager.abort_stale(run.run_id)
-    finally:
-        manager.abort(run, reason="test cleanup")
-
-
-def test_begin_rejects_dirty_wiki_but_allows_unrelated_project_change(tmp_path: Path):
-    repo, wiki = _repo(tmp_path)
-    (repo / "src.txt").write_text("user change\n", encoding="utf-8")
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
-    run = manager.begin("r3", mode="compile")
-    manager.abort(run, reason="test")
-    (wiki / "index.md").write_text("user wiki change\n", encoding="utf-8")
-    with pytest.raises(GitWorkspaceDirty):
-        manager.begin("r4", mode="compile")
-
-
-def test_commit_handles_unicode_paths_without_status_mismatch(tmp_path: Path):
-    _, wiki = _repo(tmp_path)
-    manager = WikiGitManager(wiki, run_root=tmp_path / "runs")
-    run = manager.begin("unicode", mode="compile")
+    manager = WikiGitManager(wiki)
     page = wiki / "概念" / "中文页面.md"
     page.parent.mkdir()
     page.write_text("page\n", encoding="utf-8")
-    scan_report = tmp_path / "runs" / "compile_unicode" / "scan_report.md"
-    scan_report.parent.mkdir(parents=True, exist_ok=True)
-    scan_report.write_text("# scan\n", encoding="utf-8")
 
-    committed = manager.commit(
-        run,
-        message="wiki: unicode",
-        scan_report=scan_report,
-    )
-    assert committed.status == "committed"
-    assert "wiki/概念/中文页面.md" in committed.changed_files
+    commit = manager.commit_all("sync: 中文.md")
+    assert commit
+    assert "wiki/概念/中文页面.md" in manager.diff_commit(commit)
+
+
+def test_batch_trailer_selects_commits_and_revert_batch_undoes_all(tmp_path: Path):
+    """撤销一批 = 按 `Batch:` 尾注选段 revert——纯历史操作。"""
+    _, wiki = _repo(tmp_path)
+    manager = WikiGitManager(wiki)
+    (wiki / "a.md").write_text("A\n", encoding="utf-8")
+    manager.commit_all("sync: a.md", body="Batch: sync_batch1")
+    (wiki / "b.md").write_text("B\n", encoding="utf-8")
+    manager.commit_all("sync: b.md", body="Batch: sync_batch1")
+    # 之后的另一批不被波及
+    (wiki / "c.md").write_text("C\n", encoding="utf-8")
+    later = manager.commit_all("sync: c.md", body="Batch: sync_batch2")
+    assert later
+
+    commits = manager.batch_commits("sync_batch1")
+    assert len(commits) == 2
+
+    rollback = manager.revert_batch("sync_batch1")
+    assert rollback != later
+    assert not (wiki / "a.md").exists()
+    assert not (wiki / "b.md").exists()
+    assert (wiki / "c.md").exists()
+    assert manager.is_clean()
+
+
+def test_revert_batch_rejects_unknown_batch(tmp_path: Path):
+    import pytest
+
+    from wiki_agent.versioning import GitManagerError
+
+    _, wiki = _repo(tmp_path)
+    manager = WikiGitManager(wiki)
+    with pytest.raises(GitManagerError, match="找不到批次"):
+        manager.revert_batch("sync_missing")

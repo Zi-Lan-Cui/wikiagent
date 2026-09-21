@@ -33,7 +33,10 @@ def _job(resource: str, *, kind: str = "compile", digest: str = "") -> Job:
 class _FakePipeline:
     def __init__(self, outcome=None, raises=None):
         self.calls = 0
-        self._outcome = outcome or SimpleNamespace(noop=False, pages_written=["p"])
+        # extract=None：档案页缺席（如构造返回 None），git=None 时不落 commit/source_page
+        self._outcome = outcome or SimpleNamespace(
+            noop=False, pages_written=["p"], extract=None
+        )
         self._raises = raises
 
     async def ingest_one(self, raw_file):
@@ -156,7 +159,8 @@ def test_delete_resurrection_skips_cleanup():
 
 
 def test_delete_job_cleans_provenance():
-    """文件确实消失 → 清理规则执行（other.md 从 sources 移除）。"""
+    """文件确实消失 → 只规划清理清单：handler 执行中不落盘档案改写，
+    档案页与账本同点在成功结算时写入（落盘行为见 test_job_worker 结算用例）。"""
 
     async def run():
         tmp = Path(tempfile.mkdtemp())
@@ -166,7 +170,16 @@ def test_delete_job_cleans_provenance():
         consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
         result = await consumer.handle_job(_job(str(ghost), kind="delete"), lambda s: None)
         assert result.status == "succeeded"
-        assert "other.md" not in (records / "note.md").read_text(encoding="utf-8")
+        ops = result.detail["archive_ops"]
+        assert ops == [
+            {
+                "action": "rewrite",
+                "path": str(records / "note.md"),
+                "content": ops[0]["content"],
+            }
+        ]
+        assert "other.md" not in ops[0]["content"]
+        assert "other.md" in (records / "note.md").read_text(encoding="utf-8"), "执行中不动档案"
 
     asyncio.run(run())
 
@@ -203,39 +216,44 @@ def test_clean_body_links_replaces_aliases():
     assert "Note" in content  # 别名保留
 
 
-def test_process_delete_removes_only_entry():
-    """sources 页只剩被删文件 → 页删除。"""
+def test_plan_archive_cleanup_keeps_page_with_multiple_sources():
+    """sources 页还剩其他文件 → 规划 rewrite：仅移除条目，页面文件不动。"""
 
-    async def run():
-        tmp = Path(tempfile.mkdtemp())
-        wiki, records = _make_wiki(tmp)
-        state = SyncState(tmp / "state.json")
-        consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
-        # 手工触发删除处理（pipeline 为 None——删除路径不碰它）
-        consumer._process_delete("other.md")
-        content = (records / "note.md").read_text(encoding="utf-8")
-        # other 从 sources 列表移除
-        assert "other.md" not in content
-        assert "note.md" in content
-
-    asyncio.run(run())
+    tmp = Path(tempfile.mkdtemp())
+    wiki, records = _make_wiki(tmp)
+    state = SyncState(tmp / "state.json")
+    consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
+    # 删了 note 后 sources 只剩 other——页还在
+    ops = consumer._plan_archive_cleanup("note.md")
+    assert ops == [{"action": "rewrite", "path": str(records / "note.md"), "content": ops[0]["content"]}]
+    assert "note.md" not in ops[0]["content"]
+    assert "other.md" in ops[0]["content"]
+    assert "note.md" in (records / "note.md").read_text(encoding="utf-8"), "规划阶段不落盘"
 
 
-def test_process_delete_keeps_page_with_multiple_sources():
-    """sources 页还剩其他文件 → 保留页仅移除条目。"""
+def test_plan_archive_cleanup_unlinks_page_and_cleans_links_now():
+    """sources 只剩被删文件 → unlink 进清单；正文引用清理属 wiki scope，立即执行。"""
 
-    async def run():
-        tmp = Path(tempfile.mkdtemp())
-        wiki, records = _make_wiki(tmp)
-        state = SyncState(tmp / "state.json")
-        consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
-        consumer._process_delete("note.md")  # 删了 note 后 sources 只剩 other——页面删
-        # note.md 被删后 sources 列表只剩 other.md——页还在
-        assert (records / "note.md").exists()
-        content = (records / "note.md").read_text(encoding="utf-8")
-        assert "note.md" not in content  # 条目移除
+    tmp = Path(tempfile.mkdtemp())
+    wiki, records = _make_wiki(tmp)
+    (records / "solo.md").write_text(
+        '---\ntype: source\ntitle: "Solo"\nsummary: "s"\ngoal: "g"\n'
+        'related: []\nsources: ["solo.pdf"]\n'
+        "---\n# Solo\n\n摘要。\n",
+        encoding="utf-8",
+    )
+    (wiki / "concepts" / "ref.md").write_text(
+        "---\n\n# Ref\n\n见 [[sources/solo|Solo 档案]]。\n", encoding="utf-8"
+    )
+    state = SyncState(tmp / "state.json")
+    consumer = SyncConsumer(None, state, wiki_dir=wiki, source_records_dir=records)
 
-    asyncio.run(run())
+    ops = consumer._plan_archive_cleanup("solo.pdf")
+
+    assert ops == [{"action": "unlink", "path": str(records / "solo.md")}]
+    assert (records / "solo.md").exists()  # unlink 等结算
+    assert "[[sources/solo" not in (wiki / "concepts" / "ref.md").read_text(encoding="utf-8")
+    assert "Solo 档案" in (wiki / "concepts" / "ref.md").read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

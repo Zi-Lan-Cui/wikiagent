@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -37,16 +38,9 @@ def test_run_batches_records_commit_and_resume_skips_committed(tmp_path: Path, m
         calls.append(copied)
         run_dir = wiki_dir / ".logs" / "runs" / f"run-{len(calls)}"
         run_dir.mkdir(parents=True)
-        (run_dir / "run.json").write_text(
-            json.dumps(
-                {
-                    "status": "committed",
-                    "commit": f"commit-{len(calls)}",
-                }
-            ),
-            encoding="utf-8",
+        return SimpleNamespace(
+            run_dir=run_dir, commit=f"commit-{len(calls)}", committed=True
         )
-        return run_dir
 
     monkeypatch.setattr(compile_batches, "compile_sources", fake_compile)
     state_path = tmp_path / "state.json"
@@ -127,12 +121,11 @@ def test_run_with_failed_source_is_not_marked_committed(tmp_path: Path, monkeypa
     async def fake_compile(source_dir: Path, *, wiki_dir: Path, source_checkpoint=None):
         run_dir = wiki_dir / ".logs" / "runs" / "run-1"
         run_dir.mkdir(parents=True)
-        (run_dir / "run.json").write_text(json.dumps({"status": "committed"}), encoding="utf-8")
         (run_dir / "events.jsonl").write_text(
             json.dumps({"event": "ingest_failure", "file": "source-001__note.md"}) + "\n",
             encoding="utf-8",
         )
-        return run_dir
+        return SimpleNamespace(run_dir=run_dir, commit="commit-1", committed=True)
 
     monkeypatch.setattr(compile_batches, "compile_sources", fake_compile)
     state = asyncio.run(
@@ -163,8 +156,7 @@ def test_resume_rejects_changed_source_content(tmp_path: Path, monkeypatch):
     async def fake_compile(source_dir: Path, *, wiki_dir: Path, source_checkpoint=None):
         run_dir = wiki_dir / ".logs" / "runs" / "run-1"
         run_dir.mkdir(parents=True)
-        (run_dir / "run.json").write_text(json.dumps({"status": "committed"}), encoding="utf-8")
-        return run_dir
+        return SimpleNamespace(run_dir=run_dir, commit="commit-1", committed=True)
 
     monkeypatch.setattr(compile_batches, "compile_sources", fake_compile)
     state_path = tmp_path / "state.json"

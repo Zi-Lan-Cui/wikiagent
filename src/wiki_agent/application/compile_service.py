@@ -6,9 +6,11 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from wiki_agent.compiler.extraction import write_source_page
 from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import load_config
@@ -37,6 +39,16 @@ _LEVEL_MAP = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class CompileRunResult:
+    """一次批量编译的结算事实——运行目录 + Git 结论。"""
+
+    run_dir: Path
+    commit: str
+    committed: bool
+    """False = scan error 全批回撤（残骸已恢复，什么都没进历史）。"""
+
+
 def log(msg: str, level: str = "INFO") -> None:
     """终端 + 文件双通道——文件写入统一走 wiki_agent logger。
 
@@ -58,10 +70,12 @@ async def compile_sources(
     wiki_dir: Path | None = None,
     progress: Callable[..., Awaitable[None]] | None = None,
     source_checkpoint: Callable[[str, str], Awaitable[None] | None] | None = None,
-) -> Path:
+) -> CompileRunResult:
     """编译主流程——加载 → 逐文件流水线 → 汇总 → 质量扫描。
 
     这是可复用的函数入口；脚本入口和 CLI `/compile` 都调用它。
+    Git 走批协议：入口 pre-reset 收敛残骸到 HEAD，全批成功才一次 commit，
+    scan error 则整批 restore（②期批编译并入 sync 后此壳与 run_state 一起退役）。
 
     Args:
         source_dir: 原始资料文件夹；省略时使用 ``WIKI_MATERIALS_DIR``。
@@ -110,16 +124,12 @@ async def compile_sources(
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     _run_log = RUN_DIR / "run.log"
 
-    # Git dirty 检查必须发生在本次 run.log/events.jsonl 创建之前；否则
-    # 编译器自己的审计文件会被误判为用户修改，导致临时 Wiki 或未配置
-    # .gitignore 的 Wiki 无法启动。begin 只创建 checkpoint 和锁，不依赖
-    # LLM，因此先建立事务边界，再接入运行日志。
-    git_manager = WikiGitManager(wiki_dir, run_root=runs_dir)
-    git_run = None
-    try:
-        git_run = git_manager.begin(_run_ts, mode="compile")
-    except Exception:
-        raise
+    # 批协议入口：pre-reset 把上一轮崩溃/中断的残骸收敛到 HEAD，
+    # 基线在此定格。wiki 机器管理、人禁止改动，restore 无条件安全；
+    # 审计文件（run.log/events.jsonl）在 scope 外，不受影响。
+    git_manager = WikiGitManager(wiki_dir)
+    git_manager.restore()
+    head_before = git_manager.head()
 
     # wiki_agent logger 接入本运行日志——否则 LLM 错误/页面生成失败
     # 只走 stderr（lastResort），运行结束后证据消失（审计 E1）
@@ -153,8 +163,7 @@ async def compile_sources(
         vlm = create_vlm(cfg.vlm, cfg.retry)
     except Exception as e:
         log(f"LLM 初始化失败: {e}", "ERROR")
-        if git_run is not None:
-            git_manager.abort(git_run, reason=f"initialization failed: {e}")
+        # 还没动过 wiki（基线即 HEAD），无残骸可撤，直接失败
         raise RuntimeError(f"LLM 初始化失败: {e}") from e
     log(f"   LLM: {llm.model_id}  |  VLM: {vlm.model_id}")
 
@@ -262,12 +271,12 @@ async def compile_sources(
 
         try:
             outcome = await pipeline.ingest_one(raw_file)
-        except asyncio.CancelledError as exc:
+        except asyncio.CancelledError:
             if source_checkpoint is not None:
                 result = source_checkpoint(raw_file.name, "interrupted")
                 if asyncio.iscoroutine(result):
                     await result
-            git_manager.abort(git_run, reason=f"compile cancelled: {exc}")
+            git_manager.restore()  # 中断即撤残骸，HEAD 仍是上一个已结算状态
             raise
         except IngestError as e:
             if source_checkpoint is not None:
@@ -284,6 +293,11 @@ async def compile_sources(
                 data={"source": raw_file.name, "stage": e.stage.value},
             )
             continue
+
+        # 档案页落盘（批侧结算点，sync 侧在 outcome）：extract 只构造
+        # 内容，scan_source 需要读到本轮档案，故闸门检查前先写入
+        if outcome.extract is not None and outcome.extract.source_page is not None:
+            write_source_page(source_records_dir, outcome.extract.source_page)
 
         # 单 source 局部闸门：先检查本次 source 的档案页和生成页；
         # 失败归属当前 source，交给统一异常队列。scan_wiki 只在批次末尾
@@ -477,11 +491,11 @@ async def compile_sources(
 
     # 人可读的本次编译差异：Git 的 patch/changed_files 仍保留为机器和审计
     # 用，这份报告额外解释“改了什么”和“哪些 source 没有产出页面”。
-    change_summary = git_manager.change_summary(git_run)
+    change_summary = git_manager.change_summary(head_before)
     diff_lines = [
-        f"# Compile diff: `{git_run.run_id}`",
+        f"# Compile diff: `{_run_ts}`",
         "",
-        f"- 基线 commit: `{git_run.before_commit}`",
+        f"- 基线 commit: `{head_before}`",
         f"- Wiki: `{wiki_dir}`",
         "",
     ]
@@ -508,25 +522,20 @@ async def compile_sources(
     diff_lines.append("")
     (RUN_DIR / "compile_diff.md").write_text("\n".join(diff_lines), encoding="utf-8")
     log(f"编译 diff 报告: {RUN_DIR / 'compile_diff.md'}")
+    commit = ""
     if error_issues:
-        git_manager.abort(git_run, reason=f"scan errors: {len(error_issues)}")
+        git_manager.restore()  # 全批回撤：残骸不是历史，失败证据在 run.log/events.jsonl
         log("Git: 已恢复到编译前版本", "ERROR")
     else:
         await report("git", current=0, total=1, message="正在提交 Wiki 变更")
-        committed = git_manager.commit(
-            git_run,
-            message=f"wiki: compile {git_run.run_id}",
-            scan_report=RUN_DIR / "scan_report.md",
-            diff_report=RUN_DIR / "compile_diff.md",
-            metadata={
-                "files_loaded": files_loaded,
-                "pages_created": pages_created,
-                "skipped_files": skipped_files,
-                "scan_errors": len(error_issues),
-                "scan_warnings": len(warn_issues),
-            },
-        )
-        log(f"Git: 已提交 {committed.commit}")
+        commit = git_manager.commit_all(
+            f"wiki: compile {RUN_DIR.name}",
+            body=(
+                f"Loaded: {files_loaded}, pages: {pages_created}, "
+                f"skipped: {len(skipped_files)}, scan_warnings: {len(warn_issues)}"
+            ),
+        ) or ""
+        log(f"Git: 已提交 {commit}" if commit else "Git: 无页面变更，未产生提交")
     await report("done", current=1, total=1, message="编译完成")
 
     # 输出 wiki 目录树
@@ -540,4 +549,8 @@ async def compile_sources(
         if len(files) > 20:
             log(f"{ind}  ... 共 {len(files)} 个文件")
 
-    return RUN_DIR
+    return CompileRunResult(
+        run_dir=RUN_DIR,
+        commit=commit,
+        committed=not error_issues,
+    )

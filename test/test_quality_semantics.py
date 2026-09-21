@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from wiki_agent.agent.commands import CommandContext, CompileCommand, ScanCommand
 from wiki_agent.conversation import Session
@@ -170,7 +171,7 @@ def test_compile_command_calls_reusable_compile_entry(tmp_path: Path, monkeypatc
 
     async def fake_compile(path, *, project_root, wiki_dir, progress=None):
         called.update(path=path, project_root=project_root, wiki_dir=wiki_dir)
-        return run_dir
+        return SimpleNamespace(run_dir=run_dir, commit="commit-test", committed=True)
 
     monkeypatch.setattr(compile_module, "compile_sources", fake_compile)
 

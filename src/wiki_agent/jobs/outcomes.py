@@ -18,6 +18,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from wiki_agent.compiler.extraction import write_source_page
+from wiki_agent.compiler.models import SourcePage
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
 from wiki_agent.issues.models import JsonObject
 from wiki_agent.jobs import Job, JobResult
@@ -37,9 +39,11 @@ class JobOutcomeHandler:
         issue_store: IssueStore,
         *,
         sync_state: SyncState | None = None,
+        source_records_dir: str | Path | None = None,
     ):
         self._issues = issue_store
         self._sync_state = sync_state
+        self._records_dir = Path(source_records_dir) if source_records_dir is not None else None
 
     # 唯一入口：终态事务内调用
 
@@ -76,22 +80,48 @@ class JobOutcomeHandler:
         if state is None:
             return []
         if job.kind == "delete":
-            # 删除确认落账：state 条目由消费者清掉（延迟到 commit 后，先库后文件）
+            # 删除结算（延迟到 commit 后，先库后文件）：溯源档案清理清单
+            # （消费者执行中只规划不落盘）+ state 条目移除，一并落盘。
 
-            def drop() -> None:
+            ops = result.detail.get("archive_ops")
+
+            def settle_delete() -> None:
+                for op in ops if isinstance(ops, list) else []:
+                    self._apply_archive_op(op)
                 state.drop(job.resource)
                 state.save()
 
-            return [drop]
+            return [settle_delete]
         digest = str(result.detail.get("digest") or "")
         text = result.detail.get("text")
         if job.kind != "compile" or not digest or not isinstance(text, str):
             return []
+        page = result.detail.get("source_page")
 
-        def record() -> None:
+        def settle_compile() -> None:
+            if isinstance(page, dict) and page.get("slug") and page.get("content"):
+                if self._records_dir is None:
+                    logger.warning("缺 source_records_dir，档案页未落盘: %s", job.resource)
+                else:
+                    write_source_page(
+                        self._records_dir,
+                        SourcePage(slug=str(page["slug"]), content=str(page["content"])),
+                    )
             state.record(job.resource, digest, text)
 
-        return [record]
+        return [settle_compile]
+
+    @staticmethod
+    def _apply_archive_op(op: object) -> None:
+        """执行 delete job 规划的溯源档案改写/移除——档案页在 scope 外，
+        不受 wiki 的 git 回滚保护，因此与账本同点结算。"""
+        if not isinstance(op, dict):
+            return
+        target = Path(str(op.get("path") or ""))
+        if op.get("action") == "unlink":
+            target.unlink(missing_ok=True)
+        elif op.get("action") == "rewrite" and target.is_file():
+            target.write_text(str(op.get("content") or ""), encoding="utf-8")
 
     def _on_ingest_error(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
         detail = result.detail
