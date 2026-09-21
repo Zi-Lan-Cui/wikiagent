@@ -1,6 +1,6 @@
 """FileWatcher 纯生产者契约——确认只提交 Job，不写完成账。
 
-覆盖: 事件路径提交/微调跳过/删除、回退扫描只做发现并喂进同一确认管线、
+覆盖: 事件路径提交/小改动同样定案/删除、回退扫描只做发现并喂进同一确认管线、
 提交不改 state.hash、delete 条目延迟清除（可重发现）、
 未定案路径重复喂入（吸收点在 job 层的唯一在途索引）。
 
@@ -64,8 +64,8 @@ def test_event_path_submits_without_marking_hash(tmp_path: Path):
     asyncio.run(run())
 
 
-def test_event_path_micro_change_skipped(tmp_path: Path):
-    """微调（相似度高）跳过变更门——不提交。"""
+def test_event_path_small_change_submits(tmp_path: Path):
+    """改动无论大小：内容变 → 定案提交带新指纹（无相似度门槛吞变更）。"""
 
     async def run():
         src, state, submits, watcher = _make_env(tmp_path)
@@ -77,10 +77,12 @@ def test_event_path_micro_change_skipped(tmp_path: Path):
         digest, text = digest_file_text(f)
         state.record(str(f), digest, text)  # 模拟成功核账完成
 
-        f.write_text(base.replace("基础", "基本"), encoding="utf-8")
+        updated = base.replace("基础", "基本")
+        f.write_text(updated, encoding="utf-8")
         watcher._notify(str(f))
         await asyncio.sleep(0.4)
-        assert submits == [], "微调应被变更门跳过"
+        assert len(submits) == 1
+        assert submits[0] == (str(f), False, digest_file_text(f)[0])
 
     asyncio.run(run())
 

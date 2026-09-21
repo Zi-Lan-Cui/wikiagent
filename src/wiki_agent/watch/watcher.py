@@ -1,8 +1,8 @@
 """生产端——事件驱动监视源目录，把"变更待 ingest"的文件提交为 Job。
 
 事件管道: 变更事件 → 去抖（吸收编辑器保存抖动）→ 稳定性复读
-（同一内容隔窗口不变才定案，防半写文件）→ 变更门（相似度过阈值的
-微调跳过）→ submit_job(绝对路径, deleted, digest)。
+（同一内容隔窗口不变才定案，防半写文件）→ submit_job(绝对路径,
+deleted, digest)。内容变了就编译——不设相似度门，微调同样定案。
 
 纯生产者：本模块只提交意图（digest = 确认时读到的内容指纹），**不写
 "已处理"账**。state.hash/text 只在 job 成功后由核账入口写入；
@@ -12,7 +12,7 @@ Job 的唯一索引幂等吸收，确定性失败让位于 issue 重试通道。
 
 另有周期性全量扫描兜底: 事件可能溢出/丢失，扫描是安全网，进程重启后的
 首轮也走它。扫描只做**发现**——把与账本有差异的路径喂进事件管线，去抖/
-变更门/稳定性复读的确认语义唯一存在于 _check_path 一处；定案前重复喂入
+稳定性复读的确认语义唯一存在于 _check_path 一处；定案前重复喂入
 由在途 Job 的唯一索引吸收，不另设确认现场。删除检测由事件与回退两条路径
 共同覆盖；state 条目延迟到 delete job 成功后才清除（Job 失败可被重新发现）。
 """
@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -37,9 +36,6 @@ from wiki_agent.log import get_logger
 from wiki_agent.watch.state import FileState, WatchState, digest_file_text
 
 logger = get_logger("WATCHER")
-
-# 变更门: 相似度低于该值才算"大改动"（0-1）
-_MIN_SIMILARITY = 0.7
 
 # 事件路径时序（秒）
 _SETTLE_WINDOW = 2.0  # 事件静默窗口——编辑器保存的原子操作在此内吸收
@@ -79,7 +75,6 @@ class FileWatcher:
         settle_window: float = _SETTLE_WINDOW,
         stability_delay: float = _STABILITY_DELAY,
         fallback_interval: float = _FALLBACK_INTERVAL,
-        similarity_threshold: float = _MIN_SIMILARITY,
         submit_job: Callable[[str, bool, str], object],
     ):
         self._root = Path(source_dir).resolve()
@@ -89,7 +84,6 @@ class FileWatcher:
         self._settle = settle_window
         self._stability = stability_delay
         self._fallback = fallback_interval
-        self._threshold = similarity_threshold
         # (resource, deleted, digest) → Job——提交是唯一出口；resource 一律
         # 绝对路径字符串（与 issue 重试链共享同一"唯一在途"身份空间）
         self._submit_job = submit_job
@@ -191,7 +185,7 @@ class FileWatcher:
         self._timers[path] = self._loop.call_later(self._settle, _fire)
 
     async def _check_path(self, path: str) -> None:
-        """唯一的定案管线——存在走"内容门+稳定性复读"，不存在走删除。
+        """唯一的定案管线——存在走"内容比对+稳定性复读"，不存在走删除。
 
         事件去抖与回退扫描的发现都汇入这里；本方法不写任何账——
         定案即提交 Job，完成账由 job 成功后的 outcome 落。
@@ -210,7 +204,7 @@ class FileWatcher:
         seen = digest_file_text(p)
         if seen is None:
             return
-        digest, text = seen
+        digest = seen[0]
         # 名册登记（空条目）：删除检测凭"条目在账、磁盘不在"发现消失——
         # 条目从首次存在起登记，到 delete job 成功后才清除；名册不是
         # 完成账，hash 仍只在成功时由 outcome 写
@@ -219,13 +213,8 @@ class FileWatcher:
             self._state.save()
         st = self._state.get(path)
 
-        # 内容没变: touch/无意义写入 → 忽略
+        # 内容没变: touch/无意义写入 → 忽略；变了就编译，不设相似度门槛
         if st.hash == digest:
-            return
-
-        # 变更门: 微调（相似度 ≥ 阈值）忽略
-        if st.hash and not self._is_major_change(st, text):
-            logger.info("  %s: 相似度高于阈值，跳过（微调）", p.name)
             return
 
         # 稳定性复读——隔 stability 内容不变才定案（防半写文件）
@@ -246,7 +235,7 @@ class FileWatcher:
     async def _poll_once(self) -> None:
         """单轮全量扫描——把与账本有差异的路径喂进定案管线。
 
-        确认语义（去抖、变更门、稳定性复读）全部在 _check_path；未定案
+        确认语义（去抖、稳定性复读）全部在 _check_path；未定案
         路径下轮会被再次喂入，重复提交由在途 Job 的唯一索引吸收。
         本方法不写任何账。
         """
@@ -301,19 +290,3 @@ class FileWatcher:
         """
         self._submit_job(str(Path(path).resolve()), True, "")
         logger.info("  源文件删除提交: %s", Path(path).name)
-
-    def _is_major_change(self, st: FileState, text: str) -> bool:
-        """与已知内容比相似度——低于阈值才算大改动。
-
-        Args:
-            st: 文件状态（已知文本）。
-            text: 当前内容。
-
-        Returns:
-            True 表示大改动。
-        """
-        if st.text is None:
-            return True
-        if not st.text:
-            return bool(text)
-        return SequenceMatcher(None, st.text, text).ratio() < self._threshold
