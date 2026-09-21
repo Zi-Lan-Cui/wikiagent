@@ -1,9 +1,11 @@
 """Application composition and use-case boundaries.
 
-装配根（runtime/job_worker）经 ``__getattr__`` 在首次访问时才导入：
-子模块（job_results、compile_batches…）被单独 import 时不应连带拉起
-sync/agent/llm 整个执行栈——那会形成 consumer→application→runtime→
-consumer 的导入环，只在测试导入顺序凑巧时才不炸。
+只放门面（WikiAgentService）、用例（issue_actions/compile_*…）与装配根。
+执行引擎在 `wiki_agent.jobs`，快照账本与源 handler 在 `wiki_agent.sync`。
+
+装配根（runtime）经 ``__getattr__`` 在首次访问时才导入：子模块被单独
+import 时不应连带拉起 sync/agent/llm 整个执行栈——那会形成
+consumer→application→runtime→consumer 的导入环，只在导入顺序凑巧时才不炸。
 """
 
 from typing import TYPE_CHECKING
@@ -21,14 +23,12 @@ from wiki_agent.application.service import (
 from wiki_agent.events import AgentEvent, EventPublisher
 
 if TYPE_CHECKING:
-    from wiki_agent.application.job_worker import JobWorker
     from wiki_agent.application.runtime import AppRuntime
 
 __all__ = [
     "AppRuntime",
     "AgentEvent",
     "EventPublisher",
-    "JobWorker",
     "InvalidInputError",
     "MessageResult",
     "SessionMessage",
@@ -42,7 +42,6 @@ __all__ = [
 # 名字 → 所在模块；首次属性访问时导入并缓存进 globals
 _LAZY = {
     "AppRuntime": "wiki_agent.application.runtime",
-    "JobWorker": "wiki_agent.application.job_worker",
 }
 
 

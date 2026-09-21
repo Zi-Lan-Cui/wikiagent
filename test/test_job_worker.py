@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
-from wiki_agent.application.job_service import JobService
-from wiki_agent.application.job_worker import JobWorker
+from wiki_agent.jobs.service import JobService
+from wiki_agent.jobs.worker import JobWorker
 
 
 def test_worker_claims_updates_stage_and_completes(tmp_path):
@@ -53,7 +53,7 @@ class _FakeSyncState:
 
 
 def _service_with_state(tmp_path):
-    from wiki_agent.application.job_service import JobService as _JS
+    from wiki_agent.jobs.service import JobService as _JS
 
     state = _FakeSyncState()
     service = _JS(tmp_path, sync_state=state)
@@ -90,7 +90,7 @@ def test_succeeded_writes_sync_state_after_commit(tmp_path):
     worker = JobWorker(service)
 
     async def ok(current, progress):
-        from wiki_agent.application.job_results import JobResult
+        from wiki_agent.jobs import JobResult
 
         return JobResult(status="succeeded", detail={"digest": "d1", "text": "content-a"})
 
@@ -146,7 +146,7 @@ def test_worker_claims_only_registered_kinds(tmp_path):
 
 def test_terminal_cas_supersede_race(tmp_path):
     """取代竞态：行已被 cancel → 迟到终态写静默跳过，不排链、不覆盖。"""
-    from wiki_agent.application.job_results import JobResult
+    from wiki_agent.jobs import JobResult
 
     service = JobService(tmp_path)
     job = service.submit(kind="compile", resource="/abs/note.md", mode="sync")
@@ -158,10 +158,10 @@ def test_terminal_cas_supersede_race(tmp_path):
 
     final = service.complete_with_outcome(
         claimed,
-        JobResult(status="failed", error_type="transient", detail={"error": "boom"}),
+        JobResult(status="failed", detail={"error": "boom"}),
     )
     assert final.status == "cancelled"
-    # transient 链不产生——没有新的在途行
+    # 迟到写零联动——不覆盖、不产生新行
     assert service.store.count_in_flight() == 0
 
     # 迟到的 cancel_terminal 同样幂等静默

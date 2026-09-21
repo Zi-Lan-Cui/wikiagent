@@ -10,11 +10,10 @@ import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
-from wiki_agent.application.job_outcomes import JobOutcomeHandler
-from wiki_agent.application.job_results import JobResult
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.issues import IssueService, IssueStore
-from wiki_agent.jobs import DuplicateInFlightJob, Job, JobStore, SyncInProgress
+from wiki_agent.jobs import DuplicateInFlightJob, Job, JobResult, JobStore, SyncInProgress
+from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.sync.state import SyncState, digest_file_text, scan_disk
 
 

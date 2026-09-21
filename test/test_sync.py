@@ -5,10 +5,9 @@
 
 from pathlib import Path
 
-from wiki_agent.application.job_results import JobResult
-from wiki_agent.application.job_service import JobService
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
-from wiki_agent.jobs import SyncInProgress
+from wiki_agent.jobs import JobResult, SyncInProgress
+from wiki_agent.jobs.service import JobService
 from wiki_agent.sync.state import SyncState, digest_file_text
 
 

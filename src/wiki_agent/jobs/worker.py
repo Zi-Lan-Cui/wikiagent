@@ -1,4 +1,4 @@
-"""Single durable worker for application jobs.
+"""Single durable worker——jobs 引擎的认领循环。
 
 Worker 是唯一的终态写入者：claim（按注册 kinds）→
 handler 返回 JobResult → complete_with_outcome 单事务落终态。
@@ -11,9 +11,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
-from wiki_agent.application.job_results import JobResult
-from wiki_agent.application.job_service import JobService
-from wiki_agent.jobs import Job
+from wiki_agent.jobs import Job, JobResult
+from wiki_agent.jobs.service import JobService
 from wiki_agent.log import emit_event, get_logger
 
 JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[JobResult | None]]

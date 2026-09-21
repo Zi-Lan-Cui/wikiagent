@@ -20,7 +20,6 @@ from wiki_agent.application import (
     WikiAgentService,
 )
 from wiki_agent.application.issue_actions import IssueActionExecutor
-from wiki_agent.application.job_results import JobResult
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError
 from wiki_agent.issues import (
@@ -30,7 +29,7 @@ from wiki_agent.issues import (
     IssueNotFoundError,
     IssueStatus,
 )
-from wiki_agent.jobs import SyncInProgress
+from wiki_agent.jobs import JobResult, SyncInProgress
 from wiki_agent.log import setup_event_log
 from wiki_agent.wiki import WikiPageNotFound
 
