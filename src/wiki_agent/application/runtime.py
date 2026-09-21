@@ -135,7 +135,7 @@ class AppRuntime:
         if self._started:
             return
         if self.config.mcp.servers:
-            from wiki_agent.tools.mcp_tools.mcp_adaptor import connect_mcp_servers
+            from wiki_agent.tools.mcp_adaptor import connect_mcp_servers
 
             self._mcp_connections = await connect_mcp_servers(
                 self.config.mcp.servers,

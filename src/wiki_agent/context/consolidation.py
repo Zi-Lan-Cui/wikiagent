@@ -5,7 +5,7 @@ from wiki_agent.context.context_builder import ContextBuilder
 from wiki_agent.conversation import Message, Session
 from wiki_agent.llm import LLMClient
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.utils import helpers
+from wiki_agent.utils import estimate_text_tokens, truncate_text_by_tokens
 
 logger = get_logger("CONSOLIDATOR")
 
@@ -96,7 +96,7 @@ class Consolidator:
         if budget <= 0:
             return ""
 
-        return helpers.truncate_text_by_tokens(text, budget)
+        return truncate_text_by_tokens(text, budget)
 
     async def archive(
         self,
@@ -139,11 +139,11 @@ class Consolidator:
             # 当上下文有剩余时加入已有摘要；没有空余则跳过。
             truncated_summary = None
             if last_summary and truncate_text:
-                text_cost = helpers.estimate_text_tokens(truncate_text)
+                text_cost = estimate_text_tokens(truncate_text)
                 truncated_summary = self._maybe_truncate(last_summary, budget - text_cost)
 
             if truncate_text:
-                result.input_tokens = helpers.estimate_text_tokens(truncate_text)
+                result.input_tokens = estimate_text_tokens(truncate_text)
                 need_consolidate_messages = [
                     Message(
                         role="system",
@@ -238,7 +238,7 @@ class Consolidator:
         )
 
         initial_message_text = "\n".join([message.text_schema for message in initial_messages])
-        return helpers.estimate_text_tokens(initial_message_text)
+        return estimate_text_tokens(initial_message_text)
 
     def _pick_consolidation_boundry_by_tokens(
         self, session: Session, tokens_to_remove: int
@@ -264,7 +264,7 @@ class Consolidator:
 
         removed_tokens = 0
         for idx in range(start, len(session.history)):
-            message_tokens = helpers.estimate_text_tokens(session.history[idx].text_schema)
+            message_tokens = estimate_text_tokens(session.history[idx].text_schema)
             removed_tokens += message_tokens
             # 切分点在user上，避免切开工具调用
             if session.history[idx].role == "user" and removed_tokens >= tokens_to_remove:

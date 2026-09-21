@@ -4,7 +4,7 @@ from pathlib import Path
 
 from wiki_agent.conversation import Message, Session, find_first_legal_idx
 from wiki_agent.log import get_logger
-from wiki_agent.utils.helpers import (
+from wiki_agent.utils import (
     ensure_dir,
     estimate_text_tokens,
 )
