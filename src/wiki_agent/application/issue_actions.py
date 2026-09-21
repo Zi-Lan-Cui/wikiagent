@@ -169,15 +169,6 @@ class IssueActionExecutor:
                     event="marked_false_positive",
                 )
             )
-        if action == "keep_disputed" or action == "defer":
-            return to_card(
-                self.store.transition(
-                    record.id,
-                    IssueStatus.BLOCKED,
-                    resolution={"action": action},
-                    event="deferred",
-                )
-            )
         raise ValueError(f"尚未实现操作: {action}")
 
     def validate(self, issue_id: str, action: str) -> None:

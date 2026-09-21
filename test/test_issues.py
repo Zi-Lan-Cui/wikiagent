@@ -151,19 +151,19 @@ def test_correction_decision_uses_audited_issue_workflow(tmp_path: Path):
     assert follow_up.kind == IssueKind.QUALITY_ISSUE
 
 
-def test_content_conflict_only_advertises_implemented_actions(tmp_path: Path):
+def test_quality_issue_advertises_review_actions(tmp_path: Path):
+    """质量账的出口 = 复核销账/误报/忽略——没有"自动解决"，正确性交还用户。"""
     service = IssueService(IssueStore(tmp_path))
     card = service.report(
         _draft(
-            kind=IssueKind.CONTENT_CONFLICT,
-            fingerprint="conflict-1",
+            kind=IssueKind.QUALITY_ISSUE,
+            fingerprint="quality-1",
             resource={"type": "wiki_page", "path": "concepts/example.md"},
         )
     )
 
     actions = {action.id for action in card.available_actions}
-    assert "resolve_conflict" not in actions
-    assert actions == {"keep_disputed", "open_resource", "dismiss"}
+    assert actions == {"rescan", "open_resource", "false_positive", "dismiss"}
 
 
 def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):

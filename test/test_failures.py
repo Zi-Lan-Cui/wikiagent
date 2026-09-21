@@ -144,7 +144,7 @@ def test_transient_failure_reports_run_failure_issue(tmp_path: Path):
     service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
     job = service.submit(kind="compile", resource="/abs/x.md", mode="sync", payload={"digest": "d"})
     claimed = service.claim_next(kinds={"compile"})
-    assert claimed is not None
+    assert claimed is not None and claimed.id == job.id
     service.complete_with_outcome(
         claimed,
         JobResult(status="failed", error_type="transient", detail={"error": "KeyError: boom"}),

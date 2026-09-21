@@ -70,9 +70,9 @@ def test_issue_api_lists_decides_and_reports_summary(tmp_path: Path):
     source.write_text("# Original source\n\nprivate path stays server-side", encoding="utf-8")
     issue = runtime.issue_service.report(
         IssueDraft(
-            kind=IssueKind.CONTENT_CONFLICT,
-            title="页面说法冲突",
-            summary="A 与 B 无法同时成立",
+            kind=IssueKind.CONTENT_CORRECTION,
+            title="页面说法纠错",
+            summary="示例页与来源不符",
             resource={"type": "input_file", "path": "example.md"},
             context={"source_path": str(source)},
         )
@@ -94,7 +94,7 @@ def test_issue_api_lists_decides_and_reports_summary(tmp_path: Path):
             assert resource["path"] == "sources/example.md"
             assert "Original source" in resource["content"]
             decided = await client.post(
-                f"/api/issues/{issue.id}/actions/keep_disputed",
+                f"/api/issues/{issue.id}/actions/keep_uncertain",
                 json={"payload": {}},
             )
             assert decided.status_code == 200

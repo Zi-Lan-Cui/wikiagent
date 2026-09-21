@@ -51,8 +51,6 @@ async def restructure_wiki(
     *,
     confirm: ConfirmCallback | None = None,
     dry_run: bool = False,
-    issue_service: Any | None = None,
-    origin: dict[str, Any] | None = None,
 ) -> RestructureOutcome:
     """跑一遍结构重组核心流程。返回结构化结果；调用方据此渲染与决定 git 提交/回滚。"""
     wiki_dir = Path(wiki_dir)
@@ -79,13 +77,9 @@ async def restructure_wiki(
         arb = await re_arbitrate(llm, wiki_dir, conflicts)
         clean.extend(arb.resolved)
         out.unresolved = arb.unresolved
-        if out.unresolved and issue_service is not None:
-            from wiki_agent.issues.producers import report_restructure_conflicts
-
-            report_restructure_conflicts(
-                issue_service, out.unresolved, origin={**(origin or {}), "stage": "arbitration"}
-            )
-            logger.warning("%d 组冲突无法仲裁——已记入问题中心", len(out.unresolved))
+        if out.unresolved:
+            # 仲裁不下的提议只被丢弃并报告——结构决定权在用户，不记裁决账
+            logger.warning("%d 组冲突无法仲裁——已跳过不执行", len(out.unresolved))
 
     out.effective = clean
     if not out.effective:
