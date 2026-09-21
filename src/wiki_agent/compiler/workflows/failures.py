@@ -82,11 +82,11 @@ class SourceFailureHandler:
         *,
         mode: str,
     ):
-        if mode not in {"compile", "refine", "watch"}:
+        if mode not in {"compile", "refine"}:
             raise ValueError(f"source failure 不支持的 mode: {mode!r}")
         self._issues = issue_service
         self._mode = mode
-        self._retry_mode = "compile" if mode == "watch" else mode
+        self._retry_mode = mode
         self._logger = get_logger(f"{mode.upper()}_FAILURE")
 
     def handle(

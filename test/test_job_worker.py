@@ -8,7 +8,7 @@ from wiki_agent.application.job_worker import JobWorker
 
 def test_worker_claims_updates_stage_and_completes(tmp_path):
     service = JobService(tmp_path)
-    job = service.submit(kind="compile", resource="note.md", mode="watch")
+    job = service.submit(kind="compile", resource="note.md", mode="sync")
     worker = JobWorker(service)
     stages: list[str] = []
 
@@ -33,15 +33,7 @@ def test_worker_with_no_registrations_claims_nothing(tmp_path):
     assert service.store.get(job.id).status == "queued"
 
 
-def test_completed_watch_job_does_not_block_later_revision(tmp_path):
-    service = JobService(tmp_path)
-    first = service.submit_watch_change("/tmp/note.md")
-    service.store.update(first.id, status="succeeded")
-    second = service.submit_watch_change("/tmp/note.md")
-    assert second.id != first.id
-
-
-# 统一执行模型 Step2：终态写入、链式退避、outcome 联动
+# 终态写入与 outcome 联动
 
 
 class _FakeWatchState:
@@ -92,7 +84,7 @@ def test_transient_failure_reports_issue_without_chain(tmp_path):
 def test_succeeded_writes_watch_state_after_commit(tmp_path):
     """成功 outcome：commit 后 record(digest/text)；delete 成功 drop+save。"""
     service, state = _service_with_state(tmp_path)
-    service.submit(kind="compile", resource="/src/a.md", mode="watch")
+    service.submit(kind="compile", resource="/src/a.md", mode="sync")
     worker = JobWorker(service)
 
     async def ok(current, progress):
@@ -104,7 +96,7 @@ def test_succeeded_writes_watch_state_after_commit(tmp_path):
     asyncio.run(worker.run_once())
     assert state.records == [("/src/a.md", "d1", "content-a")]
 
-    service.submit(kind="delete", resource="/src/b.md", mode="watch")
+    service.submit(kind="delete", resource="/src/b.md", mode="sync")
     worker2 = JobWorker(service)
     worker2.register("delete", ok)
     asyncio.run(worker2.run_once())
@@ -138,7 +130,7 @@ def test_cancelled_leaves_linked_issue_open(tmp_path):
 
 def test_worker_claims_only_registered_kinds(tmp_path):
     service = JobService(tmp_path)
-    service.submit(kind="compile", resource="/mine", mode="watch")
+    service.submit(kind="compile", resource="/mine", mode="sync")
     other = service.submit(kind="issue_action", resource="i1", mode="retry")
     worker = JobWorker(service)
 
@@ -155,11 +147,11 @@ def test_terminal_cas_supersede_race(tmp_path):
     from wiki_agent.application.job_results import JobResult
 
     service = JobService(tmp_path)
-    job = service.submit(kind="compile", resource="/abs/note.md", mode="watch")
+    job = service.submit(kind="compile", resource="/abs/note.md", mode="sync")
     claimed = service.claim_next(kinds={"compile"})
     assert claimed is not None and claimed.id == job.id
 
-    # submit_replace 的取消写在前（同事务直写）
+    # 前驱把行取消在前（模拟取代/停机竞态的直写）
     service.store.update(job.id, status="cancelled", stage="cancelled")
 
     final = service.complete_with_outcome(

@@ -7,7 +7,6 @@ Job 是唯一执行事实来源：提交入口收口在这里，终态写入只�
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -64,119 +63,14 @@ class JobService:
             _conn=_conn,
         )
 
-    def submit_watch_change(
-        self, resource: str, *, deleted: bool = False, digest: str = ""
-    ) -> Job | None:
-        """提交 watcher 确认的变更；返回 None = 被在途任务合并/让位 issue。
-
-        compile：撞在途 → 排队行合并 digest（意图前进）、执行中行吞掉
-        （成功后账会被 pre/post 拒掉，下一轮回退扫描重提交）；存在未到期
-        的 auto_retry 失败账 → 让位 issue 通道（每类失败唯一重试通道）。
-        delete：撞任何在途 → 取代（同事务 cancel 让位；取消无账可还）。
-        """
-        kind = "delete" if deleted else "compile"
-        key = f"watch:{kind}:{resource}"
-        payload: dict[str, object] = {"deleted": deleted, "digest": digest}
-        if deleted:
-            if self.store.in_flight_by_resource(resource) is not None:
-                return self.submit_replace(
-                    kind="delete",
-                    resource=resource,
-                    mode="watch",
-                    payload=payload,
-                    idempotency_key=key,
-                )
-            return self._submit_watch_row(kind, resource, payload, key, issue_id="")
-
-        defer, due_issue = self._watch_deferral(resource)
-        if defer:
-            return None
-        result = self._submit_watch_row(kind, resource, payload, key, issue_id=due_issue)
-        if result is None:
-            # 撞唯一在途（被其他 kind 占位）——只有排队中的普通 watch compile 行值得合并
-            active = self.store.in_flight_by_resource(resource)
-            if (
-                active is not None
-                and active.kind == "compile"
-                and active.status == "queued"
-                and digest
-                and not active.payload.get("retry_of")
-            ):
-                return self.store.coalesce_payload(active.id, payload)
-            return None
-        if str(result.payload.get("digest")) == digest:
-            return result
-        if digest and result.status == "queued" and not result.payload.get("retry_of"):
-            # 幂等命中排队旧行——digest 落后即意图前进，合并避免空转；
-            # 链式重试行（带 retry_of 谱系）不合并，让它跑完自己的载荷
-            return self.store.coalesce_payload(result.id, payload)
-        # 命中执行中行：不新建也不合并——成功账会被 pre/post 拒掉，
-        # 下一轮回退扫描以新内容重提交（对账兜底）
-        return None
-
-    def _submit_watch_row(
-        self, kind: str, resource: str, payload: dict, key: str, *, issue_id: str
-    ) -> Job | None:
-        try:
-            return self.submit(
-                kind=kind,
-                resource=resource,
-                mode="watch",
-                payload=payload,
-                idempotency_key=key,
-                issue_id=issue_id,
-            )
-        except DuplicateInFlightJob:
-            return None
-
-    def _watch_deferral(self, resource: str) -> tuple[bool, str]:
-        """(是否让位, 到期可续链的 issue_id)。只认 auto_retry/retry_once 策略。
-
-        manual 失败账不挡新内容——用户改了文件就是新信号，重蹈失败会按
-        指纹合并进同一 issue（occurrences 可见）。
-        """
-        now = datetime.now(UTC).isoformat()
-        for issue in self.issues.find_pending_failures(resource):
-            policy = str(issue.retry.get("policy") or "")
-            if policy not in {"auto_retry", "retry_once"}:
-                continue
-            next_retry_at = str(issue.retry.get("next_retry_at") or "")
-            if next_retry_at and next_retry_at > now:
-                return True, ""
-            return False, issue.id
-        return False, ""
-
-    def submit_replace(
-        self,
-        *,
-        kind: str,
-        resource: str,
-        mode: str,
-        payload: dict[str, object],
-        idempotency_key: str | None = None,
-    ) -> Job:
-        """取代在途任务：同事务 cancel 旧行（cancelled 无联动）+ 排新行。"""
-        with self.store.database.transaction(immediate=True) as conn:
-            active = self.store.in_flight_by_resource(resource, _conn=conn)
-            if active is not None:
-                self.store.update(active.id, status="cancelled", stage="cancelled", _conn=conn)
-            return self.store.enqueue(
-                kind=kind,
-                resource=resource,
-                mode=mode,
-                payload=payload,
-                idempotency_key=idempotency_key,
-                _conn=conn,
-            )
-
     def submit_issue_retry(self, issue_id: str) -> Job:
         """重试请求 → compile Job：提交点三重防线收敛为"至多一个在途、返回既有"。
 
         ① 挂账预查（该 issue 已有在途 job 直接返回）；② 幂等键命中在途行
         返回既有；③ 撞唯一在途（他人占位）返回占位者、无账则补挂。retry 资格
-        （状态、来源可读）由各入口的 validate/调度过滤判定，这里只管执行
+        （状态、来源可读）由各入口的 validate 判定，这里只管执行
         唯一性。issue 终态由 compile job 的 outcome 落（成功 RESOLVED /
-        再失败推进退避），提交本身不改变 issue 状态。
+        再失败记一笔账等人），提交本身不改变 issue 状态。
         """
         if self.wiki_dir is None:
             raise RuntimeError("submit_issue_retry 需要 wiki_dir")

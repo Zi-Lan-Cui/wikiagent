@@ -5,7 +5,6 @@ description = "LLM Wiki — 用 LLM 作为知识编译器，管理、组装知�
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "watchdog>=6.0.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.0.0",
     "openai>=1.0.0",
