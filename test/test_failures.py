@@ -132,8 +132,10 @@ def test_retry_job_failure_advances_backoff_and_returns_open(tmp_path: Path):
             retry={"policy": "auto_retry", "attempts": 1, "next_retry_at": ""},
         )
     )
-    job = service.submit_issue_retry(issue.id)
+    service.submit_issue_retry(issue.id)
     assert service.issues.get(issue.id).status == IssueStatus.PROCESSING
+    job = service.claim_next(kinds={"compile"})
+    assert job is not None
 
     service.complete_with_outcome(
         job,
@@ -169,7 +171,9 @@ def test_retry_job_exhausted_blocks(tmp_path: Path):
             retry={"policy": "auto_retry", "attempts": 3, "next_retry_at": ""},
         )
     )
-    job = service.submit_issue_retry(issue.id)
+    service.submit_issue_retry(issue.id)
+    job = service.claim_next(kinds={"compile"})
+    assert job is not None
     service.complete_with_outcome(
         job,
         JobResult(

@@ -190,6 +190,39 @@ class JobStore:
             db.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE id = ?", values)
             return self.get(job_id, _conn=db)
 
+    def try_finalize(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        stage: str | None = None,
+        error: str | None = None,
+        _conn: sqlite3.Connection | None = None,
+    ) -> bool:
+        """终态 CAS：仅当行仍是 running 时写入，返回是否命中。
+
+        先到者翻转终态后，迟到写（被取代的 handler、崩溃重放的旧持有者）
+        必不命中——终态与 outcome 联动只发生一次。
+        """
+        sets = ["status = ?"]
+        values: list[object] = [status]
+        if stage is not None:
+            sets.append("stage = ?")
+            values.append(stage)
+        if error is not None:
+            sets.append("error = ?")
+            values.append(error)
+        sets.append("updated_at = ?")
+        values.extend([_now(), job_id])
+        with self._tx(_conn) as db:
+            return (
+                db.execute(
+                    f"UPDATE jobs SET {', '.join(sets)} WHERE id = ? AND status = 'running'",
+                    values,
+                ).rowcount
+                > 0
+            )
+
     def attach_issue(
         self, job_id: str, issue_id: str, *, _conn: sqlite3.Connection | None = None
     ) -> Job:
@@ -217,12 +250,15 @@ class JobStore:
         """按注册类型领取到期的排队 Job（next_run_at 未到期则跳过）。
 
         kinds 过滤是多进程共库下的分工边界：各进程只领自己注册了 handler
-        的类型，未注册即误杀在途工作的问题不复存在。
+        的类型。空集合 = 没有任何注册类型，不领任何活（不是"不过滤"）；
+        None = 显式不过滤（测试/单进程）。
         """
+        if kinds is not None and not kinds:
+            return None
         now = _now()
         where = "status = 'queued' AND (next_run_at IS NULL OR next_run_at <= ?)"
         values: list[object] = [now]
-        if kinds:
+        if kinds is not None:
             marks = ",".join("?" for _ in kinds)
             where += f" AND kind IN ({marks})"
             values.extend(sorted(kinds))

@@ -25,13 +25,12 @@ def test_worker_claims_updates_stage_and_completes(tmp_path):
     assert stages == ["note.md"]
 
 
-def test_worker_persists_unknown_kind_as_failure(tmp_path):
+def test_worker_with_no_registrations_claims_nothing(tmp_path):
+    """S1 契约：零注册 worker 不领任何活——排队行原样等待有资格的进程。"""
     service = JobService(tmp_path)
     job = service.submit(kind="unknown", resource="note.md", mode="test")
-    asyncio.run(JobWorker(service).run_once())
-    result = service.store.get(job.id)
-    assert result.status == "failed"
-    assert "未注册" in result.error
+    assert asyncio.run(JobWorker(service).run_once()) is None
+    assert service.store.get(job.id).status == "queued"
 
 
 def test_completed_watch_job_does_not_block_later_revision(tmp_path):
@@ -181,3 +180,29 @@ def test_worker_claims_only_registered_kinds(tmp_path):
     worker.register("compile", ok)
     asyncio.run(worker.run_once())
     assert service.store.get(other.id).status == "queued"  # 不越界领取别人类型
+
+
+def test_terminal_cas_supersede_race(tmp_path):
+    """取代竞态：行已被 cancel → 迟到终态写静默跳过，不排链、不覆盖。"""
+    from wiki_agent.application.job_results import JobResult
+
+    service = JobService(tmp_path)
+    job = service.submit(kind="compile", resource="/abs/note.md", mode="watch")
+    claimed = service.claim_next(kinds={"compile"})
+    assert claimed is not None and claimed.id == job.id
+
+    # submit_replace 的取消写在前（同事务直写）
+    service.store.update(job.id, status="cancelled", stage="cancelled")
+
+    final = service.complete_with_outcome(
+        claimed,
+        JobResult(status="failed", error_type="transient", detail={"error": "boom"}),
+    )
+    assert final.status == "cancelled"
+    # transient 链不产生——没有新的在途行
+    assert service.store.count_active() == 0
+
+    # 迟到的 cancel_terminal 同样幂等静默
+    service.cancel_terminal(claimed)
+    assert service.store.get(job.id).status == "cancelled"
+    assert service.store.count_active() == 0

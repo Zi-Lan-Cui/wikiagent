@@ -215,8 +215,10 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     handler.handle(err, source=source.name, source_path=source)
     issue = service.issues.list()[0]
 
-    job = service.submit_issue_retry(issue.id)
+    service.submit_issue_retry(issue.id)
     assert service.issues.get(issue.id).status == IssueStatus.PROCESSING
+    job = service.claim_next(kinds={"compile"})
+    assert job is not None
 
     service.complete_with_outcome(
         job,

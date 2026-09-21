@@ -207,7 +207,9 @@ def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
     digest, text = digest_file_text(source)
     issue = _failure_issue(service, source)
 
-    job = service.submit_issue_retry(issue.id)
+    service.submit_issue_retry(issue.id)
+    job = service.claim_next(kinds={"compile"})
+    assert job is not None
     final = service.complete_with_outcome(
         job, JobResult(status="succeeded", detail={"digest": digest, "text": text})
     )
