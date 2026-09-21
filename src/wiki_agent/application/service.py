@@ -164,9 +164,7 @@ class WikiAgentService:
         return read_source(self.runtime.source_records_dir, public_path)
 
     def count_active_issues(self) -> int:
-        return self.runtime.issue_service.count(
-            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED}
-        )
+        return self.runtime.issue_service.count(statuses={IssueStatus.OPEN, IssueStatus.BLOCKED})
 
     def get_wiki_page(self, path: str) -> WikiPage:
         """Read one public Wiki page using the shared safe resolver."""

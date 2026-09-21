@@ -73,7 +73,7 @@ class JobWorker:
         try:
             result = await handler(job, progress)
         except asyncio.CancelledError:
-            # 进程取消：终态 + 归还所挂 issue 单事务落库，再继续传播退出
+            # 进程取消：终态单事务落库（无联动），再继续传播退出
             self.service.cancel_terminal(job)
             raise
         except Exception as exc:  # noqa: BLE001 - handler bug = transient 链式退避
