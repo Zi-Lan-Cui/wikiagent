@@ -132,13 +132,12 @@ class AgentConfig(BaseSettings):
 
 
 class WatchConfig(BaseSettings):
-    """文件监听时间窗与变更门（env 前缀 WATCH_）。"""
+    """文件监听时间窗（env 前缀 WATCH_）。"""
 
     model_config = SettingsConfigDict(env_prefix="WATCH_", frozen=True, extra="ignore")
     settle_window: float = 2.0
     stability_delay: float = 2.0
     fallback_interval: float = 60.0
-    similarity_threshold: float = 0.7
 
     @model_validator(mode="after")
     def _check_bounds(self) -> WatchConfig:
@@ -146,8 +145,6 @@ class WatchConfig(BaseSettings):
             raise ValueError(
                 "WATCH_SETTLE_WINDOW、WATCH_STABILITY_DELAY、WATCH_FALLBACK_INTERVAL 必须大于 0"
             )
-        if not 0 <= self.similarity_threshold <= 1:
-            raise ValueError("WATCH_SIMILARITY_THRESHOLD 必须在 [0, 1] 内")
         return self
 
 

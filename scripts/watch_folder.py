@@ -62,7 +62,6 @@ async def main(source_dir: str | None = None):
         settle_window=cfg.watch.settle_window,
         stability_delay=cfg.watch.stability_delay,
         fallback_interval=cfg.watch.fallback_interval,
-        similarity_threshold=cfg.watch.similarity_threshold,
         submit_job=lambda resource, deleted, digest: runtime.job_service.submit_watch_change(
             resource, deleted=deleted, digest=digest
         ),
