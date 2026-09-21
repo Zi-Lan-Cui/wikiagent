@@ -48,10 +48,10 @@ async def main(
     run_dir = runs_dir / f"refine_{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Git dirty 检查必须发生在本次 run.log/events.jsonl 创建之前；否则
-    # refine 自己的审计文件会被误判为用户修改。
-    git_manager = WikiGitManager(wiki_dir, run_root=runs_dir)
-    git_run = git_manager.begin(run_id, mode="refine")
+    # 批协议入口：pre-reset 把残骸收敛到 HEAD（审计文件在 scope 外不受
+    # 影响），本次 refine 要么整批 commit、要么 restore——不存在中间态入历史。
+    git_manager = WikiGitManager(wiki_dir)
+    git_manager.restore()
 
     configure_logging(console_level=logging.INFO, file_path=str(run_dir / "run.log"))
     setup_event_log(run_dir / "events.jsonl")
@@ -184,11 +184,11 @@ async def main(
             failure_handler=failure_handler,
             on_page=on_page,
         )
-    except asyncio.CancelledError as exc:
-        git_manager.abort(git_run, reason=f"refine cancelled: {exc}")
+    except asyncio.CancelledError:
+        git_manager.restore()
         raise
-    except Exception as exc:
-        git_manager.abort(git_run, reason=f"refine exception: {exc}")
+    except Exception:
+        git_manager.restore()
         raise
 
     logger.info(
@@ -207,16 +207,17 @@ async def main(
     logger.info("扫描: %d 错误, %d 警告", len(errors), len(warns))
     (run_dir / "scan_report.md").write_text(format_scan_report(issues), encoding="utf-8")
     if errors:
-        git_manager.abort(git_run, reason=f"scan errors: {len(errors)}")
+        git_manager.restore()
         logger.warning("Git: 已恢复到运行前版本（scan 存在 %d error）", len(errors))
     else:
-        git_manager.commit(
-            git_run,
-            message=f"wiki: refine {git_run.run_id}",
-            scan_report=run_dir / "scan_report.md",
-            metadata={"stats": stats, "scan_errors": len(errors), "scan_warnings": len(warns)},
+        commit = git_manager.commit_all(
+            f"wiki: refine {run_id}",
+            body=f"stats: {stats}, scan_warnings: {len(warns)}",
         )
-        logger.info("Git: 已提交 %s", git_run.commit)
+        if commit:
+            logger.info("Git: 已提交 %s", commit[:8])
+        else:
+            logger.info("Git: 无变更未提交")
     logger.info("运行目录: %s", run_dir)
 
 

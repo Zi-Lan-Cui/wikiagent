@@ -454,7 +454,7 @@ class CompileCommand(Command):
                 if ctx.reporter is not None:
                     await ctx.reporter.progress(stage, **kwargs)
 
-            run_dir = await compile_sources(
+            result = await compile_sources(
                 args[0] if args else None,
                 project_root=project_root,
                 wiki_dir=wiki,
@@ -464,12 +464,14 @@ class CompileCommand(Command):
             raise
         except Exception as exc:
             return CommandResult(text=(f"# /compile 失败\n\n{type(exc).__name__}: {exc}"))
+        git_note = f"已提交 `{result.commit}`" if result.committed and result.commit else "未提交（全批回撤或无变更）"
         return CommandResult(
             text=(
                 "# /compile 完成\n\n"
-                f"运行目录：`{run_dir}`\n"
-                f"diff 报告：`{run_dir / 'compile_diff.md'}`\n"
-                f"scan 报告：`{run_dir / 'scan_report.md'}`"
+                f"运行目录：`{result.run_dir}`\n"
+                f"Git：{git_note}\n"
+                f"diff 报告：`{result.run_dir / 'compile_diff.md'}`\n"
+                f"scan 报告：`{result.run_dir / 'scan_report.md'}`"
             )
         )
 
@@ -500,10 +502,14 @@ class SessionCommand(Command):
 
 
 class WikiCommand(Command):
-    """Wiki Git 历史、差异、回撤和 stale 锁人工处理入口。"""
+    """Wiki Git 历史查询与版本回撤入口。
+
+    版本身份 = commit（HEAD 即最近已结算状态，不再有 run 容器概念）；
+    撤销一批 sync = 按 commit 尾注 `Batch: <id>` 选段 revert。
+    """
 
     name = "wiki"
-    description = "Wiki 页面与版本管理：open / search / history / diff / rollback"
+    description = "Wiki 页面与版本管理：open / search / history / diff / revert / revert-batch"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
         from wiki_agent.versioning import WikiGitManager
@@ -546,9 +552,7 @@ class WikiCommand(Command):
                     return CommandResult(text=f"# Wiki search\n\n没有找到包含 `{query}` 的页面。")
                 rows = "\n".join(f"- `{page.path}`" for page in pages)
                 return CommandResult(text=f"# Wiki search: {query}\n\n{rows}")
-            manager = WikiGitManager(
-                wiki, run_root=ctx.agent.workspace / "runs", require_clean=False
-            )
+            manager = WikiGitManager(wiki)
             if action == "history":
                 limit = int(args[1]) if len(args) > 1 else 20
                 rows = manager.history(limit)
@@ -558,76 +562,35 @@ class WikiCommand(Command):
                 )
             if action == "diff":
                 if len(args) < 2:
-                    return CommandResult(text="# /wiki diff\n\n用法: `/wiki diff <run_id>`")
-                diff = manager.diff_for_run(args[1].strip())
+                    return CommandResult(text="# /wiki diff\n\n用法: `/wiki diff <commit>`")
+                diff = manager.diff_commit(args[1].strip())
                 if not diff:
-                    diff = "（该运行没有差异，或尚未提交。）"
+                    diff = "（该版本没有 Wiki 差异。）"
                 return CommandResult(text=f"# Wiki diff: {args[1]}\n\n```diff\n{diff}\n```")
-            if action == "rollback":
+            if action == "revert":
                 if len(args) < 2:
-                    return CommandResult(text="# /wiki rollback\n\n用法: `/wiki rollback <run_id>`")
-                record = manager.run_record(args[1].strip())
-                if not record:
-                    return CommandResult(text=f"找不到运行记录: {args[1]}")
-                commit = record.get("commit") or record.get("after_commit")
-                if not commit or record.get("status") != "committed":
-                    return CommandResult(text="只能回撤已提交且有 commit 的运行。")
-                new_commit = manager.rollback(commit, run_id=args[1].strip())
+                    return CommandResult(text="# /wiki revert\n\n用法: `/wiki revert <commit>`")
+                new_commit = manager.revert_commit(args[1].strip())
                 return CommandResult(
-                    text=f"# Wiki rollback\n\n已回撤 `{args[1]}`，新回撤提交: `{new_commit}`"
+                    text=f"# Wiki revert\n\n已回撤 `{args[1]}`，反向提交: `{new_commit[:8]}`"
                 )
-            if action in {"clear-stale", "clear_stale"}:
-                status = manager.stale_status()
-                lock = status.get("lock")
-                if not lock:
-                    return CommandResult(text="没有 Wiki Git 锁。")
-                if not lock.get("stale"):
-                    return CommandResult(text=f"锁仍由 pid={lock.get('pid')} 持有，未清理。")
-                manager.clear_stale_lock()
-                return CommandResult(text="已清理 stale Wiki Git 锁；未自动回撤文件。")
-            if action in {"abort-stale", "abort_stale"}:
+            if action in {"revert-batch", "revert_batch"}:
                 if len(args) < 2:
                     return CommandResult(
-                        text="# /wiki abort-stale\n\n"
-                        "用法: `/wiki abort-stale <run_id>`\n"
-                        "确认回撤: `/wiki abort-stale <run_id> --confirm`"
+                        text="# /wiki revert-batch\n\n用法: `/wiki revert-batch <batch_id>`\n\n"
+                        "batch_id 来自 sync 快照批 commit 的 `Batch:` 尾注（`/wiki history` 或任务详情）。\n"
+                        "回撤是纯历史操作：sync 完成账不随之回退。"
                     )
-                tokens = args[1].split()
-                run_id = tokens[0]
-                record = manager.run_record(run_id)
-                if record is None:
-                    return CommandResult(text=f"找不到运行记录: {run_id}")
-                if record.get("status") != "active":
-                    return CommandResult(text=f"运行不是 active：{record.get('status')}")
-                changed = record.get("changed_files", [])
-                if "--confirm" not in tokens[1:]:
-                    files = (
-                        "\n".join(f"- `{path}`" for path in changed) or "- （记录中暂无变更清单）"
-                    )
-                    return CommandResult(
-                        text=(
-                            f"# stale run: {run_id}\n\n"
-                            f"before_commit: `{record.get('before_commit', '')}`\n\n"
-                            f"变更文件:\n{files}\n\n"
-                            "确认这可能删除该运行产生的 Wiki 修改后，执行：\n"
-                            f"`/wiki abort-stale {run_id} --confirm`"
-                        )
-                    )
-                aborted = manager.abort_stale(run_id)
+                new_commit = manager.revert_batch(args[1].strip())
                 return CommandResult(
-                    text=(
-                        f"# stale run 已回撤\n\n"
-                        f"运行 `{run_id}` 已恢复到 `{aborted.before_commit}`，"
-                        "状态为 `aborted`。"
-                    )
+                    text=f"# 批回撤\n\n批次 `{args[1]}` 已回撤，反向提交: `{new_commit[:8]}`"
                 )
             return CommandResult(
                 text=(
                     "# /wiki\n\n"
                     "用法：`/wiki open <页面路径>` · `/wiki search <关键词> [limit]` · "
-                    "`/wiki history` · `/wiki diff <run_id>` · "
-                    "`/wiki rollback <run_id>` · `/wiki clear-stale` · "
-                    "`/wiki abort-stale <run_id> [--confirm]`"
+                    "`/wiki history [limit]` · `/wiki diff <commit>` · "
+                    "`/wiki revert <commit>` · `/wiki revert-batch <batch_id>`"
                 )
             )
         except Exception as exc:
@@ -689,15 +652,13 @@ class RefineCommand(Command):
 
         dry_run = "--dry-run" in ctx.args.split()
         git_manager = None
-        git_run = None
         if not dry_run:
             try:
-                git_manager = WikiGitManager(wiki, run_root=ctx.agent.workspace / "runs")
-                git_run = git_manager.begin(
-                    f"refine_{datetime.now().strftime('%Y%m%d_%H%M%S')}", mode="refine"
-                )
+                git_manager = WikiGitManager(wiki)
+                # 批协议入口：pre-reset 收敛残骸，本次变更要么整批 commit 要么 restore
+                git_manager.restore()
             except Exception as exc:
-                return CommandResult(text=f"# /refine 未执行\n\nGit 运行前检查失败：{exc}")
+                return CommandResult(text=f"# /refine 未执行\n\nGit 仓库初始化失败：{exc}")
         lines = ["# /refine 完成", ""]
         lines.append(f"输入页面: {len(pages)} 个")
 
@@ -719,13 +680,13 @@ class RefineCommand(Command):
                     pages,
                     failure_handler=failure_handler,
                 )
-            except asyncio.CancelledError as exc:
-                if git_manager and git_run:
-                    git_manager.abort(git_run, reason=f"refine cancelled: {exc}")
+            except asyncio.CancelledError:
+                if git_manager is not None:
+                    git_manager.restore()
                 raise
-            except Exception as exc:
-                if git_manager and git_run:
-                    git_manager.abort(git_run, reason=f"refine exception: {exc}")
+            except Exception:
+                if git_manager is not None:
+                    git_manager.restore()
                 raise
             lines.append(f"成功 {stats['ok']} / 无操作 {stats['noop']} / 失败 {stats['failed']}")
 
@@ -758,9 +719,9 @@ class RefineCommand(Command):
                 )
             if outcome.unresolved:
                 lines.append(f"结构重组: {len(outcome.unresolved)} 组冲突已记入问题中心")
-        except asyncio.CancelledError as exc:
-            if git_manager and git_run:
-                git_manager.abort(git_run, reason=f"restructure cancelled: {exc}")
+        except asyncio.CancelledError:
+            if git_manager is not None:
+                git_manager.restore()
             raise
         except Exception as e:
             lines.append(f"结构重组跳过: {type(e).__name__}: {str(e)[:100]}")
@@ -778,25 +739,18 @@ class RefineCommand(Command):
         lines.append("")
         lines.append(format_scan_report(issues))
 
-        if git_manager and git_run:
-            scan_report = git_run.run_dir / "scan_report.md"
-            scan_report.write_text(format_scan_report(issues), encoding="utf-8")
+        if git_manager is not None:
             errors = [issue for issue in issues if issue.level == "error"]
             skipped = len(restructure_result.skipped) if restructure_result else 0
             if errors or skipped:
-                git_manager.abort(
-                    git_run,
-                    reason=f"refine validation failed: errors={len(errors)}, skipped={skipped}",
-                )
-                lines.append("Git: 已恢复到运行前版本")
+                git_manager.restore()
+                lines.append("Git: 已恢复到运行前版本（校验未通过，残骸不是历史）")
             else:
-                committed = git_manager.commit(
-                    git_run,
-                    message=f"wiki: refine {git_run.run_id}",
-                    scan_report=scan_report,
-                    metadata={"scan_errors": len(errors), "restructure_skipped": skipped},
+                commit = git_manager.commit_all(
+                    f"wiki: refine {datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    body=f"scan_errors: {len(errors)}, restructure_skipped: {skipped}",
                 )
-                lines.append(f"Git: 已提交 {committed.commit}")
+                lines.append(f"Git: 已提交 {commit[:8]}" if commit else "Git: 无变更未提交")
 
         return CommandResult(text="\n".join(lines))
 

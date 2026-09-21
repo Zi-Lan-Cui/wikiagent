@@ -109,11 +109,27 @@ class ChunkSummary:
 
 
 @dataclass
+class SourcePage:
+    """一个源文件的溯源档案页——slug + 完整页面文本。
+
+    档案页是给用户的来源信息中介，模型不可见、永不作为引用对象——
+    引用只指向原始文件；把它放在 wiki 之外正是这道可见性边界的实现。
+    构造在 extraction、落盘在终态结算（确认成功的 job 才写），
+    流水线执行中不写它。
+    """
+
+    slug: str
+    content: str
+
+
+@dataclass
 class ExtractResult:
     """Extract 输出——纯文档级摘要。不做实体提取，不做格式化。"""
 
     source_identity: str
     document_summary: str = ""
+    source_page: SourcePage | None = None
+    """档案页构造结果（compile/sync 模式才有），写入责任在结算方。"""
 
 
 # Phase 2 输出

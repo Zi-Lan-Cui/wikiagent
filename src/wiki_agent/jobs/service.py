@@ -27,6 +27,7 @@ class JobService:
         outcomes: JobOutcomeHandler | None = None,
         sync_state: SyncState | None = None,
         wiki_dir: str | Path | None = None,
+        source_records_dir: str | Path | None = None,
     ):
         self.workspace = Path(workspace)
         # issue retry 解析重试输入需要 wiki 根（wiki_page 型资源的定位）
@@ -36,7 +37,11 @@ class JobService:
         self.store = JobStore(workspace)
         self.issues = IssueStore(workspace)
         self.issue_service = IssueService(self.issues)
-        self.outcomes = outcomes or JobOutcomeHandler(self.issues, sync_state=sync_state)
+        self.outcomes = outcomes or JobOutcomeHandler(
+            self.issues,
+            sync_state=sync_state,
+            source_records_dir=source_records_dir,
+        )
         self.recovered_jobs = self.store.recover_stale()
 
     # 提交
@@ -134,6 +139,8 @@ class JobService:
         执行中的新改动属于下一次快照——"账本落后一个版本"是合法状态而非
         事故，因此执行体无需凭证校验，失败不写账即保持脏、再次 sync 即重试。
         脏文件若背着 open 失败账则顺手挂账 issue_id（成功即销账）。
+        payload.batch 是快照批标记——执行体把它写进 wiki commit 尾注，
+        "撤销这一批"据此在历史中选段 revert。
         """
         if self.sync_state is None:
             raise RuntimeError("submit_sync 需要 sync_state")
@@ -151,7 +158,7 @@ class JobService:
                         kind="compile",
                         resource=path,
                         mode="sync",
-                        payload={"deleted": False, "digest": digest},
+                        payload={"deleted": False, "digest": digest, "batch": batch},
                         idempotency_key=f"{batch}:{path}",
                         issue_id=pending[0].id if pending else "",
                         _conn=conn,
@@ -163,7 +170,7 @@ class JobService:
                         kind="delete",
                         resource=path,
                         mode="sync",
-                        payload={"deleted": True, "digest": ""},
+                        payload={"deleted": True, "digest": "", "batch": batch},
                         idempotency_key=f"{batch}:{path}",
                         _conn=conn,
                     )
@@ -183,8 +190,9 @@ class JobService:
         """唯一终态提交点：jobs 行与 issue 联动同事务。
 
         终态写入带 CAS（仅 running 可翻转）：行已被取代/取消时迟到写静默
-        跳过——不联动、不记账，返回行的现状。SyncState 写文件在提交后执行。
-        手动重试模型下这里不产生任何后继 job：失败就是终态 + 一笔账。
+        跳过——不联动、不记账，返回行的现状。SyncState 与溯源档案页的写
+        文件在提交后执行。手动重试模型下这里不产生任何后继 job：失败就是
+        终态 + 一笔账。
         """
         with self.store.database.transaction(immediate=True) as conn:
             won = self.store.try_finalize(

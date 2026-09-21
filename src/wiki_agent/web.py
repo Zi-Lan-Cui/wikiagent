@@ -101,6 +101,8 @@ def create_app(
         issue_id = job.issue_id  # 挂账关系统一走 issue_id 列
         item["issue_id"] = issue_id
         item["action"] = job.mode
+        # sync 快照批标记——wiki commit 尾注同源，"撤销这一批"按它定位
+        item["batch"] = str(job.payload.get("batch") or "")
         item["current_stage"] = job.stage or ("等待执行" if job.status == "queued" else "")
         item["stage_code"] = job.stage
         item["stage_index"] = 0

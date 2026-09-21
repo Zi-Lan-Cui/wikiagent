@@ -17,6 +17,7 @@ from wiki_agent.compiler.models import (
     ExtractResult,
     SourceChunk,
     SourceDocument,
+    SourcePage,
 )
 from wiki_agent.compiler.prompts import compile as _compile_prompts
 from wiki_agent.conversation import Message
@@ -67,7 +68,8 @@ class Extractor:
         """从 ``SourceDocument`` 提取知识。
 
         自动选择均匀分配或滚动压缩策略。
-        完成后自动保存源文档摘要到 workspace/provenance/sources/。
+        save_sources 时构造档案页内容放进 ``result.source_page``——
+        只构造不落盘，写盘由成功结算方（sync outcome / compile 批）执行。
 
         Args:
             source: 结构化源文档（chunks + 元信息）。
@@ -204,31 +206,29 @@ class Extractor:
             source_identity=source.name,
             document_summary=raw,
         )
-        if self._save_sources:
-            self._save_source_page(source, result)
+        if self._save_sources and self._source_records_dir is not None:
+            page = self._build_source_page(source, result)
+            if page is not None:
+                result.source_page = page
         return result
 
-    def _save_source_page(self, source: SourceDocument, result: ExtractResult) -> None:
-        """自动保存源文档摘要到工作区溯源存档。
+    def _build_source_page(self, source: SourceDocument, result: ExtractResult) -> SourcePage | None:
+        """构造源文档档案页（代码维护，不依赖 LLM plan 阶段）。
 
-        由代码维护，不依赖 LLM plan 阶段。
-        摘要为空时不写——避免 LLM 空响应生成空白 source 页。
+        只构造内容不落盘——档案页属于结算面：失败/取消的执行不留下它，
+        成功的 job 在终态联动时写入。摘要为空时返回 None——避免 LLM
+        空响应生成空白 source 页。
 
         Args:
             source: 源文档。
             result: 摘要结果。
         """
-        if self._source_records_dir is None:
-            return
         raw_summary = result.document_summary.strip()
         if not raw_summary:
             logger.warning("  ✗ 文档摘要为空，跳过 source 页: %s", source.name)
-            return
+            return None
 
         slug = self._slugify_source(source.name)
-        page_dir = self._source_records_dir
-        page_dir.mkdir(parents=True, exist_ok=True)
-        page_path = page_dir / f"{slug}.md"
 
         from datetime import date as _date
 
@@ -255,8 +255,8 @@ class Extractor:
             ]
         )
         content = f"{frontmatter}\n# {display_name}\n\n{result.document_summary}"
-        page_path.write_text(content.strip() + "\n", encoding="utf-8")
-        logger.info("  source page: %s (%d chars)", slug, len(content))
+        logger.info("  source page constructed: %s (%d chars)", slug, len(content))
+        return SourcePage(slug=slug, content=content.strip() + "\n")
 
     # 单个 chunk 摘要
 
@@ -309,3 +309,11 @@ class Extractor:
         # max_tokens；输出上限由 extract_output_tokens 控制，避免向 provider
         # 请求几十万 tokens。
         return min(self._output_tokens, max(2_000, available))
+
+
+def write_source_page(source_records_dir: Path, page: SourcePage) -> Path:
+    """结算方落盘档案页——sync outcome / compile 批共用的唯一写入口。"""
+    source_records_dir.mkdir(parents=True, exist_ok=True)
+    target = source_records_dir / f"{page.slug}.md"
+    target.write_text(page.content, encoding="utf-8")
+    return target

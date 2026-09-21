@@ -51,8 +51,12 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
 
     issue_service = IssueService(IssueStore(cfg.paths.resolved_workspace_dir()))
     llm = create_llm(cfg.llm, cfg.retry)
-    git_manager = WikiGitManager(wiki_dir, run_root=runs_dir)
-    git_run = git_manager.begin(run_dir.name, mode="restructure")
+    # 批协议：pre-reset 收敛残骸 → 执行 → 校验通过一次 commit / 否则 restore；
+    # dry-run 不动仓库，无需 Git 事务。
+    git_manager = None
+    if not dry_run:
+        git_manager = WikiGitManager(wiki_dir)
+        git_manager.restore()
 
     confirm = None if (yes or dry_run) else _interactive_confirm
     try:
@@ -62,11 +66,13 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
             confirm=confirm,
             dry_run=dry_run,
         )
-    except asyncio.CancelledError as exc:
-        git_manager.abort(git_run, reason=f"restructure cancelled: {exc}")
+    except asyncio.CancelledError:
+        if git_manager is not None:
+            git_manager.restore()
         raise
-    except Exception as exc:
-        git_manager.abort(git_run, reason=f"restructure exception: {exc}")
+    except Exception:
+        if git_manager is not None:
+            git_manager.restore()
         raise
 
     issues = scan_wiki(wiki_dir)
@@ -75,23 +81,25 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
     )
     errors = [i for i in issues if i.level == "error"]
     skipped = len(outcome.result.skipped) if outcome.result else 0
-    if errors or skipped:
-        git_manager.abort(
-            git_run,
-            reason=f"restructure validation failed: errors={len(errors)}, skipped={skipped}",
-        )
-        git_note = "Git: 已恢复到运行前版本"
+    if dry_run:
+        git_note = "dry-run：未触及 Wiki 仓库"
+    elif errors or skipped:
+        if git_manager is not None:
+            git_manager.restore()
+        git_note = "Git: 已恢复到运行前版本（校验未通过，残骸不是历史）"
     else:
-        committed = git_manager.commit(
-            git_run,
-            message=f"wiki: restructure {git_run.run_id}",
-            scan_report=run_dir / "scan_report.md",
-            metadata={
-                "actions": len(outcome.result.actions) if outcome.result else 0,
-                "scan_errors": len(errors),
-            },
+        commit = (
+            git_manager.commit_all(
+                f"wiki: restructure {run_dir.name}",
+                body=(
+                    f"actions: {len(outcome.result.actions) if outcome.result else 0}, "
+                    f"scan_errors: {len(errors)}"
+                ),
+            )
+            if git_manager is not None
+            else None
         )
-        git_note = f"Git: 已提交 {committed.commit}"
+        git_note = f"Git: 已提交 {commit[:8]}" if commit else "Git: 无变更未提交"
 
     # 摘要统一走 logger（明细审计同在 run.log）
     if outcome.healthy:

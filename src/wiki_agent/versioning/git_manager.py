@@ -1,47 +1,36 @@
-"""Wiki Git 版本管理——存档、提交、失败恢复和历史回撤的唯一入口。
+"""Wiki 版本管理——"HEAD = 最近已结算状态"模型的 Git 原语层。
 
-业务层只负责写 Wiki 并执行 scan；Git 侧负责：
+wiki 是机器管理的：人禁止直接改动生成页，工作区里一切未提交内容都是
+执行残骸。因此不存在需要保护的脏状态——任何时点 restore 到 HEAD 都是
+安全操作，这也是没有锁、没有运行容器、没有 dirty 检查的原因：逐 job
+协议（pre-reset → 执行 → 成功 commit / 失败 restore）保证每个 job 边界
+收敛，崩溃残骸由下一次 pre-reset 收编。
 
-    begin → commit / abort → rollback
-
-设计约束：
-- 默认要求 scope 工作区干净，避免覆盖用户未提交修改。
-- 所有 Git 操作都限制在 scope 内；不使用无范围 reset/clean。
-- 当前运行失败恢复到运行前版本；已提交版本使用 revert。
-- 运行存档与差异 patch 独立归档，不混入 Wiki commit。
+- sync/retry 的 compile、delete job 逐个提交：subject `sync: <文件>` /
+  `retry: <文件>` / `sync: delete <文件>`，body 携带 `Batch: <快照id>`
+  尾注。撤销一整批 = 按尾注在历史中选段 revert，纯历史操作，不回退账本。
+- 批量 compile/refine/restructure 仍以一次提交覆盖整批。
+- 运行留痕 = commit 历史本身；失败残骸在 restore 前导出 patch 存档，
+  不再有 run.json/diff.patch 容器。
 """
 
 from __future__ import annotations
 
-import json
-import os
 import subprocess
-from dataclasses import asdict
-from datetime import UTC, datetime
 from pathlib import Path
 
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.versioning.errors import (
-    GitCommitError,
-    GitManagerError,
-    GitScopeError,
-    GitWorkspaceDirty,
-)
-from wiki_agent.versioning.models import GitRun
+from wiki_agent.versioning.errors import GitCommitError, GitManagerError, GitScopeError
 
 logger = get_logger("GIT_MANAGER")
 
+_ADD_CHUNK = 50
+
 
 class WikiGitManager:
-    """管理 Wiki 写入运行的 Git 生命周期。"""
+    """Wiki scope 的 Git 原语：restore / commit / revert / history。"""
 
-    def __init__(
-        self,
-        wiki_dir: str | Path,
-        *,
-        run_root: str | Path | None = None,
-        require_clean: bool = True,
-    ):
+    def __init__(self, wiki_dir: str | Path):
         self.wiki_dir = Path(wiki_dir).resolve()
         self.wiki_dir.mkdir(parents=True, exist_ok=True)
         self.repo_root = self._resolve_repository()
@@ -49,12 +38,6 @@ class WikiGitManager:
             self.scope = self.wiki_dir.relative_to(self.repo_root)
         except ValueError as exc:
             raise GitScopeError(f"Wiki 目录不在 Git 仓库内: {self.wiki_dir}") from exc
-        self.run_root = (
-            Path(run_root).resolve() if run_root else self.wiki_dir.parent / "workspace" / "runs"
-        )
-        self.require_clean = require_clean
-        self._lock_path = self.repo_root / ".git" / "wiki-agent.lock"
-        self._lock_owned = False
 
     def _resolve_repository(self) -> Path:
         """Reuse a repository that owns the Wiki, or initialize one locally.
@@ -141,22 +124,12 @@ class WikiGitManager:
             if configured.returncode:
                 raise GitManagerError((configured.stderr or configured.stdout).strip())
 
-    # Git 基础操作
-
-    def _git_path(self, *args: str) -> str:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=self.wiki_dir,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode:
-            raise GitManagerError((result.stderr or result.stdout).strip())
-        return result.stdout.strip()
+    # Git 基础
 
     def _git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        # core.quotePath=false：diff/show 输出原始 UTF-8 路径，中文页面不被八进制转义污染
         result = subprocess.run(
-            ["git", *args],
+            ["git", "-c", "core.quotePath=false", *args],
             cwd=self.repo_root,
             capture_output=True,
             text=True,
@@ -192,18 +165,51 @@ class WikiGitManager:
                 index += 1
         return lines
 
+    def _untracked(self) -> list[str]:
+        return [
+            path
+            for path in self._git(
+                "ls-files", "--others", "--exclude-standard", "-z", "--", self._scope_arg()
+            ).stdout.split("\0")
+            if path
+        ]
+
+    # 查询
+
+    def head(self) -> str:
+        """当前 HEAD commit。"""
+        return self._head()
+
     def status(self) -> list[str]:
-        """返回 Wiki scope 内的未提交状态。"""
+        """Wiki scope 内的未提交状态——协议下应恒为空，非空即残骸。"""
         return self._status()
 
-    def change_summary(self, run: GitRun) -> dict[str, list[str]]:
-        """按 Git 状态归类本次运行相对基线的文件变化。
+    def is_clean(self) -> bool:
+        return not self._status()
+
+    def history(self, limit: int = 20) -> list[str]:
+        """返回 Wiki scope 的 Git 历史。"""
+        return self._git(
+            "log",
+            f"-{max(1, limit)}",
+            "--date=short",
+            "--pretty=format:%h %ad %s",
+            "--",
+            self._scope_arg(),
+        ).stdout.splitlines()
+
+    def diff_commit(self, commit: str) -> str:
+        """某个已提交版本的完整 diff。"""
+        return self._git("show", "--format=", commit, "--", self._scope_arg()).stdout
+
+    def change_summary(self, since: str) -> dict[str, list[str]]:
+        """相对基线 commit 的 Wiki 变化归类。
 
         ``git diff`` 不包含未跟踪的新文件，因此同时读取 porcelain 状态；
         这样 compile 报告不会漏掉刚生成、尚未纳入 Git 的页面。
         """
         result = self._git(
-            "diff", "--name-status", "-z", run.before_commit, "--", self._scope_arg()
+            "diff", "--name-status", "-z", since, "--", self._scope_arg()
         )
         summary = {"added": [], "modified": [], "deleted": [], "renamed": []}
         seen: set[str] = set()
@@ -242,344 +248,121 @@ class WikiGitManager:
             paths.sort()
         return summary
 
-    def _acquire_lock(self) -> None:
-        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            fd = os.open(self._lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(f"pid={os.getpid()}\nstarted_at={datetime.now(UTC).isoformat()}\n")
-            self._lock_owned = True
-        except FileExistsError as exc:
-            raise GitManagerError(f"Wiki Git 正在被其他运行占用: {self._lock_path}") from exc
+    # 结算原语
 
-    def stale_status(self) -> dict:
-        """检查锁和 active run，绝不自动清理。"""
-        lock = None
-        if self._lock_path.exists():
-            values = {}
-            for line in self._lock_path.read_text(encoding="utf-8").splitlines():
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    values[key] = value
-            pid = int(values.get("pid", "0") or 0)
-            alive = False
-            if pid:
-                try:
-                    os.kill(pid, 0)
-                    alive = True
-                except OSError:
-                    alive = False
-            lock = {**values, "alive": alive, "stale": not alive}
+    def restore(self) -> None:
+        """工作区恢复到 HEAD：还原跟踪文件、删除 scope 内未跟踪文件。
 
-        active_runs = []
-        if self.run_root.is_dir():
-            for run_file in self.run_root.glob("*/run.json"):
-                try:
-                    payload = json.loads(run_file.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    continue
-                if payload.get("status") == "active":
-                    active_runs.append(payload)
-        return {"lock": lock, "active_runs": active_runs}
-
-    def clear_stale_lock(self) -> bool:
-        """人工清理已确认进程不存在的锁；不会回撤 Wiki 文件。"""
-        status = self.stale_status()
-        lock = status.get("lock")
-        if not lock or not lock.get("stale"):
-            return False
-        self._lock_path.unlink(missing_ok=True)
-        emit_event("git_stale_lock_cleared", lock_path=str(self._lock_path))
-        return True
-
-    def history(self, limit: int = 20) -> list[str]:
-        """返回 Wiki scope 的 Git 历史。"""
-        return self._git(
-            "log",
-            f"-{max(1, limit)}",
-            "--date=short",
-            "--pretty=format:%h %ad %s",
-            "--",
-            self._scope_arg(),
-        ).stdout.splitlines()
-
-    def run_record(self, run_id: str) -> dict | None:
-        """按 run_id 读取审计记录。"""
-        for run_file in self.run_root.glob("*/run.json"):
-            try:
-                payload = json.loads(run_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if payload.get("run_id") == run_id or run_file.parent.name == run_id:
-                return payload
-        return None
-
-    def _git_run_from_record(self, record: dict) -> GitRun:
-        """将 run.json 还原为可供 abort 使用的 GitRun。"""
-        return GitRun(
-            run_id=record["run_id"],
-            mode=record.get("mode", "unknown"),
-            scope=record.get("scope", str(self.scope)),
-            repo_root=Path(record.get("repo_root", self.repo_root)),
-            scope_path=Path(record.get("scope_path", self.wiki_dir)),
-            run_dir=Path(record.get("run_dir", self.run_root / record["run_id"])),
-            before_commit=record["before_commit"],
-            after_commit=record.get("after_commit", ""),
-            commit=record.get("commit", ""),
-            status=record.get("status", "active"),
-            changed_files=record.get("changed_files", []),
-            metadata=record.get("metadata", {}) or {},
-        )
-
-    def abort_stale(self, run_id: str) -> GitRun:
-        """回撤一个确认过的 stale active run。
-
-        只允许锁对应进程已经退出的运行；调用方负责先向用户展示
-        changed_files 并取得显式确认。
+        pre-reset 与失败撤销共用。只删文件不调用无范围 git clean；
+        NUL 分隔避免中文路径被 core.quotePath 转义后无法定位。
         """
-        record = self.run_record(run_id)
-        if record is None:
-            raise GitManagerError(f"找不到运行记录: {run_id}")
-        if record.get("status") != "active":
-            raise GitManagerError(f"运行不是 active，不能使用 abort-stale: {record.get('status')}")
-        status = self.stale_status()
-        lock = status.get("lock")
-        if lock and not lock.get("stale"):
-            raise GitManagerError(f"运行锁仍由 pid={lock.get('pid')} 持有，拒绝回撤活动运行")
-        if lock and lock.get("stale"):
-            self._lock_path.unlink(missing_ok=True)
-        self._acquire_lock()
-        run = self._git_run_from_record(record)
-        return self.abort(run, reason="manual stale run rollback")
-
-    def diff_for_run(self, run_id: str) -> str:
-        record = self.run_record(run_id)
-        if record is None:
-            raise GitManagerError(f"找不到运行记录: {run_id}")
-        diff_path = Path(record["run_dir"]) / "diff.patch"
-        if diff_path.exists():
-            return diff_path.read_text(encoding="utf-8")
-        commit = record.get("commit") or record.get("after_commit")
-        if not commit:
-            return ""
-        return self._git("show", "--format=", commit, "--", self._scope_arg()).stdout
-
-    def _release_lock(self) -> None:
-        if self._lock_owned:
-            self._lock_path.unlink(missing_ok=True)
-            self._lock_owned = False
-
-    def _write_run(self, run: GitRun) -> None:
-        run.run_dir.mkdir(parents=True, exist_ok=True)
-        payload = asdict(run)
-        payload["repo_root"] = str(run.repo_root)
-        payload["scope_path"] = str(run.scope_path)
-        payload["run_dir"] = str(run.run_dir)
-        (run.run_dir / "run.json").write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-
-    # 生命周期
-
-    def begin(self, run_id: str, *, mode: str, scope: str | Path | None = None) -> GitRun:
-        """创建运行检查点；默认要求 Wiki scope 干净。"""
-        requested = (self.wiki_dir / scope).resolve() if scope else self.wiki_dir
-        try:
-            requested.relative_to(self.wiki_dir)
-        except ValueError as exc:
-            raise GitScopeError(f"scope 越过 Wiki 根目录: {scope}") from exc
-        if requested != self.wiki_dir:
-            raise GitScopeError("第一版只允许以整个 wiki 作为事务 scope")
-        if self.require_clean and self._status():
-            raise GitWorkspaceDirty(
-                "Wiki 工作区存在未提交修改，请先提交后再运行: " + "; ".join(self._status()[:8])
-            )
-        self._acquire_lock()
-        try:
-            now = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            run_dir = self.run_root / f"{mode}_{run_id or now}"
-            run = GitRun(
-                run_id=run_id or now,
-                mode=mode,
-                scope=str(self.scope),
-                repo_root=Path(self.repo_root),
-                scope_path=self.wiki_dir,
-                run_dir=run_dir,
-                before_commit=self._head(),
-            )
-            self._write_run(run)
-            emit_event(
-                "git_run_started",
-                run_id=run.run_id,
-                before_commit=run.before_commit,
-                scope=str(self.scope),
-            )
-            return run
-        except Exception:
-            self._release_lock()
-            raise
-
-    def _changed_files(self, run: GitRun) -> list[str]:
-        status = self._status()
-        files: list[str] = []
-        for line in status:
-            path = line[3:].strip()
-            if " -> " in path:
-                path = path.split(" -> ", 1)[1]
-            if path not in files:
-                files.append(path)
-        run.changed_files = files
-        return files
-
-    def _write_diff(self, run: GitRun) -> None:
-        result = self._git("diff", "--", self._scope_arg())
-        (run.run_dir / "diff.patch").write_text(result.stdout, encoding="utf-8")
-        (run.run_dir / "changed_files.json").write_text(
-            json.dumps(run.changed_files, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-
-    def commit(
-        self,
-        run: GitRun,
-        *,
-        message: str,
-        metadata: dict | None = None,
-        scan_report: str | Path | None = None,
-        diff_report: str | Path | None = None,
-        expected_files: list[str] | None = None,
-    ) -> GitRun:
-        """提交本次 Wiki 运行；只 stage Wiki scope。"""
-        if run.status != "active":
-            raise GitManagerError(f"运行已结束，不能提交: {run.status}")
-        try:
-            self._changed_files(run)
-            self._write_diff(run)
-            if expected_files is not None and sorted(run.changed_files) != sorted(expected_files):
-                raise GitCommitError(
-                    f"变更清单与预期不一致: actual={run.changed_files}, expected={expected_files}"
-                )
-            if scan_report is not None:
-                report = Path(scan_report)
-                if not report.is_file():
-                    raise GitCommitError(f"scan 报告不存在，禁止提交: {report}")
-                if not report.resolve().is_relative_to(run.run_dir.resolve()):
-                    raise GitCommitError("scan 报告必须存放在本次 run 目录内")
-                run.metadata["scan_report"] = str(report)
-            if diff_report is not None:
-                report = Path(diff_report)
-                if not report.is_file():
-                    raise GitCommitError(f"diff 报告不存在，禁止提交: {report}")
-                if not report.resolve().is_relative_to(run.run_dir.resolve()):
-                    raise GitCommitError("diff 报告必须存放在本次 run 目录内")
-                run.metadata["diff_report"] = str(report)
-            elif scan_report is None and run.changed_files:
-                raise GitCommitError("存在 Wiki 变更但未绑定 scan 报告，禁止提交")
-            if not run.changed_files:
-                run.status = "committed"
-                run.after_commit = self._head()
-                run.commit = run.after_commit
-                run.metadata.update(metadata or {})
-                self._write_run(run)
-                return run
-            # 只暂存 begin 后记录的 Wiki 变更；工作区审计文件不在
-            # Wiki 仓库内，也不能因后续生成而混入本次 commit。
-            self._git("add", "--", *run.changed_files)
-            staged = [
-                path
-                for path in self._git("diff", "--cached", "--name-only", "-z").stdout.split("\0")
-                if path
-            ]
-            if sorted(staged) != sorted(run.changed_files):
-                self._git("reset", "--", self._scope_arg(), check=False)
-                raise GitCommitError(
-                    "暂存变更清单与运行变更清单不一致: "
-                    f"staged={staged}, changed={run.changed_files}"
-                )
-            if any(
-                not (Path(self.repo_root) / path).resolve().is_relative_to(self.wiki_dir)
-                for path in staged
-            ):
-                self._git("reset", "--", self._scope_arg(), check=False)
-                raise GitScopeError("暂存区包含 Wiki scope 外文件")
-            # pathspec 明确限制提交范围，避免仓库中其他已暂存内容被带入。
-            result = self._git("commit", "-m", message, "--", self._scope_arg(), check=False)
-            if result.returncode:
-                self._git("reset", "--", self._scope_arg(), check=False)
-                raise GitCommitError((result.stderr or result.stdout).strip())
-            run.status = "committed"
-            run.after_commit = self._head()
-            run.commit = run.after_commit
-            run.metadata.update(metadata or {})
-            self._write_run(run)
-            emit_event(
-                "git_run_committed",
-                run_id=run.run_id,
-                before_commit=run.before_commit,
-                commit=run.commit,
-                changed_files=run.changed_files,
-            )
-            return run
-        finally:
-            self._release_lock()
-
-    def abort(self, run: GitRun, *, reason: str) -> GitRun:
-        """恢复当前未提交运行到 before_commit，随后释放锁。"""
-        if run.status != "active":
-            return run
-        try:
-            self._git(
-                "restore",
-                "--source",
-                run.before_commit,
-                "--staged",
-                "--worktree",
-                "--",
-                self._scope_arg(),
-            )
-            # 只删除本次 scope 内、Git 未跟踪的文件；不调用无范围 git clean。
-            # 使用 NUL 分隔，避免中文等路径被 core.quotePath 转义后无法定位。
-            untracked = [
-                path
-                for path in self._git(
-                    "ls-files",
-                    "--others",
-                    "--exclude-standard",
-                    "-z",
-                    "--",
-                    self._scope_arg(),
-                ).stdout.split("\0")
-                if path
-            ]
-            for path in untracked:
-                target = (Path(self.repo_root) / path).resolve()
+        had_changes = bool(self._status())
+        if had_changes:
+            # 空仓库/全残骸场景：scope 内没有跟踪文件时 restore 会因
+            # pathspec 不匹配报错——此时只有未跟踪内容可清
+            if self._git("ls-files", "--", self._scope_arg()).stdout.strip():
+                self._git("restore", "--staged", "--worktree", "--", self._scope_arg())
+            for path in self._untracked():
+                target = (self.repo_root / path).resolve()
                 if target.is_file() and target.is_relative_to(self.wiki_dir):
                     target.unlink()
-            run.status = "aborted"
-            run.metadata["abort_reason"] = reason
-            self._changed_files(run)
-            self._write_run(run)
-            emit_event("git_run_aborted", run_id=run.run_id, reason=reason)
-            return run
-        finally:
-            self._release_lock()
+            self._prune_empty_dirs()
+            emit_event("wiki_restored_to_head", wiki_dir=str(self.wiki_dir))
 
-    def rollback(self, commit: str, *, run_id: str = "") -> str:
-        """对已提交的 Wiki commit 创建安全反向提交。"""
-        if self._status():
-            raise GitWorkspaceDirty("回撤前 Wiki 工作区必须干净")
-        self._acquire_lock()
-        try:
-            result = self._git("revert", "--no-edit", commit, check=False)
-            if result.returncode:
-                self._git("revert", "--abort", check=False)
-                raise GitManagerError((result.stderr or result.stdout).strip())
-            new_commit = self._head()
-            emit_event(
-                "git_run_rolled_back",
-                run_id=run_id,
-                reverted_commit=commit,
-                rollback_commit=new_commit,
-            )
-            return new_commit
-        finally:
-            self._release_lock()
+    def _prune_empty_dirs(self) -> None:
+        """删除残骸留下的空目录（Git 不跟踪目录，restore 不会清理它们）。"""
+        for directory in sorted(
+            (p for p in self.wiki_dir.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True
+        ):
+            if ".git" in directory.parts:
+                continue
+            try:
+                directory.rmdir()
+            except OSError:
+                pass  # 非空目录自然失败
+
+    def working_patch(self) -> str:
+        """失败残骸的完整 diff（新文件以 intent-to-add 纳入）。
+
+        add -N 只改 index、restore 收尾时统一撤掉，不改工作区内容。
+        """
+        untracked = self._untracked()
+        for i in range(0, len(untracked), _ADD_CHUNK):
+            self._git("add", "--intent-to-add", "--", *untracked[i : i + _ADD_CHUNK])
+        diff = self._git("diff", "--", self._scope_arg()).stdout
+        if untracked:
+            self._git("reset", "-q", "--", self._scope_arg())
+        return diff
+
+    def commit_all(self, subject: str, *, body: str = "") -> str | None:
+        """提交 Wiki scope 的全部变更；无变更返回 None（noop 成功不产生 commit）。
+
+        pathspec 形式的 commit 只覆盖 scope 路径——仓库中其他位置即使
+        有暂存内容也不会被带入。
+        """
+        self._git("add", "-A", "--", self._scope_arg())
+        # --quiet: 返回码 0=无变更、1=有变更
+        probe = self._git("diff", "--cached", "--quiet", "--", self._scope_arg(), check=False)
+        if probe.returncode == 0:
+            return None
+        args = ["commit", "-qm", subject]
+        if body:
+            args += ["-m", body]
+        result = self._git(*args, "--", self._scope_arg(), check=False)
+        if result.returncode:
+            self._git("reset", "-q", "--", self._scope_arg(), check=False)
+            raise GitCommitError((result.stderr or result.stdout).strip())
+        commit = self._head()
+        emit_event("wiki_committed", commit=commit[:8], subject=subject)
+        return commit
+
+    # 历史回撤
+
+    def batch_commits(self, batch_id: str) -> list[str]:
+        """一次快照批的全部 commit（新→旧）。"""
+        return [
+            line
+            for line in self._git(
+                "log",
+                "--format=%H",
+                "--fixed-strings",
+                f"--grep=Batch: {batch_id}",
+                "--",
+                self._scope_arg(),
+            ).stdout.splitlines()
+            if line
+        ]
+
+    def revert_commit(self, commit: str) -> str:
+        """回撤单个已提交版本，生成反向提交。"""
+        return self._revert([commit], f"revert: {commit[:8]}")
+
+    def revert_batch(self, batch_id: str) -> str:
+        """撤销一整批：revert 该批全部 commit（新→旧），生成一笔反向提交。
+
+        纯历史操作——sync 完成账不随之回退（账本记的是"当时确实编译过"），
+        回撤后要让内容重新进 wiki 就再点一次 sync。
+        """
+        commits = self.batch_commits(batch_id)
+        if not commits:
+            raise GitManagerError(f"找不到批次 {batch_id} 的提交记录")
+        return self._revert(commits, f"revert: batch {batch_id}")
+
+    def _revert(self, commits: list[str], subject: str) -> str:
+        # 残骸先收敛到 HEAD——revert 要求干净工作区，而这里的"脏"永远是残骸
+        self.restore()
+        result = self._git("revert", "-n", *commits, check=False)
+        if result.returncode:
+            self._git("revert", "--abort", check=False)
+            raise GitManagerError((result.stderr or result.stdout).strip())
+        probe = self._git("diff", "--cached", "--quiet", check=False)
+        if probe.returncode == 0:
+            self._git("reset", "-q", check=False)
+            raise GitManagerError("revert 没有产生任何变更")
+        result = self._git("commit", "-qm", subject, check=False)
+        if result.returncode:
+            self._git("revert", "--abort", check=False)
+            raise GitManagerError((result.stderr or result.stdout).strip())
+        commit = self._head()
+        emit_event("wiki_reverted", commit=commit[:8], subject=subject, reverted=commits[:1])
+        return commit
