@@ -160,7 +160,7 @@ class SourceFailureHandler:
 
 
 # source 失败重试策略——纯函数。统一 Job 模型下不存在"队列执行器"：
-# 判定被 JobOutcomeHandler（失败推进退避）与 RetryScheduler（到期挑选）
+# 判定被 JobOutcomeHandler（失败推进退避）与 MaintenanceLoop（到期挑选）
 # 共用，次数/时限的真相只有一份代码。
 
 

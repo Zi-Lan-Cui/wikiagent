@@ -1,13 +1,17 @@
-"""周期对账——事件通道会丢，真相以库为准。
+"""后台维护循环——事件通道会丢，真相以库为准，周期收敛一切脱缝。
 
-三件事（全部幂等）：
+每轮四件事（全部幂等、只生产不执行；顺序固定）：
 1. recover_stale：超时未心跳的 running 回队（进程崩溃/卡死自愈）；
-2. 孤儿 processing：issue 挂在 processing 却没有在途 job（终态事务崩在
-   中间）→ CAS 回落 open，重走提交入口；
-3. 补挂关系：升级前遗留的无 issue_id 在途 compile 与 open 失败账对上，
-   让终态联动能找到账本。
+2. 到期重试：到退避时间且仍值得自动重试的失败账 → submit_issue_retry 排队
+   ——与 watcher 事件是同一提交入口的两种触发器；
+3. 补挂关系：无 issue_id 的在途 compile 与 open 失败账对上，终态联动找得到账本；
+4. 孤儿 processing：issue 挂在 processing 却没有在途 job → CAS 回落 open。
 
-对账只做 SQLite 状态修复，永不触碰 pipeline/文件。
+到期重试排在孤儿回落之前：同一 issue 一轮至多推进一次——回落后的账等
+下一轮再投，不会出现"本轮刚回落、本轮即重领"的自循环。
+
+只做 SQLite 状态修复与 Job 提交，永不触碰 pipeline/文件；执行与终态
+归 Worker + JobOutcomeHandler。
 """
 
 from __future__ import annotations
@@ -15,15 +19,27 @@ from __future__ import annotations
 import asyncio
 
 from wiki_agent.application.job_service import JobService
-from wiki_agent.issues import InvalidIssueTransitionError, IssueAlreadyClaimedError, IssueStatus
+from wiki_agent.compiler.workflows.failures import (
+    is_retry_due,
+    source_retry_decision,
+)
+from wiki_agent.issues import (
+    InvalidIssueTransitionError,
+    IssueAlreadyClaimedError,
+    IssueKind,
+    IssueStatus,
+)
+from wiki_agent.jobs import DuplicateActiveJob
 from wiki_agent.log import get_logger
 
 logger = get_logger("RECONCILE")
 
 
-class Reconciler:
+class MaintenanceLoop:
+    """单一后台生产者：对账 + 到期重试，一个周期、一份顺序。"""
+
     def __init__(
-        self, job_service: JobService, *, interval: float = 60.0, max_age_seconds: int = 300
+        self, job_service: JobService, *, interval: float = 30.0, max_age_seconds: int = 300
     ):
         self._service = job_service
         self._interval = interval
@@ -41,7 +57,7 @@ class Reconciler:
             try:
                 await asyncio.to_thread(self.run_once)
             except Exception as exc:  # noqa: BLE001 - 单轮失败等下一轮
-                logger.warning("对账轮次失败: %s: %s", type(exc).__name__, str(exc)[:200])
+                logger.warning("维护轮次失败: %s: %s", type(exc).__name__, str(exc)[:200])
 
     def stop(self) -> None:
         self._stopped.set()
@@ -49,9 +65,19 @@ class Reconciler:
     def run_once(self) -> dict[str, int]:
         store = self._service.store
         issues = self._service.issues
-        recovered = store.recover_stale(max_age_seconds=self._max_age)
+        result = {"recovered": store.recover_stale(max_age_seconds=self._max_age)}
 
-        orphans = 0
+        result["retry_submitted"] = self._submit_due_retries()
+
+        result["relinked"] = 0
+        for job in store.list_active_without_issue():
+            pending = issues.find_pending_failures(job.resource)
+            if not pending:
+                continue
+            store.attach_issue(job.id, pending[0].id)
+            result["relinked"] += 1
+
+        result["orphans"] = 0
         for issue in issues.list(statuses={IssueStatus.PROCESSING}, limit=1000):
             if store.has_active_job_by_issue(issue.id):
                 continue
@@ -63,19 +89,37 @@ class Reconciler:
                     expected={IssueStatus.PROCESSING},
                     event="reconcile",
                 )
-                orphans += 1
+                result["orphans"] += 1
             except (IssueAlreadyClaimedError, InvalidIssueTransitionError):
                 continue
 
-        relinked = 0
-        for job in store.list_active_without_issue():
-            pending = issues.find_pending_failures(job.resource)
-            if not pending:
-                continue
-            store.attach_issue(job.id, pending[0].id)
-            relinked += 1
-
-        result = {"recovered": recovered, "orphans": orphans, "relinked": relinked}
         if any(result.values()):
-            logger.info("对账: %s", result)
+            logger.info("维护: %s", result)
         return result
+
+    def _submit_due_retries(self) -> int:
+        """把到期且还值得重试的失败问题排队成 compile job。"""
+        service = self._service
+        submitted = 0
+        max_attempts = service.retry_config.source_max_attempts
+        issues = service.issues.list(
+            statuses={IssueStatus.OPEN}, kinds={IssueKind.INGESTION_FAILURE}, limit=1000
+        )
+        for issue in issues:
+            if issue.retry.get("unavailable_reason"):
+                continue
+            if source_retry_decision(issue.retry, max_attempts=max_attempts) != "retry":
+                continue
+            if not is_retry_due(issue.retry):
+                continue
+            if service.store.has_active_job_by_issue(issue.id):
+                continue
+            try:
+                service.submit_issue_retry(issue.id)
+            except (IssueAlreadyClaimedError, DuplicateActiveJob) as exc:
+                logger.debug("重试调度让位在途任务 %s: %s", issue.id, exc)
+            except Exception as exc:  # noqa: BLE001 - 单条失败不影响其余调度
+                logger.warning("重试调度 %s 失败: %s: %s", issue.id, type(exc).__name__, exc)
+                continue
+            submitted += 1
+        return submitted
