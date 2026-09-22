@@ -43,7 +43,6 @@ class AppRuntime:
         self.workspace = config.paths.resolved_workspace_dir()
         self.wiki_dir = config.paths.resolved_wiki_dir()
         self.source_records_dir = config.paths.resolved_source_records_dir()
-        self.runs_dir = config.paths.resolved_runs_dir()
         self.issue_store = IssueStore(self.workspace)
         self.sync_state = SyncState(config.paths.resolved_sync_dir() / "state.json")
         # wiki 版本面：HEAD=最近已结算状态，sync/retry 逐 job 提交由 consumer 执行

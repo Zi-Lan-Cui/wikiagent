@@ -2,7 +2,6 @@
 
 import asyncio
 from pathlib import Path
-from types import SimpleNamespace
 
 from wiki_agent.agent.commands import CommandContext, CompileCommand, ScanCommand
 from wiki_agent.conversation import Session
@@ -159,31 +158,19 @@ goal: 页面目标
     assert 'title: "正确标题"' in result
 
 
-def test_compile_command_calls_reusable_compile_entry(tmp_path: Path, monkeypatch):
-    import wiki_agent.application.compile_service as compile_module
-
+def test_compile_command_enqueues_one_snapshot_sync(tmp_path: Path):
+    """批编译入口已并入 sync：/compile = submit_sync，写 wiki 只剩队列一条路。"""
     source = tmp_path / "sources"
     source.mkdir()
-    wiki = tmp_path / "wiki"
-    wiki.mkdir()
-    run_dir = wiki / ".logs" / "runs" / "compile_test"
     called = {}
 
-    async def fake_compile(path, *, project_root, wiki_dir, progress=None):
-        called.update(path=path, project_root=project_root, wiki_dir=wiki_dir)
-        return SimpleNamespace(run_dir=run_dir, commit="commit-test", committed=True)
-
-    monkeypatch.setattr(compile_module, "compile_sources", fake_compile)
-
-    class _ReadFile:
-        root = wiki  # 命令层经公开 root 属性取 wiki 根
-
-    class _Registry:
-        def get(self, name):
-            return _ReadFile() if name == "ReadFile" else None
+    class _Service:
+        def submit_sync(self, target):
+            called["target"] = target
+            return [object(), object()]
 
     class _Agent:
-        tool_registry = _Registry()
+        job_service = _Service()
         workspace = tmp_path / "workspace"
 
     result = asyncio.run(
@@ -197,9 +184,9 @@ def test_compile_command_calls_reusable_compile_entry(tmp_path: Path, monkeypatc
             )
         )
     )
-    assert result.text.startswith("# /compile 完成")
-    assert called["path"] == str(source)
-    assert called["wiki_dir"] == wiki
+    assert result.text.startswith("# /compile 已入队")
+    assert called["target"] == source.resolve()
+    assert "2 个" in result.text
 
 
 def test_command_progress_uses_shared_hook_protocol():

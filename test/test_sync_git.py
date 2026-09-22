@@ -21,11 +21,13 @@ from wiki_agent.versioning import WikiGitManager
 
 
 class _FakePipeline:
-    """假 ingest：成功写一个概念页并构造档案页；失败先留半页残骸再抛。"""
+    """假 ingest：成功写一个概念页并构造档案页；失败先留半页残骸再抛；
+    bad 名单写出缺 frontmatter 的坏页（触发消费端单 source 质量闸门）。"""
 
-    def __init__(self, wiki: Path, fail_names: tuple[str, ...] = ()):
+    def __init__(self, wiki: Path, fail_names: tuple[str, ...] = (), bad_names: tuple[str, ...] = ()):
         self._wiki = wiki
         self._fail = fail_names
+        self._bad = bad_names
         self.calls: list[str] = []
 
     async def ingest_one(self, raw_file):
@@ -36,10 +38,18 @@ class _FakePipeline:
         if raw_file.name in self._fail:
             (self._wiki / rel).write_text("半成品残骸\n", encoding="utf-8")
             raise IngestError(IngestStage.EXECUTE, "mock 失败", source=raw_file.name)
-        (self._wiki / rel).write_text(f"# {stem}\n\n正文。\n", encoding="utf-8")
+        if raw_file.name in self._bad:
+            (self._wiki / rel).write_text("没有 frontmatter 的坏页\n", encoding="utf-8")
+        else:
+            (self._wiki / rel).write_text(
+                '---\ntype: concept\ntitle: "页"\nsummary: "s"\ngoal: "g"\n'
+                f"related: []\n---\n# {stem}\n\n正文内容，长度足够通过检查。\n",
+                encoding="utf-8",
+            )
         page = SimpleNamespace(
             slug=stem,
-            content=f'---\ntype: source\nsources: ["{raw_file.name}"]\n---\n# {stem}\n',
+            content='---\ntype: source\ntitle: "档案"\nsummary: "s"\ngoal: "g"\nrelated: []\n'
+            f'sources: ["{raw_file.name}"]\n---\n# {stem}\n\n档案摘要内容足够长一些。\n',
         )
         return SimpleNamespace(
             noop=False,
@@ -48,7 +58,7 @@ class _FakePipeline:
         )
 
 
-def _env(tmp: Path, *, fail_names: tuple[str, ...] = ()):
+def _env(tmp: Path, *, fail_names: tuple[str, ...] = (), bad_names: tuple[str, ...] = ()):
     src = tmp / "materials"
     src.mkdir(parents=True, exist_ok=True)
     wiki = tmp / "wiki"
@@ -63,7 +73,7 @@ def _env(tmp: Path, *, fail_names: tuple[str, ...] = ()):
         sync_state=state,
         source_records_dir=records,
     )
-    pipeline = _FakePipeline(wiki, fail_names)
+    pipeline = _FakePipeline(wiki, fail_names, bad_names)
     consumer = SyncConsumer(
         pipeline,
         state,
@@ -170,6 +180,24 @@ def test_delete_settles_archive_unlink_and_commits_wiki(tmp_path: Path):
         service.sync_state.get(str(f.resolve())).hash == ""
     )
     assert service.submit_sync(src) == []
+
+
+def test_quality_gate_failure_restores_and_records(tmp_path: Path):
+    """单 source 局部质量闸门（批壳迁入）：坏产出 = 业务失败，
+    残骸 restore、不进 commit/档案，保持脏并记账等人。"""
+    src, wiki, records, git, state, service, worker = _env(tmp_path, bad_names=("a.md",))
+    baseline = git.head()
+    (src / "a.md").write_text("坏页输入" * 10, encoding="utf-8")
+    jobs = service.submit_sync(src)
+    _pump(worker, 1)
+
+    row = service.store.get(jobs[0].id)
+    assert row.status == "failed" and "质量" in row.error
+    assert git.is_clean() and git.head() == baseline, "坏页不得入历史"
+    assert not (wiki / "concepts" / "a.md").exists()
+    assert list(records.glob("*.md")) == []
+    assert state.get(str((src / "a.md").resolve())).hash == ""
+    assert service.issues.list(kinds={IssueKind.INGESTION_FAILURE})
 
 
 def test_revert_batch_undoes_a_sync_batch(tmp_path: Path):

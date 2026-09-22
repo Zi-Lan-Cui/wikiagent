@@ -33,11 +33,14 @@ def _job(resource: str, *, kind: str = "compile", digest: str = "") -> Job:
 class _FakePipeline:
     def __init__(self, outcome=None, raises=None):
         self.calls = 0
-        # extract=None：档案页缺席（如构造返回 None），git=None 时不落 commit/source_page
-        self._outcome = outcome or SimpleNamespace(
-            noop=False, pages_written=["p"], extract=None
-        )
+        # 质量闸门会核实落盘——假 pages_written 必须对应真实文件；
+        # extract=None：档案页缺席，git=None 时不落 commit/source_page
+        self._outcome = outcome or self._stub_outcome()
         self._raises = raises
+
+    @staticmethod
+    def _stub_outcome():
+        return SimpleNamespace(noop=False, pages_written=[], extract=None)
 
     async def ingest_one(self, raw_file):
         self.calls += 1
