@@ -463,19 +463,6 @@ class IssueStore:
             for row in rows
         ]
 
-    def get_meta(self, key: str) -> str | None:
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT value FROM issue_meta WHERE key = ?", (key,)
-            ).fetchone()
-        return str(row["value"]) if row is not None else None
-
-    def set_meta(self, key: str, value: str) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO issue_meta(key, value) VALUES(?, ?)", (key, value)
-            )
-
     def _get_with_connection(self, connection: sqlite3.Connection, issue_id: str) -> IssueRecord:
         row = connection.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
         if row is None:

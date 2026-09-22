@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -54,7 +53,6 @@ class AppRuntime:
             sync_state=self.sync_state,
             source_records_dir=self.source_records_dir,
         )
-        self._migrate_legacy_retry_rows()
         self.issue_service = IssueService(self.issue_store)
         self.event_publisher = EventPublisher()
         self.issue_reporter = IssueReporterHook(self.issue_service)
@@ -115,28 +113,6 @@ class AppRuntime:
         self._bg_tasks: list[asyncio.Task] = []
         self._started = False
         self._exec_lock_held = False
-
-    def _migrate_legacy_retry_rows(self) -> None:
-        """一次性迁移：旧"委托壳"retry 在途行让位。
-
-        账本删除后 retry 直投 compile job；遗留的 mode=="retry" issue_action
-        行已无执行语义，取消之（rescan 行仍可正常执行，保留）。meta 标志幂等。
-        """
-        if self.issue_store.get_meta("issue_retry_direct_v3"):
-            return
-        with self.job_service.store.database.transaction(immediate=True) as conn:
-            cur = conn.execute(
-                "UPDATE jobs SET status='cancelled', stage='cancelled',"
-                " error='迁移：retry 已改为直投 compile job', updated_at=?"
-                " WHERE kind='issue_action' AND mode='retry' AND status IN ('queued','running')",
-                (datetime.now(UTC).isoformat(),),
-            )
-            cancelled = cur.rowcount
-        self.issue_store.set_meta("issue_retry_direct_v3", "1")
-        if cancelled:
-            from wiki_agent.log import get_logger
-
-            get_logger("RUNTIME").info("迁移取消委托壳 retry 在途行 %d 个", cancelled)
 
     @classmethod
     def from_project_root(
