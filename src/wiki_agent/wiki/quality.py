@@ -240,24 +240,33 @@ def scan_source(
     source_name: str,
     source_records_dir: str | Path | None = None,
     generated_paths: list[str] | None = None,
+    source_page: tuple[str, str] | None = None,
 ) -> list[Issue]:
     """只检查一个 source 本轮产生的溯源存档和知识页。
 
     ``scan_wiki`` 负责批次收尾的全库关系检查；此方法用于 source 完成
     后的局部闸门，错误可以归属到 source 队列，不影响其他 source。
+
+    ``source_page=(slug, content)`` 检查内存中的档案页——sync 的档案在
+    成功结算前不落盘（scope 外写入收口在 outcome），闸门检查的是
+    "本轮构造的产出"而非磁盘；未传 source_page 才回退磁盘扫描。
     """
     wiki = Path(wiki_dir)
     issues: list[Issue] = []
-    source_dir = Path(source_records_dir) if source_records_dir is not None else None
-    if source_dir is not None and source_dir.is_dir():
-        for page in sorted(source_dir.glob("*.md")):
-            try:
-                content = page.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            if source_name not in content:
-                continue
-            issues.extend(check_source_output(content, path=f"sources/{page.name}"))
+    if source_page is not None:
+        slug, content = source_page
+        issues.extend(check_source_output(content, path=f"sources/{slug}.md"))
+    else:
+        source_dir = Path(source_records_dir) if source_records_dir is not None else None
+        if source_dir is not None and source_dir.is_dir():
+            for page in sorted(source_dir.glob("*.md")):
+                try:
+                    content = page.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                if source_name not in content:
+                    continue
+                issues.extend(check_source_output(content, path=f"sources/{page.name}"))
 
     for rel in generated_paths or []:
         page = wiki / rel

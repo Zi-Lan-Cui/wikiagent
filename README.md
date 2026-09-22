@@ -35,23 +35,18 @@ uv sync
 
 ## 使用
 
-### 1. 编译资料
+### 1. 同步（首次运行即全量编译）
 
-将一个源目录编译成 Wiki：
-
-```bash
-uv run python scripts/compile_sources.py /path/to/source-folder
-```
-
-省略资料目录时使用配置的默认目录。知识页写入 `wiki/`，来源记录和运行日志写入 `workspace/`。
-
-### 2. 增量同步
-
-资料目录有变化后，拍一次快照并只处理与账本有差异的文件（新增/修改重编译、删除清溯源）：
+写 Wiki 只有一个入口——快照同步。首次运行时完成账本是空的，快照差集就是全部文件，
+同步天然等于全量编译；此后只处理与账本有差异的部分（新增/修改重编译、删除清溯源）：
 
 ```bash
 uv run python scripts/sync.py /path/to/source-folder
 ```
+
+省略资料目录时使用配置的默认目录。知识页写入 `wiki/`，来源档案、账本和事件日志
+写入 `workspace/`；每个成功的文件各成一笔 Git 提交，批尾自动做一次全库质量扫描
+（问题进工作台队列）。
 
 Web 工作台的问题页同样有「同步」按钮，并常显"待同步变更 N"徽章。同步互斥串行：上一批未跑完时不会叠加新快照；失败的素材保持待同步状态，修好环境后再点一次即是重试——系统不做后台监听和自动重试，一切由人触发。
 
@@ -59,7 +54,7 @@ Web 工作台的问题页同样有「同步」按钮，并常显"待同步变更
 
 每次快照批在 Wiki 的 Git 历史里带统一批标记：成功的文件逐个提交（`sync: <文件名>`），失败的文件不留任何改动。想撤销整批更新，在问答会话里执行 `/wiki revert-batch <批id>`（批 id 见任务详情或提交尾注）。
 
-### 3. 优化已有 Wiki
+### 2. 优化已有 Wiki
 
 对已有页面进行摘要、关联和缺口修订：
 
@@ -69,7 +64,7 @@ uv run python scripts/refine_wiki.py --wiki-dir /path/to/wiki
 
 可以用 `--limit N` 先处理少量页面。
 
-### 4. 调整页面结构
+### 3. 调整页面结构
 
 合并重复页面或整理结构前先预览：
 
@@ -79,7 +74,7 @@ uv run python scripts/restructure_wiki.py --dry-run
 
 确认后再执行 `uv run python scripts/restructure_wiki.py`。
 
-### 5. 使用问答助手
+### 4. 使用问答助手
 
 在 Wiki 上进行交互式问答：
 
@@ -89,7 +84,7 @@ uv run wiki-agent
 
 常用选项：`--list` 查看已有会话，`--resume SESSION_ID` 恢复会话，`--debug` 保存调试日志。输入 `/q`、`/quit` 或 `/exit` 结束当前会话。
 
-### 6. 使用 Web 工作台
+### 5. 使用 Web 工作台
 
 启动本地 Web 界面，在浏览器中浏览 Wiki、进行问答并处理问题队列：
 
@@ -134,7 +129,7 @@ uv run pytest
 
 ```text
 src/wiki_agent/   核心运行时代码（按业务领域组织）
-scripts/          编译、同步、refine 等运维入口
+scripts/          同步、refine、restructure 等运维入口
 evals/            评测框架与判词题集
 test/             自动化测试
 docs/             设计记录

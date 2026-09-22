@@ -1,14 +1,21 @@
-"""分批可恢复编译——单次编译入口之上的编排层。
+"""Manifest 分批评测编排——materialize 嵌套 source 后逐批走快照 sync。
 
-把源文件清单切分成多个批次、逐批编译，并把批次状态持久化到
-Wiki 外部，以支持中断后从断点继续；每个批次仍是一次独立的
-scan + diff + Git commit，单次编译语义不变。
+写 wiki 只有队列一条路，本模块不造第二执行通道：每批只是把 manifest
+指向的嵌套文件复制成一个扁平 staging 目录，然后对它执行一次 sync
+（submit_sync + 自泵到队列空）。
+
+因此这里没有进度账本——进度 = sync 完成账（state.json）+ jobs 队列：
+中断后重跑同一命令，已成功的内容按账本不再入队，未跑完的重新拍进快照。
+resume/status/reconcile/commit-scope 等平行账本参数随 run_state 一起退役。
 
 示例::
 
-    uv run python -m wiki_agent.application.compile_batches       --root /path/to/notebook       --manifest /path/to/source_manifest.json       --wiki-dir /tmp/wiki-agent-batched       --batch-size 20 --init-git
+    uv run python -m wiki_agent.application.compile_batches \
+        --root /path/to/notebook --manifest /path/to/source_manifest.json \
+        --wiki-dir /tmp/wiki-agent-batched --batch-size 20
 
-    uv run python -m wiki_agent.application.compile_batches ... --resume
+workspace（评测沙箱的 jobs/账本/events 所在）默认取配置的 workspace，
+评测请显式传 --workspace 指向隔离目录，避免污染正式完成账。
 """
 
 from __future__ import annotations
@@ -17,22 +24,15 @@ import argparse
 import asyncio
 import json
 import shutil
-import subprocess
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.application.compile_service import compile_sources
-from wiki_agent.compiler.workflows import run_state as _run_state
-from wiki_agent.config import load_config
-from wiki_agent.exec_lock import batch_wiki_transaction
+from wiki_agent.config import RootConfig, load_config
+from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 
-_new_state = _run_state.new_state
-_now = _run_state.now
-_read_json = _run_state.read_json
-_reconcile_state = _run_state.reconcile
-_sha256 = _run_state.sha256
-_validate_resume = _run_state.validate_resume
-_write_json_atomic = _run_state.write_json_atomic
+# 注入点：一批 = 一次快照 sync + 泵到空（单测替换，不碰 LLM）
+SyncExecute = Callable[[Path], Awaitable[int]]
 
 
 def load_manifest(path: Path) -> dict[str, Any]:
@@ -57,304 +57,158 @@ def split_sources(sources: list[dict[str, Any]], batch_size: int) -> list[list[d
     return [sources[i : i + batch_size] for i in range(0, len(sources), batch_size)]
 
 
-def _git_head(wiki_dir: Path) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(wiki_dir), "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout.strip()
-
-
-def _init_git(wiki_dir: Path) -> None:
-    wiki_dir.mkdir(parents=True, exist_ok=True)
-    if (wiki_dir / ".git").exists():
-        return
-    subprocess.run(["git", "init", str(wiki_dir)], check=True, capture_output=True, text=True)
-    # 仅配置这个临时 Wiki 仓库，不触碰用户全局 Git 配置。
-    subprocess.run(
-        ["git", "-C", str(wiki_dir), "config", "user.email", "wiki-agent-batch@localhost"],
-        check=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(wiki_dir), "config", "user.name", "Wiki Agent Batch"], check=True
-    )
-    subprocess.run(
-        ["git", "-C", str(wiki_dir), "commit", "--allow-empty", "-m", "wiki: batch baseline"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
-def _materialize_batch(
+def materialize_batch(
     root: Path,
     sources: list[dict[str, Any]],
     batch_dir: Path,
 ) -> None:
-    """将可能嵌套的笔记复制成 compile_sources 可读取的扁平目录。"""
-    batch_dir.mkdir(parents=True, exist_ok=True)
+    """将可能嵌套的笔记复制成 sync 可扫描的扁平目录。
+
+    先清空再复制——staging 路径即账本键（`id__文件名`），重跑内容
+    逐字节一致时 digest 不变、按账本不再入队。
+    """
+    if batch_dir.exists():
+        shutil.rmtree(batch_dir)
+    batch_dir.mkdir(parents=True)
     for item in sources:
         source = (root / item["path"]).resolve()
         if not source.is_file() or not source.is_relative_to(root):
             raise FileNotFoundError(f"source 不存在或越过 root: {item['path']}")
-        target = batch_dir / f"{item['id']}__{source.name}"
-        shutil.copy2(source, target)
+        shutil.copy2(source, batch_dir / f"{item['id']}__{source.name}")
 
 
-def _failed_source_ids(run_dir: Path, sources: list[dict[str, Any]]) -> list[str]:
-    """从现有事件流提取本批 ingest_failure，不另造失败真相源。"""
-    event_file = run_dir / "events.jsonl"
-    names = {f"{item['id']}__{Path(item['path']).name}": item["id"] for item in sources}
-    failed: set[str] = set()
-    if event_file.is_file():
-        for line in event_file.read_text(encoding="utf-8").splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if event.get("event") != "ingest_failure":
-                continue
-            filename = str(event.get("file", ""))
-            if filename in names:
-                failed.add(names[filename])
-            else:
-                # 事件字段在不同版本可能叫 source；保留可读记录，无法映射
-                # 时不猜测 source id。
-                source = str(event.get("source", ""))
-                for name, source_id in names.items():
-                    if source and source in name:
-                        failed.add(source_id)
-    return sorted(failed)
-
-
-async def run_batches(
+async def run_manifest(
     *,
     root: Path,
     manifest: Path,
     wiki_dir: Path,
-    batch_size: int,
-    state_path: Path,
+    workspace: Path,
     work_dir: Path,
-    resume: bool = False,
+    batch_size: int,
     max_batches: int | None = None,
-    reconcile: bool = False,
-    commit_scope: str = "batch",
+    execute: SyncExecute | None = None,
 ) -> dict[str, Any]:
+    """逐批 materialize → sync；返回统计，不落任何编排状态。"""
     payload = load_manifest(manifest)
     root = root.expanduser().resolve()
-    wiki_dir = wiki_dir.expanduser().resolve()
-    if commit_scope not in {"source", "batch", "run"}:
-        raise ValueError("commit-scope 必须是 source、batch 或 run")
-    requested_batches = (
-        split_sources(payload["sources"], batch_size) if batch_size else [payload["sources"]]
+    batches = split_sources(payload["sources"], batch_size)
+    executor = execute or _make_sync_executor(
+        workspace=workspace.expanduser().resolve(),
+        wiki_dir=wiki_dir.expanduser().resolve(),
     )
-    batches = (
-        [[item] for item in payload["sources"]]
-        if commit_scope == "source"
-        else [payload["sources"]]
-        if commit_scope == "run"
-        else requested_batches
-    )
-    manifest_hash = _sha256(manifest.resolve())
+    run_dir = work_dir.expanduser().resolve()
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    if resume:
-        if not state_path.is_file():
-            raise FileNotFoundError(f"找不到 resume state: {state_path}")
-        state = _read_json(state_path)
-        if reconcile:
-            state = _reconcile_state(
-                state,
-                manifest=manifest,
-                root=root,
-                wiki_dir=wiki_dir,
-                batch_size=batch_size,
-                commit_scope=commit_scope,
-                batches=batches,
-                manifest_hash=manifest_hash,
-            )
-            _write_json_atomic(state_path, state)
-        else:
-            _validate_resume(state, manifest, root, wiki_dir, batches, manifest_hash)
-        if not reconcile and state.get("batch_size") != batch_size:
-            raise ValueError("resume 时不能修改 batch-size")
-        if not reconcile and state.get("commit_scope", "batch") != commit_scope:
-            raise ValueError("resume 时不能修改 commit-scope")
-    else:
-        state = _new_state(
-            manifest, root, wiki_dir, batch_size, batches, manifest_hash, commit_scope
-        )
-        state["commit_scope"] = commit_scope
-        _write_json_atomic(state_path, state)
-
-    if len(state.get("batches", [])) != len(batches):
-        raise ValueError("manifest 的批次数量与 state 不一致")
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    processed = 0
-    for index, (record, source_batch) in enumerate(zip(state["batches"], batches)):
-        if max_batches is not None and processed >= max_batches:
+    enqueued = 0
+    executed = 0
+    for index, batch in enumerate(batches):
+        if max_batches is not None and executed >= max_batches:
             break
-        if resume and record.get("status") == "committed":
-            continue
+        batch_dir = run_dir / f"batch-{index:03d}"
+        materialize_batch(root, batch, batch_dir)
+        enqueued += await executor(batch_dir)
+        executed += 1
+    return {"batches_run": executed, "batches_total": len(batches), "enqueued": enqueued}
 
-        batch_dir = work_dir / record["id"] / "sources"
-        _materialize_batch(root, source_batch, batch_dir)
-        record.update({"status": "running", "started_at": _now(), "error": None})
 
-        async def checkpoint(source_name: str, status: str) -> None:
-            source_id = next(
-                (
-                    item["id"]
-                    for item in source_batch
-                    if f"{item['id']}__{Path(item['path']).name}" == source_name
-                ),
-                None,
-            )
-            if source_id is not None:
-                state["source_state"][source_id]["status"] = status
-                state["source_state"][source_id]["updated_at"] = _now()
-                _write_json_atomic(state_path, state)
+def _make_sync_executor(*, workspace: Path, wiki_dir: Path) -> SyncExecute:
+    """默认执行器：装配一个隔离于 AppRuntime 的小型 sync 执行现场。
 
-        state["updated_at"] = _now()
-        _write_json_atomic(state_path, state)
+    评测沙箱自带 workspace 的 jobs/账本与目标 wiki；LLM 客户端按项目
+    配置构造。执行锁让同一沙箱目录同时只有一个跑批进程。
+    """
+
+    async def execute(batch_dir: Path) -> int:
+        from wiki_agent.compiler.workflows.ingest import CompilePipeline
+        from wiki_agent.jobs.service import JobService
+        from wiki_agent.jobs.worker import JobWorker
+        from wiki_agent.log import setup_event_log
+        from wiki_agent.sync.job_consumer import SyncConsumer
+        from wiki_agent.sync.state import SyncState
+        from wiki_agent.versioning import WikiGitManager
+
+        cfg: RootConfig = load_config(project_root=Path.cwd())
+        acquire_execution_lock(workspace)
         try:
-            result = await compile_sources(
-                batch_dir, wiki_dir=wiki_dir, source_checkpoint=checkpoint
+            workspace.mkdir(parents=True, exist_ok=True)
+            setup_event_log(workspace / "logs" / "compile-batches-events.jsonl")
+            source_records_dir = workspace / "provenance" / "sources"
+            state = SyncState(workspace / "watch" / "state.json")
+            service = JobService(
+                workspace,
+                wiki_dir=wiki_dir,
+                sync_state=state,
+                source_records_dir=source_records_dir,
             )
-            record["run_dir"] = str(result.run_dir)
-            record["commit"] = result.commit
-            record["failed_source_ids"] = _failed_source_ids(result.run_dir, source_batch)
-            record["finished_at"] = _now()
-            if result.committed and not record["failed_source_ids"]:
-                record["status"] = "committed"
-                for source_id in record["source_ids"]:
-                    state["source_state"][source_id].update(
-                        {"status": "committed", "completed_stage": "execute", "error": None}
-                    )
-            elif record["failed_source_ids"]:
-                record["status"] = "failed"
-                record["error"] = "source 失败: " + ", ".join(record["failed_source_ids"])
-                for source_id in record["failed_source_ids"]:
-                    state["source_state"][source_id].update(
-                        {"status": "failed", "error": "source ingest failure"}
-                    )
-            else:
-                record["status"] = "failed"
-                record["error"] = "run 未提交：scan error 触发全批回撤"
-        except BaseException as exc:
-            record.update(
-                {
-                    "status": "interrupted"
-                    if isinstance(exc, asyncio.CancelledError)
-                    else "failed",
-                    "error": f"{type(exc).__name__}: {exc}",
-                    "finished_at": _now(),
-                }
-            )
-            state["updated_at"] = _now()
-            _write_json_atomic(state_path, state)
-            raise
-        state["updated_at"] = _now()
-        _write_json_atomic(state_path, state)
-        processed += 1
+            from wiki_agent.llm.factory import create_llm, create_vlm
 
-    return state
+            pipeline = CompilePipeline(
+                llm=create_llm(cfg.llm, cfg.retry),
+                vlm=create_vlm(cfg.vlm, cfg.retry),
+                wiki_dir=wiki_dir,
+                source_records_dir=source_records_dir,
+                compile_config=cfg.compile,
+            )
+            consumer = SyncConsumer(
+                pipeline,
+                state,
+                wiki_dir=wiki_dir,
+                source_records_dir=source_records_dir,
+                git=WikiGitManager(wiki_dir),
+            )
+            worker = JobWorker(service)
+            worker.register("compile", consumer.handle_job)
+            worker.register("delete", consumer.handle_job)
+            jobs = service.submit_sync(batch_dir)
+            while service.store.count_in_flight() > 0:
+                if await worker.run_once() is None:
+                    break
+            return len(jobs)
+        finally:
+            release_execution_lock(workspace)
+
+    return execute
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, help="笔记根目录（manifest.path 相对于它）")
-    parser.add_argument("--manifest", type=Path)
-    parser.add_argument("--wiki-dir", type=Path)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--wiki-dir", type=Path, required=True)
+    parser.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="评测沙箱 workspace（jobs/账本/events）；默认取配置的 workspace",
+    )
     parser.add_argument("--batch-size", type=int, default=20)
-    parser.add_argument(
-        "--commit-scope",
-        choices=("source", "batch", "run"),
-        default="batch",
-        help="Git 提交边界：每个 source、每个 batch，或整个 run",
-    )
-    parser.add_argument("--state", type=Path, help="状态文件；默认写入 workspace/manifests/")
-    parser.add_argument("--work-dir", type=Path, help="批次临时 source 目录")
-    parser.add_argument(
-        "--resume", action="store_true", help="读取 state，跳过已经 committed 的批次"
-    )
-    parser.add_argument(
-        "--status", action="store_true", help="只读显示 state 中的 source/batch 状态"
-    )
-    parser.add_argument(
-        "--reconcile",
-        action="store_true",
-        help="允许 manifest/source 变化，按 source id/hash 重建恢复计划",
-    )
-    parser.add_argument("--max-batches", type=int, help="最多执行几个批次，便于先做小规模试跑")
-    parser.add_argument(
-        "--init-git", action="store_true", help="wiki-dir 没有 Git 仓库时初始化临时仓库"
-    )
+    parser.add_argument("--work-dir", type=Path, help="staging 目录；默认 workspace/staging/<wiki名>")
+    parser.add_argument("--max-batches", type=int, help="最多跑几批，便于小规模试跑")
     return parser
 
 
 async def _main(args: argparse.Namespace) -> int:
     cfg = load_config(project_root=Path.cwd())
-    manifest_workspace = cfg.paths.resolved_workspace_dir() / "manifests"
-    state = args.state
-    if args.status:
-        if state is None:
-            if args.wiki_dir is None:
-                raise SystemExit("--status 需要 --state，或同时提供 --wiki-dir 以推导状态文件")
-            state = manifest_workspace / f"{args.wiki_dir.expanduser().resolve().name}.json"
-        if not state.is_file():
-            raise SystemExit(f"找不到状态文件: {state}")
-        payload = _read_json(state)
-        source_counts: dict[str, int] = {}
-        for item in payload.get("source_state", {}).values():
-            status = str(item.get("status", "unknown"))
-            source_counts[status] = source_counts.get(status, 0) + 1
-        batch_counts: dict[str, int] = {}
-        for item in payload.get("batches", []):
-            status = str(item.get("status", "unknown"))
-            batch_counts[status] = batch_counts.get(status, 0) + 1
-        print(
-            json.dumps(
-                {"state": str(state), "sources": source_counts, "batches": batch_counts},
-                ensure_ascii=False,
-            )
-        )
-        return 0
-    missing = [
-        name
-        for name in ("--root", "--manifest", "--wiki-dir")
-        if getattr(args, name[2:].replace("-", "_"), None) is None
-    ]
-    if missing:
-        raise SystemExit(f"编译运行缺少参数: {', '.join(missing)}")
+    if args.root is None:
+        raise SystemExit("--root 必填（manifest.path 相对它的根目录）")
     wiki_dir = args.wiki_dir.expanduser().resolve()
-    if args.init_git:
-        _init_git(wiki_dir)
-    elif not (wiki_dir / ".git").exists():
-        raise SystemExit("wiki-dir 不是 Git 仓库；临时评测请加 --init-git")
-    state = args.state or (manifest_workspace / f"{wiki_dir.name}.json")
-    work_dir = args.work_dir or (cfg.paths.resolved_workspace_dir() / "staging" / wiki_dir.name)
-    # 整场跑批期间独占 wiki 写者（内层 compile_sources 同进程重入计数）
-    with batch_wiki_transaction(cfg.paths.resolved_workspace_dir()):
-        result = await run_batches(
-            root=args.root,
-            manifest=args.manifest,
-            wiki_dir=wiki_dir,
-            batch_size=args.batch_size,
-            state_path=state,
-            work_dir=work_dir,
-            resume=args.resume,
-            max_batches=args.max_batches,
-            reconcile=args.reconcile,
-            commit_scope=args.commit_scope,
-        )
-    counts: dict[str, int] = {}
-    for batch in result["batches"]:
-        counts[batch["status"]] = counts.get(batch["status"], 0) + 1
-    print(json.dumps({"state": str(state), "batches": counts}, ensure_ascii=False))
-    return 1 if counts.get("failed") or counts.get("interrupted") else 0
+    workspace = (
+        args.workspace.expanduser().resolve()
+        if args.workspace is not None
+        else cfg.paths.resolved_workspace_dir()
+    )
+    work_dir = args.work_dir or (workspace / "staging" / wiki_dir.name)
+    result = await run_manifest(
+        root=args.root,
+        manifest=args.manifest,
+        wiki_dir=wiki_dir,
+        workspace=workspace,
+        work_dir=work_dir,
+        batch_size=args.batch_size,
+        max_batches=args.max_batches,
+    )
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
 
 
 if __name__ == "__main__":

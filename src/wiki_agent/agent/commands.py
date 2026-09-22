@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 from uuid import uuid4
 
+from wiki_agent.config import load_config
 from wiki_agent.events import CommandProgress, RunContext
 from wiki_agent.log import emit_event, get_logger
 
@@ -438,12 +439,18 @@ class ScanCommand(Command):
 
 
 class CompileCommand(Command):
-    """调用现有文件夹编译器的 CLI 薄封装。"""
+    """/compile = 拍一次快照 sync——写 wiki 只有队列一条路。
+
+    没有独立的批编译通道：空账本时快照差集=全部文件，首跑天然全量；
+    有账本时就是增量。任务入队后由本进程的 worker 泵执行，逐文件提交。
+    """
 
     name = "compile"
-    description = "编译指定 source 文件夹并生成 Wiki"
+    description = "编译 source 文件夹（一次快照 sync；首次运行即全量编译）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
+        from wiki_agent.jobs import SyncInProgress
+
         try:
             args = shlex.split(ctx.args.strip())
         except ValueError as exc:
@@ -455,35 +462,27 @@ class CompileCommand(Command):
                     "省略目录时使用 WIKI_MATERIALS_DIR；路径包含空格时请使用引号。"
                 )
             )
+        job_service = ctx.agent.job_service
+        if job_service is None:
+            return CommandResult(text="# /compile\n\n当前会话未装配任务队列（无执行入口）。")
 
-        project_root = ctx.agent.workspace.resolve().parent
+        target = (
+            Path(args[0]).expanduser().resolve()
+            if args
+            else load_config(project_root=ctx.agent.workspace.resolve().parent).paths.resolved_materials_dir()
+        )
+        if not target.is_dir():
+            return CommandResult(text=f"# /compile\n\n源目录不存在: {target}")
         try:
-            from wiki_agent.application.compile_service import compile_sources
-
-            wiki = RefineCommand._wiki_dir(ctx) or (project_root / "wiki")
-
-            async def report(stage, **kwargs):
-                if ctx.reporter is not None:
-                    await ctx.reporter.progress(stage, **kwargs)
-
-            result = await compile_sources(
-                args[0] if args else None,
-                project_root=project_root,
-                wiki_dir=wiki,
-                progress=report,
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            return CommandResult(text=(f"# /compile 失败\n\n{type(exc).__name__}: {exc}"))
-        git_note = f"已提交 `{result.commit}`" if result.committed and result.commit else "未提交（全批回撤或无变更）"
+            jobs = job_service.submit_sync(target)
+        except SyncInProgress:
+            return CommandResult(text="# /compile\n\n上一批快照仍在执行（互斥串行）——等它跑完再拍。")
         return CommandResult(
             text=(
-                "# /compile 完成\n\n"
-                f"运行目录：`{result.run_dir}`\n"
-                f"Git：{git_note}\n"
-                f"diff 报告：`{result.run_dir / 'compile_diff.md'}`\n"
-                f"scan 报告：`{result.run_dir / 'scan_report.md'}`"
+                "# /compile 已入队\n\n"
+                f"源目录：`{target}`\n"
+                f"快照任务：{len(jobs)} 个（首跑空账本 = 全量编译）\n"
+                "后台逐文件执行并各自提交；进度看工作台，失败保持待同步、再点即重试。"
             )
         )
 

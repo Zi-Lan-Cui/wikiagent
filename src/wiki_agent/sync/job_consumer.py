@@ -41,6 +41,7 @@ from wiki_agent.jobs import Job, JobResult
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.sync.state import SyncState, digest_file_text
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.quality import scan_source
 
 if TYPE_CHECKING:
     from wiki_agent.versioning import WikiGitManager
@@ -242,6 +243,29 @@ class SyncConsumer:
         except IngestError as exc:
             return self._ingest_error_result(job, exc)
 
+        # 单 source 局部质量闸门（原批壳的 scan_source 移进队列执行体）：
+        # 检查本轮产出——生成页查结构/死链，档案页查内存内容（尚未落盘）。
+        # error 即本 job 业务失败：残骸 restore、记账等人，不污染其他 source。
+        page = outcome.extract.source_page if outcome.extract is not None else None
+        local_issues = scan_source(
+            self._wiki_dir,
+            source_name=path.name,
+            generated_paths=outcome.pages_written,
+            source_page=(page.slug, page.content) if page is not None else None,
+        )
+        local_errors = [issue for issue in local_issues if issue.level == "error"]
+        if local_errors:
+            reason = "; ".join(str(issue) for issue in local_errors[:3])
+            return self._ingest_error_result(
+                job,
+                IngestError(
+                    IngestStage.EXECUTE,
+                    f"单 source 质量检查失败: {reason}",
+                    source=path.name,
+                    error_code="source_quality_error",
+                ),
+            )
+
         # 成功：wiki 变更即刻 commit（HEAD 前移一步），账本与档案页随后由
         # outcome 结算——先文件后库的方向保证崩溃只会重做、不会丢内容。
         subject = "retry" if job.mode == "issue_retry" else "sync"
@@ -249,8 +273,7 @@ class SyncConsumer:
         detail: dict[str, object] = {"digest": digest, "text": text}
         if commit:
             detail["commit"] = commit
-        if outcome.extract is not None and outcome.extract.source_page is not None:
-            page = outcome.extract.source_page
+        if page is not None:
             detail["source_page"] = {"slug": page.slug, "content": page.content}
         if outcome.noop:
             emit_event("sync_noop", file=path.name)

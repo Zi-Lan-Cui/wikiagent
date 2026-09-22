@@ -14,8 +14,10 @@ from pathlib import Path
 
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
+from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.jobs import SyncInProgress
-from wiki_agent.log import configure_logging, get_logger
+from wiki_agent.log import configure_logging, get_logger, setup_event_log
+from wiki_agent.wiki.quality import scan_wiki
 
 logger = get_logger("SYNC")
 
@@ -25,6 +27,7 @@ async def main(source_dir: str | None = None) -> None:
     runtime = AppRuntime.from_project_root(Path.cwd())
     service = runtime.job_service
     target = Path(source_dir).resolve() if source_dir else runtime.materials_dir
+    setup_event_log(runtime.workspace / "logs" / "sync-events.jsonl")
 
     # 本进程充当 worker 泵：执行锁保证与 web/批脚本不同时写 wiki
     acquire_execution_lock(runtime.workspace)
@@ -49,6 +52,18 @@ async def main(source_dir: str | None = None) -> None:
         pending = service.store.count_in_flight()
         if pending:
             logger.info("仍有 %d 个任务未领取（再跑一次本脚本继续泵）", pending)
+
+        # 批尾全库质量收尾（原批编译的最后一步随入口合并搬进 sync 宿主）：
+        # 纯代码检查、按指纹合并进 issue 中心——web 侧对应"重新扫描"按钮。
+        issues = scan_wiki(runtime.wiki_dir)
+        report_quality_findings(
+            runtime.issue_service,
+            issues,
+            origin={"mode": "sync", "trigger": "cli_sync_end"},
+        )
+        errors = sum(1 for i in issues if i.level == "error")
+        warnings = len(issues) - errors
+        logger.info("质量扫描: %d 错误, %d 警告（进问题中心）", errors, warnings)
         logger.info("同步结束。失败问题查看: web 问题中心 或 /queue")
     finally:
         release_execution_lock(runtime.workspace)
