@@ -16,6 +16,7 @@ from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import load_config
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
+from wiki_agent.exec_lock import batch_wiki_transaction
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.llm.factory import create_llm, create_vlm
@@ -64,6 +65,32 @@ def log(msg: str, level: str = "INFO") -> None:
 
 
 async def compile_sources(
+    source_dir: str | Path | None = None,
+    *,
+    project_root: Path | None = None,
+    wiki_dir: Path | None = None,
+    progress: Callable[..., Awaitable[None]] | None = None,
+    source_checkpoint: Callable[[str, str], Awaitable[None] | None] | None = None,
+) -> CompileRunResult:
+    """批编译公开入口：执行锁 + 在途闸圈住整个批次。
+
+    git 批协议要求 wiki 写者唯一——他进程泵被 flock 挡在门外，同进程内
+    sync job 在途则直接拒绝。批壳是过渡形态：②期批编译并入 sync 后，
+    本闸与批协议一起消失，写 wiki 只剩队列一条路。
+    """
+    root = (project_root or Path.cwd()).resolve()
+    workspace = load_config(project_root=root).paths.resolved_workspace_dir().resolve()
+    with batch_wiki_transaction(workspace):
+        return await _compile_sources_impl(
+            source_dir,
+            project_root=root,
+            wiki_dir=wiki_dir,
+            progress=progress,
+            source_checkpoint=source_checkpoint,
+        )
+
+
+async def _compile_sources_impl(
     source_dir: str | Path | None = None,
     *,
     project_root: Path | None = None,

@@ -21,6 +21,7 @@ from wiki_agent.compiler.workflows.failures import SourceFailureHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.compiler.workflows.refine import refine_all, refine_pages
 from wiki_agent.config import load_config
+from wiki_agent.exec_lock import batch_wiki_transaction
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.llm.factory import create_llm, create_vlm
@@ -32,6 +33,15 @@ logger = get_logger("REFINE_WIKI")
 
 
 async def main(
+    wiki_dir: Path | None = None, project_root: Path = PROJECT_ROOT, limit: int | None = None
+):
+    """执行锁 + 在途闸圈住整个批 refine（过渡形态，③期入队后退役）。"""
+    cfg = load_config(project_root=Path(project_root).resolve())
+    with batch_wiki_transaction(cfg.paths.resolved_workspace_dir()):
+        return await _run(wiki_dir, project_root, limit)
+
+
+async def _run(
     wiki_dir: Path | None = None, project_root: Path = PROJECT_ROOT, limit: int | None = None
 ):
     """refine 主流程——备份 → 逐页精炼 → 扫描报告。"""

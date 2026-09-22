@@ -238,6 +238,18 @@ class CommandRouter:
         return result
 
 
+def _in_flight_sync_jobs(agent: ReActAgent) -> int:
+    """compile/delete 在途数——/refine、/wiki revert 等同进程批操作的门。
+
+    跨进程互斥由执行锁（flock）强制；这道门只挡同一进程内 web/runtime 泵
+    正在执行的 job——revert/批流程的入口 restore 会把在途半成品误当残骸。
+    """
+    job_service = getattr(agent, "job_service", None)
+    if job_service is None:
+        return 0
+    return job_service.store.in_flight_for_kinds(("compile", "delete"))
+
+
 # 内置命令
 
 
@@ -567,6 +579,12 @@ class WikiCommand(Command):
                 if not diff:
                     diff = "（该版本没有 Wiki 差异。）"
                 return CommandResult(text=f"# Wiki diff: {args[1]}\n\n```diff\n{diff}\n```")
+            if action in {"revert", "revert-batch", "revert_batch"}:
+                # 回撤入口自带 restore——有活在跑就不碰历史（与 sync 互斥闸同一语义）
+                if _in_flight_sync_jobs(ctx.agent) > 0:
+                    return CommandResult(
+                        text="存在在途 sync/retry 任务，拒绝版本回撤——先等当前批次跑完。"
+                    )
             if action == "revert":
                 if len(args) < 2:
                     return CommandResult(text="# /wiki revert\n\n用法: `/wiki revert <commit>`")
@@ -651,6 +669,11 @@ class RefineCommand(Command):
             return CommandResult(text="# /refine\n\n没有可 refine 的页面。")
 
         dry_run = "--dry-run" in ctx.args.split()
+        if not dry_run and _in_flight_sync_jobs(ctx.agent) > 0:
+            return CommandResult(
+                text="# /refine 未执行\n\n存在在途 sync/retry 任务，"
+                "批精炼不能进 wiki——等队列排空后再操作。"
+            )
         git_manager = None
         if not dry_run:
             try:
