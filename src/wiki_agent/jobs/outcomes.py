@@ -16,7 +16,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from wiki_agent.compiler.extraction import write_source_page
 from wiki_agent.compiler.models import SourcePage
@@ -59,8 +59,13 @@ class JobOutcomeHandler:
         if result.status == "succeeded":
             post_commit += self._on_succeeded(job, result)
             if job.issue_id:
-                # detail 值类型宽于 JsonValue——持久化时统一 json.dumps，cast 安全
-                resolution = cast(JsonObject, {"fixed_by": job.id, **result.detail})
+                # resolution 只留小的可追溯字段——detail 里的全文（text/
+                # source_page/archive_ops）进 issue 账本纯属冗余
+                resolution: JsonObject = {"fixed_by": job.id}
+                for key in ("digest", "commit"):
+                    value = result.detail.get(key)
+                    if value:
+                        resolution[key] = str(value)
                 self._issues.transition(
                     job.issue_id,
                     IssueStatus.RESOLVED,

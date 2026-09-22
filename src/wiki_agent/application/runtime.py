@@ -18,6 +18,7 @@ from wiki_agent.agent import ReActAgent
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, load_config
 from wiki_agent.events import AgentHook, EventPublisher
+from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.jobs.service import JobService
@@ -97,6 +98,7 @@ class AppRuntime:
         self._mcp_connections: dict[str, Any] = {}
         self._bg_tasks: list[asyncio.Task] = []
         self._started = False
+        self._exec_lock_held = False
 
     def _migrate_legacy_retry_rows(self) -> None:
         """一次性迁移：旧"委托壳"retry 在途行让位。
@@ -136,9 +138,15 @@ class AppRuntime:
         return cls(config, hooks=hooks)
 
     async def start(self) -> None:
-        """MCP 连接 + 执行后台循环（worker/维护循环）一次性拉起。"""
+        """MCP 连接 + 执行后台循环（worker/维护循环）一次性拉起。
+
+        start = 宣布本进程为执行者：先拿执行锁（git 协议要求 wiki 写者唯一），
+        他进程持有时直接失败——不带病启动。
+        """
         if self._started:
             return
+        acquire_execution_lock(self.workspace)
+        self._exec_lock_held = True
         if self.config.mcp.servers:
             from wiki_agent.tools.mcp_adaptor import connect_mcp_servers
 
@@ -152,7 +160,7 @@ class AppRuntime:
         self._started = True
 
     async def close(self) -> None:
-        """停后台循环、关 MCP、释放 runtime 资源。"""
+        """停后台循环、关 MCP、释放执行锁与 runtime 资源。"""
         self.job_worker.stop()
         tasks, self._bg_tasks = self._bg_tasks, []
         for task in tasks:
@@ -163,6 +171,9 @@ class AppRuntime:
         self._started = False
         for connection in connections.values():
             await connection.aclose()
+        if self._exec_lock_held:
+            release_execution_lock(self.workspace)
+            self._exec_lock_held = False
 
     async def __aenter__(self) -> AppRuntime:
         await self.start()

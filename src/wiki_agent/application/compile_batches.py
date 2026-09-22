@@ -24,6 +24,7 @@ from typing import Any
 from wiki_agent.application.compile_service import compile_sources
 from wiki_agent.compiler.workflows import run_state as _run_state
 from wiki_agent.config import load_config
+from wiki_agent.exec_lock import batch_wiki_transaction
 
 _new_state = _run_state.new_state
 _now = _run_state.now
@@ -335,18 +336,20 @@ async def _main(args: argparse.Namespace) -> int:
         raise SystemExit("wiki-dir 不是 Git 仓库；临时评测请加 --init-git")
     state = args.state or (manifest_workspace / f"{wiki_dir.name}.json")
     work_dir = args.work_dir or (cfg.paths.resolved_workspace_dir() / "staging" / wiki_dir.name)
-    result = await run_batches(
-        root=args.root,
-        manifest=args.manifest,
-        wiki_dir=wiki_dir,
-        batch_size=args.batch_size,
-        state_path=state,
-        work_dir=work_dir,
-        resume=args.resume,
-        max_batches=args.max_batches,
-        reconcile=args.reconcile,
-        commit_scope=args.commit_scope,
-    )
+    # 整场跑批期间独占 wiki 写者（内层 compile_sources 同进程重入计数）
+    with batch_wiki_transaction(cfg.paths.resolved_workspace_dir()):
+        result = await run_batches(
+            root=args.root,
+            manifest=args.manifest,
+            wiki_dir=wiki_dir,
+            batch_size=args.batch_size,
+            state_path=state,
+            work_dir=work_dir,
+            resume=args.resume,
+            max_batches=args.max_batches,
+            reconcile=args.reconcile,
+            commit_scope=args.commit_scope,
+        )
     counts: dict[str, int] = {}
     for batch in result["batches"]:
         counts[batch["status"]] = counts.get(batch["status"], 0) + 1

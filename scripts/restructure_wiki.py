@@ -19,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 from wiki_agent.application.restructure_service import restructure_wiki
 from wiki_agent.config import load_config
+from wiki_agent.exec_lock import batch_wiki_transaction
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.llm.factory import create_llm
@@ -40,6 +41,16 @@ async def _interactive_confirm(proposals):
 
 
 async def main(dry_run: bool = False, yes: bool = False) -> int:
+    """执行锁 + 在途闸圈住实际写库的批 restructure（过渡形态，③期入队后退役）；
+    dry-run 只读不触库，无需过闸。"""
+    if not dry_run:
+        cfg = load_config(project_root=PROJECT_ROOT)
+        with batch_wiki_transaction(cfg.paths.resolved_workspace_dir()):
+            return await _run(dry_run, yes)
+    return await _run(dry_run, yes)
+
+
+async def _run(dry_run: bool = False, yes: bool = False) -> int:
     cfg = load_config(project_root=PROJECT_ROOT)
     wiki_dir = cfg.paths.resolved_wiki_dir().resolve()
     runs_dir = cfg.paths.resolved_runs_dir().resolve()

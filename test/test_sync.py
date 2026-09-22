@@ -128,7 +128,10 @@ def test_success_records_and_links_issue(tmp_path: Path):
         claimed, JobResult(status="succeeded", detail={"digest": digest, "text": text})
     )
     assert service.sync_state.get(str(f.resolve())).hash == digest
-    assert service.issues.get(issue.id).status == IssueStatus.RESOLVED
+    resolved = service.issues.get(issue.id)
+    assert resolved.status == IssueStatus.RESOLVED
+    # resolution 只留可追溯小字段——text/档案页全文不进问题账本
+    assert set(resolved.resolution) == {"fixed_by", "digest"}
     assert service.submit_sync(src) == []
 
 
