@@ -1,8 +1,8 @@
-"""Source failure 记账测试（手动重试模型版）。
+"""source 失败记账测试（手动重试模型版）。
 
-handler 负责 compile/refine 内联上报；失败只记账不排程——retry 快照
-（attempts/last_error/policy=manual）由 IssueStore.report_failure 统一合成；
-"执行→回写"联动在 JobOutcomeHandler（见 test_retry_flow）。
+记账唯一通路：handler 业务失败 → JobResult(ingest_error) →
+JobOutcomeHandler 终态联动入账；失败只记账不排程——retry 快照
+（attempts/last_error/policy=manual）由 IssueStore.report_failure 统一合成。
 """
 
 from __future__ import annotations
@@ -11,38 +11,57 @@ from pathlib import Path
 
 import pytest
 
-from wiki_agent.compiler.workflows.failures import SourceFailureHandler
+from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.errors import IngestError, IngestStage, RetryableError
-from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
+from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
 from wiki_agent.jobs import JobResult
 from wiki_agent.jobs.service import JobService
 
 
 def _reported_failure(tmp_path: Path, *, error: IngestError | None = None):
-    store = IssueStore(tmp_path)
-    handler = SourceFailureHandler(IssueService(store), mode="compile")
-    handler.handle(
-        error
-        or IngestError(
-            IngestStage.PLAN,
-            "plan 输出校验失败",
-            source="note.md",
-            raw='{"bad": true}',
-            error_class="transient",
-            retry_policy="auto_retry",
-        ),
+    """经队列跑一次业务失败并记账（原 SourceFailureHandler 内联通路已退役）。"""
+    err = error or IngestError(
+        IngestStage.PLAN,
+        "plan 输出校验失败",
         source="note.md",
-        source_path=tmp_path / "note.md",
+        raw='{"bad": true}',
+        error_class="transient",
+        retry_policy="auto_retry",
     )
+    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    source_abs = str((tmp_path / "note.md").resolve())
+    service.submit(kind="compile", resource=source_abs, mode="compile")
+    claimed = service.claim_next(kinds={"compile"})
+    assert claimed is not None
+    diagnostics, _raw = failure_diagnostics(err)
+    service.complete_with_outcome(
+        claimed,
+        JobResult(
+            status="failed",
+            error_type="ingest_error",
+            detail={
+                "error": str(err),
+                "stage": err.stage.value,
+                "raw": err.raw,
+                "diagnostics": diagnostics,
+                "source": err.source,
+                "source_path": source_abs,
+                "source_kind": "input_file",
+                "retry_policy": err.retry_policy,
+                "mode": "compile",
+            },
+        ),
+    )
+    store = IssueStore(tmp_path)
     return store, store.list()[0]
 
 
-def test_source_failure_handler_writes_only_issue_store(tmp_path: Path):
+def test_ingest_error_outcome_writes_only_issue_store(tmp_path: Path):
     store, issue = _reported_failure(tmp_path)
 
     assert issue.kind == IssueKind.INGESTION_FAILURE
-    assert issue.origin == {"mode": "compile", "reported_by": "compile", "stage": "plan"}
+    assert issue.origin == {"mode": "compile", "reported_by": "job:compile", "stage": "plan"}
     assert issue.resource["path"] == "note.md"
     assert issue.diagnostics["error_code"] == "ingest_error"
     assert issue.retry["attempts"] == 1
@@ -51,7 +70,7 @@ def test_source_failure_handler_writes_only_issue_store(tmp_path: Path):
     assert not (tmp_path / "queue.jsonl").exists()
 
 
-def test_failure_handler_classifies_error_in_diagnostics(tmp_path: Path):
+def test_failure_outcome_classifies_error_in_diagnostics(tmp_path: Path):
     """error_class 只进诊断展示——不再决定任何重试通道。"""
     _, issue = _reported_failure(
         tmp_path,

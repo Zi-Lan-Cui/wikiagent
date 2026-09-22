@@ -167,15 +167,15 @@ def test_quality_issue_advertises_review_actions(tmp_path: Path):
 
 
 def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
-    """统一执行模型：重试失败经 Job 结果回写——结构化页级诊断合并进同一 issue。
+    """统一执行模型：失败/重试失败都经 Job 结果回写——页级诊断合并进同一 issue。
 
-    handler 上报（指纹 stage+error_code+resource）→ submit_issue_retry 挂账
-    → 再失败时 outcome 按同指纹合并（occurrences+1、diagnostics 刷新），
-    同时推进该 issue 的退避计数。
+    首败经 outcome 入账（指纹 stage+error_code+resource）→ submit_issue_retry
+    挂账 → 再失败时 outcome 按同指纹合并（occurrences+1、diagnostics 刷新），
+    同时推进该 issue 的 attempts 计数。
     """
     import json
 
-    from wiki_agent.compiler.workflows.failures import SourceFailureHandler
+    from wiki_agent.compiler.workflows.failures import failure_diagnostics
     from wiki_agent.errors import IngestError, IngestStage
     from wiki_agent.jobs import JobResult
     from wiki_agent.jobs.service import JobService
@@ -187,7 +187,6 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     source.write_text("# note", encoding="utf-8")
 
     service = JobService(workspace, wiki_dir=wiki)
-    handler = SourceFailureHandler(service.issue_service, mode="compile")
     err = IngestError(
         IngestStage.EXECUTE,
         "1 个页面生成失败",
@@ -198,7 +197,28 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
         error_code="page_generation_failed",
         retry_policy="auto_retry",
     )
-    handler.handle(err, source=source.name, source_path=source)
+    diagnostics, _raw = failure_diagnostics(err)
+    first = service.submit(kind="compile", resource=str(source.resolve()), mode="compile")
+    claimed = service.claim_next(kinds={"compile"})
+    assert claimed is not None and claimed.id == first.id
+    service.complete_with_outcome(
+        claimed,
+        JobResult(
+            status="failed",
+            error_type="ingest_error",
+            detail={
+                "error": str(err),
+                "stage": err.stage.value,
+                "raw": err.raw,
+                "diagnostics": diagnostics,
+                "source": source.name,
+                "source_path": str(source.resolve()),
+                "source_kind": "input_file",
+                "retry_policy": err.retry_policy,
+                "mode": "compile",
+            },
+        ),
+    )
     issue = service.issues.list()[0]
 
     service.submit_issue_retry(issue.id)

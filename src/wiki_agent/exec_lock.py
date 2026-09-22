@@ -1,13 +1,15 @@
 """执行锁：同一份 workspace 同时只允许一个 wiki 写者（管理者）。
 
-per-job git 协议隐含前提是工作树写者唯一：两个泵并发执行不同 job 时，
-`commit_all` 会把对方的在途页面卷进自己的提交、失败路径的 restore 会抹掉
-对方的半成品。跨进程唯一性不靠约定，靠这把 flock——进程死亡内核自动释放，
-没有判活、没有 stale 清理入口（与被退役的 run 容器的 O_EXCL 锁本质不同）。
+wiki 写协议（pre-reset/commit/restore）隐含前提是工作树写者唯一：两个泵
+并发执行不同 job 时，`commit_all` 会把对方的在途页面卷进自己的提交、
+失败路径的 restore 会抹掉对方的半成品。跨进程唯一性不靠约定，靠这把
+flock——进程死亡内核自动释放，没有判活、没有 stale 清理入口（与被退役
+的 run 容器的 O_EXCL 锁本质不同）。
 
-持有者覆盖一切会泵队列或直接写 wiki 的宿主：web runtime、CLI sync 自泵、
-过渡期批脚本（②③期批壳退役后只剩前两者）。同进程按引用计数重入：
-runtime.start() 已持有的宿主里再执行 /compile 不会自锁。
+持有者 = 一切会泵队列的宿主：web runtime.start()、CLI sync/refine/
+restructure 自泵脚本、compile_batches 评测编排（批流程已全部入队，
+不存在旁路写者）。同进程按引用计数重入：runtime.start() 已持有的宿主里
+再执行 /compile 不会自锁。
 """
 
 from __future__ import annotations
@@ -15,8 +17,6 @@ from __future__ import annotations
 import errno
 import fcntl
 import os
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 _LOCK_NAME = "exec.lock"
@@ -78,18 +78,3 @@ def release_execution_lock(workspace: str | Path) -> None:
         fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
         os.close(fd)
-
-
-@contextmanager
-def batch_wiki_transaction(workspace: str | Path) -> Iterator[None]:
-    """过渡期批流程写 wiki 的复合闸：执行锁（跨进程）+ 队列在途检查
-    （同进程 web 泵与批任务互斥）。批壳在②③期并入 sync 后整体退役。"""
-    from wiki_agent.jobs.store import JobStore  # 函数内导入避免低层模块依赖 jobs
-
-    acquire_execution_lock(workspace)
-    try:
-        if JobStore(workspace).in_flight_for_kinds(("compile", "delete")) > 0:
-            raise RuntimeError("存在在途 sync/retry 任务，不允许批流程写 wiki——等队列排空后再操作")
-        yield
-    finally:
-        release_execution_lock(workspace)

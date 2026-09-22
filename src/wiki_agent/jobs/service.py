@@ -177,6 +177,51 @@ class JobService:
                 )
         return jobs
 
+    # refine / restructure 批（③期入队：手动触发入队，执行体 application.wiki_ops）
+
+    def submit_refine_batch(self, *, limit: int | None = None) -> list[Job]:
+        """把 wiki 知识页逐页排队 refine——一页一个 job、一页一笔提交。
+
+        与 sync 同一协议：入队即快照（当刻的页面清单），执行串行；
+        同页幂等键收敛在途行，payload.batch 进 commit 尾注供整批撤销。
+        """
+        if self.wiki_dir is None:
+            raise RuntimeError("submit_refine_batch 需要 wiki_dir")
+        from wiki_agent.compiler.workflows.refine import refine_pages
+
+        pages = refine_pages(self.wiki_dir)
+        if limit is not None:
+            pages = pages[:limit]
+        batch = f"refine_{uuid4().hex}"
+        jobs: list[Job] = []
+        with self.store.database.transaction(immediate=True) as conn:
+            for page in pages:
+                resource = str(Path(page).resolve())
+                jobs.append(
+                    self.store.enqueue(
+                        kind="refine",
+                        resource=resource,
+                        mode="manual",
+                        payload={"batch": batch},
+                        idempotency_key=f"refine:{resource}",
+                        _conn=conn,
+                    )
+                )
+        return jobs
+
+    def submit_restructure(self, proposals: list[dict]) -> Job:
+        """已确认的重组提议打包成一个 job——提议/确认发生在提交侧（与
+        sync 的扫描对称），job 只做执行；resource 固定字面量 = 全库至多
+        一个在途重组。"""
+        batch = f"restructure_{uuid4().hex}"
+        return self.store.enqueue(
+            kind="restructure",
+            resource="wiki:structure",
+            mode="manual",
+            payload={"batch": batch, "proposals": proposals},
+            idempotency_key="restructure:wiki",
+        )
+
     # 执行生命周期——Worker 独占
 
     def claim_next(self, *, kinds: set[str] | None = None) -> Job | None:
