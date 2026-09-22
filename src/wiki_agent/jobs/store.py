@@ -307,27 +307,6 @@ class JobStore:
             ).fetchall()
         return {str(row["issue_id"]): str(row["id"]) for row in rows}
 
-    def list_in_flight_without_issue(self, *, kind: str = "compile") -> list[Job]:
-        """在途但没挂账 issue 的 job——对账补挂关系用。"""
-        with self.database.connect() as db:
-            rows = db.execute(
-                f"SELECT * FROM jobs WHERE kind = ? AND {_IN_FLIGHT_SQL}"
-                " AND (issue_id IS NULL OR issue_id = '')",
-                (kind,),
-            ).fetchall()
-        return [self._row(row) for row in rows]
-
-    def cancel_queued_running(self, kind: str, *, reason: str) -> int:
-        """一次性迁移：把指定 kind 的在途行转终态让位新模型。"""
-        now = _now()
-        with self._tx() as db:
-            changed = db.execute(
-                f"UPDATE jobs SET status='cancelled', stage='cancelled', error=?, updated_at=?"
-                f" WHERE kind=? AND {_IN_FLIGHT_SQL}",
-                (reason[:500], now, kind),
-            ).rowcount
-        return int(changed)
-
     def count_in_flight(self) -> int:
         """在途（queued/running）行数——脚本类调用方驱动队列到空的判据。"""
         with self.database.connect() as db:
