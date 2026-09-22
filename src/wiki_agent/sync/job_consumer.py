@@ -38,6 +38,7 @@ from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job, JobResult
+from wiki_agent.jobs.wiki_session import WikiWriteSession
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.sync.state import SyncState, digest_file_text
 from wiki_agent.wiki.frontmatter import split_frontmatter
@@ -99,45 +100,19 @@ class SyncConsumer:
             else self._wiki_dir.parent / "workspace" / "provenance" / "sources"
         )
         # git=None 只在离线单测里出现（无仓库环境的裸 handler 测试）
-        self._git = git
-        self._debris_dir = self._source_records_dir.parent / "debris"
+        self._session = WikiWriteSession(
+            git, debris_dir=self._source_records_dir.parent / "debris"
+        )
 
     async def handle_job(self, job: Job, progress) -> JobResult:
         """执行一个源文件 Job，返回业务结局（bug 才抛）。"""
-        if self._git is not None:
-            # pre-reset：上一个失败/崩溃 job 的残骸先收敛到 HEAD 再动笔
-            self._git.restore()
+        self._session.pre_reset()
         progress("load")
         if job.kind == "delete":
             return self._handle_delete(job)
         if job.kind != "compile":
             raise ValueError(f"unsupported source job: {job.kind}")
         return await self._handle_compile(job, progress)
-
-    # git 协议
-
-    def _commit(self, job: Job, subject: str) -> str:
-        """成功结算的 wiki commit；subject=语义名，批尾注供撤销批定位。
-
-        noop 成功（无页面变化）返回空串——commit_all 无变更不造空提交。
-        """
-        if self._git is None:
-            return ""
-        batch = str(job.payload.get("batch") or "")
-        body = f"Batch: {batch}" if batch else ""
-        return self._git.commit_all(subject, body=body) or ""
-
-    def _discard_debris(self, job_id: str) -> None:
-        """失败/撤销前导出残骸 diff，再把 wiki 恢复到 HEAD。"""
-        if self._git is None:
-            return
-        patch = self._git.working_patch()
-        if patch.strip():
-            self._debris_dir.mkdir(parents=True, exist_ok=True)
-            debris_file = self._debris_dir / f"{job_id}.patch"
-            debris_file.write_text(patch, encoding="utf-8")
-            emit_event("sync_debris_saved", job_id=job_id, patch=str(debris_file))
-        self._git.restore()
 
     # delete
 
@@ -150,7 +125,7 @@ class SyncConsumer:
             logger.info("  源文件复活，跳过删除清理: %s", path.name)
             return JobResult(status="succeeded")
         archive_ops = self._plan_archive_cleanup(path.name)
-        commit = self._commit(job, f"sync: delete {path.name}")
+        commit = self._session.commit(job, f"sync: delete {path.name}")
         return JobResult(
             status="succeeded",
             detail={"archive_ops": archive_ops, "commit": commit}
@@ -269,7 +244,7 @@ class SyncConsumer:
         # 成功：wiki 变更即刻 commit（HEAD 前移一步），账本与档案页随后由
         # outcome 结算——先文件后库的方向保证崩溃只会重做、不会丢内容。
         subject = "retry" if job.mode == "issue_retry" else "sync"
-        commit = self._commit(job, f"{subject}: {path.name}")
+        commit = self._session.commit(job, f"{subject}: {path.name}")
         detail: dict[str, object] = {"digest": digest, "text": text}
         if commit:
             detail["commit"] = commit
@@ -285,7 +260,7 @@ class SyncConsumer:
         """业务失败 → 残骸快照+restore → 结果化（issue 上报收口在 outcome）。"""
         name = Path(job.resource).name
         logger.error("  ingest 失败 [%s]: %s", exc.stage.value, str(exc)[:200])
-        self._discard_debris(job.id)
+        self._session.discard_debris(job.id)
         # 事件是机器通道——全量不截断（截断是给人看的习惯）
         emit_event(
             "sync_failure",

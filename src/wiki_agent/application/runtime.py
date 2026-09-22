@@ -15,6 +15,7 @@ from types import TracebackType
 from typing import Any
 
 from wiki_agent.agent import ReActAgent
+from wiki_agent.application.wiki_ops import WikiOpsConsumer
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, load_config
 from wiki_agent.events import AgentHook, EventPublisher
@@ -91,9 +92,25 @@ class AppRuntime:
             source_records_dir=self.source_records_dir,
             git=self.git_manager,
         )
+        # refine 是 wiki 自编译——mode=refine 的流水线（index 排他、不存档案页）
+        self.refine_pipeline = CompilePipeline(
+            llm=self.agent.llm,
+            vlm=self.agent.vlm,
+            wiki_dir=self.wiki_dir,
+            mode="refine",
+            compile_config=config.compile,
+        )
+        self.wiki_ops = WikiOpsConsumer(
+            self.refine_pipeline,
+            wiki_dir=self.wiki_dir,
+            source_records_dir=self.source_records_dir,
+            git=self.git_manager,
+        )
         self.job_worker = JobWorker(self.job_service)
         self.job_worker.register("compile", self.sync_consumer.handle_job)
         self.job_worker.register("delete", self.sync_consumer.handle_job)
+        self.job_worker.register("refine", self.wiki_ops.handle_refine)
+        self.job_worker.register("restructure", self.wiki_ops.handle_restructure)
         self._mcp_connections: dict[str, Any] = {}
         self._bg_tasks: list[asyncio.Task] = []
         self._started = False

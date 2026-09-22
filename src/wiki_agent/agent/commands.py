@@ -239,16 +239,19 @@ class CommandRouter:
         return result
 
 
-def _in_flight_sync_jobs(agent: ReActAgent) -> int:
-    """compile/delete 在途数——/refine、/wiki revert 等同进程批操作的门。
+def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
+    """写 wiki 的 job（compile/delete/refine/restructure）在途数。
 
-    跨进程互斥由执行锁（flock）强制；这道门只挡同一进程内 web/runtime 泵
-    正在执行的 job——revert/批流程的入口 restore 会把在途半成品误当残骸。
+    跨进程互斥由执行锁（flock）强制、批流程已入队收编；这个门只剩一个
+    用途：/wiki revert 入口带 restore——同进程泵正在写 wiki 时拒绝碰历史，
+    否则会把在途半成品误当残骸。
     """
     job_service = getattr(agent, "job_service", None)
     if job_service is None:
         return 0
-    return job_service.store.in_flight_for_kinds(("compile", "delete"))
+    return job_service.store.in_flight_for_kinds(
+        ("compile", "delete", "refine", "restructure")
+    )
 
 
 # 内置命令
@@ -580,7 +583,7 @@ class WikiCommand(Command):
                 return CommandResult(text=f"# Wiki diff: {args[1]}\n\n```diff\n{diff}\n```")
             if action in {"revert", "revert-batch", "revert_batch"}:
                 # 回撤入口自带 restore——有活在跑就不碰历史（与 sync 互斥闸同一语义）
-                if _in_flight_sync_jobs(ctx.agent) > 0:
+                if _in_flight_wiki_jobs(ctx.agent) > 0:
                     return CommandResult(
                         text="存在在途 sync/retry 任务，拒绝版本回撤——先等当前批次跑完。"
                     )
@@ -639,141 +642,70 @@ class RetryCommand(Command):
 
 class RefineCommand(Command):
     name = "refine"
-    description = "执行 wiki 精炼；加 --dry-run 只预览结构重组"
+    description = "把 wiki 精炼与结构重组排进队列；--dry-run 只预览重组提议"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        """refine 全量 + 结构重组——默认执行，``--dry-run`` 只预览重组。
+        """③期入队语义——/refine 不再直接写 wiki，与 sync 同一条队列。
 
-        Args:
-            ctx: 命令上下文。
-
-        Returns:
-            执行结果（汇总 refine/重组/扫描统计）。
+        - 非 dry-run：refine 逐页入队（一页一 job、一页一提交）；重组在
+          提交侧同步跑提议阶段（粗提→复判→消解），有效提议整批入一个
+          restructure job——无交互全收，逐条确认在脚本侧；
+        - dry-run：什么都不入队，只预览重组提议。
+        执行由后台泵串行完成：refine 每页失败只撤该页，重组 job 自带
+        scan 闸门（error/skipped 整批撤销）；想撤销整批用
+        ``/wiki revert-batch <batch_id>``。
         """
-        from datetime import datetime
+        from dataclasses import asdict
 
-        from wiki_agent.compiler.workflows.failures import SourceFailureHandler
-        from wiki_agent.compiler.workflows.ingest import CompilePipeline
-        from wiki_agent.compiler.workflows.refine import refine_all, refine_pages
-        from wiki_agent.versioning import WikiGitManager
-        from wiki_agent.wiki.quality import format_scan_report, scan_wiki
+        from wiki_agent.application.restructure_service import restructure_wiki
+        from wiki_agent.compiler.workflows.refine import refine_pages
 
-        # wiki 目录从 ReadFile 工具拿（root 就是 wiki 根）
         wiki = self._wiki_dir(ctx)
         if wiki is None:
             return CommandResult(text="# /refine 失败\n\n无法定位 wiki 目录。")
-
         pages = refine_pages(wiki)
         if not pages:
             return CommandResult(text="# /refine\n\n没有可 refine 的页面。")
-
+        job_service = getattr(ctx.agent, "job_service", None)
+        if job_service is None:
+            return CommandResult(text="# /refine\n\n当前会话未装配任务队列（无执行入口）。")
         dry_run = "--dry-run" in ctx.args.split()
-        if not dry_run and _in_flight_sync_jobs(ctx.agent) > 0:
-            return CommandResult(
-                text="# /refine 未执行\n\n存在在途 sync/retry 任务，"
-                "批精炼不能进 wiki——等队列排空后再操作。"
-            )
-        git_manager = None
-        if not dry_run:
-            try:
-                git_manager = WikiGitManager(wiki)
-                # 批协议入口：pre-reset 收敛残骸，本次变更要么整批 commit 要么 restore
-                git_manager.restore()
-            except Exception as exc:
-                return CommandResult(text=f"# /refine 未执行\n\nGit 仓库初始化失败：{exc}")
-        lines = ["# /refine 完成", ""]
+
+        lines = ["# /refine 已入队" if not dry_run else "# /refine dry-run", ""]
         lines.append(f"输入页面: {len(pages)} 个")
-
         if dry_run:
-            lines.append("页面精炼: dry-run（未修改页面）")
+            lines.append("页面精炼: dry-run（未入队、未修改）")
         else:
-            pipeline = CompilePipeline(
-                llm=ctx.agent.llm,
-                vlm=ctx.agent.vlm,
-                wiki_dir=wiki,
-                source_records_dir=ctx.agent.workspace / "provenance" / "sources",
-                mode="refine",
-                compile_config=ctx.agent.compile_config,
-            )
-            failure_handler = SourceFailureHandler(ctx.agent.issue_service, mode="refine")
-            try:
-                stats = await refine_all(
-                    pipeline,
-                    pages,
-                    failure_handler=failure_handler,
-                )
-            except asyncio.CancelledError:
-                if git_manager is not None:
-                    git_manager.restore()
-                raise
-            except Exception:
-                if git_manager is not None:
-                    git_manager.restore()
-                raise
-            lines.append(f"成功 {stats['ok']} / 无操作 {stats['noop']} / 失败 {stats['failed']}")
+            jobs = job_service.submit_refine_batch()
+            lines.append(f"页面精炼: {len(jobs)} 个 refine job 已入队（一页一提交）")
 
-        # 结构重组：复用 application.restructure_service（与独立脚本同一编排），
-        # 在 refine 的同一 git 事务内批量执行；命令侧只渲染结果，不重复流程逻辑。
-        restructure_result = None
         try:
-            from wiki_agent.application.restructure_service import restructure_wiki
-
-            outcome = await restructure_wiki(
-                ctx.agent.llm,
-                wiki,
-                confirm=None,  # 批量全收（无交互）
-                dry_run=dry_run,
-            )
-            lines.append("")
-            lines.append(
-                f"结构重组: {len(outcome.proposals)} 粗提 → {len(outcome.confirmed)} 确认 → "
-                f"{len(outcome.effective)} 有效"
-            )
-            for p in outcome.effective:
-                lines.append(f"- {p.op} {p.pages} → {p.target} | {p.reason[:60]}")
-            restructure_result = outcome.result
-            if dry_run:
-                lines.append("结构重组: dry-run（未修改结构页面）")
-            elif outcome.result is not None:
-                lines.append(
-                    f"结构重组已执行: {len(outcome.result.actions)} 成功 / "
-                    f"{len(outcome.result.skipped)} 跳过"
-                )
-            if outcome.unresolved:
-                lines.append(f"结构重组: {len(outcome.unresolved)} 组冲突已记入问题中心")
-        except asyncio.CancelledError:
-            if git_manager is not None:
-                git_manager.restore()
-            raise
+            outcome = await restructure_wiki(ctx.agent.llm, wiki, confirm=None, dry_run=True)
         except Exception as e:
             lines.append(f"结构重组跳过: {type(e).__name__}: {str(e)[:100]}")
-
-        issues = scan_wiki(wiki)
-        issue_service = getattr(ctx.agent, "issue_service", None)
-        if issue_service is not None:
-            from wiki_agent.issues.producers import report_quality_findings
-
-            report_quality_findings(
-                issue_service,
-                issues,
-                origin={"mode": "refine", "trigger": "refine_command"},
-            )
+            return CommandResult(text="\n".join(lines))
         lines.append("")
-        lines.append(format_scan_report(issues))
+        lines.append(
+            f"结构重组: {len(outcome.proposals)} 粗提 → {len(outcome.confirmed)} 复判确认 → "
+            f"{len(outcome.effective)} 有效"
+        )
+        for p in outcome.effective:
+            lines.append(f"- {p.op} {p.pages} → {p.target} | {p.reason[:60]}")
+        if outcome.unresolved:
+            lines.append(f"{len(outcome.unresolved)} 组冲突放弃执行（结构决定权在你）")
 
-        if git_manager is not None:
-            errors = [issue for issue in issues if issue.level == "error"]
-            skipped = len(restructure_result.skipped) if restructure_result else 0
-            if errors or skipped:
-                git_manager.restore()
-                lines.append("Git: 已恢复到运行前版本（校验未通过，残骸不是历史）")
-            else:
-                commit = git_manager.commit_all(
-                    f"wiki: refine {datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                    body=f"scan_errors: {len(errors)}, restructure_skipped: {skipped}",
-                )
-                lines.append(f"Git: 已提交 {commit[:8]}" if commit else "Git: 无变更未提交")
-
+        if dry_run:
+            lines.append("结构重组: dry-run（未入队）")
+        elif not outcome.effective:
+            lines.append("结构重组: 无有效提议，未入队")
+        else:
+            job = job_service.submit_restructure([asdict(p) for p in outcome.effective])
+            lines.append(
+                f"结构重组: {len(outcome.effective)} 条提议已入队"
+                f"（批 {job.payload['batch']}，失败整批自动撤销）"
+            )
+        if not dry_run:
+            lines.extend(["", "队列串行执行（sync 在途者先行）；进度与结果看工作台。"])
         return CommandResult(text="\n".join(lines))
 
     @staticmethod

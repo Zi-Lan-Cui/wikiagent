@@ -17,7 +17,7 @@ wiki-agent 面向"资料越来越多，但不想花时间维护知识库"的用�
 ## 你可以用它做什么
 
 - 把资料整理成结构清晰的 Wiki
-- 一键同步资料目录：新增、修改、删除按快照增量更新
+- 一键同步资料目录：新增、修改、删除按快照增量更新；首次同步即全量编译；首次同步即全量编译
 - 发现重复、缺失关联或需要补充的内容
 - 在确认和备份保护下调整页面结构
 - 通过 `wiki-agent` CLI 查询自己的知识库
@@ -56,23 +56,23 @@ Web 工作台的问题页同样有「同步」按钮，并常显"待同步变更
 
 ### 2. 优化已有 Wiki
 
-对已有页面进行摘要、关联和缺口修订：
+对已有页面做摘要、关联和缺口修订——逐页排进同步队列（一页一个任务、一页一笔提交，失败只撤该页）：
 
 ```bash
-uv run python scripts/refine_wiki.py --wiki-dir /path/to/wiki
+uv run python scripts/refine_wiki.py [--wiki-dir /path/to/wiki] [--limit N]
 ```
 
-可以用 `--limit N` 先处理少量页面。
+问答会话里的 `/refine` 命令语义相同（入队 + 附带结构重组提议）。
 
 ### 3. 调整页面结构
 
-合并重复页面或整理结构前先预览：
+合并重复页面或整理结构前先预览提议（不动手）：
 
 ```bash
 uv run python scripts/restructure_wiki.py --dry-run
 ```
 
-确认后再执行 `uv run python scripts/restructure_wiki.py`。
+确认后执行 `uv run python scripts/restructure_wiki.py`（逐条 y/N 或 `--yes` 全收）——执行进队列，校验不过整批自动撤销。任何一批都可按批 id 回撤：`/wiki revert-batch <批id>`。
 
 ### 4. 使用问答助手
 

@@ -12,7 +12,6 @@ import pytest
 from wiki_agent.exec_lock import (
     ExecutionBusy,
     acquire_execution_lock,
-    batch_wiki_transaction,
     release_execution_lock,
 )
 
@@ -75,23 +74,6 @@ def test_same_process_reentrant_with_refcount(tmp_path: Path):
     release_execution_lock(ws)  # 归零真解锁
     assert _child_verdict(ws) == "acquired"
     release_execution_lock(ws)  # 未持有时 release 为 no-op
-
-
-def test_batch_gate_rejects_in_flight_jobs(tmp_path: Path):
-    """同进程门：web 泵正在跑 compile/delete 时批流程拒绝进 wiki。"""
-    from wiki_agent.jobs.store import JobStore
-
-    ws = tmp_path / "ws"
-    ws.mkdir()
-    store = JobStore(ws)
-    job = store.enqueue(kind="compile", resource="/x/note.md", mode="sync")
-    with pytest.raises(RuntimeError, match="在途"):
-        with batch_wiki_transaction(ws):
-            pass
-    # 队列排空后正常进出（try_finalize 只翻转 running 行，queued 直写终态）
-    store.update(job.id, status="succeeded", stage="completed")
-    with batch_wiki_transaction(ws):
-        pass
 
 
 def test_wiki_revert_refused_while_job_in_flight(tmp_path: Path):

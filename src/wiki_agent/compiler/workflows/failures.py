@@ -1,23 +1,15 @@
-"""compile/refine 共用的 source 级失败处理。
+"""source 级失败诊断——把 IngestError 转成可持久化/展示的结构化字段。
 
-统一把流水线失败转换成一条 source 级待处理事项；sync/重试的失败经 Job
-结果由应用层的终态联动收口，不走这里的 handler。
+记账只有一条路：handler 产出 JobResult(ingest_error) → JobOutcomeHandler
+终态联动进问题账本（jobs/outcomes）。本模块不做上报，只负责诊断提取。
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
-from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.issues import (
-    IssueDraft,
-    IssueKind,
-    IssueService,
-    IssueSeverity,
-)
-from wiki_agent.log import emit_event, get_logger
+from wiki_agent.errors import IngestError
 
 
 def _find_ingest_error(error: Exception) -> IngestError | None:
@@ -71,80 +63,3 @@ def failure_diagnostics(error: Exception) -> tuple[dict[str, Any], str]:
     if failures:
         diagnostics["failures"] = failures
     return diagnostics, raw
-
-
-class SourceFailureHandler:
-    """将 compile/refine 失败写入统一问题库。"""
-
-    def __init__(
-        self,
-        issue_service: IssueService,
-        *,
-        mode: str,
-    ):
-        if mode not in {"compile", "refine"}:
-            raise ValueError(f"source failure 不支持的 mode: {mode!r}")
-        self._issues = issue_service
-        self._mode = mode
-        self._retry_mode = mode
-        self._logger = get_logger(f"{mode.upper()}_FAILURE")
-
-    def handle(
-        self,
-        error: IngestError | Exception,
-        *,
-        source: str,
-        source_path: str | Path = "",
-        source_kind: str = "input_file",
-    ) -> IngestError:
-        """记录一次 source 失败并返回标准化的 ``IngestError``。"""
-        err = (
-            error
-            if isinstance(error, IngestError)
-            else IngestError(
-                IngestStage.LOAD,
-                f"未分类: {error}",
-                source=source,
-                cause=error,
-            )
-        )
-        stage = err.stage.value
-        diagnostics, _ = failure_diagnostics(err)
-        private_source_path = str(Path(source_path).resolve()) if source_path else ""
-        draft = IssueDraft(
-            kind=IssueKind.INGESTION_FAILURE,
-            severity=IssueSeverity.ERROR,
-            title=f"{source or '来源文件'}处理失败",
-            summary=str(err)[:500],
-            origin={"mode": self._retry_mode, "reported_by": self._mode, "stage": stage},
-            resource={
-                "type": source_kind,
-                "path": source,
-                "label": source,
-            },
-            diagnostics={
-                **diagnostics,
-            },
-            context={"source_path": private_source_path},
-        )
-        # 手动模型：只记 attempt 计数与错因快照，不写任何排程字段
-        issue = self._issues.store.report_failure(draft, str(err))
-        emit_event(
-            "ingest_failure",
-            issue_id=issue.id,
-            mode=self._mode,
-            source_kind=source_kind,
-            file=source,
-            source_path=str(source_path),
-            stage=stage,
-            error=str(err),
-            cause=type(err.cause).__name__ if err.cause else None,
-            raw=err.raw,
-        )
-        self._logger.error(
-            "source 失败 [%s] %s: %s",
-            stage,
-            source,
-            str(err)[:200],
-        )
-        return err

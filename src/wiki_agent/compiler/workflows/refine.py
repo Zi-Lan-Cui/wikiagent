@@ -1,5 +1,6 @@
-"""refine——wiki 自编译：以 wiki 页面自身为输入重跑编译链，刷新关系。
+"""refine 的纯函数侧——页面清单与 index 视图。
 
+refine 是 wiki 自编译：以 wiki 页面自身为输入重跑编译链，刷新关系。
 与 compile/sync 的关键差异:
 - 输入是 wiki 内容页（页面自己更新自己）
 - index 视图排除当前页条目——否则检索必然选中自己 → 判重 →
@@ -7,20 +8,12 @@
 - 不存 source 档案页（输入就是 wiki 页面，再存 = 自我复制）
 
 时机: 全文 index 建立后（增量生成时目标页面还不存在，链接先天不充分）。
+执行/排队在 application.wiki_ops 与 jobs.service（③期入队），这里不装配。
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-
-from wiki_agent.compiler.workflows.failures import SourceFailureHandler
-from wiki_agent.compiler.workflows.ingest import CompilePipeline
-from wiki_agent.documents.loader import DataLoader
-from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.log import emit_event, get_logger
-
-logger = get_logger("REFINE")
 
 # refine 输入范围——知识页三目录（sources/ 是源档案页不参与；index 等系统文件排除）
 CONTENT_DIRS = ("concepts", "entities", "topics")
@@ -71,65 +64,3 @@ def build_index_excluding_self(wiki_dir: str | Path):
         return "\n".join(kept)
 
     return reader
-
-
-async def refine_all(
-    pipeline: CompilePipeline,
-    pages: list[Path],
-    *,
-    failure_handler: SourceFailureHandler,
-    on_page: Callable[[Path, object], None] | None = None,
-) -> dict:
-    """逐页 refine（串行——index 读写约束，与 compile/sync 一致）。
-
-    Args:
-        pipeline: 组装好的 refine 流水线。
-        pages: 待精炼页面列表。
-        on_page: (page, outcome|error) 回调——入口用它打印与存档。
-
-    Returns:
-        统计 dict: {"total", "ok", "noop", "failed"}。
-    """
-    stats = {"total": len(pages), "ok": 0, "noop": 0, "failed": 0}
-    loader = DataLoader()
-
-    for page in pages:
-        summary = loader.load([page])
-        if not summary.files:
-            logger.warning("  ✗ %s 加载为空，跳过", page.name)
-            failure_handler.handle(
-                IngestError(
-                    IngestStage.LOAD,
-                    "加载为空",
-                    source=page.name,
-                ),
-                source=str(page.name),
-                source_path=page,
-                source_kind="wiki_page",
-            )
-            stats["failed"] += 1
-            continue
-        try:
-            outcome = await pipeline.ingest_one(summary.files[0])
-        except IngestError as e:
-            logger.error("  ✗ %s [%s]: %s", page.name, e.stage.value, str(e)[:200])
-            failure_handler.handle(
-                e,
-                source=str(page.name),
-                source_path=page,
-                source_kind="wiki_page",
-            )
-            stats["failed"] += 1
-            if on_page:
-                on_page(page, e)
-            continue
-        if outcome.noop:
-            stats["noop"] += 1
-            emit_event("refine_noop", file=page.name)
-        else:
-            stats["ok"] += 1
-            emit_event("refine_ingested", file=page.name, pages=len(outcome.pages_written))
-        if on_page:
-            on_page(page, outcome)
-
-    return stats
