@@ -11,7 +11,6 @@ from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
-from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.issues import IssueKind, IssueService, IssueStatus, IssueStore
 from wiki_agent.jobs import (
     DuplicateInFlightJob,
@@ -22,6 +21,7 @@ from wiki_agent.jobs import (
     SyncInProgress,
 )
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
+from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
 from wiki_agent.sync.state import SyncState, scan_disk
 

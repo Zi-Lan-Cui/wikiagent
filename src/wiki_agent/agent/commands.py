@@ -345,8 +345,8 @@ class QueueCommand(Command):
             return CommandResult(text=f"# 问题中心\n\n✅ 已忽略: {item_id}")
 
         if args == "retry-all" or args.startswith("retry "):
-            from wiki_agent.compiler.workflows.retry import SourceUnavailableError
             from wiki_agent.issues import IssueKind
+            from wiki_agent.jobs.retry_source import SourceUnavailableError
             from wiki_agent.jobs.service import JobService
 
             job_service: JobService | None = getattr(ctx.agent, "job_service", None)
