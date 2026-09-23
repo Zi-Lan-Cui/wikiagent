@@ -42,10 +42,6 @@ class JobWorker:
             raise ValueError(f"重复注册 Job handler: {kind}")
         self._handlers[kind] = handler
 
-    def is_registered(self, kind: str) -> bool:
-        """装配点（web create_app 可能被多 TestClient 复用）幂等注册用。"""
-        return kind in self._handlers
-
     @property
     def registered_kinds(self) -> set[str]:
         return set(self._handlers)

@@ -9,6 +9,7 @@ from typing import cast
 
 import httpx
 
+from wiki_agent.application.issue_actions import IssueActionExecutor, IssueActionJobHandler
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
 from wiki_agent.jobs.service import JobService
@@ -34,6 +35,11 @@ class _Runtime:
             sync_state=SyncState(self.workspace / "watch" / "state.json"),
         )
         self.job_worker = JobWorker(self.job_service)
+        # 装配根契约镜像（AppRuntime.__init__ 同款三步）：executor、
+        # issue_action handler 注册、启动核对
+        self.issue_actions = IssueActionExecutor(cast(AppRuntime, self))
+        self.job_worker.register("issue_action", IssueActionJobHandler(self.issue_actions))
+        self.issue_actions.reconcile_retry_sources()
         self._worker_task = None
 
     async def __aenter__(self):
