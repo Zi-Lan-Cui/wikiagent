@@ -14,6 +14,7 @@ from types import TracebackType
 from typing import Any
 
 from wiki_agent.agent import ReActAgent
+from wiki_agent.application.issue_actions import IssueActionExecutor, IssueActionJobHandler
 from wiki_agent.application.wiki_ops import WikiOpsConsumer
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, load_config
@@ -74,9 +75,9 @@ class AppRuntime:
             job_service=self.job_service,
             hooks=[self.event_publisher, self.issue_reporter, *(hooks or [])],
         )
-        # 执行装配：worker 是唯一终态写入者；装配根注册 compile/delete/
-        # refine/restructure 四类写 wiki 的 job，issue_action 由 web 适配器
-        # 补挂，多进程共库按 kinds 分工。
+        # 执行装配：worker 是唯一终态写入者；装配根注册全部 job 类型
+        # （写 wiki 四类 + issue_action），适配器只提供入口映射，
+        # 多进程共库按 kinds 分工。
         self.pipeline = CompilePipeline(
             llm=self.agent.llm,
             vlm=self.agent.vlm,
@@ -106,11 +107,19 @@ class AppRuntime:
             source_records_dir=self.source_records_dir,
             git=self.git_manager,
         )
+        # issue_action 用例：执行体与适配器解耦，web/脚本只映射入口
+        self.issue_actions = IssueActionExecutor(self)
         self.job_worker = JobWorker(self.job_service)
         self.job_worker.register("compile", self.sync_consumer.handle_job)
         self.job_worker.register("delete", self.sync_consumer.handle_job)
         self.job_worker.register("refine", self.wiki_ops.handle_refine)
         self.job_worker.register("restructure", self.wiki_ops.handle_restructure)
+        self.job_worker.register(
+            "issue_action", IssueActionJobHandler(self.issue_actions)
+        )
+        # 启动核对（与 recover_stale、快照清扫同族）：丢失的重试输入
+        # 标记 unavailable——任何宿主进程启动后账目即如实
+        self.issue_actions.reconcile_retry_sources()
         self._mcp_connections: dict[str, Any] = {}
         self._bg_tasks: list[asyncio.Task] = []
         self._started = False

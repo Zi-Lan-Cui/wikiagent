@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
+from wiki_agent.issues import (
+    InvalidIssueTransitionError,
+    IssueAlreadyClaimedError,
+)
 from wiki_agent.issues.models import (
     IssueDraft,
     IssueKind,
@@ -14,7 +18,7 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.issues.projectors import available_actions, to_card
-from wiki_agent.jobs import Settlement
+from wiki_agent.jobs import Job, JobResult, Settlement
 from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.wiki.quality import scan_wiki
 
@@ -269,3 +273,32 @@ class IssueActionExecutor:
             ),
             "rescan_findings": len(findings),
         }
+
+
+class IssueActionJobHandler:
+    """issue_action job 的执行体（装配根注册进 JobWorker，适配器只做 HTTP/入口映射）。
+
+    业务拒绝（来源丢失/动作非法/未实现）是终态——返回无联动语义的
+    failed 结果，问题账本不因被拒绝的动作而新增记录。rescan 的 issue
+    终态不在这里写：job_effect 只产出判断依据，终态统一由 outcome 在
+    job 终态事务写入。
+    """
+
+    def __init__(self, executor: IssueActionExecutor):
+        self._executor = executor
+
+    async def __call__(self, job: Job, progress) -> JobResult:
+        try:
+            # job payload 来自 json 落库，运行时即 JsonObject 形状
+            detail = self._executor.job_effect(
+                job.resource, job.mode, cast("JsonObject | None", job.payload), progress=progress
+            )
+        except (
+            SourceUnavailableError,
+            IssueAlreadyClaimedError,
+            InvalidIssueTransitionError,
+            ValueError,
+        ) as exc:
+            return JobResult(status="failed", detail={"error": str(exc)[:500]})
+        effect_detail: dict[str, object] = {k: v for k, v in detail.items()}
+        return JobResult(status="succeeded", detail=effect_detail)

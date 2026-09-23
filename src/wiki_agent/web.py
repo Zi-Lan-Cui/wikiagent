@@ -19,16 +19,14 @@ from wiki_agent.application import (
     SessionNotFoundError,
     WikiAgentService,
 )
-from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import (
-    InvalidIssueTransitionError,
     IssueAlreadyClaimedError,
     IssueKind,
     IssueNotFoundError,
     IssueStatus,
 )
-from wiki_agent.jobs import JobResult, SyncInProgress
+from wiki_agent.jobs import SyncInProgress
 from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import setup_event_log
 from wiki_agent.wiki import WikiPageNotFound
@@ -56,36 +54,13 @@ def create_app(
     ``runtime`` is injectable for tests.  Production callers normally pass
     ``project_root`` and let the factory construct one process-wide runtime.
     """
+    # executor/handler/启动核对、worker 泵都由 AppRuntime 在装配根完成；
+    # web 只做 HTTP 映射
     app_runtime = runtime or AppRuntime.from_project_root(project_root or Path.cwd())
     service = WikiAgentService(app_runtime)
-    issue_actions = IssueActionExecutor(app_runtime)
-    issue_actions.reconcile_retry_sources()
-    # worker 泵由 AppRuntime 统一装配与生命周期管理；
-    # web 只补 issue_action handler（executor 在 create_app 内构造）
+    issue_actions = app_runtime.issue_actions
     job_service = app_runtime.job_service
     job_worker = app_runtime.job_worker
-
-    async def handle_issue_job(job, progress):
-        # 业务拒绝（来源丢失/动作非法/未实现）是终态——返回无联动语义的
-        # failed 结果，问题账本不因拒绝动作而新增。
-        # job_effect 只产出裁决依据（rescan 的 still_present 等），
-        # issue 终态由 outcome 在 job 终态事务统一写入。
-        try:
-            detail = issue_actions.job_effect(
-                job.resource, job.mode, job.payload, progress=progress
-            )
-        except (
-            SourceUnavailableError,
-            IssueAlreadyClaimedError,
-            InvalidIssueTransitionError,
-            ValueError,
-        ) as exc:
-            return JobResult(status="failed", detail={"error": str(exc)[:500]})
-        effect_detail: dict[str, object] = {k: v for k, v in detail.items()}
-        return JobResult(status="succeeded", detail=effect_detail)
-
-    if not job_worker.is_registered("issue_action"):
-        job_worker.register("issue_action", handle_issue_job)
 
     def _in_flight_issue_ids() -> set[str]:
         # "在途"= 该 issue 有挂账的 queued/running job——一条 SQL，不扫内存
@@ -276,12 +251,6 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.get("/api/queue")
-    async def list_failure_queue_compatibility() -> list[dict[str, Any]]:
-        """Compatibility alias while the old queue UI is being retired."""
-        cards = service.list_issues(statuses={IssueStatus.OPEN, IssueStatus.BLOCKED})
-        return [asdict(card) for card in cards]
-
     @app.get("/api/wiki/pages/{page_path:path}")
     async def get_wiki_page(page_path: str) -> dict[str, Any]:
         try:
@@ -362,6 +331,3 @@ def create_app(
         app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
     return app
-
-
-app = create_app()
