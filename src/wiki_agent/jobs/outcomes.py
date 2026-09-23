@@ -58,8 +58,8 @@ class IssueEffect:
     cause: str = ""
 
 
-# 结算类别 → 账本动作。没列出的类别（refined/unit_missing/applied/
-# rejected_by_gate）= 不碰账本；新增动作型 job 在这里加一行，不改分支。
+# 结算类别 → 账本动作。没列出的类别（refined/unit_missing/applied）
+# = 不碰账本；新增动作型 job 在这里加一行，不改分支。
 ISSUE_RULES: dict[Settlement, IssueEffect] = {
     Settlement.INGESTED: IssueEffect("resolve_source"),
     Settlement.ALREADY_INGESTED: IssueEffect("resolve_source"),

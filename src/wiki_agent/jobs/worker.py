@@ -15,7 +15,7 @@ from wiki_agent.jobs import Job, JobResult
 from wiki_agent.jobs.service import JobService
 from wiki_agent.log import emit_event, get_logger
 
-JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[JobResult | None]]
+JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[JobResult]]
 
 logger = get_logger("JOB_WORKER")
 
@@ -89,8 +89,6 @@ class JobWorker:
                 status="failed",
                 detail={"error": f"{type(exc).__name__}: {str(exc)[:400]}"},
             )
-        if result is None:  # 兼容返回 None 的旧 handler——语义 = 成功
-            result = JobResult(status="succeeded")
         if not isinstance(result, JobResult):
             # 契约违约同样是代码 bug：记日志/事件，账上不留给用户
             logger.error("job %s handler 返回了 %s，应为 JobResult", job.id, type(result).__name__)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+from wiki_agent.jobs.models import JobResult
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 
@@ -15,6 +16,7 @@ def test_worker_claims_updates_stage_and_completes(tmp_path):
     async def handle(current, progress):
         progress("extract")
         stages.append(current.resource)
+        return JobResult(status="succeeded")
 
     worker.register("compile", handle)
     asyncio.run(worker.run_once())
