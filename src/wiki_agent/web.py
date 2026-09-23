@@ -60,7 +60,7 @@ def create_app(
     service = WikiAgentService(app_runtime)
     issue_actions = IssueActionExecutor(app_runtime)
     issue_actions.reconcile_retry_sources()
-    # worker/维护循环由 AppRuntime 统一装配与生命周期管理；
+    # worker 泵由 AppRuntime 统一装配与生命周期管理；
     # web 只补 issue_action handler（executor 在 create_app 内构造）
     job_service = app_runtime.job_service
     job_worker = app_runtime.job_worker
@@ -134,7 +134,7 @@ def create_app(
     async def lifespan(_: FastAPI):
         setup_event_log(app_runtime.workspace / "logs" / "web-events.jsonl")
         try:
-            # start() 拉起 job_worker 与维护循环，close() 统一收尾
+            # start() 拉起 job_worker 泵，close() 统一收尾
             async with app_runtime:
                 yield
         finally:

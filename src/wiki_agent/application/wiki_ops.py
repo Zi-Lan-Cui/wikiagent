@@ -1,4 +1,4 @@
-"""refine / restructure 执行体（③期入队）——与 SyncConsumer 同一 wiki 写协议。
+"""refine / restructure 执行体——与 SyncConsumer 同一 wiki 写协议。
 
 pre-reset → 执行 → 成功 commit / 失败残骸导出 + restore（jobs.wiki_session）。
 两类 job 由人显式触发、走同一队列，与 sync job 串行执行，互斥由泵保证。
@@ -20,7 +20,7 @@ from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job, JobResult, Settlement
-from wiki_agent.jobs.wiki_session import WikiWriteSession
+from wiki_agent.jobs.wiki_session import WikiWriteSession, debris_dir_for
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.quality import scan_wiki
 
@@ -49,9 +49,7 @@ class WikiOpsConsumer:
     ):
         self._pipeline = refine_pipeline
         self._wiki_dir = Path(wiki_dir)
-        self._session = WikiWriteSession(
-            git, debris_dir=Path(source_records_dir).parent / "debris"
-        )
+        self._session = WikiWriteSession(git, debris_dir=debris_dir_for(source_records_dir))
 
     async def handle_refine(self, job: Job, progress) -> JobResult:
         """refine 一页：输入是 wiki 页面自身，成功一页一提交。"""
@@ -82,8 +80,8 @@ class WikiOpsConsumer:
         return JobResult(status="succeeded", detail=detail)
 
     async def handle_restructure(self, job: Job, progress) -> JobResult:
-        """执行已确认的重组提议：结构操作风险最高，批内自带 scan 闸门——
-        error 或有 skipped 动作即整批撤销（原批壳语义原样迁入队列）。"""
+        """执行已确认的重组提议：结构操作风险最高，单元内自带 scan 闸门——
+        error 或有 skipped 动作即撤销本单元。"""
         self._session.pre_reset()
         proposals = proposals_from_payload(job.payload)
         if not proposals:

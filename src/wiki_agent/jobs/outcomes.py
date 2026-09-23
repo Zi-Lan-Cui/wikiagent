@@ -6,7 +6,7 @@
 （先库后文件：崩溃窗口靠 recover_stale 与 digest 幂等短路收敛，方向
 只能是"库里没记成就重做"）。
 
-issue 联动的唯一驱动源是成功结果的 settlement（结算类别）：handler 申报
+issue 联动的账本动作只由成功结果的 settlement（结算类别）决定：handler 申报
 "完成了哪一种业务事实"，本模块查 ISSUE_RULES 决定账本动作——不存在
 "job 成功就一律销账"的通用规则，也没有 handler 直接写账的路径。
 未申报/表里没有的类别不动账本。

@@ -1,4 +1,4 @@
-"""refine 入口（③期入队后的薄壳）——逐页 refine 排队 + 自泵到队列空。
+"""refine 入口——逐页 refine 排队 + 自泵到队列空。
 
 用法:
     .venv/bin/python scripts/refine_wiki.py [--wiki-dir DIR] [--limit N]

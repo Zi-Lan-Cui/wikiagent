@@ -68,8 +68,9 @@ def resolve_correction_issue(
 class IssueActionExecutor:
     """Execute only actions advertised by the current issue projection.
 
-    retry 不在这里——三个入口（web/CLI/维护循环）统一直投
-    submit_issue_retry，本执行器只承接同步裁决与 rescan。
+    retry 不在这里——三个入口（web 问题页、CLI /queue retry、
+    scripts/retry_failures.py）统一直投 submit_issue_retry，
+    本执行器只承接同步裁决与 rescan。
     """
 
     def __init__(self, runtime: AppRuntime):
@@ -163,8 +164,8 @@ class IssueActionExecutor:
     ) -> JsonObject:
         """issue_action job 的执行入口：返回要随 job 终态落库的 JobResult detail。
 
-        rescan 的最终裁决（blocked/resolved）不由这里直接写库——这里只产出
-        裁决依据，issue 终态收口在 JobOutcomeHandler 的终态事务里，
+        rescan 的最终结论（blocked/resolved）不由这里直接写库——这里只产出
+        判断依据，issue 终态统一在 JobOutcomeHandler 的终态事务里写入，
         issue 状态的写入方保持唯一。
         """
         return self._run_action(issue_id, action, payload, progress=progress)[1]
@@ -245,7 +246,7 @@ class IssueActionExecutor:
         """复扫全库、同步质量问题账——只产出裁决依据，不写 issue 终态。
 
         still_present 由复扫前后的 occurrences 对比得出（入账器按指纹合并，
-        仍在=计数前进）。终态写收口在 JobOutcomeHandler 的 job 终态事务
+        仍在=计数前进）。终态写入统一在 JobOutcomeHandler 的 job 终态事务
         （CAS：expected={open,blocked}），扫描期间的人工裁决不被覆盖。
         防重复由承载它的 issue_action job 保证：同 issue 的在途行被幂等键收敛。
         """

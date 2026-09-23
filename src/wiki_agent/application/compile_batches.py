@@ -6,7 +6,7 @@
 
 因此这里没有进度账本——进度 = sync 完成账（state.json）+ jobs 队列：
 中断后重跑同一命令，已成功的内容按账本不再入队，未跑完的重新拍进快照。
-resume/status/reconcile/commit-scope 等平行账本参数随 run_state 一起退役。
+本模块不落任何编排状态，也没有与之对应的参数。
 
 示例::
 
@@ -28,7 +28,12 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.config import RootConfig, load_config
+from wiki_agent.config import (
+    RootConfig,
+    load_config,
+    source_records_dir_for,
+    sync_state_path_for,
+)
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 
 # 注入点：一批 = 一次快照 sync + 泵到空（单测替换，不碰 LLM）
@@ -132,8 +137,8 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path) -> SyncExecute:
         try:
             workspace.mkdir(parents=True, exist_ok=True)
             setup_event_log(workspace / "logs" / "compile-batches-events.jsonl")
-            source_records_dir = workspace / "provenance" / "sources"
-            state = SyncState(workspace / "watch" / "state.json")
+            source_records_dir = source_records_dir_for(workspace)
+            state = SyncState(sync_state_path_for(workspace))
             service = JobService(
                 workspace,
                 wiki_dir=wiki_dir,

@@ -22,8 +22,7 @@ logger = get_logger("RETRY_FAILURES")
 
 
 async def main(selected: str | None = None) -> None:
-    # 无 run 容器——不落文件，结果直接走终端（WARNING+ 亦可由 lastResort 兜底，
-    # 但 INFO 级的 succeeded/空队列提示需要显式配置才可见）。
+    # 结果直接走终端：INFO 级提示需要显式配置才可见
     configure_logging(console_level=logging.INFO)
     runtime = AppRuntime.from_project_root(Path.cwd())
     service = runtime.job_service
@@ -46,16 +45,18 @@ async def main(selected: str | None = None) -> None:
         else:
             logger.info("%s: 已排队 %s", issue_id, job.id)
 
-    # 本脚本即临时 worker：驱动到没有到期任务为止（transient 退避链未到
-    # 期的部分留给后台进程，报告标注在途）
+    # 本脚本驱动队列，直到领不到本进程注册类型的任务为止
     worker = runtime.job_worker
     while service.store.count_in_flight() > 0:
         job = await worker.run_once()
         if job is None:
-            break  # 只剩 next_run_at 未到期的链式行
+            break  # 在途行都是本进程未注册 handler 的 kind（如 issue_action）
         outcomes[_issue_of(job.id, service)] = job.status
     if service.store.count_in_flight() > 0:
-        logger.info("仍有 %d 个退避重排在途，交给后台 worker", service.store.count_in_flight())
+        logger.info(
+            "仍有 %d 个在途任务不属于本进程的执行类型，留给注册了对应 handler 的进程",
+            service.store.count_in_flight(),
+        )
 
     for issue_id in issue_ids:
         status = outcomes.get(issue_id, "unknown")
@@ -72,4 +73,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(sys.argv[1] if len(sys.argv) > 1 else None))
     except KeyboardInterrupt:
-        logger.info("retry 中断，已排队的 job 留在库中由后台 worker 续跑")
+        logger.info("retry 中断，已排队的 job 留在队列中，再跑一次本脚本或 web 的 worker 会执行")

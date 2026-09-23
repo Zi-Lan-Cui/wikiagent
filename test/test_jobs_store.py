@@ -173,7 +173,7 @@ def test_resource_path_written_and_queried(tmp_path: Path):
     record = store.report(draft)
     found = store.find_pending_failures("/data/note.md")
     assert [r.id for r in found] == [record.id]
-    # 在途不让位在 job 层表达（唯一索引吸收重复提交），issue 保持 open 可被查到
+    # 在途互斥由唯一索引在 job 层表达（重复提交被吸收），issue 保持 open 可被查到
     # 无 source_path 的旧式 draft 回退 resource.path
     store.report(
         IssueDraft(
