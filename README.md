@@ -17,7 +17,7 @@ wiki-agent 面向"资料越来越多，但不想花时间维护知识库"的用�
 ## 你可以用它做什么
 
 - 把资料整理成结构清晰的 Wiki
-- 一键同步资料目录：新增、修改、删除按快照增量更新；首次同步即全量编译；首次同步即全量编译
+- 一键同步资料目录：新增、修改、删除按快照增量更新；首次同步即全量编译
 - 发现重复、缺失关联或需要补充的内容
 - 在确认和备份保护下调整页面结构
 - 通过 `wiki-agent` CLI 查询自己的知识库
@@ -50,6 +50,8 @@ uv run python scripts/sync.py /path/to/source-folder
 
 Web 工作台的问题页同样有「同步」按钮，并常显"待同步变更 N"徽章。同步互斥串行：上一批未跑完时不会叠加新快照；失败的素材保持待同步状态，修好环境后再点一次即是重试——系统不做后台监听和自动重试，一切由人触发。
 
+**输入在点击那一刻定格**：要处理的文件会被复制进 `workspace/snapshots/` 后再排队，任务执行期间对原件的修改、删除都不影响这一批的进行——改动留给下一次点击。因此问题账本记录的永远是"系统处理过的结果"，而不是磁盘此刻的样子。
+
 同一份知识库同时只有一个执行进程：Web 工作台运行期间，CLI 的同步/批编译会直接提示"另一执行进程持锁"并退出——用界面上的按钮即可。
 
 每次快照批在 Wiki 的 Git 历史里带统一批标记：成功的文件逐个提交（`sync: <文件名>`），失败的文件不留任何改动。想撤销整批更新，在问答会话里执行 `/wiki revert-batch <批id>`（批 id 见任务详情或提交尾注）。
@@ -72,7 +74,7 @@ uv run python scripts/refine_wiki.py [--wiki-dir /path/to/wiki] [--limit N]
 uv run python scripts/restructure_wiki.py --dry-run
 ```
 
-确认后执行 `uv run python scripts/restructure_wiki.py`（逐条 y/N 或 `--yes` 全收）——执行进队列，校验不过整批自动撤销。任何一批都可按批 id 回撤：`/wiki revert-batch <批id>`。
+确认后执行 `uv run python scripts/restructure_wiki.py`（逐条 y/N 或 `--yes` 全收）。提议会被切成互不依赖的执行单元排进队列：一个单元一次提交，某个单元校验不过只撤销它自己，其余照常生效；整批随时可按批 id 回撤：`/wiki revert-batch <批id>`。
 
 ### 4. 使用问答助手
 
@@ -103,7 +105,8 @@ uv run uvicorn wiki_agent.web:create_app --factory --port 8000
 ```text
 materials/     用户提供的原始资料
 wiki/          可发布的生成知识页——模型可见语料，Git 管理，机器独占
-workspace/     运行状态、日志、溯源档案和会话数据——其中 provenance/ 对人可见、对模型不可见
+workspace/     运行状态、日志、溯源档案和会话数据——其中 provenance/ 对人可见、对模型不可见；
+               snapshots/ 短暂存放每次点击定格的输入副本，批任务全部结束后自动删除
 ```
 
 三个目录必须互不包含，可分别通过 `WIKI_MATERIALS_DIR`、`WIKI_WIKI_DIR` 和 `WIKI_WORKSPACE_DIR` 配置。
