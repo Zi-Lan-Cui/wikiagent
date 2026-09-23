@@ -44,7 +44,7 @@ from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.jobs import Job, JobResult
+from wiki_agent.jobs import Job, JobResult, Settlement
 from wiki_agent.jobs.wiki_session import WikiWriteSession
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.snapshots import SnapshotStore
@@ -135,12 +135,12 @@ class SyncConsumer:
         name = Path(job.resource).name
         archive_ops = self._plan_archive_cleanup(name)
         commit = self._session.commit(job, f"sync: delete {name}")
-        return JobResult(
-            status="succeeded",
-            detail={"archive_ops": archive_ops, "commit": commit}
-            if archive_ops or commit
-            else {},
-        )
+        detail: dict[str, object] = {"settlement": Settlement.DELETE_APPLIED}
+        if archive_ops:
+            detail["archive_ops"] = archive_ops
+        if commit:
+            detail["commit"] = commit
+        return JobResult(status="succeeded", detail=detail)
 
     def _plan_archive_cleanup(self, name: str) -> list[dict[str, str]]:
         """源文件删除 → 规划溯源档案清理（消费者职责）。
@@ -213,7 +213,7 @@ class SyncConsumer:
         # 幂等短路（重放保险）：崩溃恢复后同一快照重跑，已入账即直接成功
         if payload_digest and self._state.matches(str(path), payload_digest):
             emit_event("sync_skipped", file=path.name, reason="already_ingested")
-            return JobResult(status="succeeded", detail={})
+            return JobResult(status="succeeded", detail={"settlement": Settlement.ALREADY_INGESTED})
 
         loader = DataLoader()
         summary = loader.load([staged])
@@ -257,7 +257,7 @@ class SyncConsumer:
         # outcome 结算——先文件后库的方向保证崩溃只会重做、不会丢内容。
         subject = "retry" if job.mode == "issue_retry" else "sync"
         commit = self._session.commit(job, f"{subject}: {path.name}")
-        detail: dict[str, object] = {"digest": digest, "text": text}
+        detail: dict[str, object] = {"settlement": Settlement.INGESTED, "digest": digest, "text": text}
         if commit:
             detail["commit"] = commit
         if page is not None:

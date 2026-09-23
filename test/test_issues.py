@@ -299,6 +299,25 @@ def _rescan_setup(tmp_path: Path):
     return wiki, service, target, executor
 
 
+def test_execute_rejects_synchronous_rescan(tmp_path: Path):
+    """rescan 的裁决在 job 终态事务内完成——同步门面直接拒绝，防止半截结果。"""
+    from types import SimpleNamespace
+
+    from wiki_agent.application.issue_actions import IssueActionExecutor
+
+    store = IssueStore(tmp_path)
+    issue = store.report(_draft(kind=IssueKind.QUALITY_ISSUE, fingerprint="q-rescan"))
+    executor = IssueActionExecutor(
+        SimpleNamespace(
+            wiki_dir=tmp_path / "wiki",
+            issue_service=IssueService(store),
+            issue_store=store,
+        )
+    )
+    with pytest.raises(ValueError, match="队列"):
+        executor.execute(issue.id, "rescan")
+
+
 def test_rescan_still_present_settles_blocked(tmp_path: Path):
     """回归：复扫仍在→BLOCKED 必须存活，不被通用"succeeded→RESOLVED"覆盖。"""
     _, service, target, executor = _rescan_setup(tmp_path)
@@ -306,7 +325,7 @@ def test_rescan_still_present_settles_blocked(tmp_path: Path):
     claimed = service.claim_next(kinds={"issue_action"})
     assert claimed is not None
     detail = executor.job_effect(claimed.resource, claimed.mode, claimed.payload)
-    assert detail["rescan_still_present"] is True
+    assert detail["settlement"] == "rescan_still_present"
     assert (
         service.issues.get(target.id).status == IssueStatus.OPEN
     ), "执行体只产出依据，不写 issue 终态"
@@ -336,7 +355,7 @@ def test_rescan_gone_settles_resolved(tmp_path: Path):
     claimed = service.claim_next(kinds={"issue_action"})
     assert claimed is not None
     detail = executor.job_effect(claimed.resource, claimed.mode, claimed.payload)
-    assert detail["rescan_still_present"] is False
+    assert detail["settlement"] == "rescan_cleared"
     service.complete_with_outcome(claimed, JobResult(status="succeeded", detail=detail))
     record = service.issues.get(target.id)
     assert record.status == IssueStatus.RESOLVED

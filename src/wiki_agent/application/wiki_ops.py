@@ -19,7 +19,7 @@ from wiki_agent.compiler.restructure import Proposal, execute
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.jobs import Job, JobResult
+from wiki_agent.jobs import Job, JobResult, Settlement
 from wiki_agent.jobs.wiki_session import WikiWriteSession
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.quality import scan_wiki
@@ -60,7 +60,7 @@ class WikiOpsConsumer:
         if not page.is_file():
             # 排队期间被 sync 删除——页面本就不该再精炼，no-op 了结
             emit_event("refine_skipped", page=job.resource, reason="gone_after_snapshot")
-            return JobResult(status="succeeded")
+            return JobResult(status="succeeded", detail={"settlement": Settlement.UNIT_MISSING})
         progress("load")
         summary = DataLoader().load([page])
         if not summary.files:
@@ -76,7 +76,10 @@ class WikiOpsConsumer:
             emit_event("refine_noop", page=slug)
         else:
             emit_event("refine_ingested", page=slug, pages=len(outcome.pages_written))
-        return JobResult(status="succeeded", detail={"commit": commit} if commit else {})
+        detail: dict[str, object] = {"settlement": Settlement.REFINED}
+        if commit:
+            detail["commit"] = commit
+        return JobResult(status="succeeded", detail=detail)
 
     async def handle_restructure(self, job: Job, progress) -> JobResult:
         """执行已确认的重组提议：结构操作风险最高，批内自带 scan 闸门——
@@ -84,7 +87,7 @@ class WikiOpsConsumer:
         self._session.pre_reset()
         proposals = proposals_from_payload(job.payload)
         if not proposals:
-            return JobResult(status="succeeded")
+            return JobResult(status="succeeded", detail={"settlement": Settlement.APPLIED})
         progress("execute")
         result = execute(self._wiki_dir, proposals)
         issues = scan_wiki(self._wiki_dir)
@@ -110,10 +113,11 @@ class WikiOpsConsumer:
             actions=len(result.actions),
             backed_up=len(result.backed_up),
         )
-        return JobResult(
-            status="succeeded",
-            detail={"commit": commit, "actions": str(len(result.actions))} if commit else {},
-        )
+        ok_detail: dict[str, object] = {"settlement": Settlement.APPLIED}
+        if commit:
+            ok_detail["commit"] = commit
+            ok_detail["actions"] = str(len(result.actions))
+        return JobResult(status="succeeded", detail=ok_detail)
 
     def _failed(self, job: Job, exc: IngestError | None) -> JobResult:
         """refine 业务失败：残骸撤销 + 事件，不记账（批操作结果非用户待办）。"""

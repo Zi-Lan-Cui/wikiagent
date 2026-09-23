@@ -93,7 +93,11 @@ def test_compile_success_reads_snapshot_and_keeps_original_identity():
         consumer = _consumer(state, wiki, records, pipeline, snapshots)
         result = await consumer.handle_job(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
-        assert result.detail == {"digest": digest, "text": text}
+        assert result.detail == {
+            "settlement": "ingested",
+            "digest": digest,
+            "text": text,
+        }
         assert pipeline.calls == 1
         assert pipeline.seen_raw[0].path == f.resolve(), "业务身份必须是原路径"
         assert state.get(str(f.resolve())).hash == "", "consumer 自己不写账"
@@ -112,7 +116,8 @@ def test_compile_idempotent_short_circuit():
         pipeline = _FakePipeline()
         consumer = _consumer(state, wiki, records, pipeline, snapshots)
         result = await consumer.handle_job(_job(str(f.resolve()), payload), lambda s: None)
-        assert result.status == "succeeded" and result.detail == {}
+        assert result.status == "succeeded"
+        assert result.detail == {"settlement": "already_ingested"}
         assert pipeline.calls == 0
 
     asyncio.run(run())
