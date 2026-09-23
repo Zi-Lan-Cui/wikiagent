@@ -20,7 +20,14 @@ from typing import TYPE_CHECKING
 
 from wiki_agent.compiler.extraction import write_source_page
 from wiki_agent.compiler.models import SourcePage
-from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
+from wiki_agent.issues import (
+    InvalidIssueTransitionError,
+    IssueAlreadyClaimedError,
+    IssueDraft,
+    IssueKind,
+    IssueStatus,
+    IssueStore,
+)
 from wiki_agent.issues.models import JsonObject
 from wiki_agent.jobs import Job, JobResult
 from wiki_agent.log import emit_event, get_logger
@@ -58,9 +65,13 @@ class JobOutcomeHandler:
         post_commit: list[Callable[[], None]] = []
         if result.status == "succeeded":
             post_commit += self._on_succeeded(job, result)
-            if job.issue_id:
-                # resolution 只留小的可追溯字段——detail 里的全文（text/
-                # source_page/archive_ops）进 issue 账本纯属冗余
+            if job.kind == "issue_action" and job.mode == "rescan":
+                # rescan 的终态按其复扫结论裁决（见 _settle_rescan），
+                # 不适用下面的"成功即销账"
+                self._settle_rescan(job, result, conn)
+            elif job.issue_id:
+                # source 材料处理成功 = 销账。resolution 只留小的可追溯字段
+                # ——detail 里的全文（text/source_page/archive_ops）进账本纯属冗余
                 resolution: JsonObject = {"fixed_by": job.id}
                 for key in ("digest", "commit"):
                     value = result.detail.get(key)
@@ -77,6 +88,34 @@ class JobOutcomeHandler:
             self._on_ingest_error(job, result, conn)
         # 其余（cancelled、handler bug 的无联动 failed）刻意零动作
         return post_commit
+
+    def _settle_rescan(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
+        """rescan 的终局裁决与 job 终态同事务写入（issue 状态唯一写入点）。
+
+        executor 只产出依据（rescan_still_present）：仍在→BLOCKED（确认过的
+        待处理）、消失→RESOLVED。CAS expected 挡住竞态——扫描期间被人工
+        裁决掉的 issue 保持人的结论，此时扫描本身已完成、job 仍记 succeeded。
+        """
+        still_present = bool(result.detail.get("rescan_still_present"))
+        raw_findings = result.detail.get("rescan_findings")
+        resolution: JsonObject = {
+            "action": "rescan",
+            "still_present": still_present,
+            "findings": raw_findings if isinstance(raw_findings, int) else 0,
+        }
+        try:
+            self._issues.transition(
+                job.issue_id,
+                IssueStatus.BLOCKED if still_present else IssueStatus.RESOLVED,
+                resolution=resolution,
+                expected={IssueStatus.OPEN, IssueStatus.BLOCKED},
+                event="rescan_completed",
+                _conn=conn,
+            )
+        except (InvalidIssueTransitionError, IssueAlreadyClaimedError):
+            logger.info(
+                "rescan 的 issue %s 已在扫描期间被人工裁决，终态保持人的结论", job.issue_id
+            )
 
     # 各分支
 

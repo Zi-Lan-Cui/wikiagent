@@ -21,7 +21,9 @@ from wiki_agent.issues import (
     IssueStore,
 )
 from wiki_agent.issues.hooks import IssueReporterHook
-from wiki_agent.issues.producers import report_correction
+from wiki_agent.issues.producers import report_correction, report_quality_findings
+from wiki_agent.jobs import JobResult
+from wiki_agent.jobs.service import JobService
 
 
 def _draft(**changes) -> IssueDraft:
@@ -259,3 +261,99 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     ]
     assert updated.retry["attempts"] == 2
     assert updated.status == IssueStatus.OPEN, "未耗尽回 open 继续退避"
+
+
+# ---- rescan：裁决依据在执行体、终态收口在 outcome 事务（唯一写入方） ----
+
+
+def _dead_link_wiki(tmp_path: Path) -> Path:
+    wiki = tmp_path / "wiki"
+    (wiki / "concepts").mkdir(parents=True)
+    (wiki / "concepts" / "a.md").write_text(
+        '---\ntype: concept\ntitle: "A 页面"\nsummary: "一个足够长的摘要"\n'
+        "goal: \"说明测试页面\"\ncreated: 2026-09-01\nupdated: 2026-09-02\nrelated: []\n"
+        "---\n# A 页面\n\n这里指向 [[concepts/missing|缺失页]]。\n",
+        encoding="utf-8",
+    )
+    (wiki / "index.md").write_text("- [[concepts/a]] — [concept] concepts/a.md — A 页面\n")
+    return wiki
+
+
+def _rescan_setup(tmp_path: Path):
+    from types import SimpleNamespace
+
+    from wiki_agent.application.issue_actions import IssueActionExecutor
+    from wiki_agent.wiki.quality import scan_wiki
+
+    wiki = _dead_link_wiki(tmp_path)
+    service = JobService(tmp_path / "ws", wiki_dir=wiki)
+    report_quality_findings(service.issue_service, scan_wiki(wiki), origin={"mode": "test"})
+    target = next(
+        i for i in service.issues.list(kinds={IssueKind.QUALITY_ISSUE}) if "死链" in i.summary
+    )
+    executor = IssueActionExecutor(
+        SimpleNamespace(
+            wiki_dir=wiki, issue_service=service.issue_service, issue_store=service.issues
+        )
+    )
+    return wiki, service, target, executor
+
+
+def test_rescan_still_present_settles_blocked(tmp_path: Path):
+    """回归：复扫仍在→BLOCKED 必须存活，不被通用"succeeded→RESOLVED"覆盖。"""
+    _, service, target, executor = _rescan_setup(tmp_path)
+    service.submit_issue_action(target.id, "rescan")
+    claimed = service.claim_next(kinds={"issue_action"})
+    assert claimed is not None
+    detail = executor.job_effect(claimed.resource, claimed.mode, claimed.payload)
+    assert detail["rescan_still_present"] is True
+    assert (
+        service.issues.get(target.id).status == IssueStatus.OPEN
+    ), "执行体只产出依据，不写 issue 终态"
+
+    final = service.complete_with_outcome(
+        claimed, JobResult(status="succeeded", detail=detail)
+    )
+    assert final.status == "succeeded"
+    record = service.issues.get(target.id)
+    assert record.status == IssueStatus.BLOCKED, "仍在→BLOCKED，销账规则不得越权"
+    assert record.resolution["action"] == "rescan"
+    assert record.resolution["still_present"] is True
+
+
+def test_rescan_gone_settles_resolved(tmp_path: Path):
+    _, service, target, executor = _rescan_setup(tmp_path)
+    page = service.issues.get(target.id)
+    assert page.status == IssueStatus.OPEN
+    # 死链修好后复扫：目标 finding 不再复现 → occurrences 不前进 → 裁决 RESOLVED
+    (service.wiki_dir / "concepts" / "a.md").write_text(
+        '---\ntype: concept\ntitle: "A 页面"\nsummary: "一个足够长的摘要"\n'
+        "goal: \"说明测试页面\"\ncreated: 2026-09-01\nupdated: 2026-09-02\nrelated: []\n"
+        "---\n# A 页面\n\n链接已移除，指向 [[concepts/a|本页]]之外的世界。\n",
+        encoding="utf-8",
+    )
+    service.submit_issue_action(target.id, "rescan")
+    claimed = service.claim_next(kinds={"issue_action"})
+    assert claimed is not None
+    detail = executor.job_effect(claimed.resource, claimed.mode, claimed.payload)
+    assert detail["rescan_still_present"] is False
+    service.complete_with_outcome(claimed, JobResult(status="succeeded", detail=detail))
+    record = service.issues.get(target.id)
+    assert record.status == IssueStatus.RESOLVED
+    assert record.resolution["action"] == "rescan"
+
+
+def test_rescan_settlement_yields_to_manual_decision(tmp_path: Path):
+    """扫描期间人工裁决优先：outcome 的 CAS 不满足时静默保留人的结论，job 仍成功。"""
+    _, service, target, executor = _rescan_setup(tmp_path)
+    service.submit_issue_action(target.id, "rescan")
+    claimed = service.claim_next(kinds={"issue_action"})
+    assert claimed is not None
+    detail = executor.job_effect(claimed.resource, claimed.mode, claimed.payload)
+    # 模拟扫描窗口内用户手动 dismiss
+    service.issues.transition(target.id, IssueStatus.DISMISSED, resolution={"by": "human"})
+    final = service.complete_with_outcome(
+        claimed, JobResult(status="succeeded", detail=detail)
+    )
+    assert final.status == "succeeded"
+    assert service.issues.get(target.id).status == IssueStatus.DISMISSED, "不被 rescan 复活"
