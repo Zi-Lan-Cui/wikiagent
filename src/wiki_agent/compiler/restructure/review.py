@@ -238,8 +238,16 @@ def _check_re_arbitrate(content: str) -> tuple[bool, str]:
     for i, item in enumerate(data):
         if not isinstance(item, dict) or not isinstance(item.get("pages", []), list):
             return False, f"[{i}] 格式错误"
-        if item.get("op") not in ("merge", "delete"):
-            return False, f"[{i}].op 非法: {item.get('op')!r}"
+        op = item.get("op")
+        if op not in ("merge", "delete", "unresolved"):
+            return False, f"[{i}].op 非法: {op!r}"
+        pages = item.get("pages", [])
+        if op == "merge" and (
+            len(pages) != 2 or not all(isinstance(p, str) and p for p in pages)
+        ):
+            return False, f"[{i}] merge 的 pages 必须是两个页面 slug"
+        if op == "delete" and not pages:
+            return False, f"[{i}] delete 缺少页面"
     return True, ""
 
 
@@ -308,8 +316,22 @@ async def re_arbitrate(
             continue  # 留在 unresolved 里
         op = item["op"]
         pages_ = item["pages"]
-        target = pages_[0] if op == "merge" else ""
-        resolved.append(Proposal(op=op, pages=pages_, target=target, reason=item.get("reason", "")))
+        if op == "merge":
+            # 复裁 prompt 约定"pages 第一个是吸收方"——执行侧的对应形式是
+            # merge_into_first（吸收 pages[0]、删除 pages[1]）。直接产 op=merge
+            # 会让 execute_merge 把 pages[0] 当被删方、与 target 同页，删掉吸收方。
+            resolved.append(
+                Proposal(
+                    op="merge_into_first",
+                    pages=pages_,
+                    target=pages_[0],
+                    reason=item.get("reason", ""),
+                )
+            )
+        else:
+            resolved.append(
+                Proposal(op=op, pages=pages_, target="", reason=item.get("reason", ""))
+            )
     # 有 resolved 输出时，对应冲突视为已消解——按涉及页匹配清掉
     resolved_pages = {p for pr in resolved for p in pr.pages}
     still_unresolved = [

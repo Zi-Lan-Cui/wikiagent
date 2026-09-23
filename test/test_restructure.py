@@ -343,3 +343,75 @@ def test_partition_units_groups_and_dependencies():
 def test_partition_units_stable_for_empty_graph():
     props = [Proposal(op="delete", pages=[f"concepts/{i}"], id=f"x{i}") for i in range(3)]
     assert [[p.id for p in u] for u in partition_units(props)] == [["x0"], ["x1"], ["x2"]]
+
+
+def test_re_arbitrate_merge_direction_and_execution():
+    """复裁输出的 merge（约定 pages 第一个是吸收方）必须落成 merge_into_first。
+
+    回归：曾直接产 op=merge，execute_merge 把 pages[0] 当被删方、与 target
+    同页——吸收方被删、合并从未发生，且无入链时 scan 闸门拦不住。
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    import wiki_agent.compiler.restructure.review as review
+    from wiki_agent.compiler.restructure import Conflict
+
+    tmp = Path(tempfile.mkdtemp())
+    wiki = _make_wiki(tmp)
+    original = review.async_invoke_with_retry
+
+    async def fake_invoke(llm, messages, **kwargs):
+        return SimpleNamespace(
+            content='{"resolutions": [{"op": "merge", "pages": ["concepts/a", "concepts/b"],'
+            ' "reason": "重复"}]}'
+        )
+
+    review.async_invoke_with_retry = fake_invoke
+    try:
+        conflicts = [
+            Conflict(
+                kind="opposite_direction",
+                proposals=[
+                    Proposal(op="merge_into_first", pages=["concepts/a", "concepts/b"], target="concepts/a"),
+                    Proposal(op="merge_into_second", pages=["concepts/a", "concepts/b"], target="concepts/b"),
+                ],
+                detail="方向冲突",
+            )
+        ]
+        result = asyncio.run(review.re_arbitrate(None, wiki, conflicts))
+    finally:
+        review.async_invoke_with_retry = original
+
+    assert len(result.resolved) == 1
+    prop = result.resolved[0]
+    assert prop.op == "merge_into_first" and prop.target == "concepts/a"
+    assert result.unresolved == [], "冲突组已被 resolved 命中，不再待决策"
+
+    execute(wiki, [prop])
+    assert (wiki / "concepts/a.md").exists(), "吸收方必须保留"
+    assert not (wiki / "concepts/b.md").exists(), "被合并方删除"
+    a_text = (wiki / "concepts/a.md").read_text(encoding="utf-8")
+    assert "B 的正文内容" in a_text, "B 的内容搬进了 A"
+
+
+def test_check_re_arbitrate_validates_pages_and_unresolved():
+    """merge 必须恰好两个页面；unresolved 是合法输出（否则复裁整体被拒）。"""
+    import json
+
+    from wiki_agent.compiler.restructure.review import _check_re_arbitrate
+
+    ok, _ = _check_re_arbitrate(
+        json.dumps(
+            {"resolutions": [{"op": "unresolved", "pages": ["concepts/a", "concepts/b"], "reason": "信息不足"}]}
+        )
+    )
+    assert ok, "unresolved 曾不在允许列表——会让可裁决的整批响应重试耗尽"
+
+    bad, msg = _check_re_arbitrate(
+        json.dumps({"resolutions": [{"op": "merge", "pages": ["concepts/a"], "reason": "x"}]})
+    )
+    assert not bad and "两个页面" in msg
+
+    bad, _ = _check_re_arbitrate(json.dumps({"resolutions": [{"op": "delete", "pages": []}]}))
+    assert not bad

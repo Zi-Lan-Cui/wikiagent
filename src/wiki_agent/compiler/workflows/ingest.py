@@ -220,7 +220,7 @@ class CompilePipeline:
             name=cf.name,
             ext=cf.ext,
             path=str(cf.path),
-            chunks=[_to_source_chunk(ck, len(ck_list)) for ck in ck_list],
+            chunks=[_to_source_chunk(ck, len(ck_list), cf.name) for ck in ck_list],
         )
         try:
             outcome.extract = await self._extractor.extract(sd)
@@ -440,15 +440,17 @@ class _FallbackChunk:
         self.chunk_index = 0
 
 
-def _to_source_chunk(ck, total: int) -> SourceChunk:
+def _to_source_chunk(ck, total: int, source_name: str) -> SourceChunk:
     """ingestion chunk → compiler 模型——标题路径从 chunker metadata 取。
 
     heading 的唯一权威在 chunker（切分时已知 chunk 归属哪个 section），
     消费端不重新解析——源头记录、下游取用，解析猜错的问题不存在。
+    source_name 由调用方传入：chunk 级摘要 prompt 需要出处标注。
 
     Args:
         ck: ingestion chunk 对象。
         total: chunk 总数。
+        source_name: 源文件名（Extract prompt 的出处标注）。
 
     Returns:
         compiler 侧 SourceChunk。
@@ -459,6 +461,7 @@ def _to_source_chunk(ck, total: int) -> SourceChunk:
         index=ck.chunk_index,
         total=total,
         heading_path=meta.get("heading_path", ""),
+        source_name=source_name,
     )
 
 
