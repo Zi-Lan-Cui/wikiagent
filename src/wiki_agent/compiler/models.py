@@ -55,10 +55,7 @@ class SourceChunk:
     """标题路径，如 ``# 神经网络 > ## 反向传播 > ### 梯度计算``。"""
 
     source_name: str = ""
-    """源文件名，如 ``吴恩达深度学习笔记.md``。"""
-
-    source_ext: str = ""
-    """源文件扩展名，如 ``md``、``pdf``（经过 MinerU 转换后变为文本）。"""
+    """源文件名，如 ``吴恩达深度学习笔记.md``——chunk 级摘要 prompt 的出处标注。"""
 
     # 未实现字段（预留——需要时再加，理由见下）
     # heading_path 已由 chunker metadata 产出（2026-08-14），见 text_chunker。

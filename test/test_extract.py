@@ -33,6 +33,18 @@ def test_prompt_keeps_source_content_in_dynamic_user_part():
     assert "GroundedABC" in prompts.chunk_user(chunk)
 
 
+def test_ingest_fills_chunk_source_name():
+    """_to_source_chunk 必须带源文件名——否则 chunk 摘要 prompt 拼出"来自 "空标注。"""
+    from types import SimpleNamespace
+
+    from wiki_agent.compiler.workflows.ingest import _to_source_chunk
+
+    ck = SimpleNamespace(content="一段原文", chunk_index=0, metadata={"heading_path": "h"})
+    sc = _to_source_chunk(ck, 1, "sample.md")
+    assert sc.source_name == "sample.md"
+    assert "来自 sample.md" in prompts.chunk_user(sc)
+
+
 def test_page_prompts_separate_existing_page_from_new_source():
     new_system = prompts.new_page_system()
     update_system = prompts.update_system()
