@@ -699,10 +699,11 @@ class RefineCommand(Command):
         elif not outcome.effective:
             lines.append("结构重组: 无有效提议，未入队")
         else:
-            job = job_service.submit_restructure([asdict(p) for p in outcome.effective])
+            jobs = job_service.submit_restructure([asdict(p) for p in outcome.effective])
             lines.append(
-                f"结构重组: {len(outcome.effective)} 条提议已入队"
-                f"（批 {job.payload['batch']}，失败整批自动撤销）"
+                f"结构重组: {len(outcome.effective)} 条提议切成 {len(jobs)} 个执行单元入队"
+                f"（批 {jobs[0].payload['batch']}，某单元校验不过只撤销该单元；"
+                f"整批回撤: /wiki revert-batch {jobs[0].payload['batch']}）"
             )
         if not dry_run:
             lines.extend(["", "队列串行执行（sync 在途者先行）；进度与结果看工作台。"])

@@ -202,3 +202,19 @@ if __name__ == "__main__":
             print(f"  ✗ {name}")
             traceback.print_exc()
     raise SystemExit(1 if failed else 0)
+
+
+def test_claim_order_ties_break_by_insertion(tmp_path):
+    """同事务入队的多行 created_at 相同——claim 顺序必须等于入队顺序。"""
+    from datetime import UTC, datetime
+
+    from wiki_agent.jobs.store import JobStore
+
+    store = JobStore(tmp_path)
+    first = store.enqueue(kind="restructure", resource="r1", mode="manual")
+    second = store.enqueue(kind="restructure", resource="r2", mode="manual")
+    same = datetime.now(UTC).isoformat()
+    with store.database.transaction(immediate=True) as conn:
+        conn.execute("UPDATE jobs SET created_at = ?", (same,))
+    assert store.claim_next(kinds={"restructure"}).id == first.id
+    assert store.claim_next(kinds={"restructure"}).id == second.id

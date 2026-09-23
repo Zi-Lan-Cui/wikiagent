@@ -106,7 +106,11 @@ class WikiOpsConsumer:
             logger.error("  %s", reason)
             return JobResult(status="failed", detail={"error": reason})
         progress("commit")
-        commit = self._session.commit(job, f"restructure: {len(result.actions)} ops")
+        first = proposals[0]
+        subject = f"restructure: {first.op} {'+'.join(first.pages)}"
+        if len(proposals) > 1:
+            subject += f" 等 {len(proposals)} 项"
+        commit = self._session.commit(job, subject)
         emit_event(
             "restructure_done",
             job_id=job.id,

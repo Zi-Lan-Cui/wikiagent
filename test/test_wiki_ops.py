@@ -9,6 +9,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from wiki_agent.application.wiki_ops import WikiOpsConsumer
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs.service import JobService
@@ -126,40 +128,100 @@ def test_restructure_success_one_commit(tmp_path: Path, monkeypatch):
         )
 
     monkeypatch.setattr(wiki_ops, "execute", fake_execute)
-    job = service.submit_restructure(
+    jobs = service.submit_restructure(
         [{"op": "merge", "pages": ["concepts/x"], "target": "concepts/x", "reason": "t"}]
     )
     _pump(worker, 1)
 
+    job = jobs[0]
     row = service.store.get(job.id)
     assert row.status == "succeeded", row.error
     commits = git.batch_commits(str(job.payload["batch"]))
     assert len(commits) == 1
-    assert "restructure: 1 ops" in " ".join(git.history())
+    assert "restructure: merge concepts/x" in " ".join(git.history())
     assert (wiki / "concepts" / "merged.md").exists()
     assert service.issues.list() == []
 
 
-def test_restructure_scan_or_skipped_rolls_back_whole_batch(tmp_path: Path, monkeypatch):
+def test_restructure_gate_rolls_back_only_its_unit(tmp_path: Path, monkeypatch):
+    """单个单元被闸门撤销：只恢复本单元，前面的单元保留在历史里。"""
     import wiki_agent.application.wiki_ops as wiki_ops
 
     wiki, git, service, worker, _ = _env(tmp_path)
-    baseline = git.head()
 
-    def skipping_execute(wiki_dir, proposals):
-        (Path(wiki_dir) / "concepts" / "half.md").write_text("半成品\n", encoding="utf-8")
-        return SimpleNamespace(actions=[], skipped=["lock conflict"], backed_up=[])
+    def per_unit_execute(wiki_dir, proposals):
+        reason = proposals[0].reason  # handler 已把 payload dict 还原为 Proposal
+        (Path(wiki_dir) / "concepts" / f"{reason}.md").write_text(
+            '---\ntype: concept\ntitle: "单元页"\nsummary: "s"\ngoal: "g"\nrelated: []\n'
+            f"---\n# {reason}\n\n单元产出的正文内容。\n",
+            encoding="utf-8",
+        )
+        if reason == "bad":
+            return SimpleNamespace(actions=[], skipped=["lock conflict"], backed_up=[])
+        return SimpleNamespace(actions=["ok"], skipped=[], backed_up=[])
 
-    monkeypatch.setattr(wiki_ops, "execute", skipping_execute)
-    job = service.submit_restructure(
-        [{"op": "merge", "pages": ["concepts/x"], "target": "concepts/x", "reason": "t"}]
+    monkeypatch.setattr(wiki_ops, "execute", per_unit_execute)
+    jobs = service.submit_restructure(
+        [
+            {"op": "merge", "pages": ["concepts/x"], "target": "concepts/x", "reason": "good"},
+            {"op": "delete", "pages": ["concepts/x"], "reason": "bad"},
+        ]
     )
-    _pump(worker, 1)
+    assert len(jobs) == 2
+    _pump(worker, 2)
 
-    assert service.store.get(job.id).status == "failed"
-    assert git.head() == baseline and git.is_clean()
-    assert not (wiki / "concepts" / "half.md").exists()
+    statuses = [service.store.get(job.id).status for job in jobs]
+    assert statuses == ["succeeded", "failed"]
+    batch = str(jobs[0].payload["batch"])
+    assert len(git.batch_commits(batch)) == 1
+    assert (wiki / "concepts" / "good.md").exists(), "已提交单元保留"
+    assert not (wiki / "concepts" / "bad.md").exists(), "被撤销单元只撤自己"
+    assert git.is_clean()
     assert service.issues.list() == []
+
+
+def test_restructure_dependent_unit_degrades_after_upstream_delete(tmp_path: Path):
+    """真实 execute：上游单元把页删掉后，引用同页的单元命中"页面不存在"→自行撤销。"""
+    wiki, git, service, worker, _ = _env(tmp_path)
+    (wiki / "concepts" / "b.md").write_text(
+        '---\ntype: concept\ntitle: "B"\nsummary: "s"\ngoal: "g"\nrelated: []\n'
+        "---\n# B\n\nB 页面正文内容。\n",
+        encoding="utf-8",
+    )
+    (wiki / "concepts" / "c.md").write_text(
+        '---\ntype: concept\ntitle: "C"\nsummary: "s"\ngoal: "g"\nrelated: []\n'
+        "---\n# C\n\nC 页面正文内容。\n",
+        encoding="utf-8",
+    )
+    git.commit_all("wiki: seed extra")
+
+    jobs = service.submit_restructure(
+        [
+            {"op": "delete", "pages": ["concepts/b"], "reason": "dup"},
+            {"op": "delete", "pages": ["concepts/b"], "reason": "second"},
+        ]
+    )
+    _pump(worker, 2)
+    statuses = [service.store.get(job.id).status for job in jobs]
+    assert statuses[0] == "succeeded"
+    assert statuses[1] == "failed", "同页第二个单元被状态复核挡下"
+    assert not (wiki / "concepts" / "b.md").exists()
+    assert (wiki / "concepts" / "c.md").exists()
+    assert git.is_clean()
+
+
+def test_restructure_batch_mutex(tmp_path: Path):
+    """一批未全部到终态时拒绝第二笔提交（保证"撤销这一批"边界清晰）。"""
+    from wiki_agent.jobs import RestructureInProgress
+
+    _, _git, service, _worker, _ = _env(tmp_path)
+    service.submit_restructure(
+        [{"op": "delete", "pages": ["concepts/x"], "reason": "t"}]
+    )
+    with pytest.raises(RestructureInProgress):
+        service.submit_restructure(
+            [{"op": "delete", "pages": ["concepts/y"], "reason": "t2"}]
+        )
 
 
 def test_refine_idempotency_single_in_flight_per_page(tmp_path: Path):
