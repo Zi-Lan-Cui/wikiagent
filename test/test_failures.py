@@ -12,10 +12,10 @@ from pathlib import Path
 import pytest
 
 from wiki_agent.compiler.workflows.failures import failure_diagnostics
-from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.errors import IngestError, IngestStage, RetryableError
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
 from wiki_agent.jobs import JobResult
+from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.jobs.service import JobService
 
 

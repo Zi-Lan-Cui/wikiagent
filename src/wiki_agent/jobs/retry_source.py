@@ -1,8 +1,8 @@
-"""source 失败的重试输入解析（纯函数）。
+"""重试输入的解析——按失败记录定位"要重新编译哪个文件"（纯函数）。
 
-执行路径已并入统一 Job 模型：submit_issue_retry 用这里的解析结果排队
-compile job，终态联动由 JobOutcomeHandler 落账——本模块不再直接驱动
-编译或 Git。
+只在提交时刻被调用：submit_issue_retry 把解析结果当 job 的 resource 并
+据此捕获快照；IssueActionExecutor 用它筛选可重试问题、标记不可用。
+执行与结算不经过这里——重试 job 就是一个普通 compile job。
 """
 
 from __future__ import annotations

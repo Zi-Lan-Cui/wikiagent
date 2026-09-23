@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.issues.models import (
     IssueDraft,
     IssueKind,
@@ -16,6 +15,7 @@ from wiki_agent.issues.models import (
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.issues.projectors import available_actions, to_card
 from wiki_agent.jobs import Settlement
+from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:

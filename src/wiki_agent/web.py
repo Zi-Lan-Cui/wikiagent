@@ -21,7 +21,6 @@ from wiki_agent.application import (
 )
 from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
-from wiki_agent.compiler.workflows.retry import SourceUnavailableError
 from wiki_agent.issues import (
     InvalidIssueTransitionError,
     IssueAlreadyClaimedError,
@@ -30,6 +29,7 @@ from wiki_agent.issues import (
     IssueStatus,
 )
 from wiki_agent.jobs import JobResult, SyncInProgress
+from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import setup_event_log
 from wiki_agent.wiki import WikiPageNotFound
 
