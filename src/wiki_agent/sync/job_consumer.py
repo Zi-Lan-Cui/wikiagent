@@ -44,8 +44,13 @@ from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.jobs import Job, JobResult, Settlement
-from wiki_agent.jobs.wiki_session import WikiWriteSession, debris_dir_for
+from wiki_agent.jobs import Job, JobResult, Kind, Settlement
+from wiki_agent.jobs.wiki_session import (
+    Subject,
+    WikiWriteSession,
+    commit_subject,
+    debris_dir_for,
+)
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.state import SyncState, digest_file_text
@@ -112,9 +117,9 @@ class SyncConsumer:
         """执行一个源文件 Job，返回业务结局（bug 才抛）。"""
         self._session.pre_reset()
         progress("load")
-        if job.kind == "delete":
+        if job.kind == Kind.DELETE:
             return self._handle_delete(job)
-        if job.kind != "compile":
+        if job.kind != Kind.COMPILE:
             raise ValueError(f"unsupported source job: {job.kind}")
         return await self._handle_compile(job, progress)
 
@@ -128,7 +133,7 @@ class SyncConsumer:
         """
         name = Path(job.resource).name
         archive_ops = self._plan_archive_cleanup(name)
-        commit = self._session.commit(job, f"sync: delete {name}")
+        commit = self._session.commit(job, commit_subject(Subject.SYNC, f"delete {name}"))
         detail: dict[str, object] = {"settlement": Settlement.DELETE_APPLIED}
         if archive_ops:
             detail["archive_ops"] = archive_ops
@@ -249,8 +254,8 @@ class SyncConsumer:
 
         # 成功：wiki 变更即刻 commit（HEAD 前移一步），账本与档案页随后由
         # outcome 结算——先文件后库的方向保证崩溃只会重做、不会丢内容。
-        subject = "retry" if job.mode == "issue_retry" else "sync"
-        commit = self._session.commit(job, f"{subject}: {path.name}")
+        prefix = Subject.RETRY if job.mode == "issue_retry" else Subject.SYNC
+        commit = self._session.commit(job, commit_subject(prefix, path.name))
         detail: dict[str, object] = {"settlement": Settlement.INGESTED, "digest": digest, "text": text}
         if commit:
             detail["commit"] = commit

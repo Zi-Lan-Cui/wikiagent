@@ -35,7 +35,7 @@ from wiki_agent.issues import (
     IssueStore,
 )
 from wiki_agent.issues.models import JsonObject
-from wiki_agent.jobs import Job, JobResult, Settlement
+from wiki_agent.jobs import Job, JobResult, Kind, Settlement
 from wiki_agent.log import emit_event, get_logger
 
 if TYPE_CHECKING:
@@ -191,7 +191,7 @@ class JobOutcomeHandler:
         state = self._sync_state
         if state is None:
             return []
-        if job.kind == "delete":
+        if job.kind == Kind.DELETE:
             # 删除结算（延迟到 commit 后，先库后文件）：溯源档案清理清单
             # （消费者执行中只规划不落盘）+ state 条目移除，一并落盘。
 
@@ -206,7 +206,7 @@ class JobOutcomeHandler:
             return [settle_delete]
         digest = str(result.detail.get("digest") or "")
         text = result.detail.get("text")
-        if job.kind != "compile" or not digest or not isinstance(text, str):
+        if job.kind != Kind.COMPILE or not digest or not isinstance(text, str):
             return []
         page = result.detail.get("source_page")
 

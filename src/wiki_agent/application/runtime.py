@@ -22,6 +22,7 @@ from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
+from wiki_agent.jobs import Kind
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.llm.factory import create_llm, create_vlm
@@ -110,13 +111,11 @@ class AppRuntime:
         # issue_action 用例：执行体与适配器解耦，web/脚本只映射入口
         self.issue_actions = IssueActionExecutor(self)
         self.job_worker = JobWorker(self.job_service)
-        self.job_worker.register("compile", self.sync_consumer.handle_job)
-        self.job_worker.register("delete", self.sync_consumer.handle_job)
-        self.job_worker.register("refine", self.wiki_ops.handle_refine)
-        self.job_worker.register("restructure", self.wiki_ops.handle_restructure)
-        self.job_worker.register(
-            "issue_action", IssueActionJobHandler(self.issue_actions)
-        )
+        self.job_worker.register(Kind.COMPILE, self.sync_consumer.handle_job)
+        self.job_worker.register(Kind.DELETE, self.sync_consumer.handle_job)
+        self.job_worker.register(Kind.REFINE, self.wiki_ops.handle_refine)
+        self.job_worker.register(Kind.RESTRUCTURE, self.wiki_ops.handle_restructure)
+        self.job_worker.register(Kind.ISSUE_ACTION, IssueActionJobHandler(self.issue_actions))
         # 启动核对（与 recover_stale、快照清扫同族）：丢失的重试输入
         # 标记 unavailable——任何宿主进程启动后账目即如实
         self.issue_actions.reconcile_retry_sources()

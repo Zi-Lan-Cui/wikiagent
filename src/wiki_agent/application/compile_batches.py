@@ -35,6 +35,7 @@ from wiki_agent.config import (
     sync_state_path_for,
 )
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
+from wiki_agent.jobs import Kind
 
 # 注入点：一批 = 一次快照 sync + 泵到空（单测替换，不碰 LLM）
 SyncExecute = Callable[[Path], Awaitable[int]]
@@ -169,8 +170,8 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
                 git=WikiGitManager(wiki_dir),
             )
             worker = JobWorker(service)
-            worker.register("compile", consumer.handle_job)
-            worker.register("delete", consumer.handle_job)
+            worker.register(Kind.COMPILE, consumer.handle_job)
+            worker.register(Kind.DELETE, consumer.handle_job)
             jobs = service.submit_sync(batch_dir)
             while service.store.count_in_flight() > 0:
                 if await worker.run_once() is None:

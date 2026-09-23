@@ -17,6 +17,7 @@ from wiki_agent.jobs import (
     Job,
     JobResult,
     JobStore,
+    Kind,
     RestructureInProgress,
     SyncInProgress,
 )
@@ -108,7 +109,7 @@ class JobService:
                     return existing
                 try:
                     return self.store.enqueue(
-                        kind="compile",
+                        kind=Kind.COMPILE,
                         resource=resource,
                         mode="issue_retry",
                         payload={
@@ -138,7 +139,7 @@ class JobService:
         self, issue_id: str, action: str, payload: dict[str, object] | None = None
     ) -> Job:
         return self.submit(
-            kind="issue_action",
+            kind=Kind.ISSUE_ACTION,
             resource=issue_id,
             mode=action,
             payload=payload,
@@ -157,7 +158,7 @@ class JobService:
         return {
             "dirty": len(dirty),
             "removed": len(removed),
-            "in_flight": self.store.in_flight_for_kinds(("compile", "delete")),
+            "in_flight": self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE)),
         }
 
     def submit_sync(self, source_dir: str | Path) -> list[Job]:
@@ -187,7 +188,7 @@ class JobService:
             with self.store.database.transaction(immediate=True) as conn:
                 self._close_vanished_failures(disk, conn)
             return []
-        if self.store.in_flight_for_kinds(("compile", "delete")) > 0:
+        if self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE)) > 0:
             raise SyncInProgress()
         batch = f"sync_{uuid4().hex}"
         try:
@@ -196,14 +197,14 @@ class JobService:
             )
             jobs: list[Job] = []
             with self.store.database.transaction(immediate=True) as conn:
-                if self.store.in_flight_for_kinds(("compile", "delete"), _conn=conn) > 0:
+                if self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE), _conn=conn) > 0:
                     raise SyncInProgress()
                 for path, _disk_digest in dirty:
                     original = str(Path(path).resolve())
                     pending = self.issues.find_pending_failures(original)
                     jobs.append(
                         self.store.enqueue(
-                            kind="compile",
+                            kind=Kind.COMPILE,
                             resource=original,
                             mode="sync",
                             payload={
@@ -223,7 +224,7 @@ class JobService:
                     pending = self.issues.find_pending_failures(path)
                     jobs.append(
                         self.store.enqueue(
-                            kind="delete",
+                            kind=Kind.DELETE,
                             resource=path,
                             mode="sync",
                             payload={"deleted": True, "digest": "", "batch": batch},
@@ -286,7 +287,7 @@ class JobService:
                 resource = str(Path(page).resolve())
                 jobs.append(
                     self.store.enqueue(
-                        kind="refine",
+                        kind=Kind.REFINE,
                         resource=resource,
                         mode="manual",
                         payload={"batch": batch},
@@ -314,12 +315,12 @@ class JobService:
         units = partition_units(typed)
         jobs: list[Job] = []
         with self.store.database.transaction(immediate=True) as conn:
-            if self.store.in_flight_for_kinds(("restructure",), _conn=conn) > 0:
+            if self.store.in_flight_for_kinds((Kind.RESTRUCTURE,), _conn=conn) > 0:
                 raise RestructureInProgress()
             for index, unit in enumerate(units):
                 jobs.append(
                     self.store.enqueue(
-                        kind="restructure",
+                        kind=Kind.RESTRUCTURE,
                         resource=f"restructure:{batch}:{index}",
                         mode="manual",
                         payload={

@@ -7,6 +7,16 @@ from enum import StrEnum
 from typing import Literal
 
 
+class Kind(StrEnum):
+    """job 类型：worker 按它分派 handler，互斥闸按它计数在途行。"""
+
+    COMPILE = "compile"  # 编译一个源文件（sync 批与 issue retry 共用）
+    DELETE = "delete"  # 清理一个已删除来源
+    REFINE = "refine"  # 单页精炼
+    RESTRUCTURE = "restructure"  # 重组执行单元
+    ISSUE_ACTION = "issue_action"  # issue 动作（rescan 等）
+
+
 class Settlement(StrEnum):
     """成功 job 的结算类别——"做完了，做的是哪一种事"。
 
@@ -22,7 +32,6 @@ class Settlement(StrEnum):
     REFINED = "refined"  # 页面精炼完成
     UNIT_MISSING = "unit_missing"  # refine 的页面已不在（排队期间被删）
     APPLIED = "applied"  # 重组提议执行并通过扫描闸门
-    REJECTED_BY_GATE = "rejected_by_gate"  # 被闸门撤销
     RESCAN_STILL_PRESENT = "rescan_still_present"  # 复扫确认问题仍在
     RESCAN_CLEARED = "rescan_cleared"  # 复扫确认问题已消失
 

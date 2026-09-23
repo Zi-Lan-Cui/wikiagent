@@ -11,11 +11,26 @@ payload.batch 进 commit 尾注——"撤销这一批"按尾注选段 revert。
 
 from __future__ import annotations
 
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from wiki_agent.jobs import Job
 from wiki_agent.log import emit_event
+
+
+class Subject(StrEnum):
+    """wiki commit 的 subject 前缀家族（与撤销语义对应）。"""
+
+    SYNC = "sync"  # 快照批（compile 与 delete 共用，delete 拼作 "sync: delete <名>"）
+    RETRY = "retry"  # issue retry 的 compile
+    REFINE = "refine"  # 单页精炼
+    RESTRUCTURE = "restructure"  # 重组执行单元
+
+
+def commit_subject(prefix: Subject, target: str) -> str:
+    """唯一的 subject 拼法——前缀家族只在这四处产生。"""
+    return f"{prefix.value}: {target}"
 
 if TYPE_CHECKING:
     from wiki_agent.versioning import WikiGitManager

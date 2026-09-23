@@ -20,7 +20,12 @@ from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job, JobResult, Settlement
-from wiki_agent.jobs.wiki_session import WikiWriteSession, debris_dir_for
+from wiki_agent.jobs.wiki_session import (
+    Subject,
+    WikiWriteSession,
+    commit_subject,
+    debris_dir_for,
+)
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.quality import scan_wiki
 
@@ -69,7 +74,7 @@ class WikiOpsConsumer:
         except IngestError as exc:
             return self._failed(job, exc)
         slug = str(page.relative_to(self._wiki_dir)).removesuffix(".md")
-        commit = self._session.commit(job, f"refine: {slug}")
+        commit = self._session.commit(job, commit_subject(Subject.REFINE, slug))
         if outcome.noop:
             emit_event("refine_noop", page=slug)
         else:
@@ -105,7 +110,7 @@ class WikiOpsConsumer:
             return JobResult(status="failed", detail={"error": reason})
         progress("commit")
         first = proposals[0]
-        subject = f"restructure: {first.op} {'+'.join(first.pages)}"
+        subject = commit_subject(Subject.RESTRUCTURE, f"{first.op} {'+'.join(first.pages)}")
         if len(proposals) > 1:
             subject += f" 等 {len(proposals)} 项"
         commit = self._session.commit(job, subject)
