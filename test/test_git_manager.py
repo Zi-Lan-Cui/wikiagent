@@ -139,12 +139,12 @@ def test_restore_reverts_tracked_and_removes_untracked_debris(tmp_path: Path):
     assert (wiki / "index.md").read_text(encoding="utf-8") == "old\n"
     assert not (wiki / "new.md").exists()
     assert not unicode_page.exists()
-    assert not (wiki / "sources").exists()  # 残骸空目录一并清理
+    assert not (wiki / "sources").exists()  # 未提交改动空目录一并清理
     assert manager.is_clean()
 
 
 def test_restore_tolerates_dirty_start_no_lock_no_check(tmp_path: Path):
-    """人禁止改 wiki：未提交内容=残骸，restore 无条件收敛，不存在 dirty 拒绝。"""
+    """人禁止改 wiki：未提交内容都出自执行，restore 无条件收敛，不存在 dirty 拒绝。"""
     _, wiki = _repo(tmp_path)
     (wiki / "index.md").write_text("user wiki change\n", encoding="utf-8")
     manager = WikiGitManager(wiki)
@@ -171,7 +171,7 @@ def test_change_summary_includes_untracked_and_deleted_files(tmp_path: Path):
 
 
 def test_working_patch_captures_debris_without_moving_state(tmp_path: Path):
-    """失败残骸快照：新文件内容要进 patch（intent-to-add），且拍完仍脏。"""
+    """未提交改动快照：新文件内容要进 patch（intent-to-add），且拍完仍脏。"""
     _, wiki = _repo(tmp_path)
     manager = WikiGitManager(wiki)
     (wiki / "concepts").mkdir()

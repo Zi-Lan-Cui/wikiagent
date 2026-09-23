@@ -1,16 +1,15 @@
 """Wiki 版本管理——"HEAD = 最近已结算状态"模型的 Git 原语层。
 
-wiki 是机器管理的：人禁止直接改动生成页，工作区里一切未提交内容都是
-执行残骸。因此不存在需要保护的脏状态——任何时点 restore 到 HEAD 都是
+wiki 是机器管理的：人禁止直接改动生成页，工作区的未提交内容都出自执行。因此不存在需要保护的脏状态——任何时点 restore 到 HEAD 都是
 安全操作，这也是没有锁、没有运行容器、没有 dirty 检查的原因：逐 job
 协议（pre-reset → 执行 → 成功 commit / 失败 restore）保证每个 job 边界
-收敛，崩溃残骸由下一次 pre-reset 清除。
+收敛，崩溃留下的未提交改动由下一次 pre-reset 清除。
 
 - 一切写 wiki 的 job 逐笔提交：compile `sync: <文件>`（retry 用
   `retry:`）、delete `sync: delete <文件>`、refine `refine: <页>`、
   restructure 一个执行单元一笔。body 携带 `Batch: <快照id>` 尾注。
   撤销一整批 = 按尾注在历史中选段 revert，纯历史操作，不回退账本。
-- 运行留痕 = commit 历史本身；失败残骸在 restore 前导出 patch 存档。
+- 运行留痕 = commit 历史本身；失败的未提交改动在 restore 前导出 patch 存档。
 """
 
 from __future__ import annotations
@@ -180,7 +179,7 @@ class WikiGitManager:
         return self._head()
 
     def status(self) -> list[str]:
-        """Wiki scope 内的未提交状态——协议下应恒为空，非空即残骸。"""
+        """Wiki scope 内的未提交状态——协议下应恒为空，非空即执行遗留。"""
         return self._status()
 
     def is_clean(self) -> bool:
@@ -257,7 +256,7 @@ class WikiGitManager:
         """
         had_changes = bool(self._status())
         if had_changes:
-            # 空仓库/全残骸场景：scope 内没有跟踪文件时 restore 会因
+            # 空仓库/全部内容未跟踪场景：scope 内没有跟踪文件时 restore 会因
             # pathspec 不匹配报错——此时只有未跟踪内容可清
             if self._git("ls-files", "--", self._scope_arg()).stdout.strip():
                 self._git("restore", "--staged", "--worktree", "--", self._scope_arg())
@@ -269,7 +268,7 @@ class WikiGitManager:
             emit_event("wiki_restored_to_head", wiki_dir=str(self.wiki_dir))
 
     def _prune_empty_dirs(self) -> None:
-        """删除残骸留下的空目录（Git 不跟踪目录，restore 不会清理它们）。"""
+        """删除未提交改动留下的空目录（Git 不跟踪目录，restore 不会清理它们）。"""
         for directory in sorted(
             (p for p in self.wiki_dir.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True
         ):
@@ -281,7 +280,7 @@ class WikiGitManager:
                 pass  # 非空目录自然失败
 
     def working_patch(self) -> str:
-        """失败残骸的完整 diff（新文件以 intent-to-add 纳入）。
+        """未提交改动的完整 diff（restore 前存档用；新文件以 intent-to-add 纳入）。
 
         add -N 只改 index、restore 收尾时统一撤掉，不改工作区内容。
         """
@@ -348,7 +347,7 @@ class WikiGitManager:
         return self._revert(commits, f"revert: batch {batch_id}")
 
     def _revert(self, commits: list[str], subject: str) -> str:
-        # 残骸先收敛到 HEAD——revert 要求干净工作区，而这里的"脏"永远是残骸
+        # 先收敛到 HEAD——revert 要求干净工作区，而这里的"脏"只可能出自执行
         self.restore()
         result = self._git("revert", "-n", *commits, check=False)
         if result.returncode:

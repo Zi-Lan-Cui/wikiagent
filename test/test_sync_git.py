@@ -1,4 +1,4 @@
-"""git 融入 sync 的全链路——per-job 协议（pre-reset/成功 commit/失败 restore+残骸）、
+"""git 融入 sync 的全链路——per-job 协议（pre-reset/成功 commit/失败 restore+未提交改动）、
 结算面（档案页与账本同点落盘）、批尾注与撤销批。
 
 装配 = 真实 JobService + SyncConsumer(带 WikiGitManager) + JobWorker 泵，
@@ -21,7 +21,7 @@ from wiki_agent.versioning import WikiGitManager
 
 
 class _FakePipeline:
-    """假 ingest：成功写一个概念页并构造档案页；失败先留半页残骸再抛；
+    """假 ingest：成功写一个概念页并构造档案页；失败先留半页未提交改动再抛；
     bad 名单写出缺 frontmatter 的坏页（触发消费端单 source 质量闸门）。"""
 
     def __init__(self, wiki: Path, fail_names: tuple[str, ...] = (), bad_names: tuple[str, ...] = ()):
@@ -36,7 +36,7 @@ class _FakePipeline:
         rel = f"concepts/{stem}.md"
         (self._wiki / "concepts").mkdir(parents=True, exist_ok=True)
         if raw_file.name in self._fail:
-            (self._wiki / rel).write_text("半成品残骸\n", encoding="utf-8")
+            (self._wiki / rel).write_text("半成品页面内容\n", encoding="utf-8")
             raise IngestError(IngestStage.EXECUTE, "mock 失败", source=raw_file.name)
         if raw_file.name in self._bad:
             (self._wiki / rel).write_text("没有 frontmatter 的坏页\n", encoding="utf-8")
@@ -121,13 +121,13 @@ def test_failure_restores_wiki_keeps_ledger_dirty_and_saves_debris(tmp_path: Pat
     _pump(worker, 1)
 
     assert service.store.get(jobs[0].id).status == "failed"
-    # 残骸撤干净：不留下半成品，HEAD 不动（失败不进历史）
+    # 工作区恢复干净：不留下半成品，HEAD 不动（失败不进历史）
     assert git.is_clean()
     assert not (wiki / "concepts" / "a.md").exists()
     assert git.head() == baseline
-    # 失败证据：残骸 patch 落盘、账本保持脏（再 sync 即重试）、issue 有账
+    # 失败证据：未提交改动 patch 落盘、账本保持脏（再 sync 即重试）、issue 有账
     debris = records.parent / "debris" / f"{jobs[0].id}.patch"
-    assert debris.is_file() and "半成品残骸" in debris.read_text(encoding="utf-8")
+    assert debris.is_file() and "半成品页面内容" in debris.read_text(encoding="utf-8")
     assert state.get(str((src / "a.md").resolve())).hash == ""
     assert service.issues.list(kinds={IssueKind.INGESTION_FAILURE}), "业务失败进问题账本"
     # 档案页缺席：失败不结算
@@ -138,12 +138,12 @@ def test_failure_restores_wiki_keeps_ledger_dirty_and_saves_debris(tmp_path: Pat
 def test_pre_reset_clears_previous_job_debris(tmp_path: Path):
     src, wiki, records, git, state, service, worker = _env(tmp_path)
     (wiki / "concepts").mkdir(parents=True)
-    (wiki / "concepts" / "ghost.md").write_text("上一进程留下的残骸\n", encoding="utf-8")
+    (wiki / "concepts" / "ghost.md").write_text("上一进程留下的未提交改动\n", encoding="utf-8")
     (src / "ok.md").write_text("正常内容" * 10, encoding="utf-8")
     service.submit_sync(src)
     _pump(worker, 1)
 
-    assert not (wiki / "concepts" / "ghost.md").exists(), "pre-reset 清除崩溃残骸"
+    assert not (wiki / "concepts" / "ghost.md").exists(), "pre-reset 清除崩溃留下的改动"
     assert (wiki / "concepts" / "ok.md").exists()
     assert git.is_clean()
 
@@ -164,7 +164,7 @@ def test_delete_settles_archive_unlink_and_commits_wiki(tmp_path: Path):
         encoding="utf-8",
     )
     f.unlink()
-    # 预置 wiki 内容必须已结算入 HEAD——否则 job 的 pre-reset 会当残骸清掉
+    # 预置 wiki 内容必须已结算入 HEAD——否则 job 的 pre-reset 会当未提交改动清掉
     git.commit_all("wiki: seed")
     assert git.is_clean()
 
@@ -185,7 +185,7 @@ def test_delete_settles_archive_unlink_and_commits_wiki(tmp_path: Path):
 
 def test_quality_gate_failure_restores_and_records(tmp_path: Path):
     """单 source 局部质量闸门（批壳迁入）：坏产出 = 业务失败，
-    残骸 restore、不进 commit/档案，保持脏并记账等人。"""
+    restore 未提交改动、不进 commit/档案，保持脏并记账等人。"""
     src, wiki, records, git, state, service, worker = _env(tmp_path, bad_names=("a.md",))
     baseline = git.head()
     (src / "a.md").write_text("坏页输入" * 10, encoding="utf-8")
