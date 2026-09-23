@@ -154,6 +154,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path) -> SyncExecute:
                 state,
                 wiki_dir=wiki_dir,
                 source_records_dir=source_records_dir,
+                snapshots=service.snapshots,
                 git=WikiGitManager(wiki_dir),
             )
             worker = JobWorker(service)

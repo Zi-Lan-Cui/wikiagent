@@ -88,6 +88,7 @@ class AppRuntime:
             self.sync_state,
             wiki_dir=self.wiki_dir,
             source_records_dir=self.source_records_dir,
+            snapshots=self.job_service.snapshots,
             git=self.git_manager,
         )
         # refine 是 wiki 自编译——mode=refine 的流水线（index 排他、不存档案页）

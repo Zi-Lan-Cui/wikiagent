@@ -14,7 +14,8 @@ from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.jobs import DuplicateInFlightJob, Job, JobResult, JobStore, SyncInProgress
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
-from wiki_agent.sync.state import SyncState, digest_file_text, scan_disk
+from wiki_agent.snapshots import SnapshotError, SnapshotStore
+from wiki_agent.sync.state import SyncState, scan_disk
 
 
 class JobService:
@@ -28,12 +29,15 @@ class JobService:
         sync_state: SyncState | None = None,
         wiki_dir: str | Path | None = None,
         source_records_dir: str | Path | None = None,
+        snapshots: SnapshotStore | None = None,
     ):
         self.workspace = Path(workspace)
         # issue retry 解析重试输入需要 wiki 根（wiki_page 型资源的定位）
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         # sync 快照对比需要完成账本
         self.sync_state = sync_state
+        # 源文件快照仓库：提交即定格输入（submit 写、consumer 读、终态删）
+        self.snapshots = snapshots or SnapshotStore(workspace)
         self.store = JobStore(workspace)
         self.issues = IssueStore(workspace)
         self.issue_service = IssueService(self.issues)
@@ -43,6 +47,8 @@ class JobService:
             source_records_dir=source_records_dir,
         )
         self.recovered_jobs = self.store.recover_stale()
+        # 崩溃/中断遗留的无主快照目录在构造期清扫（保留名单=非终态任务引用的批）
+        self.snapshots.sweep_orphans(self.store.in_flight_batch_ids())
 
     # 提交
 
@@ -68,43 +74,57 @@ class JobService:
         )
 
     def submit_issue_retry(self, issue_id: str) -> Job:
-        """重试请求 → compile Job：提交点三重防线收敛为"至多一个在途、返回既有"。
+        """重试请求 → compile Job：点击那一刻捕获快照输入，三重防线收敛执行唯一性。
 
         ① 挂账预查（该 issue 已有在途 job 直接返回）；② 幂等键命中在途行
         返回既有；③ 撞唯一在途（他人占位）返回占位者、无账则补挂。retry 资格
-        （状态、来源可读）由各入口的 validate 判定，这里只管执行
-        唯一性。issue 终态由 compile job 的 outcome 落（成功 RESOLVED /
-        再失败记一笔账等人），提交本身不改变 issue 状态。
+        （状态、来源可读）由各入口的 validate 判定，这里只管执行唯一性。
+        与 submit_sync 同一规则：digest 来自点下按钮时复制的快照件——
+        点击后文件再变，本次重试处理的仍是定格的那份。issue 终态由
+        compile job 的 outcome 落，提交本身不改变 issue 状态。
         """
         if self.wiki_dir is None:
             raise RuntimeError("submit_issue_retry 需要 wiki_dir")
         issue = self.issues.require(issue_id)
         source = resolve_retry_source(issue, self.wiki_dir)
         resource = str(Path(source).resolve())
-        read = digest_file_text(resource)
-        if read is None:
-            raise SourceUnavailableError(f"重试输入不可读: {resource}")
-        with self.store.database.transaction(immediate=True) as conn:
-            existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
-            if existing is not None:
-                return existing
-            try:
-                return self.store.enqueue(
-                    kind="compile",
-                    resource=resource,
-                    mode="issue_retry",
-                    payload={"deleted": False, "digest": read[0]},
-                    idempotency_key=f"issue-retry:{issue_id}",
-                    issue_id=issue_id,
-                    _conn=conn,
-                )
-            except DuplicateInFlightJob:
-                occupant = self.store.in_flight_by_resource(resource, _conn=conn)
-                if occupant is None:  # 撞唯一索引必有占位者——防御性外抛
-                    raise
-                if not occupant.issue_id:
-                    occupant = self.store.attach_issue(occupant.id, issue_id, _conn=conn)
-                return occupant
+        batch = f"retry_{uuid4().hex}"
+        try:
+            digest = self.snapshots.capture(batch, Path(resource).parent, [resource])[resource]
+        except SnapshotError as exc:
+            raise SourceUnavailableError(f"重试输入不可读: {exc}") from exc
+        try:
+            with self.store.database.transaction(immediate=True) as conn:
+                existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
+                if existing is not None:
+                    return existing
+                try:
+                    return self.store.enqueue(
+                        kind="compile",
+                        resource=resource,
+                        mode="issue_retry",
+                        payload={
+                            "deleted": False,
+                            "digest": digest,
+                            "batch": batch,
+                            "rel_path": Path(resource).name,
+                        },
+                        idempotency_key=f"issue-retry:{issue_id}",
+                        issue_id=issue_id,
+                        _conn=conn,
+                    )
+                except DuplicateInFlightJob:
+                    occupant = self.store.in_flight_by_resource(resource, _conn=conn)
+                    if occupant is None:  # 撞唯一索引必有占位者——防御性外抛
+                        raise
+                    if not occupant.issue_id:
+                        occupant = self.store.attach_issue(occupant.id, issue_id, _conn=conn)
+                    return occupant
+        finally:
+            # 只有"新入队的这一行"用到了本次捕获；收敛到既有行的分支不留无主目录
+            current = self.store.in_flight_job_by_issue(issue_id)
+            if current is None or current.payload.get("batch") != batch:
+                self.snapshots.drop_batch(batch)
 
     def submit_issue_action(
         self, issue_id: str, action: str, payload: dict[str, object] | None = None
@@ -133,48 +153,73 @@ class JobService:
         }
 
     def submit_sync(self, source_dir: str | Path) -> list[Job]:
-        """快照同步：本事务内的"磁盘 − 账本"之差即本次批次，整批入队。
+        """快照同步：点击时"磁盘 − 账本"之差即本批；脏文件复制定格后整批入队。
 
-        语义契约：sync 互斥串行（compile/delete 有在途则 SyncInProgress），
-        执行中的新改动属于下一次快照——"账本落后一个版本"是合法状态而非
-        事故，因此执行体无需凭证校验，失败不写账即保持脏、再次 sync 即重试。
-        脏文件若背着 open 失败账则顺手挂账 issue_id（成功即销账）。
-        payload.batch 是快照批标记——执行体把它写进 wiki commit 尾注，
-        "撤销这一批"据此在历史中选段 revert。
+        语义契约——"快照是输入"：
+        - 互斥串行：compile/delete 有在途则 SyncInProgress，上一批没跑完
+          不叠快照；
+        - compile 任务的输入是点下按钮时复制进 workspace/snapshots/<批>/
+          的副本。执行期间原件修改、删除、复活都不影响本批；改动归下一次
+          点击。payload.digest 就是副本的实际内容；
+        - 失败不写账即保持脏，再次 sync 就是重试；脏文件若背着 open 失败账
+          则顺手挂账 issue_id（成功即解决）；
+        - payload.batch 一物三用：快照目录名、wiki commit 尾注（撤销整批 =
+          按尾注在历史中选段 revert）、批内最后一个任务终态时删目录的分组键。
+        顺序：先复制、后入队——任务存在则输入必在；反序会出现"任务读不到
+        输入"的窗口。入队失败或被互斥拒绝时删除刚复制的目录；崩溃遗留由
+        JobService 构造期清扫。
         """
         if self.sync_state is None:
             raise RuntimeError("submit_sync 需要 sync_state")
-        disk = scan_disk(source_dir)
-        with self.store.database.transaction(immediate=True) as conn:
-            if self.store.in_flight_for_kinds(("compile", "delete"), _conn=conn) > 0:
-                raise SyncInProgress()
-            dirty, removed = self.sync_state.diff(disk)
-            batch = f"sync_{uuid4().hex}"
+        root = Path(source_dir).resolve()
+        disk = scan_disk(root)
+        dirty, removed = self.sync_state.diff(disk)
+        if not dirty and not removed:
+            return []
+        if self.store.in_flight_for_kinds(("compile", "delete")) > 0:
+            raise SyncInProgress()
+        batch = f"sync_{uuid4().hex}"
+        try:
+            digests = (
+                self.snapshots.capture(batch, root, [path for path, _ in dirty]) if dirty else {}
+            )
             jobs: list[Job] = []
-            for path, digest in dirty:
-                pending = self.issues.find_pending_failures(path)
-                jobs.append(
-                    self.store.enqueue(
-                        kind="compile",
-                        resource=path,
-                        mode="sync",
-                        payload={"deleted": False, "digest": digest, "batch": batch},
-                        idempotency_key=f"{batch}:{path}",
-                        issue_id=pending[0].id if pending else "",
-                        _conn=conn,
+            with self.store.database.transaction(immediate=True) as conn:
+                if self.store.in_flight_for_kinds(("compile", "delete"), _conn=conn) > 0:
+                    raise SyncInProgress()
+                for path, _disk_digest in dirty:
+                    original = str(Path(path).resolve())
+                    pending = self.issues.find_pending_failures(original)
+                    jobs.append(
+                        self.store.enqueue(
+                            kind="compile",
+                            resource=original,
+                            mode="sync",
+                            payload={
+                                "deleted": False,
+                                "digest": digests[original],
+                                "batch": batch,
+                                "rel_path": str(Path(original).relative_to(root)),
+                            },
+                            idempotency_key=f"{batch}:{original}",
+                            issue_id=pending[0].id if pending else "",
+                            _conn=conn,
+                        )
                     )
-                )
-            for path in removed:
-                jobs.append(
-                    self.store.enqueue(
-                        kind="delete",
-                        resource=path,
-                        mode="sync",
-                        payload={"deleted": True, "digest": "", "batch": batch},
-                        idempotency_key=f"{batch}:{path}",
-                        _conn=conn,
+                for path in removed:
+                    jobs.append(
+                        self.store.enqueue(
+                            kind="delete",
+                            resource=path,
+                            mode="sync",
+                            payload={"deleted": True, "digest": "", "batch": batch},
+                            idempotency_key=f"{batch}:{path}",
+                            _conn=conn,
+                        )
                     )
-                )
+        except BaseException:
+            self.snapshots.drop_batch(batch)
+            raise
         return jobs
 
     # refine / restructure 批（③期入队：手动触发入队，执行体 application.wiki_ops）
@@ -256,6 +301,10 @@ class JobService:
             post_commit = self.outcomes.apply(job, result, conn)
         for action in post_commit:
             action()
+        # 批的最后一个任务进入终态 → 本批快照目录完成使命（GC 规则一）
+        batch = str(job.payload.get("batch") or "")
+        if batch and self.store.count_in_flight_for_batch(batch) == 0:
+            self.snapshots.drop_batch(batch)
         return self.store.get(job.id)
 
     def cancel_terminal(self, job: Job) -> None:

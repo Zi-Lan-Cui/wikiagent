@@ -92,6 +92,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
         state,
         wiki_dir=tmp_path / "wiki",
         source_records_dir=tmp_path / "provenance",
+        snapshots=service.snapshots,
     )
     worker = JobWorker(service)
     worker.register("compile", consumer.handle_job)

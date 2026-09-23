@@ -79,6 +79,7 @@ def _env(tmp: Path, *, fail_names: tuple[str, ...] = (), bad_names: tuple[str, .
         state,
         wiki_dir=wiki,
         source_records_dir=records,
+        snapshots=service.snapshots,
         git=git,
     )
     worker = JobWorker(service)

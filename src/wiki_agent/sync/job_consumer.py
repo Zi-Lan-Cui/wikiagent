@@ -1,7 +1,14 @@
-"""消费端——源文件 Job handler：per-job git 协议 + ingest 执行 + 成功凭证。
+"""消费端——源文件 Job handler：读快照输入，per-job git 协议执行。
 
 串行由 JobWorker 保证（一次一个 claim）；编译会更新 wiki 与工作区溯源
 存档，并发会互相覆盖——串行是硬需求。
+
+输入来自 SnapshotStore（wiki_agent.snapshots）：compile 任务只读"点击
+提交时复制进 workspace/snapshots/<批>/" 的副本。执行期间原件的修改、
+删除、复活都不构成本任务的输入变化。快照件缺失、或快照内容与提交记录的
+digest 不符，都属于存储层故障（snapshot_error：任务失败 + 事件，不动
+wiki、不动账本），不是源文件的业务失败。业务身份（resource、页面和档案
+页引用的名字、完成账的键）始终是原始路径。
 
 每个 compile/delete job 都走同一协议：
 
@@ -13,18 +20,18 @@ wiki 是机器管理的，未提交内容只可能是残骸，因此 pre-reset �
 workspace/provenance/debris/ 留证据（日志/事件/残骸快照永不回撤）。
 
 本模块不写"完成账"也不报失败 issue：
-- 成功时把**本次实际读到的** digest+text（+档案页内容、commit）放进
-  JobResult.detail，由 JobOutcomeHandler 在终态事务提交后写 SyncState
-  与溯源档案（成功才落账、先库后文件）。快照语义下读到的内容可以与
-  提交时的 payload.digest 不同——那是合法版本滞后，无需凭证校验；
-- 快照后文件消失 → no-op succeeded（从未入账，无账可清、不算失败）；
-- 业务失败（IngestError）→ 残骸快照 + restore，转成 failed/ingest_error
+- 成功时把快照件的 digest+text（+档案页内容、commit）放进 JobResult.detail，
+  由 JobOutcomeHandler 在终态事务提交后写 SyncState 与溯源档案（成功才
+  落账、先库后文件）；
+- 业务失败（IngestError）→ 残骸导出 + restore，转成 failed/ingest_error
   结果；issue 上报收口在 outcome；未预期异常裸抛，由 Worker 归日志+事件。
 
 源文件删除按确定性规则清理（纯代码，无 LLM）: 溯源记录只含被删文件 →
-删除记录；还含其他文件 → 仅移除该条目。档案页在 git scope 外、不受回滚
-保护，因此清理动作只规划成清单、交给结算落盘；wiki 正文的引用清理是
-scope 内变更，随本次 commit 一起生效。
+删除记录；还含其他文件 → 仅移除该条目。删除决定来自快照（removed 差集），
+执行时不重新看磁盘——原件复活也按快照清旧账，复活的内容由下一次点击作为
+新文件处理。档案页在 git scope 外、不受回滚保护，因此清理动作只规划成
+清单、交给结算落盘；wiki 正文的引用清理是 scope 内变更，随本次 commit
+一起生效。
 """
 
 from __future__ import annotations
@@ -40,6 +47,7 @@ from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job, JobResult
 from wiki_agent.jobs.wiki_session import WikiWriteSession
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.state import SyncState, digest_file_text
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.quality import scan_source
@@ -88,12 +96,14 @@ class SyncConsumer:
         state: SyncState,
         *,
         wiki_dir: str | Path,
+        snapshots: SnapshotStore,
         source_records_dir: str | Path | None = None,
         git: WikiGitManager | None = None,
     ):
         self._pipeline = pipeline
         self._state = state
         self._wiki_dir = Path(wiki_dir)
+        self._snapshots = snapshots
         self._source_records_dir = (
             Path(source_records_dir)
             if source_records_dir is not None
@@ -117,15 +127,14 @@ class SyncConsumer:
     # delete
 
     def _handle_delete(self, job: Job) -> JobResult:
-        """删除任务：文件复活则跳过清理；state 条目由成功账处理删除。"""
-        path = Path(job.resource)
-        if path.exists():
-            # 源文件复活——跳过清理，条目照常删除：复活内容相对账本是脏的，
-            # 下一次 sync 快照会重新编译它，不需要在这里猜内容状态
-            logger.info("  源文件复活，跳过删除清理: %s", path.name)
-            return JobResult(status="succeeded")
-        archive_ops = self._plan_archive_cleanup(path.name)
-        commit = self._session.commit(job, f"sync: delete {path.name}")
+        """删除任务：决定来自快照的 removed 差集，执行时不重看磁盘。
+
+        原件此刻复活也照常清旧账（wiki 引用清理 + 档案清单 + 完成账条目
+        删除）；复活的内容在下一次点击时作为新文件入批。
+        """
+        name = Path(job.resource).name
+        archive_ops = self._plan_archive_cleanup(name)
+        commit = self._session.commit(job, f"sync: delete {name}")
         return JobResult(
             status="succeeded",
             detail={"archive_ops": archive_ops, "commit": commit}
@@ -183,34 +192,37 @@ class SyncConsumer:
     # compile
 
     async def _handle_compile(self, job: Job, progress) -> JobResult:
-        """ingest 一个源文件；成功携带**本次实际读到内容**的核账凭证。
+        """ingest 一个源文件；输入只认提交时定格的快照副本。"""
+        path = Path(job.resource)  # 业务身份：resource、事件名、完成账键
+        batch = str(job.payload.get("batch") or "")
+        rel = str(job.payload.get("rel_path") or "")
+        if self._snapshots is None or not batch or not rel:
+            return self._snapshot_error_result(job, "任务缺少快照坐标（batch/rel_path）或装配未接快照仓库")
 
-        快照语义：读到什么记什么——与 payload.digest 不同也照常落账
-        （执行中文件被改是合法滞后，下一次 sync 追平），不再有 pre/post
-        三方凭证校验。
-        """
-        path = Path(job.resource)
-
-        read = digest_file_text(path)
+        staged = self._snapshots.staged_path(batch, rel)
+        read = digest_file_text(staged)
         if read is None:
-            # 快照后才消失：它从未进过账，无账可清也不该报失败——
-            # succeeded 静默了结，下一次 sync 的差集会处理真正的删除
-            emit_event("sync_skipped", file=path.name, reason="gone_after_snapshot")
-            return JobResult(status="succeeded")
+            return self._snapshot_error_result(job, f"快照输入缺失: {staged}")
         digest, text = read
-
-        # 幂等短路（廉价保险）：该快照内容已有完成账，不再烧 LLM
         payload_digest = str(job.payload.get("digest") or "")
+        if payload_digest and digest != payload_digest:
+            # 快照件按设计不可变——对不上说明存储被外部改动或复制竞态，
+            # 属于故障而不是业务结果
+            return self._snapshot_error_result(job, "快照内容与提交记录不一致")
+
+        # 幂等短路（重放保险）：崩溃恢复后同一快照重跑，已入账即直接成功
         if payload_digest and self._state.matches(str(path), payload_digest):
             emit_event("sync_skipped", file=path.name, reason="already_ingested")
             return JobResult(status="succeeded", detail={})
 
         loader = DataLoader()
-        summary = loader.load([path])
+        summary = loader.load([staged])
         if not summary.files:
             return self._ingest_error_result(
                 job, IngestError(IngestStage.LOAD, "文件加载为空", source=path.name)
             )
+        # 业务身份回到原路径：prompt、档案页、失败 detail 都不能出现快照目录
+        summary.files[0].path = path
 
         progress("ingest")
         try:
@@ -255,6 +267,13 @@ class SyncConsumer:
         else:
             emit_event("sync_ingested", file=path.name, pages=len(outcome.pages_written))
         return JobResult(status="succeeded", detail=detail)
+
+    def _snapshot_error_result(self, job: Job, reason: str) -> JobResult:
+        """存储层故障：任务失败 + 事件。wiki 未动过（读输入即败），账本不动
+        ——snapshot_error 不是源材料的业务失败，不进问题账本。"""
+        logger.error("  快照故障 [%s]: %s", job.id, reason[:200])
+        emit_event("snapshot_error", job_id=job.id, resource=job.resource, error=reason)
+        return JobResult(status="failed", detail={"error": f"snapshot_error: {reason}"[:500]})
 
     def _ingest_error_result(self, job: Job, exc: IngestError) -> JobResult:
         """业务失败 → 残骸快照+restore → 结果化（issue 上报收口在 outcome）。"""
