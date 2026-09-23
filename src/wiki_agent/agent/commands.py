@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from wiki_agent.config import load_config
 from wiki_agent.events import CommandProgress, RunContext
+from wiki_agent.jobs import Kind
 from wiki_agent.log import emit_event, get_logger
 
 if TYPE_CHECKING:
@@ -250,7 +251,7 @@ def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
     if job_service is None:
         return 0
     return job_service.store.in_flight_for_kinds(
-        ("compile", "delete", "refine", "restructure")
+        (Kind.COMPILE, Kind.DELETE, Kind.REFINE, Kind.RESTRUCTURE)
     )
 
 

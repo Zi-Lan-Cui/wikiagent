@@ -5,7 +5,7 @@
 """
 
 from wiki_agent.jobs.errors import DuplicateInFlightJob, RestructureInProgress, SyncInProgress
-from wiki_agent.jobs.models import Job, JobResult, Settlement
+from wiki_agent.jobs.models import Job, JobResult, Kind, Settlement
 from wiki_agent.jobs.store import JobStore
 
 __all__ = [
@@ -13,6 +13,7 @@ __all__ = [
     "Job",
     "JobResult",
     "JobStore",
+    "Kind",
     "RestructureInProgress",
     "Settlement",
     "SyncInProgress",
