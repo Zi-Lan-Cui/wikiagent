@@ -248,8 +248,8 @@ def scan_source(
     后的局部闸门，错误可以归属到 source 队列，不影响其他 source。
 
     ``source_page=(slug, content)`` 检查内存中的档案页——sync 的档案在
-    成功结算前不落盘（scope 外写入收口在 outcome），闸门检查的是
-    "本轮构造的产出"而非磁盘；未传 source_page 才回退磁盘扫描。
+    成功结算前不落盘（scope 外写入统一由 outcome 在结算时执行），闸门
+    检查的是"本轮构造的产出"而非磁盘；未传 source_page 才回退磁盘扫描。
     """
     wiki = Path(wiki_dir)
     issues: list[Issue] = []

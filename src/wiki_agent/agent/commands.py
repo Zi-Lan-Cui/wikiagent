@@ -585,7 +585,7 @@ class WikiCommand(Command):
                 # 回撤入口自带 restore——有活在跑就不碰历史（与 sync 互斥闸同一语义）
                 if _in_flight_wiki_jobs(ctx.agent) > 0:
                     return CommandResult(
-                        text="存在在途 sync/retry 任务，拒绝版本回撤——先等当前批次跑完。"
+                        text="存在在途写 wiki 任务，拒绝版本回撤——先等队列跑完。"
                     )
             if action == "revert":
                 if len(args) < 2:
@@ -645,11 +645,11 @@ class RefineCommand(Command):
     description = "把 wiki 精炼与结构重组排进队列；--dry-run 只预览重组提议"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        """③期入队语义——/refine 不再直接写 wiki，与 sync 同一条队列。
+        """/refine 不直接写 wiki，与 sync 同一条队列。
 
         - 非 dry-run：refine 逐页入队（一页一 job、一页一提交）；重组在
-          提交侧同步跑提议阶段（粗提→复判→消解），有效提议整批入一个
-          restructure job——无交互全收，逐条确认在脚本侧；
+          提交侧同步跑提议阶段（粗提→复判→消解），有效提议切成执行单元
+          入队、一单元一 job 一提交——无交互全收，逐条确认在脚本侧；
         - dry-run：什么都不入队，只预览重组提议。
         执行由后台泵串行完成：refine 每页失败只撤该页，重组 job 自带
         scan 闸门（error/skipped 整批撤销）；想撤销整批用

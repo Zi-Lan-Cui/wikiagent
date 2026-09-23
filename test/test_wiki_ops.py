@@ -1,4 +1,4 @@
-"""refine/restructure 执行体（③期入队）——per-job git 协议 + 失败不记账。
+"""refine/restructure 执行体——per-job git 协议 + 失败不记账。
 
 真 git、真 JobService/Worker；手术 execute 与 refine pipeline 用假件。
 断言重点：一页一提交、批尾注可撤、失败只撤残骸不进历史也不进问题账本。

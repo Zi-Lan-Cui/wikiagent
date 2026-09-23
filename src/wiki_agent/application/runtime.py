@@ -44,7 +44,7 @@ class AppRuntime:
         self.wiki_dir = config.paths.resolved_wiki_dir()
         self.source_records_dir = config.paths.resolved_source_records_dir()
         self.issue_store = IssueStore(self.workspace)
-        self.sync_state = SyncState(config.paths.resolved_sync_dir() / "state.json")
+        self.sync_state = SyncState(config.paths.resolved_sync_state_path())
         # wiki 版本面：HEAD=最近已结算状态，sync/retry 逐 job 提交由 consumer 执行
         self.git_manager = WikiGitManager(self.wiki_dir)
         self.job_service = JobService(
@@ -74,8 +74,9 @@ class AppRuntime:
             job_service=self.job_service,
             hooks=[self.event_publisher, self.issue_reporter, *(hooks or [])],
         )
-        # 执行装配：worker 是唯一终态写入者；装配根注册 compile/delete，
-        # issue_action 由 web 适配器补挂，多进程共库按 kinds 分工。
+        # 执行装配：worker 是唯一终态写入者；装配根注册 compile/delete/
+        # refine/restructure 四类写 wiki 的 job，issue_action 由 web 适配器
+        # 补挂，多进程共库按 kinds 分工。
         self.pipeline = CompilePipeline(
             llm=self.agent.llm,
             vlm=self.agent.vlm,
@@ -131,7 +132,7 @@ class AppRuntime:
         return cls(config, hooks=hooks)
 
     async def start(self) -> None:
-        """MCP 连接 + 执行后台循环（worker/维护循环）一次性拉起。
+        """MCP 连接 + 执行后台循环（worker 泵）一次性拉起。
 
         start = 宣布本进程为执行者：先拿执行锁（git 协议要求 wiki 写者唯一），
         他进程持有时直接失败——不带病启动。

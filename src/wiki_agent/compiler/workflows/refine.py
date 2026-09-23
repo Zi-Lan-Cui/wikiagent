@@ -8,7 +8,7 @@ refine 是 wiki 自编译：以 wiki 页面自身为输入重跑编译链，刷�
 - 不存 source 档案页（输入就是 wiki 页面，再存 = 自我复制）
 
 时机: 全文 index 建立后（增量生成时目标页面还不存在，链接先天不充分）。
-执行/排队在 application.wiki_ops 与 jobs.service（③期入队），这里不装配。
+执行/排队在 application.wiki_ops 与 jobs.service，这里不装配。
 """
 
 from __future__ import annotations

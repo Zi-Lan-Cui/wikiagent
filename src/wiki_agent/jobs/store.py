@@ -2,8 +2,10 @@
 
 Job 是唯一执行事实来源。关键不变式：
 - 同一 resource 至多一个在途（in-flight = queued/running）Job——由部分
-  唯一索引 uq_jobs_in_flight_resource 在数据库层强制（resource 一律
-  规范化为绝对路径字符串，compile/delete/issue_retry 同族共享此身份）。
+  唯一索引 uq_jobs_in_flight_resource 在数据库层强制。resource 是操作
+  对象身份键，三个命名空间互不相交：源材料用绝对路径字符串
+  （compile/delete/issue_retry 同族共享），rescan 用 issue id，
+  重组执行单元用 "restructure:<批id>:<序号>" 前缀。
 - 所有写方法支持 ``_conn`` 透传：与 issue 账本同事务提交时由调用方
   持有连接，这里禁止自开事务。
 """
@@ -79,7 +81,7 @@ class JobStore:
                 db.execute("ALTER TABLE jobs DROP COLUMN next_run_at")
             except sqlite3.OperationalError:
                 pass
-            # 唯一索引前置迁移：既有重复在途行按 resource 保留最旧，其余转终态让位
+            # 唯一索引前置迁移：既有重复在途行按 resource 保留最旧，其余转终态
             db.execute(
                 f"""
                 UPDATE jobs SET status = 'cancelled', stage = 'cancelled', updated_at = ?

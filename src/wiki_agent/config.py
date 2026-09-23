@@ -197,6 +197,16 @@ class LoggingConfig(BaseSettings):
     """--debug: 全量日志 + 结构化事件写文件。"""
 
 
+def source_records_dir_for(workspace: str | Path) -> Path:
+    """workspace 内的来源档案目录——内部布局，只有 workspace 本身可配置。"""
+    return Path(workspace) / "provenance" / "sources"
+
+
+def sync_state_path_for(workspace: str | Path) -> Path:
+    """workspace 内的 sync 完成账路径——内部布局（目录名 watch 是历史名）。"""
+    return Path(workspace) / "watch" / "state.json"
+
+
 class PathsConfig(BaseSettings):
     """项目路径（env 前缀 WIKI_）。
 
@@ -258,15 +268,11 @@ class PathsConfig(BaseSettings):
 
     def resolved_source_records_dir(self) -> Path:
         """返回系统生成的来源摘要存档目录。"""
-        return self.resolved_workspace_dir() / "provenance" / "sources"
+        return source_records_dir_for(self.resolved_workspace_dir())
 
-    def resolved_runs_dir(self) -> Path:
-        """返回编译、精炼、重试和重组的运行存档根目录。"""
-        return self.resolved_workspace_dir() / "runs"
-
-    def resolved_sync_dir(self) -> Path:
-        """返回 sync 完成账目录（历史目录名 watch，兼容既有账本）。"""
-        return self.resolved_workspace_dir() / "watch"
+    def resolved_sync_state_path(self) -> Path:
+        """返回 sync 完成账文件路径。"""
+        return sync_state_path_for(self.resolved_workspace_dir())
 
     def _resolve(self, configured: Path | None, default_name: str) -> Path:
         path = configured or Path(default_name)

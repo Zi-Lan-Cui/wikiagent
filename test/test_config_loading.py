@@ -43,7 +43,9 @@ def test_paths_config_reads_the_selected_env_file(tmp_path: Path) -> None:
     assert cfg.paths.resolved_source_records_dir() == (
         tmp_path / "from-dotenv-workspace" / "provenance" / "sources"
     )
-    assert cfg.paths.resolved_runs_dir() == tmp_path / "from-dotenv-workspace" / "runs"
+    assert cfg.paths.resolved_sync_state_path() == (
+        tmp_path / "from-dotenv-workspace" / "watch" / "state.json"
+    )
 
 
 def test_environment_and_overrides_take_precedence(monkeypatch, tmp_path: Path) -> None:

@@ -260,10 +260,10 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
         {"path": "concepts/example.md", "reason": "frontmatter 缺少 title"}
     ]
     assert updated.retry["attempts"] == 2
-    assert updated.status == IssueStatus.OPEN, "未耗尽回 open 继续退避"
+    assert updated.status == IssueStatus.OPEN, "同源失败合并后保持 open 等人处理"
 
 
-# ---- rescan：裁决依据在执行体、终态收口在 outcome 事务（唯一写入方） ----
+# ---- rescan：判断依据在执行体产出、终态统一由 outcome 事务写入（唯一写入方） ----
 
 
 def _dead_link_wiki(tmp_path: Path) -> Path:

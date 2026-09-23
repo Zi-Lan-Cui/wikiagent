@@ -62,8 +62,8 @@ class JobResult:
     - "":             无联动语义的终态失败（如未注册 kind）。
 
     status="cancelled" 由取消路径直达终态，handler 无需返回。
-    succeeded 时 detail 必须申报 settlement（结算类别）——它是 issue
-    联动的唯一驱动源（outcomes.ISSUE_RULES 查表），未申报 = 账本不动；
+    succeeded 时 detail 必须申报 settlement（结算类别）——issue 联动
+    按它在 outcomes.ISSUE_RULES 查表，未申报 = 账本不动；
     compile 成功另携带 digest/text 供完成账核账。
     """
 

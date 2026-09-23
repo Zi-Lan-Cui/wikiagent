@@ -1,6 +1,6 @@
 """源文件快照——把输入的定格时刻钉在"点击提交"这一秒。
 
-三条不变量（docs/invariants.md 有对应小节）：
+三条不变量：
 
     快照是输入；job 不读快照以外的源文件状态；issue 只随结算更新。
 
@@ -25,6 +25,9 @@ from wiki_agent.sync.state import digest_file_text
 
 logger = get_logger("SNAPSHOTS")
 
+# 快照根目录名——workspace 下的内部布局，不是配置项
+SNAPSHOTS_DIRNAME = "snapshots"
+
 
 class SnapshotError(RuntimeError):
     """快照读写基础设施故障（磁盘、权限、损坏）——不是源文件的业务失败。"""
@@ -34,7 +37,7 @@ class SnapshotStore:
     """一个 workspace 一份快照仓库；service（写入）与 consumer（读取）共享。"""
 
     def __init__(self, workspace: str | Path):
-        self.root = Path(workspace) / "snapshots"
+        self.root = Path(workspace) / SNAPSHOTS_DIRNAME
 
     def capture(self, batch_id: str, source_dir: str | Path, paths: Sequence[str | Path]) -> dict[str, str]:
         """按相对路径复制进批目录，返回 原始绝对路径 → 快照件 digest。

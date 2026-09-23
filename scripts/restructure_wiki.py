@@ -1,4 +1,4 @@
-"""结构重组入口（③期入队后的薄壳）。
+"""结构重组入口。
 
 用法:
     .venv/bin/python scripts/restructure_wiki.py             # 逐条确认后入队执行
@@ -6,9 +6,10 @@
     .venv/bin/python scripts/restructure_wiki.py --yes       # 全收确认入队
 
 分工与 sync 快照同构：提议阶段（粗提→复判→消解）在提交侧同步跑、含交互
-确认；确认后整批打包成一个 restructure job 入队。执行体在
-application.wiki_ops——pre-reset→execute→scan 闸门→成功一笔提交/失败整批
-撤销；批尾注支持 ``/wiki revert-batch``。本壳持执行锁、自泵到队列空。
+确认；确认后切成互不依赖的执行单元入队——一单元一个 job、一单元一笔提交。
+执行体在 application.wiki_ops——pre-reset→execute→scan 闸门→成功提交本
+单元/失败撤销本单元；批尾注支持 ``/wiki revert-batch`` 整批回撤。
+本壳持执行锁、自泵到队列空。
 """
 
 import asyncio

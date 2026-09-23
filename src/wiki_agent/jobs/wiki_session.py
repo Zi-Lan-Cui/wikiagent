@@ -20,6 +20,14 @@ from wiki_agent.log import emit_event
 if TYPE_CHECKING:
     from wiki_agent.versioning import WikiGitManager
 
+# 残骸 patch 目录名——provenance/sources 的同级目录，内部布局不是配置项
+DEBRIS_DIRNAME = "debris"
+
+
+def debris_dir_for(source_records_dir: str | Path) -> Path:
+    """由档案目录推导残骸存放目录。"""
+    return Path(source_records_dir).parent / DEBRIS_DIRNAME
+
 
 class WikiWriteSession:
     """一个执行进程对 wiki 的写入会话（git=None 时全部动作退化为 no-op，

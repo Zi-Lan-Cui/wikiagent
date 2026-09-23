@@ -1,6 +1,6 @@
 """Unified durable job submission and lifecycle API.
 
-Job 是唯一执行事实来源：提交入口收口在这里，终态写入只有一个点
+Job 是唯一执行事实来源：全部提交入口在这里，终态写入只有一个点
 （complete_with_outcome——jobs 行与 issue 联动同事务、带 CAS）。
 """
 
@@ -183,7 +183,7 @@ class JobService:
         disk = scan_disk(root)
         dirty, removed = self.sync_state.diff(disk)
         if not dirty and not removed:
-            # 无任务也要收口：孤儿失败记录的判定只依赖磁盘与完成账本
+            # 无任务时也要检查：孤儿失败记录的判定只依赖磁盘与完成账本
             with self.store.database.transaction(immediate=True) as conn:
                 self._close_vanished_failures(disk, conn)
             return []
@@ -242,7 +242,7 @@ class JobService:
         self, disk: dict[str, str], _conn: sqlite3.Connection | None = None
     ) -> int:
         """关闭"对象已不存在"的活动失败记录：source 既不在磁盘也不在完成账里，
-        它永远不会再出现在任何任务中。按事实收口、事件留痕，不靠人工逐条清理。
+        它永远不会再出现在任何任务中。按事实关闭、事件留痕，不靠人工逐条清理。
         """
         assert self.sync_state is not None
         hashed = {p for p in self.sync_state.all_paths() if self.sync_state.get(p).hash}
@@ -264,7 +264,7 @@ class JobService:
                 closed += 1
         return closed
 
-    # refine / restructure 批（③期入队：手动触发入队，执行体 application.wiki_ops）
+    # refine / restructure 批（手动触发入队，执行体 application.wiki_ops）
 
     def submit_refine_batch(self, *, limit: int | None = None) -> list[Job]:
         """把 wiki 知识页逐页排队 refine——一页一个 job、一页一笔提交。

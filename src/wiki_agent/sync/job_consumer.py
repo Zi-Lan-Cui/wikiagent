@@ -24,7 +24,7 @@ workspace/provenance/debris/ 留证据（日志/事件/残骸快照永不回撤�
   由 JobOutcomeHandler 在终态事务提交后写 SyncState 与溯源档案（成功才
   落账、先库后文件）；
 - 业务失败（IngestError）→ 残骸导出 + restore，转成 failed/ingest_error
-  结果；issue 上报收口在 outcome；未预期异常裸抛，由 Worker 归日志+事件。
+  结果；issue 记账统一在 outcome；未预期异常裸抛，由 Worker 归日志+事件。
 
 源文件删除按确定性规则清理（纯代码，无 LLM）: 溯源记录只含被删文件 →
 删除记录；还含其他文件 → 仅移除该条目。删除决定来自快照（removed 差集），
@@ -45,7 +45,7 @@ from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job, JobResult, Settlement
-from wiki_agent.jobs.wiki_session import WikiWriteSession
+from wiki_agent.jobs.wiki_session import WikiWriteSession, debris_dir_for
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.state import SyncState, digest_file_text
@@ -97,22 +97,16 @@ class SyncConsumer:
         *,
         wiki_dir: str | Path,
         snapshots: SnapshotStore,
-        source_records_dir: str | Path | None = None,
+        source_records_dir: str | Path,
         git: WikiGitManager | None = None,
     ):
         self._pipeline = pipeline
         self._state = state
         self._wiki_dir = Path(wiki_dir)
         self._snapshots = snapshots
-        self._source_records_dir = (
-            Path(source_records_dir)
-            if source_records_dir is not None
-            else self._wiki_dir.parent / "workspace" / "provenance" / "sources"
-        )
+        self._source_records_dir = Path(source_records_dir)
         # git=None 只在离线单测里出现（无仓库环境的裸 handler 测试）
-        self._session = WikiWriteSession(
-            git, debris_dir=self._source_records_dir.parent / "debris"
-        )
+        self._session = WikiWriteSession(git, debris_dir=debris_dir_for(self._source_records_dir))
 
     async def handle_job(self, job: Job, progress) -> JobResult:
         """执行一个源文件 Job，返回业务结局（bug 才抛）。"""
@@ -276,7 +270,7 @@ class SyncConsumer:
         return JobResult(status="failed", detail={"error": f"snapshot_error: {reason}"[:500]})
 
     def _ingest_error_result(self, job: Job, exc: IngestError) -> JobResult:
-        """业务失败 → 残骸快照+restore → 结果化（issue 上报收口在 outcome）。"""
+        """业务失败 → 残骸快照+restore → 结果化（issue 记账统一在 outcome）。"""
         name = Path(job.resource).name
         logger.error("  ingest 失败 [%s]: %s", exc.stage.value, str(exc)[:200])
         self._session.discard_debris(job.id)
