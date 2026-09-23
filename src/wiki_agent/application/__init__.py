@@ -1,6 +1,6 @@
 """Application composition and use-case boundaries.
 
-只放门面（WikiAgentService）、用例（issue_actions/compile_*…）与装配根。
+只放门面（WikiAgentFacade，会话与只读）、用例（issue_actions/compile_*…）与装配根。
 执行引擎在 `wiki_agent.jobs`，快照账本与源 handler 在 `wiki_agent.sync`。
 
 装配根（runtime）经 ``__getattr__`` 在首次访问时才导入：子模块被单独
@@ -10,14 +10,14 @@ consumer→application→runtime→consumer 的导入环，只在导入顺序凑
 
 from typing import TYPE_CHECKING
 
-from wiki_agent.application.service import (
+from wiki_agent.application.facade import (
     InvalidInputError,
     MessageResult,
     ServiceError,
     SessionInfo,
     SessionMessage,
     SessionNotFoundError,
-    WikiAgentService,
+    WikiAgentFacade,
     WikiFileInfo,
 )
 from wiki_agent.events import AgentEvent, EventPublisher
@@ -36,7 +36,7 @@ __all__ = [
     "SessionInfo",
     "SessionNotFoundError",
     "WikiFileInfo",
-    "WikiAgentService",
+    "WikiAgentFacade",
 ]
 
 # 名字 → 所在模块；首次属性访问时导入并缓存进 globals

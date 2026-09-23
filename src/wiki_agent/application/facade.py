@@ -1,4 +1,4 @@
-"""Application use cases shared by CLI, Web and future adapters."""
+"""面向用户操作的会话与只读门面——CLI/Web 共用，不含 HTTP/Rich 概念。"""
 
 from __future__ import annotations
 
@@ -83,11 +83,13 @@ _DEFAULT_SESSION_TITLE = "未命名"
 _SESSION_TITLE_MAX_LENGTH = 40
 
 
-class WikiAgentService:
-    """Coordinate user-facing operations on an :class:`AppRuntime`.
+class WikiAgentFacade:
+    """问答会话与只读浏览的门面：会话回合、wiki 浏览、issue 卡片读取。
 
-    This class deliberately contains no FastAPI, Rich or HTTP concepts.  It
-    is the shared application boundary used by CLI and future Web adapters.
+    这里不是统一 service 层。执行类操作各有端口：提交与终态走
+    JobService（jobs 域），issue 动作走 IssueActionExecutor（本包用例）；
+    本类刻意不转发它们——"Service"字样只保留在域服务
+    （JobService/IssueService）里，门面就叫门面。
     """
 
     def __init__(self, runtime: AppRuntime) -> None:
