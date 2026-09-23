@@ -15,6 +15,7 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.issues.projectors import available_actions, to_card
+from wiki_agent.jobs import Settlement
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
@@ -148,6 +149,8 @@ class IssueActionExecutor:
         progress: Callable[[str], None] | None = None,
     ) -> IssueCard:
         """同步动作（web 直接裁决）：返回裁决后的问题卡。"""
+        if action == "rescan":
+            raise ValueError("rescan 的终局裁决在 job 终态事务内完成，只能经队列执行")
         return self._run_action(issue_id, action, payload, progress=progress)[0]
 
     def job_effect(
@@ -260,6 +263,8 @@ class IssueActionExecutor:
         after_scan = self.store.require(issue_id)
         still_present = after_scan.occurrences > before.occurrences
         return to_card(after_scan), {
-            "rescan_still_present": still_present,
+            "settlement": (
+                Settlement.RESCAN_STILL_PRESENT if still_present else Settlement.RESCAN_CLEARED
+            ),
             "rescan_findings": len(findings),
         }

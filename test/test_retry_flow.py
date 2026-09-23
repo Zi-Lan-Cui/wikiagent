@@ -121,7 +121,11 @@ def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
     job = service.claim_next(kinds={"compile"})
     assert job is not None
     final = service.complete_with_outcome(
-        job, JobResult(status="succeeded", detail={"digest": digest, "text": text})
+        job,
+        JobResult(
+            status="succeeded",
+            detail={"settlement": "ingested", "digest": digest, "text": text},
+        ),
     )
     assert final.status == "succeeded"
     assert service.issues.get(issue.id).status == IssueStatus.RESOLVED

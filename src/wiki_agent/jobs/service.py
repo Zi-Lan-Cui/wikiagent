@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
-from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues import IssueKind, IssueService, IssueStatus, IssueStore
 from wiki_agent.jobs import DuplicateInFlightJob, Job, JobResult, JobStore, SyncInProgress
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
@@ -175,6 +175,9 @@ class JobService:
         disk = scan_disk(root)
         dirty, removed = self.sync_state.diff(disk)
         if not dirty and not removed:
+            # 无任务也要收口：孤儿失败记录的判定只依赖磁盘与完成账本
+            with self.store.database.transaction(immediate=True) as conn:
+                self._close_vanished_failures(disk, conn)
             return []
         if self.store.in_flight_for_kinds(("compile", "delete")) > 0:
             raise SyncInProgress()
@@ -207,6 +210,9 @@ class JobService:
                         )
                     )
                 for path in removed:
+                    # delete 与 compile 同一挂账规则：来源有活动失败记录就挂上，
+                    # 删除成功（delete_applied）连同同源旧账一起收
+                    pending = self.issues.find_pending_failures(path)
                     jobs.append(
                         self.store.enqueue(
                             kind="delete",
@@ -214,13 +220,41 @@ class JobService:
                             mode="sync",
                             payload={"deleted": True, "digest": "", "batch": batch},
                             idempotency_key=f"{batch}:{path}",
+                            issue_id=pending[0].id if pending else "",
                             _conn=conn,
                         )
                     )
+                self._close_vanished_failures(disk, conn)
         except BaseException:
             self.snapshots.drop_batch(batch)
             raise
         return jobs
+
+    def _close_vanished_failures(
+        self, disk: dict[str, str], _conn: sqlite3.Connection | None = None
+    ) -> int:
+        """关闭"对象已不存在"的活动失败记录：source 既不在磁盘也不在完成账里，
+        它永远不会再出现在任何任务中。按事实收口、事件留痕，不靠人工逐条清理。
+        """
+        assert self.sync_state is not None
+        hashed = {p for p in self.sync_state.all_paths() if self.sync_state.get(p).hash}
+        closed = 0
+        for record in self.issues.list(
+            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
+            kinds={IssueKind.INGESTION_FAILURE},
+            limit=1000,
+        ):
+            src = str(record.context.get("source_path") or "")
+            if src and src not in disk and src not in hashed:
+                self.issues.transition(
+                    record.id,
+                    IssueStatus.RESOLVED,
+                    resolution={"cause": "source_deleted", "closed_by": "submit_sync"},
+                    event="issue_source_vanished",
+                    _conn=_conn,
+                )
+                closed += 1
+        return closed
 
     # refine / restructure 批（③期入队：手动触发入队，执行体 application.wiki_ops）
 
