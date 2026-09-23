@@ -66,10 +66,14 @@ def create_app(
     job_worker = app_runtime.job_worker
 
     async def handle_issue_job(job, progress):
-        # 业务拒绝（来源丢失/状态 CAS 不满足/动作非法/未实现）是终态——
-        # 返回无联动语义的 failed 结果，问题账本不因拒绝动作而新增。
+        # 业务拒绝（来源丢失/动作非法/未实现）是终态——返回无联动语义的
+        # failed 结果，问题账本不因拒绝动作而新增。
+        # job_effect 只产出裁决依据（rescan 的 still_present 等），
+        # issue 终态由 outcome 在 job 终态事务统一写入。
         try:
-            issue_actions.execute(job.resource, job.mode, job.payload, progress=progress)
+            detail = issue_actions.job_effect(
+                job.resource, job.mode, job.payload, progress=progress
+            )
         except (
             SourceUnavailableError,
             IssueAlreadyClaimedError,
@@ -77,7 +81,8 @@ def create_app(
             ValueError,
         ) as exc:
             return JobResult(status="failed", detail={"error": str(exc)[:500]})
-        return JobResult(status="succeeded")
+        effect_detail: dict[str, object] = {k: v for k, v in detail.items()}
+        return JobResult(status="succeeded", detail=effect_detail)
 
     if not job_worker.is_registered("issue_action"):
         job_worker.register("issue_action", handle_issue_job)

@@ -147,27 +147,57 @@ class IssueActionExecutor:
         *,
         progress: Callable[[str], None] | None = None,
     ) -> IssueCard:
+        """同步动作（web 直接裁决）：返回裁决后的问题卡。"""
+        return self._run_action(issue_id, action, payload, progress=progress)[0]
+
+    def job_effect(
+        self,
+        issue_id: str,
+        action: str,
+        payload: JsonObject | None = None,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> JsonObject:
+        """issue_action job 的执行入口：返回要随 job 终态落库的 JobResult detail。
+
+        rescan 的最终裁决（blocked/resolved）不由这里直接写库——这里只产出
+        裁决依据，issue 终态收口在 JobOutcomeHandler 的终态事务里，
+        issue 状态的写入方保持唯一。
+        """
+        return self._run_action(issue_id, action, payload, progress=progress)[1]
+
+    def _run_action(
+        self,
+        issue_id: str,
+        action: str,
+        payload: JsonObject | None,
+        *,
+        progress: Callable[[str], None] | None,
+    ) -> tuple[IssueCard, JsonObject]:
         self.validate(issue_id, action)
         record = self.store.require(issue_id)
         allowed = {item.id for item in available_actions(record) if not item.disabled_reason}
         if action not in allowed:
             raise ValueError(f"当前问题不允许操作: {action}")
         if action in {"dismiss", "reopen"}:
-            return self.service.apply_simple_action(issue_id, action, payload)
+            return self.service.apply_simple_action(issue_id, action, payload), {}
         if action == "open_resource" or action == "open_log":
-            return to_card(record)
+            return to_card(record), {}
         if action in {"accept", "reject", "keep_uncertain"}:
-            return resolve_correction_issue(self.service, record.id, action)
+            return resolve_correction_issue(self.service, record.id, action), {}
         if action == "rescan":
             return self._rescan(record.id, progress=progress)
         if action == "false_positive":
-            return to_card(
-                self.store.transition(
-                    record.id,
-                    IssueStatus.DISMISSED,
-                    resolution={"action": "false_positive"},
-                    event="marked_false_positive",
-                )
+            return (
+                to_card(
+                    self.store.transition(
+                        record.id,
+                        IssueStatus.DISMISSED,
+                        resolution={"action": "false_positive"},
+                        event="marked_false_positive",
+                    )
+                ),
+                {},
             )
         raise ValueError(f"尚未实现操作: {action}")
 
@@ -208,12 +238,13 @@ class IssueActionExecutor:
         issue_id: str,
         *,
         progress: Callable[[str], None] | None = None,
-    ) -> IssueCard:
-        """重新扫描并同步质量问题，按结果直接落 issue 终态。
+    ) -> tuple[IssueCard, JsonObject]:
+        """复扫全库、同步质量问题账——只产出裁决依据，不写 issue 终态。
 
-        防重复由承载它的 issue_action job 保证：同 issue 的在途行被
-        幂等键收敛（双击返回同一任务）；终态写带 CAS——扫描期间被人工
-        裁决掉的 issue 不被复活（expected 不满足即抛错，任务按业务失败收口）。
+        still_present 由复扫前后的 occurrences 对比得出（入账器按指纹合并，
+        仍在=计数前进）。终态写收口在 JobOutcomeHandler 的 job 终态事务
+        （CAS：expected={open,blocked}），扫描期间的人工裁决不被覆盖。
+        防重复由承载它的 issue_action job 保证：同 issue 的在途行被幂等键收敛。
         """
         before = self.store.require(issue_id)
         if progress is not None:
@@ -228,16 +259,7 @@ class IssueActionExecutor:
         )
         after_scan = self.store.require(issue_id)
         still_present = after_scan.occurrences > before.occurrences
-        return to_card(
-            self.store.transition(
-                issue_id,
-                IssueStatus.BLOCKED if still_present else IssueStatus.RESOLVED,
-                resolution={
-                    "action": "rescan",
-                    "findings": len(findings),
-                    "still_present": still_present,
-                },
-                expected={IssueStatus.OPEN, IssueStatus.BLOCKED},
-                event="rescan_completed",
-            )
-        )
+        return to_card(after_scan), {
+            "rescan_still_present": still_present,
+            "rescan_findings": len(findings),
+        }
