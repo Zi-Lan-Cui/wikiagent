@@ -44,8 +44,8 @@ class ContextGovernor:
     def __init__(self, workspace: Path, agent_config=None, tool_ttl: dict[str, int] | None = None):
         """初始化治理器。
 
-        治理参数从 agent_config 取（E3 收编）——tool_ttl 保留
-        为测试注入口（测试传 60 秒验证驱逐行为，生产用 config 默认）。
+        治理参数从 agent_config 取；tool_ttl 是测试注入口
+        （测试传 60 秒验证驱逐行为，生产用 config 默认）。
 
         Args:
             workspace: 工作区（tmp/ 转存目录的根）。

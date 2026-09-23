@@ -160,7 +160,8 @@ class JobOutcomeHandler:
         effect: IssueEffect,
         conn: sqlite3.Connection,
     ) -> None:
-        """只动 job 挂账的那条 issue，CAS 挡住扫描窗口内的人工裁决。
+        """只动 job 挂账的那条 issue；CAS 带 expected 状态，扫描期间被
+        人工改过就保持人工结果。
 
         （当前唯一使用者是 rescan：executor 只产出复扫结论，终态在这里落。）
         """

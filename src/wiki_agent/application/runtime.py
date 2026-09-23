@@ -143,7 +143,7 @@ class AppRuntime:
         """MCP 连接 + 执行后台循环（worker 泵）一次性拉起。
 
         start = 宣布本进程为执行者：先拿执行锁（git 协议要求 wiki 写者唯一），
-        他进程持有时直接失败——不带病启动。
+        他进程持有时直接失败，不降级启动。
         """
         if self._started:
             return

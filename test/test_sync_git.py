@@ -143,7 +143,7 @@ def test_pre_reset_clears_previous_job_debris(tmp_path: Path):
     service.submit_sync(src)
     _pump(worker, 1)
 
-    assert not (wiki / "concepts" / "ghost.md").exists(), "pre-reset 收编崩溃残骸"
+    assert not (wiki / "concepts" / "ghost.md").exists(), "pre-reset 清除崩溃残骸"
     assert (wiki / "concepts" / "ok.md").exists()
     assert git.is_clean()
 

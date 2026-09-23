@@ -35,7 +35,7 @@ class ContextBuilder:
         self.memory_store = memory_store
         self.issue_service = issue_service
         self.wiki_dir = Path(wiki_dir) if wiki_dir else None
-        # 截断上限从 agent_config 取（E3 收编）——None 时用默认
+        # 截断上限从 agent_config 取——None 时用默认
         cfg = agent_config
         self._index_chars = cfg.wiki_index_chars if cfg else 4_000
         self._corrections_chars = cfg.corrections_chars if cfg else 2_000

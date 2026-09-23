@@ -53,7 +53,7 @@ class Job:
     payload: dict[str, object]
     created_at: str
     updated_at: str
-    # 挂账的 issue（成功销账/失败并账的缝合键）；"" = 与 issue 无关的纯执行 job
+    # 挂账的 issue；成功与失败都按它联动问题账本；"" = 与 issue 无关的纯执行 job
     issue_id: str = ""
 
 

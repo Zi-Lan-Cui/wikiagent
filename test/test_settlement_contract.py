@@ -1,8 +1,7 @@
 """Settlement 契约：每个结算类别都有产生方、都有明确的账本归宿。
 
-新增/删除 Settlement 枚举值时本文件失败——防止出现"申报了没人产"或
-"产生了没人管账"的悬空类别（方案 A 收口时 restructure 粒度失配的教训：
-约定要靠测试钉，不靠人肉数）。
+新增/删除 Settlement 枚举值时本文件失败：每个值必须既有代码产生它、
+又在 ISSUE_RULES 或显式不碰账本名单里。
 
 直接运行:  .venv/bin/python test/test_settlement_contract.py
 """

@@ -243,9 +243,9 @@ class CommandRouter:
 def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
     """写 wiki 的 job（compile/delete/refine/restructure）在途数。
 
-    跨进程互斥由执行锁（flock）强制、批流程已入队收编；这个门只剩一个
-    用途：/wiki revert 入口带 restore——同进程泵正在写 wiki 时拒绝碰历史，
-    否则会把在途半成品误当残骸。
+    跨进程互斥由执行锁（flock）强制，这条门只管同进程：/wiki revert
+    入口带 restore——同进程正在执行写 wiki 的任务时拒绝改历史，
+    否则会把在途半成品当残骸清掉。
     """
     # 能力是显式声明的可选属性（ReActAgent.job_service），缺席=本会话无执行入口
     if agent.job_service is None:

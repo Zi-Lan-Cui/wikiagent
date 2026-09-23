@@ -4,14 +4,13 @@ wiki 是机器管理的：人禁止直接改动生成页，工作区里一切未
 执行残骸。因此不存在需要保护的脏状态——任何时点 restore 到 HEAD 都是
 安全操作，这也是没有锁、没有运行容器、没有 dirty 检查的原因：逐 job
 协议（pre-reset → 执行 → 成功 commit / 失败 restore）保证每个 job 边界
-收敛，崩溃残骸由下一次 pre-reset 收编。
+收敛，崩溃残骸由下一次 pre-reset 清除。
 
-- sync/retry 的 compile、delete job 逐个提交：subject `sync: <文件>` /
-  `retry: <文件>` / `sync: delete <文件>`，body 携带 `Batch: <快照id>`
-  尾注。撤销一整批 = 按尾注在历史中选段 revert，纯历史操作，不回退账本。
-- 批量 compile/refine/restructure 仍以一次提交覆盖整批。
-- 运行留痕 = commit 历史本身；失败残骸在 restore 前导出 patch 存档，
-  不再有 run.json/diff.patch 容器。
+- 一切写 wiki 的 job 逐笔提交：compile `sync: <文件>`（retry 用
+  `retry:`）、delete `sync: delete <文件>`、refine `refine: <页>`、
+  restructure 一个执行单元一笔。body 携带 `Batch: <快照id>` 尾注。
+  撤销一整批 = 按尾注在历史中选段 revert，纯历史操作，不回退账本。
+- 运行留痕 = commit 历史本身；失败残骸在 restore 前导出 patch 存档。
 """
 
 from __future__ import annotations

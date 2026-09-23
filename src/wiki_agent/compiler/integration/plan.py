@@ -236,7 +236,8 @@ class PolisherPlanner(Planner):
                 page_meta=page_meta,
             ),
         )
-        # 只拿不放的代码兜底——只保留 update 且指向自身的 target
+        # refine 的目标就是当前页本身：只保留指向自身的 update，
+        # 防止 plan 混入指向别处的动作（易错点，最后一道过滤）
         self._filter_self_updates(plan, current_page)
         emit_event(
             "plan_decision",

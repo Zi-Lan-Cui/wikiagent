@@ -194,7 +194,7 @@ def test_orphan_failure_closed_at_submit(tmp_path: Path):
 
 
 def test_succeeded_without_settlement_records_ledger_but_not_issue(tmp_path: Path):
-    """两条通道正交：无 settlement 的成功照样落完成账，但不动问题账本。"""
+    """完成账与问题账互不影响：无 settlement 的成功照样落完成账，但不动问题账本。"""
     src, service = _svc(tmp_path)
     f = _write(src, "note.md", "内容" * 10)
     digest, text = digest_file_text(f)
