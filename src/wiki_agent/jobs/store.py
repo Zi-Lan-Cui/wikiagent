@@ -242,8 +242,10 @@ class JobStore:
             where += f" AND kind IN ({marks})"
             values.extend(sorted(kinds))
         with self._tx() as db:
+            # rowid 决胜：同一提交事务入队的多行 created_at 相同，执行顺序
+            # 必须等于入队顺序（restructure 单元按依赖拓扑入队）
             row = db.execute(
-                f"SELECT id FROM jobs WHERE {where} ORDER BY created_at LIMIT 1",
+                f"SELECT id FROM jobs WHERE {where} ORDER BY created_at, rowid LIMIT 1",
                 values,
             ).fetchone()
             if row is None:

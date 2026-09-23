@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
@@ -373,3 +374,43 @@ def execute(
             pages = load_pages(wiki)
 
     return result
+
+
+def partition_units(proposals: Sequence[Proposal]) -> list[list[Proposal]]:
+    """把提议切成"互相之间没有先后关系"的执行单元——排队与提交的分组边界。
+
+    一个单元 = execute() 里那个"组"的传递闭包：同 group_id 同组（create+trim
+    是一个事务）、depends_on 相连的提议必须同进同退。单元间没有依赖，
+    串行执行任何先后都成立；单元内部保持入参顺序。
+    单元顺序按其中最早出现的提议排序（入参来自消解阶段，已拓扑可执行）。
+    """
+    parent = list(range(len(proposals)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    by_id: dict[str, int] = {}
+    for index, prop in enumerate(proposals):
+        if prop.id:
+            by_id.setdefault(prop.id, index)
+    for index, prop in enumerate(proposals):
+        if prop.group_id:
+            for other, candidate in enumerate(proposals):
+                if other != index and candidate.group_id == prop.group_id:
+                    union(index, other)
+        for dep in prop.depends_on:
+            if dep in by_id and by_id[dep] != index:
+                union(index, by_id[dep])
+
+    units: dict[int, list[Proposal]] = {}
+    for index, prop in enumerate(proposals):
+        units.setdefault(find(index), []).append(prop)
+    return list(units.values())

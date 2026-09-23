@@ -4,7 +4,7 @@
 按模块路径导入，避免把 issues/sync 的依赖强加给只要 Job 行的调用方。
 """
 
-from wiki_agent.jobs.errors import DuplicateInFlightJob, SyncInProgress
+from wiki_agent.jobs.errors import DuplicateInFlightJob, RestructureInProgress, SyncInProgress
 from wiki_agent.jobs.models import Job, JobResult, Settlement
 from wiki_agent.jobs.store import JobStore
 
@@ -13,6 +13,7 @@ __all__ = [
     "Job",
     "JobResult",
     "JobStore",
+    "RestructureInProgress",
     "Settlement",
     "SyncInProgress",
 ]

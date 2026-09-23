@@ -5,7 +5,7 @@ from wiki_agent.compiler.restructure.common import (
     index_overview,
     load_pages,
 )
-from wiki_agent.compiler.restructure.execute import execute
+from wiki_agent.compiler.restructure.execute import execute, partition_units
 from wiki_agent.compiler.restructure.models import (
     ArbitrationResult,
     Conflict,
@@ -25,6 +25,7 @@ __all__ = [
     "index_overview",
     "load_pages",
     "execute",
+    "partition_units",
     "propose_from_index",
     "re_arbitrate",
     "recheck",

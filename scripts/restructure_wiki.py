@@ -82,19 +82,25 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
             return 0
 
         service = runtime.job_service
-        job = service.submit_restructure([asdict(p) for p in outcome.accepted])
-        logger.info("重组已入队: %s（批 %s）", job.id, job.payload["batch"])
+        jobs = service.submit_restructure([asdict(p) for p in outcome.accepted])
+        batch = str(jobs[0].payload["batch"])
+        logger.info("重组已入队: %d 个执行单元（批 %s）", len(jobs), batch)
         while service.store.count_in_flight() > 0:
             if await runtime.job_worker.run_once() is None:
                 break
-        row = service.store.get(job.id)
-        if row.status == "succeeded":
-            logger.info(
-                "重组完成并已提交（撤销: /wiki revert-batch %s）", job.payload["batch"]
+        rows = [service.store.get(job.id) for job in jobs]
+        failed = [row for row in rows if row.status != "succeeded"]
+        for row in failed:
+            logger.warning("执行单元被撤销: %s", row.error)
+        if failed:
+            logger.warning(
+                "重组部分失败（%d/%d 单元已提交并保留；整批回撤: /wiki revert-batch %s）",
+                len(rows) - len(failed),
+                len(rows),
+                batch,
             )
-        else:
-            logger.warning("重组未通过校验，已整批撤销: %s", row.error)
             return 1
+        logger.info("重组完成，%d 个单元各自提交（整批回撤: /wiki revert-batch %s）", len(rows), batch)
         return 0
     finally:
         if not dry_run:

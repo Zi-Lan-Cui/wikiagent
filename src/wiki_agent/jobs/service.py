@@ -7,12 +7,20 @@ Job 是唯一执行事实来源：提交入口收口在这里，终态写入只�
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
 from wiki_agent.compiler.workflows.retry import SourceUnavailableError, resolve_retry_source
 from wiki_agent.issues import IssueKind, IssueService, IssueStatus, IssueStore
-from wiki_agent.jobs import DuplicateInFlightJob, Job, JobResult, JobStore, SyncInProgress
+from wiki_agent.jobs import (
+    DuplicateInFlightJob,
+    Job,
+    JobResult,
+    JobStore,
+    RestructureInProgress,
+    SyncInProgress,
+)
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
 from wiki_agent.sync.state import SyncState, scan_disk
@@ -288,18 +296,42 @@ class JobService:
                 )
         return jobs
 
-    def submit_restructure(self, proposals: list[dict]) -> Job:
-        """已确认的重组提议打包成一个 job——提议/确认发生在提交侧（与
-        sync 的扫描对称），job 只做执行；resource 固定字面量 = 全库至多
-        一个在途重组。"""
+    def submit_restructure(self, proposals: list[dict]) -> list[Job]:
+        """已确认的提议切成执行单元排队：一个单元一个 job、一个单元一笔提交。
+
+        与 sync 同一提交/执行分工：提议与确认发生在提交侧，job 只做执行。
+        单元由 restructure.partition_units 划分（事务组 + 依赖闭包），
+        按入参顺序入队、claim 按 (created_at, rowid) 保序执行。
+        批间互斥：上一批 restructure 未到全终态时拒绝新提交
+        （RestructureInProgress）——保证"撤销这一批"有清晰边界。
+        resource 用带字面前缀的批内坐标，与绝对路径、issue id 构造性不相交；
+        payload.batch 进每个单元 commit 的尾注，revert-batch 整批可撤。
+        """
+        from wiki_agent.compiler.restructure import Proposal, partition_units
+
         batch = f"restructure_{uuid4().hex}"
-        return self.store.enqueue(
-            kind="restructure",
-            resource="wiki:structure",
-            mode="manual",
-            payload={"batch": batch, "proposals": proposals},
-            idempotency_key="restructure:wiki",
-        )
+        typed = [Proposal(**item) for item in proposals]
+        units = partition_units(typed)
+        jobs: list[Job] = []
+        with self.store.database.transaction(immediate=True) as conn:
+            if self.store.in_flight_for_kinds(("restructure",), _conn=conn) > 0:
+                raise RestructureInProgress()
+            for index, unit in enumerate(units):
+                jobs.append(
+                    self.store.enqueue(
+                        kind="restructure",
+                        resource=f"restructure:{batch}:{index}",
+                        mode="manual",
+                        payload={
+                            "batch": batch,
+                            "unit": index,
+                            "proposals": [asdict(p) for p in unit],
+                        },
+                        idempotency_key=f"restructure:{batch}:{index}",
+                        _conn=conn,
+                    )
+                )
+        return jobs
 
     # 执行生命周期——Worker 独占
 

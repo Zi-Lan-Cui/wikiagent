@@ -11,6 +11,7 @@ from wiki_agent.compiler.restructure import (
     execute,
     filter_valid_pages,
     load_pages,
+    partition_units,
     resolve_conflicts,
 )
 from wiki_agent.wiki.quality import scan_wiki
@@ -325,3 +326,20 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(tests) - failed}/{len(tests)} 通过")
     raise SystemExit(1 if failed else 0)
+
+
+def test_partition_units_groups_and_dependencies():
+    """执行单元 = 事务组 + depends_on 闭包；单元间无依赖、顺序按最早提议。"""
+    a = Proposal(op="create", pages=["concepts/n"], id="p0", group_id="g1")
+    b = Proposal(op="trim", pages=["concepts/old"], id="p1", group_id="g1")
+    c = Proposal(op="merge_into_first", pages=["concepts/x", "concepts/y"], target="concepts/x", id="p2")
+    d = Proposal(op="delete", pages=["concepts/z"], id="p3", depends_on=["p2"])
+    lone = Proposal(op="delete", pages=["concepts/w"], id="p4")
+
+    units = partition_units([a, b, c, d, lone])
+    assert [ [p.id for p in u] for u in units ] == [["p0", "p1"], ["p2", "p3"], ["p4"]]
+
+
+def test_partition_units_stable_for_empty_graph():
+    props = [Proposal(op="delete", pages=[f"concepts/{i}"], id=f"x{i}") for i in range(3)]
+    assert [[p.id for p in u] for u in partition_units(props)] == [["x0"], ["x1"], ["x2"]]
