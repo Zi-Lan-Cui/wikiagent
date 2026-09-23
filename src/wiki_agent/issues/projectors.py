@@ -28,7 +28,7 @@ def _attention(record: IssueRecord) -> str:
 
 
 def available_actions(record: IssueRecord) -> tuple[IssueAction, ...]:
-    """Derive legal user decisions from kind and current lifecycle state.
+    """按问题类型与当前状态，推导用户可执行的动作。
 
     "在途不可重复操作"不在此表达——由提交点的唯一在途/幂等键收敛与
     前端按活跃 job 过滤承担。

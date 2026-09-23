@@ -370,8 +370,8 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
             )
         elif m.group(1).strip() in ("", "[]"):
             all_issues.append(Issue("warning", rel, "related 为空——页面无交叉引用"))
-        # 矛盾标注——update 阶段留下的 Disputed 块（contradicts 的落盘形态）。
-        # 无自动消费端，裁决是人的事——报告出来让用户处置（原标记永远挂着）
+        # 矛盾标注：update 阶段写入的 Disputed 块，即 contradicts 的落盘形态。
+        # 没有自动处理方，裁决由人做出——这里只报告，标记不会自动消失
         disputed_count = len(re.findall(r"(?m)^\s*>\s*\*\*Status:\s*Disputed\*\*", content))
         if disputed_count:
             all_issues.append(

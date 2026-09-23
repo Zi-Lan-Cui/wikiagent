@@ -1,7 +1,7 @@
-"""Unified durable job submission and lifecycle API.
+"""持久化任务的统一提交与生命周期接口。
 
-Job 是唯一执行事实来源：全部提交入口在这里，终态写入只有一个点
-（complete_with_outcome——jobs 行与 issue 联动同事务、带 CAS）。
+Job 是唯一执行事实来源：全部提交入口在这里；终态写入只有一个点，
+即 complete_with_outcome，jobs 行与 issue 联动同事务、带 CAS。
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from wiki_agent.sync.state import SyncState, scan_disk
 
 
 class JobService:
-    """Application boundary for all executable work."""
+    """一切可执行工作的提交口与生命周期入口。"""
 
     def __init__(
         self,
@@ -83,14 +83,14 @@ class JobService:
         )
 
     def submit_issue_retry(self, issue_id: str) -> Job:
-        """重试请求 → compile Job：点击那一刻捕获快照输入。
+        """重试请求 → compile Job：点击时捕获快照输入。
 
         执行唯一性依次经三层检查收敛：先查该 issue 是否已有在途挂账 job
         （有则直接返回）；再按幂等键命中在途行返回既有；撞唯一在途索引
         （他人占位同一资源）返回占位者、其无账则补挂。retry 资格
         （状态、来源可读）由各入口的 validate 判定，这里只管执行唯一性。
-        与 submit_sync 同一规则：digest 来自点下按钮时复制的快照件——
-        点击后文件再变，本次重试处理的仍是定格的那份。issue 终态由
+        与 submit_sync 同一规则：digest 来自点击时复制的快照件，
+        点击后文件再变，本次重试处理的仍是定格的这份。issue 终态由
         compile job 的 outcome 落，提交本身不改变 issue 状态。
         """
         if self.wiki_dir is None:
@@ -168,15 +168,15 @@ class JobService:
         语义契约——"快照是输入"：
         - 互斥串行：compile/delete 有在途则 SyncInProgress，上一批没跑完
           不叠快照；
-        - compile 任务的输入是点下按钮时复制进 workspace/snapshots/<批>/
+        - compile 任务的输入是点击时复制进 workspace/snapshots/<批>/
           的副本。执行期间原件修改、删除、复活都不影响本批；改动归下一次
           点击。payload.digest 就是副本的实际内容；
         - 失败不写账即保持脏，再次 sync 就是重试；脏文件若背着 open 失败账
-          则顺手挂账 issue_id（成功即解决）；
+          则同时挂账 issue_id，成功即解决；
         - payload.batch 有三个用途：快照目录名、wiki commit 尾注（撤销整批 =
           按尾注在历史中选段 revert）、批内最后一个任务终态时删目录的分组键。
-        顺序：先复制、后入队——任务存在则输入必在；反序会出现"任务读不到
-        输入"的窗口。入队失败或被互斥拒绝时删除刚复制的目录；崩溃遗留由
+        顺序：先复制、后入队，任务存在则输入必在；反序会出现任务读不到
+        输入的窗口。入队失败或被互斥拒绝时删除刚复制的目录；崩溃遗留由
         JobService 构造期清扫。
         """
         if self.sync_state is None:
@@ -244,7 +244,7 @@ class JobService:
         self, disk: dict[str, str], _conn: sqlite3.Connection | None = None
     ) -> int:
         """关闭"对象已不存在"的活动失败记录：source 既不在磁盘也不在完成账里，
-        它永远不会再出现在任何任务中。按事实关闭、事件留痕，不靠人工逐条清理。
+        它不会再出现在任何任务里。按事实关闭、事件留痕，不靠人工逐条清理。
         """
         assert self.sync_state is not None
         hashed = {p for p in self.sync_state.all_paths() if self.sync_state.get(p).hash}

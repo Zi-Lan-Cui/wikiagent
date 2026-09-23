@@ -1,4 +1,4 @@
-"""Single durable worker——jobs 引擎的认领循环。
+"""单一持久化 worker：jobs 引擎的认领循环。
 
 Worker 是唯一的终态写入者：claim（按注册 kinds）→
 handler 返回 JobResult → complete_with_outcome 单事务落终态。
@@ -21,10 +21,9 @@ logger = get_logger("JOB_WORKER")
 
 
 class JobWorker:
-    """Claim and execute persisted jobs serially.
+    """串行领取并执行持久化任务。
 
-    The database claim is the source of truth; the asyncio task only provides
-    a local polling loop and can be recreated after a process restart.
+    领取以数据库为准；asyncio 循环只是本进程的轮询，重启后可重建。
     """
 
     def __init__(self, service: JobService, *, poll_interval: float = 0.5):

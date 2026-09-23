@@ -344,7 +344,7 @@ class CompilePipeline:
     def _current_page(self, raw_file) -> str:
         """refine 模式的当前页面 slug——compile 模式留空。
 
-        （只拿不放的过滤与 page_meta 已归 PolisherPlanner——
+        （只更新当前页的过滤与 page_meta 已归 PolisherPlanner——
         planner 自持模式语义，pipeline 只剩 slug 计算这个纯函数。）
 
         Args:

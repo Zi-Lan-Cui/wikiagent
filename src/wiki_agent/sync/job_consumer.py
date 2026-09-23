@@ -1,7 +1,7 @@
 """消费端——源文件 Job handler：读快照输入，per-job git 协议执行。
 
-串行由 JobWorker 保证（一次一个 claim）；编译会更新 wiki 与工作区溯源
-存档，并发会互相覆盖——串行是硬需求。
+串行由 JobWorker 保证，一次领取一个任务：编译会更新 wiki 与工作区溯源
+存档，并发执行会互相覆盖，因此必须串行。
 
 输入来自 SnapshotStore（wiki_agent.snapshots）：compile 任务只读"点击
 提交时复制进 workspace/snapshots/<批>/" 的副本。执行期间原件的修改、

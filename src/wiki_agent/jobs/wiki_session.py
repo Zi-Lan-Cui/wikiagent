@@ -4,7 +4,7 @@
 
 SyncConsumer（compile/delete）与 WikiOpsConsumer（refine/restructure）都走
 这一协议：wiki 机器管理，工作区的未提交改动都出自失败或中断的任务、
-可以一律清除，HEAD 因此永远等于最近已结算状态。
+可以一律清除，HEAD 因此始终等于最近已结算状态。
 commit subject 用操作语义前缀（sync:/retry:/refine:/restructure:），
 payload.batch 进 commit 尾注——"撤销这一批"按尾注选段 revert。
 未提交改动 patch 与批尾注同属留痕面，进程内永不回撤。

@@ -8,7 +8,7 @@
 批尾注支持 ``/wiki revert-batch <批id>`` 整批回撤。结构重组是另一个
 入口（scripts/restructure_wiki.py），不再与 refine 同事务。
 
-本壳与 sync 脚本同宿主模式：AppRuntime 装配、持执行锁、泵完做一次
+本脚本与 sync 脚本同一宿主模式：AppRuntime 装配、持执行锁、驱动队列排空后做一次
 全库质量收尾（进问题中心）。
 """
 

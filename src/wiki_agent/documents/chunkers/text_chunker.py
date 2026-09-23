@@ -89,8 +89,8 @@ class TextChunker(BaseChunker):
     def _build_sections(self, content: str) -> list[tuple[str, str]]:
         """将文本按 ``#`` / ``##`` 标题拆分为 (section, heading_path) 列表。
 
-        标题路径是 chunk 的归属信息——源头就记录，下游不再重新解析
-        （下游重解析可能猜错，源头永远正确）。
+        标题路径是 chunk 的归属信息，切分时由 chunker 记录，下游不再
+        重新解析——重新解析可能猜错，以源头记录为准。
         无标题的纯文本返回单元素列表（heading 为空串）。
 
         Args:

@@ -47,7 +47,7 @@ class EventLog:
         """记录一条事件。
 
         trace_id 自动从 contextvars 取；写盘失败不抛异常，只计数
-        （日志永远不能让主流程崩）。
+        （日志不得使主流程崩溃）。
 
         Args:
             event: 事件名（如 "llm_call"）。
@@ -63,7 +63,7 @@ class EventLog:
             with open(self._path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception:
-            # 日志永远不能让主流程崩——静默失败但计数：
+            # 日志不得使主流程崩溃——失败静默但计数：
             # 机器通道丢事件必须可见（run 结束有 WARNING 汇总）
             self.dropped += 1
             if self.dropped % 10 == 1:  # 每 10 条警告一次，不刷屏

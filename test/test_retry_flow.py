@@ -101,7 +101,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
     asyncio.run(worker.run_once())
 
     assert service.store.get(jobs[0].id).status == "failed"
-    assert state.get(str(source.resolve())).hash == "", "失败绝不误标已处理"
+    assert state.get(str(source.resolve())).hash == "", "失败不会把内容标为已处理"
     failures = service.issues.list(kinds={IssueKind.INGESTION_FAILURE})
     assert len(failures) == 1
     assert failures[0].retry["policy"] == "manual", "失败就是等人的账"
