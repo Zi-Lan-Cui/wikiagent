@@ -9,7 +9,7 @@
 确认；确认后切成互不依赖的执行单元入队——一单元一个 job、一单元一笔提交。
 执行体在 application.wiki_ops——pre-reset→execute→scan 闸门→成功提交本
 单元/失败撤销本单元；批尾注支持 ``/wiki revert-batch`` 整批回撤。
-本壳持执行锁、自泵到队列空。
+本脚本持执行锁，驱动队列到空。
 """
 
 import asyncio
@@ -46,7 +46,7 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
     wiki_dir = runtime.wiki_dir
 
     if not dry_run:
-        # 本进程要泵执行 restructure job——持执行锁（dry-run 纯预览不触库）
+        # 本进程要执行 restructure job，因此持执行锁（dry-run 纯预览不触库）
         acquire_execution_lock(runtime.workspace)
     try:
         confirm = None if (yes or dry_run) else _interactive_confirm

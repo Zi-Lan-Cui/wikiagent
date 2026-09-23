@@ -1,4 +1,4 @@
-"""Agent lifecycle hook primitives.
+"""Agent 生命周期钩子基元。
 
 Exposes key AG-UI event points as async lifecycle methods that the agent
 runner invokes. Custom hooks subclass :class:`AgentHook` and override the

@@ -49,10 +49,11 @@ def create_app(
     project_root: Path | None = None,
     runtime: AppRuntime | None = None,
 ) -> FastAPI:
-    """Create the local Web application.
+    """创建本地 Web 应用。
 
-    ``runtime`` is injectable for tests.  Production callers normally pass
-    ``project_root`` and let the factory construct one process-wide runtime.
+    Args:
+        project_root: 项目根，生产入口传入，工厂据此构造进程级 runtime。
+        runtime: 测试注入用；传入后不再自行构造。
     """
     # executor/handler/启动核对、worker 泵都由 AppRuntime 在装配根完成；
     # web 只做 HTTP 映射

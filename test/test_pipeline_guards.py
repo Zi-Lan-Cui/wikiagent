@@ -169,7 +169,7 @@ def test_empty_search_candidates_still_reach_plan(tmp_path):
     """空候选（冷启动）不得让 pipeline 跳过 analyze→plan。
 
     回归: 首跑时 index 无候选页，pipeline 曾返回空分析并跳过 plan，
-    导致结果依赖文件顺序、首篇永远 noop。修复后 analyze 收到空
+    导致结果依赖文件顺序、首篇总是 noop。修复后 analyze 收到空
     候选也执行，plan 拿到分析文本后自主决策。
     """
 

@@ -1,8 +1,7 @@
-"""Integrator——四阶段组装器 + 组装工厂。
+"""Integrator：四阶段组装器与组装工厂。
 
-阶段模块是"执行者"（每个阶段怎么做），本模块是"组装"
-（哪四个执行者配成一条链）。模式知识集中于此: compile 与 refine
-各配一条链，新模式 = 新组装入口。
+阶段模块实现每个阶段的具体做法；本模块把四个阶段按模式组合成
+执行链。compile 与 refine 各一条链，新模式增加新组装入口。
 """
 
 from __future__ import annotations
@@ -59,11 +58,10 @@ class Integrator:
         index_content: str = "",
         current_page: str = "",
     ) -> IntegrationPlan:
-        """转发到 planner——current_page 只传给需要它的（refine 润色师）。
+        """转发给 planner；current_page 只传给需要它的模式（refine 润色师）。
 
-        共享签名保持 current_page 参数（pipeline 无条件传），但
-        模式知识在 Planner.needs_current_page——CuratorPlanner 永远
-        收不到这个参数，接口不再被模式差异污染。
+        pipeline 无条件传 current_page，由 Planner.needs_current_page
+        决定是否接收——CuratorPlanner 不接收，共享接口不因模式差异分叉。
 
         Args:
             extract: 源文档抽取结果。

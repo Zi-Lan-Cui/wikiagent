@@ -29,7 +29,7 @@ class AgentEvent:
 
 
 class EventPublisher(AgentHook):
-    """Publish Agent lifecycle events to in-process subscribers.
+    """向本进程订阅者推送 Agent 生命周期事件。
 
     The publisher is an AgentHook, so it can be composed with the terminal
     renderer.  It deliberately knows nothing about HTTP or SSE.

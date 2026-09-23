@@ -18,19 +18,19 @@ class Kind(StrEnum):
 
 
 class Settlement(StrEnum):
-    """成功 job 的结算类别——"做完了，做的是哪一种事"。
+    """成功 job 的结算类别：说明完成的是哪一种业务事实。
 
-    三句话分工：status 只说做完没有；settlement 说完成的是哪种业务事实，
-    由 handler 申报在 detail["settlement"]；issue 账本怎么变动由
-    JobOutcomeHandler 查 ISSUE_RULES，handler 无权写账。
-    未申报、或表里没有的类别一律不动账本（未知值另留警告）。
+    分工：status 表示任务是否完成；settlement 由 handler 申报在
+    detail["settlement"]，表示完成的事实类型；账本动作由
+    JobOutcomeHandler 查 ISSUE_RULES 决定，handler 不能直接写账。
+    未申报或表中不存在的类别不动账本，未知值记录警告。
     """
 
-    INGESTED = "ingested"  # 源文件真的编译进了 wiki
-    ALREADY_INGESTED = "already_ingested"  # 快照内容已在完成账（崩溃重放短路）
+    INGESTED = "ingested"  # 源文件编译进 wiki
+    ALREADY_INGESTED = "already_ingested"  # 快照内容已在完成账，崩溃重放时短路返回
     DELETE_APPLIED = "delete_applied"  # 删除清理完成
     REFINED = "refined"  # 页面精炼完成
-    UNIT_MISSING = "unit_missing"  # refine 的页面已不在（排队期间被删）
+    UNIT_MISSING = "unit_missing"  # refine 的页面在排队期间已被删除
     APPLIED = "applied"  # 重组提议执行并通过扫描闸门
     RESCAN_STILL_PRESENT = "rescan_still_present"  # 复扫确认问题仍在
     RESCAN_CLEARED = "rescan_cleared"  # 复扫确认问题已消失
@@ -59,11 +59,11 @@ class Job:
 
 @dataclass(frozen=True, slots=True)
 class JobResult:
-    """handler 与 Worker 之间的返回值契约——业务结局，bug 才抛异常。
+    """handler 与 Worker 之间的返回值契约：表达业务结局；程序错误抛异常。
 
-    handler 只表达业务结局；未捕获异常由 Worker 就地记日志+事件承接，
-    不产出结果对象。error_type 决定失败进哪本账（手动重试模型：只记账，
-    不排程）：
+    handler 只返回业务结局；未捕获异常由 Worker 记日志并发事件，
+    不产出结果对象。error_type 决定失败记录到哪个账本（手动重试模型：
+    只记账，不排程）：
 
     - "ingest_error": source 级业务失败 → 同事务上报/合并 issue 中心，
       等待人工重试（sync 或 retry 按钮）；detail 必须携带 draft 构造所需
@@ -71,8 +71,8 @@ class JobResult:
     - "":             无联动语义的终态失败（如未注册 kind）。
 
     status="cancelled" 由取消路径直达终态，handler 无需返回。
-    succeeded 时 detail 必须申报 settlement（结算类别）——issue 联动
-    按它在 outcomes.ISSUE_RULES 查表，未申报 = 账本不动；
+    succeeded 时 detail 必须申报 settlement，issue 联动按它在
+    outcomes.ISSUE_RULES 查表；未申报则账本不动；
     compile 成功另携带 digest/text 供完成账核账。
     """
 

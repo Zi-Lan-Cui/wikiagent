@@ -1,4 +1,4 @@
-"""Durable execution jobs shared by sync, CLI and Web entry points.
+"""持久化执行任务表——sync、CLI、Web 各入口共用。
 
 Job 是唯一执行事实来源。关键不变式：
 - 同一 resource 至多一个在途（in-flight = queued/running）Job——由部分
@@ -33,7 +33,7 @@ def _now() -> str:
 
 
 class JobStore:
-    """SQLite-backed job state; the database is the source of truth."""
+    """jobs 表的存储层；数据库是唯一事实来源。"""
 
     def __init__(self, workspace: str | Path):
         self.database = Database(workspace)

@@ -1,8 +1,8 @@
 """集成层解析——把 LLM 原始输出变成模型对象。
 
-与 checks 分工: checks 定义"什么算好输出"，本模块把校验过的输出
-变成对象。解析信任校验结果——能到这里的原始内容必然已通过 check，
-再解析失败是 bug，炸出来。
+与 checks 分工：checks 定义合格输出的标准，本模块把校验过的输出
+变成对象。解析信任校验结果——到达这里的原始内容已通过 check，
+再解析失败是程序 bug，抛出异常。
 """
 
 from __future__ import annotations
@@ -163,9 +163,8 @@ def parse_analysis(raw: str, source_identity: str) -> AnalysisResult:
 def parse_plan(raw: str) -> IntegrationPlan:
     """解析 plan JSON 输出 → IntegrationPlan。
 
-    fence 容错与 check_plan_json 共享 strip_fence——能到这的
-    内容必然已通过校验，解析失败是 bug，炸出来而不是吞掉
-    （旧 _try_parse_json 的 JSONDecodeError 抢救分支已不可达）。
+    fence 容错由 check_plan_json 的 strip_fence 完成，到达这里的内容
+    已通过校验；再解析失败是程序 bug，抛出异常而不是静默处理。
 
     Args:
         raw: LLM 原始输出。

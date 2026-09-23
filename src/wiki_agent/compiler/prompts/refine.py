@@ -1,4 +1,4 @@
-"""refine 模式 prompt——wiki 自编译（只拿不放）。
+"""refine 模式 prompt：wiki 自编译，动作只允许指向当前页自身。
 
 角色与 compile 完全不同: compile 的 plan 是策展人（对外部文档做
 new/update 决策），refine 的 plan 是润色师——页面只更新自己
@@ -45,7 +45,7 @@ __all__ = [
     "update_user",
 ]
 
-# 模式契约——refine 只允许 update（只拿不放）。
+# 模式契约：refine 只允许 update，动作只能指向当前页自身。
 # plan() 用它约束 check_plan_json: LLM 输出 new 直接 retry 修正。
 ALLOWED_DISPOSITIONS = {"update"}
 
@@ -77,7 +77,7 @@ def plan_system(
         for p in [
             "你是知识库的润色师。基于关系分析，对当前页面做精炼。",
             "",
-            "## 你的职责（只拿不放）",
+            "## 你的职责",
             "- 只更新当前页面自己——禁止创建新页、禁止更新其他页面",
             "  （合并/拆分/删除由显式命令处理，不是你的职责）",
             "- 无要改的 → 输出空数组；不要为了让页面看起来更丰富而强行改写",

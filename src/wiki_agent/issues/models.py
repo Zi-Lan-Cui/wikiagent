@@ -20,7 +20,7 @@ class IssueKind(StrEnum):
 
 
 class IssueStatus(StrEnum):
-    """Persistent issue lifecycle states.
+    """问题账本的持久化状态。
 
     没有"processing"镜像态——"谁在处理"由 jobs 表（该 issue 是否有在途
     挂账 job）派生，issue 状态只表达问题本身的生命周期。

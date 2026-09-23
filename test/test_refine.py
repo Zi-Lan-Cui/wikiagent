@@ -1,4 +1,4 @@
-"""refine 管线测试——prompt 契约 / 模式接线 / 只拿不放兜底 / 全链集成。
+"""refine 管线测试：prompt 契约、模式接线、只更新当前页的兜底过滤、全链集成。
 
 无需真实 LLM：集成测试按阶段脚本化响应，验证 refine 模式的完整
 数据流（index 排除自身 → 润色师 plan → 兜底过滤 → 只更新自己 →
@@ -38,7 +38,7 @@ def test_refine_plan_is_independent_curator():
     sys_text = rp.plan_system()
     user_text = rp.plan_user(ext, "分析文本", current_page="concepts/x")
     assert "润色师" in sys_text
-    assert "只拿不放" in sys_text
+    assert "只更新当前页面自己" in sys_text
     assert "concepts/x" in user_text  # 动态身份在 user 段
     # compile 的策展人文本不被继承
     c_sys = cp.plan_system()
@@ -65,8 +65,8 @@ def test_refine_prompt_requires_evidence_or_noop():
 def test_check_blocks_new_in_refine():
     """refine 契约: new 被校验拦截（retry 报错），update 放行。
 
-    注意 wiki_path 必须带合法目录前缀——路由校验（2026-08-14 新增）
-    在 disposition 校验之前拦非法目录。
+    注意 wiki_path 必须带合法目录前缀：路由校验在 disposition 校验
+    之前拦截非法目录。
     """
     new_plan = (
         '{"page_targets": [{"wiki_path": "concepts/a.md", "title": "A", '
@@ -392,7 +392,7 @@ class ScriptedLLM:
         response_format=None,
     ):
         # chunk/synthesis 是 system+user 双消息——扫描全部消息，
-        # 只读 messages[-1] 会拿到 user 的 chunk 正文，分支永远不命中
+        # 只读 messages[-1] 会拿到 user 的 chunk 正文，该分支不会命中
         content = "\n".join(m.content for m in messages)
         self.calls.append(content)
         if "精读助手" in content:
