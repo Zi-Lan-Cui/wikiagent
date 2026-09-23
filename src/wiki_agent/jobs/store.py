@@ -336,6 +336,33 @@ class JobStore:
             ).fetchone()
         return row is not None
 
+    def count_in_flight_for_batch(self, batch_id: str) -> int:
+        """该提交批还有多少在途任务——快照目录删除判据（最后一个终态才删）。"""
+        with self.database.connect() as db:
+            row = db.execute(
+                f"SELECT COUNT(*) AS total FROM jobs WHERE {_IN_FLIGHT_SQL}"
+                " AND json_extract(payload_json, '$.batch') = ?",
+                (batch_id,),
+            ).fetchone()
+        return int(row["total"]) if row is not None else 0
+
+    def in_flight_batch_ids(self) -> set[str]:
+        """非终态任务引用的批 id 集合——启动时清扫无主快照目录的保留名单。"""
+        with self.database.connect() as db:
+            rows = db.execute(
+                f"SELECT payload_json FROM jobs WHERE {_IN_FLIGHT_SQL}"
+            ).fetchall()
+        batches: set[str] = set()
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except ValueError:
+                continue
+            batch = payload.get("batch")
+            if isinstance(batch, str) and batch:
+                batches.add(batch)
+        return batches
+
     def in_flight_job_by_issue(
         self, issue_id: str, *, _conn: sqlite3.Connection | None = None
     ) -> Job | None:
