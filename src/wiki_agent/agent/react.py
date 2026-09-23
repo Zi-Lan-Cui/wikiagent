@@ -628,8 +628,6 @@ class ReActAgent(BaseAgent):
         await self._runner.run_loop(session, messages, stream, run_ctx)
 
         # SAVE
-        # 这里应该补充会话数据清洗，清洗掉错误的工具调用，空的assisstant回复，超大的工具结果，将内容保存成文件
-        # 消息内容替换成文件的引用
         get_skip_count = self._get_skip_count(
             initial_message_count=initail_message_count,
         )

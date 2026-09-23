@@ -44,7 +44,7 @@ class FatalError(WikiAgentError):
 
 
 class IngestStage(StrEnum):
-    """编译链路各阶段——统一命名，杜绝魔法字符串。"""
+    """编译链路各阶段的统一命名。"""
 
     LOAD = "load"  # 文件发现
     CONVERT = "convert"  # 格式转换

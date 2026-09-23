@@ -15,16 +15,16 @@ wiki、不动账本），不是源文件的业务失败。业务身份（resourc
     pre-reset（工作区收敛到 HEAD）→ 执行 → 成功 commit / 失败 restore
 
 wiki 是机器管理的，未提交内容只可能是残骸，因此 pre-reset 无条件安全；
-崩溃现场来不及 restore 也由下一个 job 的 pre-reset 收编。HEAD 于是始终
-等于"最近已结算状态"。失败 restore 前把残骸 diff 导出到
-workspace/provenance/debris/ 留证据（日志/事件/残骸快照永不回撤）。
+崩溃时来不及 restore 留下的改动，由下一个 job 的 pre-reset 清除。HEAD
+于是始终等于"最近已结算状态"。失败 restore 前把残骸 diff 导出到
+workspace/provenance/debris/ 留证据（日志/事件/残骸快照不随回滚清除）。
 
 本模块不写"完成账"也不报失败 issue：
 - 成功时把快照件的 digest+text（+档案页内容、commit）放进 JobResult.detail，
   由 JobOutcomeHandler 在终态事务提交后写 SyncState 与溯源档案（成功才
   落账、先库后文件）；
 - 业务失败（IngestError）→ 残骸导出 + restore，转成 failed/ingest_error
-  结果；issue 记账统一在 outcome；未预期异常裸抛，由 Worker 归日志+事件。
+  结果；issue 记账统一在 outcome；未预期异常直接上抛，由 Worker 归日志+事件。
 
 源文件删除按确定性规则清理（纯代码，无 LLM）: 溯源记录只含被删文件 →
 删除记录；还含其他文件 → 仅移除该条目。删除决定来自快照（removed 差集），
@@ -229,9 +229,9 @@ class SyncConsumer:
         except IngestError as exc:
             return self._ingest_error_result(job, exc)
 
-        # 单 source 局部质量闸门（原批壳的 scan_source 移进队列执行体）：
-        # 检查本轮产出——生成页查结构/死链，档案页查内存内容（尚未落盘）。
-        # error 即本 job 业务失败：残骸 restore、记账等人，不污染其他 source。
+        # 单 source 局部质量闸门：检查本轮产出——生成页查结构/死链，
+        # 档案页查内存内容（尚未落盘）。error 即本 job 业务失败：
+        # 残骸 restore、记账等人，不影响其他 source。
         page = outcome.extract.source_page if outcome.extract is not None else None
         local_issues = scan_source(
             self._wiki_dir,

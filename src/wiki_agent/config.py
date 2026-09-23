@@ -69,9 +69,9 @@ class AgentConfig(BaseSettings):
 
     agent 生成与治理参数——唯一配置来源（react/governor/consolidator 直接读本类）。
 
-    治理参数（E3 收编，2026-08-17）:
+    治理参数:
     - 工具结果 TTL: 可重复获得工具的驱逐时限——wiki 经 compile/refine
-      变化，跨轮旧读取会失真；30 分钟是经验值（实测依据见报告 11.7）
+      变化，跨轮旧读取会失真；30 分钟是经验值
     - 转存/紧凑化/snip: 窗口维度治理的阈值——与 context_windows 配套调
     """
 
@@ -87,7 +87,7 @@ class AgentConfig(BaseSettings):
     session_idle_minutes: int = 15
     session_tail_messages: int = 6
     dream_poll_interval: int = 60
-    # 治理参数（E3 收编——原散在 governor/builder 模块顶部）
+    # 治理参数
     tool_result_ttl_minutes: int = 30  # 可重复获得工具（导航三件套）驱逐时限
     tool_persist_length: int = 8_000  # 工具结果转存阈值（超限写文件）
     snip_safe_buffer: int = 1024  # token 估计安全余量
