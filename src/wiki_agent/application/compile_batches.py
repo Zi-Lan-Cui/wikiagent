@@ -92,15 +92,21 @@ async def run_manifest(
     batch_size: int,
     max_batches: int | None = None,
     execute: SyncExecute | None = None,
+    cfg: RootConfig | None = None,
 ) -> dict[str, Any]:
     """逐批 materialize → sync；返回统计，不落任何编排状态。"""
     payload = load_manifest(manifest)
     root = root.expanduser().resolve()
     batches = split_sources(payload["sources"], batch_size)
-    executor = execute or _make_sync_executor(
-        workspace=workspace.expanduser().resolve(),
-        wiki_dir=wiki_dir.expanduser().resolve(),
-    )
+    executor = execute
+    if executor is None:
+        if cfg is None:
+            raise ValueError("未注入 execute 时必须提供 cfg（配置只在入口读一次）")
+        executor = _make_sync_executor(
+            workspace=workspace.expanduser().resolve(),
+            wiki_dir=wiki_dir.expanduser().resolve(),
+            cfg=cfg,
+        )
     run_dir = work_dir.expanduser().resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -116,11 +122,12 @@ async def run_manifest(
     return {"batches_run": executed, "batches_total": len(batches), "enqueued": enqueued}
 
 
-def _make_sync_executor(*, workspace: Path, wiki_dir: Path) -> SyncExecute:
+def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> SyncExecute:
     """默认执行器：装配一个隔离于 AppRuntime 的小型 sync 执行现场。
 
-    评测沙箱自带 workspace 的 jobs/账本与目标 wiki；LLM 客户端按项目
-    配置构造。执行锁让同一沙箱目录同时只有一个跑批进程。
+    评测沙箱自带 workspace 的 jobs/账本与目标 wiki；LLM 客户端按调用方
+    传入的配置构造（配置只在入口读一次，现场不自己 load）。执行锁让同一
+    沙箱目录同时只有一个跑批进程。
     """
 
     async def execute(batch_dir: Path) -> int:
@@ -132,7 +139,6 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path) -> SyncExecute:
         from wiki_agent.sync.state import SyncState
         from wiki_agent.versioning import WikiGitManager
 
-        cfg: RootConfig = load_config(project_root=Path.cwd())
         acquire_execution_lock(workspace)
         try:
             workspace.mkdir(parents=True, exist_ok=True)
@@ -212,6 +218,7 @@ async def _main(args: argparse.Namespace) -> int:
         work_dir=work_dir,
         batch_size=args.batch_size,
         max_batches=args.max_batches,
+        cfg=cfg,
     )
     print(json.dumps(result, ensure_ascii=False))
     return 0
