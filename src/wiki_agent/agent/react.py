@@ -15,7 +15,7 @@ from wiki_agent.context import Consolidator, ContextBuilder, ContextGovernor
 from wiki_agent.conversation import Message, Session, SessionManager
 from wiki_agent.errors import RetryableError
 from wiki_agent.events import AgentHook, CompositeHook, RunContext
-from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues import IssueService
 from wiki_agent.llm import LLMClient, retry_llm_call
 from wiki_agent.log import begin_trace, emit_event, get_logger, span
 from wiki_agent.memory import Dreamer, MemoryStore
@@ -368,16 +368,18 @@ class ReActAgent(BaseAgent):
         vlm: LLMClient,
         tool_registry: ToolRegistry,
         workspace: Path,
+        issue_service: IssueService,
         wiki_dir: str | Path | None = None,
         hooks: list[AgentHook] | None = None,
         agent_config=None,
         compile_config: CompileConfig | None = None,
         retry_config: RetryConfig | None = None,
-        issue_service: IssueService | None = None,
         job_service: JobService | None = None,
     ):
         super().__init__(name=name, workspace=workspace)
-        # /queue retry 等命令把重试移交持久 Job 队列——由 runtime 注入
+        # 能力全部由装配根注入：job_service 可缺席（QA-only 会话无执行入口），
+        # issue_service 必备（RecordCorrection 工具依赖）——本类不再
+        # 自装配存储。
         self.job_service = job_service
         self.llm = llm
         # vlm 供 /refine 等编译类命令使用（CompilePipeline 需要）
@@ -390,7 +392,7 @@ class ReActAgent(BaseAgent):
         self.session_manager = SessionManager(workspace=workspace)
         self.tool_registry = tool_registry
         self.memory_store = MemoryStore(workspace=workspace)
-        self.issue_service = issue_service or IssueService(IssueStore(workspace))
+        self.issue_service = issue_service
         self.tool_registry.register(RecordCorrection(self.issue_service))
         self.context_builder = ContextBuilder(
             system_prompt=self.SYSTEM_PROMPT,

@@ -247,10 +247,10 @@ def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
     用途：/wiki revert 入口带 restore——同进程泵正在写 wiki 时拒绝碰历史，
     否则会把在途半成品误当残骸。
     """
-    job_service = getattr(agent, "job_service", None)
-    if job_service is None:
+    # 能力是显式声明的可选属性（ReActAgent.job_service），缺席=本会话无执行入口
+    if agent.job_service is None:
         return 0
-    return job_service.store.in_flight_for_kinds(
+    return agent.job_service.store.in_flight_for_kinds(
         (Kind.COMPILE, Kind.DELETE, Kind.REFINE, Kind.RESTRUCTURE)
     )
 
@@ -350,7 +350,7 @@ class QueueCommand(Command):
             from wiki_agent.jobs.retry_source import SourceUnavailableError
             from wiki_agent.jobs.service import JobService
 
-            job_service: JobService | None = getattr(ctx.agent, "job_service", None)
+            job_service: JobService | None = ctx.agent.job_service
             if job_service is None:
                 return CommandResult(
                     text="# source 失败重试\n\n当前进程未接入 Job 队列（仅组装了 job_service 的入口可用）。"
@@ -424,15 +424,13 @@ class ScanCommand(Command):
 
         removed = cleanup_exact_duplicates(wiki)
         issues = scan_wiki(wiki)
-        issue_service = getattr(ctx.agent, "issue_service", None)
-        if issue_service is not None:
-            from wiki_agent.issues.producers import report_quality_findings
+        from wiki_agent.issues.producers import report_quality_findings
 
-            report_quality_findings(
-                issue_service,
-                issues,
-                origin={"mode": "cli", "trigger": "scan_command"},
-            )
+        report_quality_findings(
+            ctx.agent.issue_service,
+            issues,
+            origin={"mode": "cli", "trigger": "scan_command"},
+        )
         report = format_scan_report(issues)
         if removed:
             lines = ["## 自动清理完全重复页面", ""]
@@ -667,7 +665,7 @@ class RefineCommand(Command):
         pages = refine_pages(wiki)
         if not pages:
             return CommandResult(text="# /refine\n\n没有可 refine 的页面。")
-        job_service = getattr(ctx.agent, "job_service", None)
+        job_service = ctx.agent.job_service
         if job_service is None:
             return CommandResult(text="# /refine\n\n当前会话未装配任务队列（无执行入口）。")
         dry_run = "--dry-run" in ctx.args.split()
@@ -720,10 +718,7 @@ class RefineCommand(Command):
         Returns:
             wiki 根路径；ReadFile 未注册时返回 None。
         """
-        registry = getattr(ctx.agent, "tool_registry", None)
-        if registry is None:
-            return None
-        read_file = registry.get("ReadFile")
+        read_file = ctx.agent.tool_registry.get("ReadFile")
         if read_file is None:
             return None
         return Path(read_file.root)
