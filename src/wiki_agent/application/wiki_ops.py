@@ -1,6 +1,6 @@
 """refine / restructure 执行体——与 SyncConsumer 同一 wiki 写协议。
 
-pre-reset → 执行 → 成功 commit / 失败残骸导出 + restore（jobs.wiki_session）。
+pre-reset → 执行 → 成功 commit / 失败导出未提交改动后 restore（jobs.wiki_session）。
 两类 job 由人显式触发、走同一队列，与 sync job 串行执行，互斥由泵保证。
 
 失败不进问题账本：issue 账本的语义是"源材料的业务失败、等人修复后重试"；
@@ -127,7 +127,7 @@ class WikiOpsConsumer:
         return JobResult(status="succeeded", detail=ok_detail)
 
     def _failed(self, job: Job, exc: IngestError | None) -> JobResult:
-        """refine 业务失败：残骸撤销 + 事件，不记账（批操作结果非用户待办）。"""
+        """refine 业务失败：restore 未提交改动 + 事件，不记账（批操作结果非用户待办）。"""
         page = Path(job.resource).name
         self._session.discard_debris(job.id)
         message = str(exc)[:500] if exc is not None else "加载为空"

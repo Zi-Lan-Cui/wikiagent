@@ -4,7 +4,7 @@
     .venv/bin/python scripts/refine_wiki.py [--wiki-dir DIR] [--limit N]
 
 执行体在 application.wiki_ops：一页一个 job、pre-reset→ingest→
-成功一页一提交；失败只撤该页的残骸（task failed + 事件，不进问题账本）。
+成功一页一提交；失败只撤该页的未提交改动（task failed + 事件，不进问题账本）。
 批尾注支持 ``/wiki revert-batch <批id>`` 整批回撤。结构重组是另一个
 入口（scripts/restructure_wiki.py），不再与 refine 同事务。
 

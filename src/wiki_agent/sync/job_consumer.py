@@ -14,16 +14,16 @@ wiki、不动账本），不是源文件的业务失败。业务身份（resourc
 
     pre-reset（工作区收敛到 HEAD）→ 执行 → 成功 commit / 失败 restore
 
-wiki 是机器管理的，未提交内容只可能是残骸，因此 pre-reset 无条件安全；
+wiki 是机器管理的，未提交改动都出自失败或中断的任务，因此 pre-reset 无条件安全；
 崩溃时来不及 restore 留下的改动，由下一个 job 的 pre-reset 清除。HEAD
-于是始终等于"最近已结算状态"。失败 restore 前把残骸 diff 导出到
-workspace/provenance/debris/ 留证据（日志/事件/残骸快照不随回滚清除）。
+于是始终等于"最近已结算状态"。失败 restore 前把未提交改动 diff 导出到
+workspace/provenance/debris/ 留证据（日志/事件/未提交改动快照不随回滚清除）。
 
 本模块不写"完成账"也不报失败 issue：
 - 成功时把快照件的 digest+text（+档案页内容、commit）放进 JobResult.detail，
   由 JobOutcomeHandler 在终态事务提交后写 SyncState 与溯源档案（成功才
   落账、先库后文件）；
-- 业务失败（IngestError）→ 残骸导出 + restore，转成 failed/ingest_error
+- 业务失败（IngestError）→ 导出未提交改动 + restore，转成 failed/ingest_error
   结果；issue 记账统一在 outcome；未预期异常直接上抛，由 Worker 归日志+事件。
 
 源文件删除按确定性规则清理（纯代码，无 LLM）: 溯源记录只含被删文件 →
@@ -231,7 +231,7 @@ class SyncConsumer:
 
         # 单 source 局部质量闸门：检查本轮产出——生成页查结构/死链，
         # 档案页查内存内容（尚未落盘）。error 即本 job 业务失败：
-        # 残骸 restore、记账等人，不影响其他 source。
+        # restore 未提交改动、记账等人，不影响其他 source。
         page = outcome.extract.source_page if outcome.extract is not None else None
         local_issues = scan_source(
             self._wiki_dir,
@@ -275,7 +275,7 @@ class SyncConsumer:
         return JobResult(status="failed", detail={"error": f"snapshot_error: {reason}"[:500]})
 
     def _ingest_error_result(self, job: Job, exc: IngestError) -> JobResult:
-        """业务失败 → 残骸快照+restore → 结果化（issue 记账统一在 outcome）。"""
+        """业务失败 → 导出未提交改动+restore → 结果化（issue 记账统一在 outcome）。"""
         name = Path(job.resource).name
         logger.error("  ingest 失败 [%s]: %s", exc.stage.value, str(exc)[:200])
         self._session.discard_debris(job.id)

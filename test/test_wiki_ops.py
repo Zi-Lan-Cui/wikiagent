@@ -1,7 +1,7 @@
 """refine/restructure 执行体——per-job git 协议 + 失败不记账。
 
 真 git、真 JobService/Worker；手术 execute 与 refine pipeline 用假件。
-断言重点：一页一提交、批尾注可撤、失败只撤残骸不进历史也不进问题账本。
+断言重点：一页一提交、批尾注可撤、失败只撤未提交改动不进历史也不进问题账本。
 
 直接运行:  .venv/bin/python test/test_wiki_ops.py
 """
@@ -46,7 +46,7 @@ def _env(tmp: Path, *, raises: IngestError | None = None):
         encoding="utf-8",
     )
     git = WikiGitManager(wiki)
-    git.commit_all("wiki: seed")  # 预置内容必须已结算——否则 pre-reset 当残骸清掉
+    git.commit_all("wiki: seed")  # 预置内容必须已结算——否则 pre-reset 当未提交改动清掉
     records = tmp / "workspace" / "provenance" / "sources"
     records.mkdir(parents=True)
     service = JobService(tmp / "workspace", wiki_dir=wiki, source_records_dir=records)
