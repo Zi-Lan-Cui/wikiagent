@@ -196,8 +196,8 @@ class SyncConsumer:
         path = Path(job.resource)  # 业务身份：resource、事件名、完成账键
         batch = str(job.payload.get("batch") or "")
         rel = str(job.payload.get("rel_path") or "")
-        if self._snapshots is None or not batch or not rel:
-            return self._snapshot_error_result(job, "任务缺少快照坐标（batch/rel_path）或装配未接快照仓库")
+        if not batch or not rel:
+            return self._snapshot_error_result(job, "任务缺少快照坐标（batch/rel_path）")
 
         staged = self._snapshots.staged_path(batch, rel)
         read = digest_file_text(staged)
