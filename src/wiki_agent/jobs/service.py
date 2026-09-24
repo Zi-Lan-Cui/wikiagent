@@ -378,12 +378,24 @@ class JobService:
     def cancel_terminal(self, job: Job) -> None:
         """进程取消路径：终态 cancelled（CAS，不二次写）。
 
-        取消不背失败也不还账——提交从未改变 issue 状态，无账可还，
-        因此无需任何 issue/state 联动，一次条件写就是全部工作。
+        取消不联动任何账：提交时没改过 issue 状态，因此没有需要回转的
+        记录，一次条件写就是全部工作。
         """
         self.store.try_finalize(job.id, status="cancelled", stage="cancelled")
 
-    # 读取
+    # 读取——适配器与脚本的读口，store 只在这里被调用
 
     def list(self, *, limit: int = 100) -> list[Job]:
         return self.store.list(limit=limit)
+
+    def get(self, job_id: str) -> Job:
+        """按 id 读一行；不存在时抛 LookupError。"""
+        return self.store.get(job_id)
+
+    def count_in_flight(self) -> int:
+        """在途（queued/running）行数——脚本驱动队列到空的判据。"""
+        return self.store.count_in_flight()
+
+    def in_flight_issue_ids(self) -> set[str]:
+        """有挂账 queued/running job 的 issue id 集合。"""
+        return set(self.store.open_issue_ids_with_in_flight_job())

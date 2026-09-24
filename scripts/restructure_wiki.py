@@ -86,10 +86,10 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
         jobs = service.submit_restructure([asdict(p) for p in outcome.accepted])
         batch = str(jobs[0].payload["batch"])
         logger.info("重组已入队: %d 个执行单元（批 %s）", len(jobs), batch)
-        while service.store.count_in_flight() > 0:
+        while service.count_in_flight() > 0:
             if await runtime.job_worker.run_once() is None:
                 break
-        rows = [service.store.get(job.id) for job in jobs]
+        rows = [service.get(job.id) for job in jobs]
         failed = [row for row in rows if row.status != "succeeded"]
         for row in failed:
             logger.warning("执行单元被撤销: %s", row.error)

@@ -50,15 +50,15 @@ async def main(selected: str | None = None) -> None:
 
         # 本脚本驱动队列，直到领不到本进程注册类型的任务为止
         worker = runtime.job_worker
-        while service.store.count_in_flight() > 0:
+        while service.count_in_flight() > 0:
             job = await worker.run_once()
             if job is None:
                 break  # 在途行都是本进程未注册 handler 的 kind（如 issue_action）
             outcomes[_issue_of(job.id, service)] = job.status
-        if service.store.count_in_flight() > 0:
+        if service.count_in_flight() > 0:
             logger.info(
                 "仍有 %d 个在途任务不属于本进程的执行类型，留给注册了对应 handler 的进程",
-                service.store.count_in_flight(),
+                service.count_in_flight(),
             )
 
         for issue_id in issue_ids:
@@ -70,7 +70,7 @@ async def main(selected: str | None = None) -> None:
 
 
 def _issue_of(job_id: str, service) -> str:
-    job = service.store.get(job_id)
+    job = service.get(job_id)
     return job.issue_id or job.resource
 
 

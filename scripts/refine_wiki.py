@@ -49,7 +49,7 @@ async def main(wiki_dir: Path | None = None, limit: int | None = None) -> None:
             return
         batch = str(jobs[0].payload["batch"])
         logger.info("refine 入队 %d 页（批 %s）", len(jobs), batch)
-        while service.store.count_in_flight() > 0:
+        while service.count_in_flight() > 0:
             done = await runtime.job_worker.run_once()
             if done is None:
                 break

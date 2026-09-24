@@ -64,8 +64,7 @@ def create_app(
     job_worker = app_runtime.job_worker
 
     def _in_flight_issue_ids() -> set[str]:
-        # "在途"= 该 issue 有挂账的 queued/running job——一条 SQL，不扫内存
-        return set(job_service.store.open_issue_ids_with_in_flight_job())
+        return job_service.in_flight_issue_ids()
 
     def submit_issue_job(
         issue_id: str, action: str, payload: dict[str, Any] | None = None
@@ -233,7 +232,7 @@ def create_app(
     @app.get("/api/issue-tasks/{task_id}")
     async def get_issue_task(task_id: str) -> dict[str, Any]:
         try:
-            return _job_task(job_service.store.get(task_id))
+            return _job_task(job_service.get(task_id))
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}") from exc
 
