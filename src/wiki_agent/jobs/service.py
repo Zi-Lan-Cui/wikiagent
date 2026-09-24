@@ -45,7 +45,7 @@ class JobService:
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         # sync 快照对比需要完成账本
         self.sync_state = sync_state
-        # 源文件快照仓库：提交即定格输入（submit 写、consumer 读、终态删）
+        # 源文件快照仓库：提交时复制输入（submit 写、consumer 读、终态删）
         self.snapshots = snapshots or SnapshotStore(workspace)
         self.store = JobStore(workspace)
         self.issues = IssueStore(workspace)
@@ -90,7 +90,7 @@ class JobService:
         （他人占位同一资源）返回占位者、其无账则补挂。retry 资格
         （状态、来源可读）由各入口的 validate 判定，这里只管执行唯一性。
         与 submit_sync 同一规则：digest 来自点击时复制的快照件，
-        点击后文件再变，本次重试处理的仍是定格的这份。issue 终态由
+        点击后文件再变，本次重试处理的仍是当时保存的这份副本。issue 终态由
         compile job 的 outcome 落，提交本身不改变 issue 状态。
         """
         if self.wiki_dir is None:
@@ -163,7 +163,7 @@ class JobService:
         }
 
     def submit_sync(self, source_dir: str | Path) -> list[Job]:
-        """快照同步：点击时"磁盘 − 账本"之差即本批；脏文件复制定格后整批入队。
+        """快照同步：点击时"磁盘 − 账本"之差即本批；脏文件复制保存后整批入队。
 
         语义契约——"快照是输入"：
         - 互斥串行：compile/delete 有在途则 SyncInProgress，上一批没跑完
@@ -172,7 +172,7 @@ class JobService:
           的副本。执行期间原件修改、删除、复活都不影响本批；改动归下一次
           点击。payload.digest 就是副本的实际内容；
         - 失败不写账即保持脏，再次 sync 就是重试；脏文件若背着 open 失败账
-          则同时挂账 issue_id，成功即解决；
+          则同时挂账 issue_id，重试成功即解决；
         - payload.batch 有三个用途：快照目录名、wiki commit 尾注（撤销整批 =
           按尾注在历史中选段 revert）、批内最后一个任务终态时删目录的分组键。
         顺序：先复制、后入队，任务存在则输入必在；反序会出现任务读不到
@@ -244,7 +244,7 @@ class JobService:
         self, disk: dict[str, str], _conn: sqlite3.Connection | None = None
     ) -> int:
         """关闭"对象已不存在"的活动失败记录：source 既不在磁盘也不在完成账里，
-        它不会再出现在任何任务里。按事实关闭、事件留痕，不靠人工逐条清理。
+        它不会再出现在任何任务里。按事实关闭并记录事件，不靠人工逐条清理。
         """
         assert self.sync_state is not None
         hashed = {p for p in self.sync_state.all_paths() if self.sync_state.get(p).hash}

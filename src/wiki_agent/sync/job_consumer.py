@@ -191,7 +191,7 @@ class SyncConsumer:
     # compile
 
     async def _handle_compile(self, job: Job, progress) -> JobResult:
-        """ingest 一个源文件；输入只认提交时定格的快照副本。"""
+        """ingest 一个源文件；输入只认提交时保存的快照副本。"""
         path = Path(job.resource)  # 业务身份：resource、事件名、完成账键
         batch = str(job.payload.get("batch") or "")
         rel = str(job.payload.get("rel_path") or "")

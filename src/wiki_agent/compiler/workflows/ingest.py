@@ -1,7 +1,7 @@
 """单文件编译流水线——批量编译与 sync 消费共用的领域入口。
 
 一个源文件 → convert → chunk → extract → search → analyze → plan →
-execute → index。阶段失败带阶段信息冒出，流水线不决定失败策略，
+execute → index。阶段失败抛出时带阶段信息，流水线不决定失败策略，
 只报告失败发生在哪一段；调用方拿到结果自行统计与存档。
 """
 

@@ -85,7 +85,7 @@ class JobWorker:
                 detail={"error": f"{type(exc).__name__}: {str(exc)[:400]}"},
             )
         if not isinstance(result, JobResult):
-            # 契约违约同样是代码 bug：记日志/事件，账上不留给用户
+            # 契约违约同样是代码 bug：记日志、发事件，不写问题账本
             logger.error("job %s handler 返回了 %s，应为 JobResult", job.id, type(result).__name__)
             emit_event("job_handler_contract_violation", job_id=job.id, kind=job.kind)
             result = JobResult(

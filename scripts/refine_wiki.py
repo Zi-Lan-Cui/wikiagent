@@ -55,7 +55,8 @@ async def main(wiki_dir: Path | None = None, limit: int | None = None) -> None:
                 break
             logger.info("  %s: %s", Path(done.resource).name, done.status)
 
-        # 批尾全库质量收尾：只报账不撤批（一页一提交，回撤走 revert-batch）
+        # 批尾全库质量收尾：只记录问题、不回退提交（一页一提交，
+        # 回退用 revert-batch）
         issues = scan_wiki(runtime.wiki_dir)
         report_quality_findings(
             runtime.issue_service,

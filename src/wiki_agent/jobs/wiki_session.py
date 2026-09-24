@@ -7,7 +7,7 @@ SyncConsumer（compile/delete）与 WikiOpsConsumer（refine/restructure）都�
 可以一律清除，HEAD 因此始终等于最近已结算状态。
 commit subject 用操作语义前缀（sync:/retry:/refine:/restructure:），
 payload.batch 进 commit 尾注——"撤销这一批"按尾注选段 revert。
-未提交改动 patch 与批尾注同属留痕面，进程内永不回撤。
+失败导出的 patch 与 commit 批尾注都是执行记录，不随 wiki 回退删除。
 """
 
 from __future__ import annotations
@@ -67,7 +67,8 @@ class WikiWriteSession:
         return self._git.commit_all(subject, body=body) or ""
 
     def discard_debris(self, job_id: str) -> None:
-        """失败撤销：restore 前导出未提交改动 diff（证据进留痕面，内容不进历史）。"""
+        """失败撤销：restore 前导出未提交改动的 diff——留存证据文件，
+        diff 内容不进 git 历史。"""
         if self._git is None:
             return
         patch = self._git.working_patch()
