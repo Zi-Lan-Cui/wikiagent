@@ -4,9 +4,10 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+from helpers import make_issue_store, make_job_store
+
 from wiki_agent.issues.models import IssueDraft, IssueKind
-from wiki_agent.issues.store import IssueStore
-from wiki_agent.jobs import DuplicateInFlightJob, JobStore
+from wiki_agent.jobs import DuplicateInFlightJob
 
 _LEGACY_JOBS_DDL = """
 CREATE TABLE jobs (
@@ -35,7 +36,7 @@ def _now() -> str:
 
 def test_i1_unique_active_per_resource(tmp_path: Path):
     """同 resource 第二个在途 job 被数据库拒绝；终态后放行新版本。"""
-    store = JobStore(tmp_path)
+    store = make_job_store(tmp_path)
     first = store.enqueue(kind="compile", resource="/src/a.md", mode="sync")
     try:
         store.enqueue(kind="delete", resource="/src/a.md", mode="sync")
@@ -49,7 +50,7 @@ def test_i1_unique_active_per_resource(tmp_path: Path):
 
 
 def test_idempotency_key_hit_returns_existing(tmp_path: Path):
-    store = JobStore(tmp_path)
+    store = make_job_store(tmp_path)
     a = store.enqueue(kind="compile", resource="/x", mode="sync", idempotency_key="k1")
     b = store.enqueue(kind="compile", resource="/x", mode="sync", idempotency_key="k1")
     assert a.id == b.id
@@ -76,7 +77,7 @@ def test_legacy_duplicate_active_rows_migrated(tmp_path: Path):
     db.commit()
     db.close()
 
-    store = JobStore(tmp_path)
+    store = make_job_store(tmp_path)
     assert store.get("job_old1").status == "queued"
     assert store.get("job_old2").status == "cancelled"
     # issue_id 列已补上且默认空
@@ -90,7 +91,7 @@ def test_legacy_duplicate_active_rows_migrated(tmp_path: Path):
 
 def test_claim_next_empty_kinds_returns_none(tmp_path: Path):
     """空 kinds = 没有注册类型，不领任何活——分工边界不许退化为不过滤。"""
-    store = JobStore(tmp_path)
+    store = make_job_store(tmp_path)
     store.enqueue(kind="compile", resource="/e", mode="sync")
     assert store.claim_next(kinds=set()) is None
     # None 才是显式不过滤
@@ -99,7 +100,7 @@ def test_claim_next_empty_kinds_returns_none(tmp_path: Path):
 
 def test_try_finalize_cas(tmp_path: Path):
     """终态 CAS：只有 running 可翻转，迟到写不命中、不改写。"""
-    store = JobStore(tmp_path)
+    store = make_job_store(tmp_path)
     job = store.enqueue(kind="compile", resource="/f", mode="sync")
     store.update(job.id, status="running")
     assert store.try_finalize(job.id, status="succeeded", stage="completed")
@@ -109,7 +110,7 @@ def test_try_finalize_cas(tmp_path: Path):
 
 
 def test_claim_next_filters_kinds(tmp_path: Path):
-    store = JobStore(tmp_path)
+    store = make_job_store(tmp_path)
     compiled = store.enqueue(kind="compile", resource="/c", mode="sync")
     deleted = store.enqueue(kind="delete", resource="/d", mode="sync")
     assert store.claim_next(kinds={"issue_action"}) is None
@@ -126,8 +127,8 @@ def test_claim_next_filters_kinds(tmp_path: Path):
 
 def test_conn_participates_in_caller_transaction(tmp_path: Path):
     """持 _conn 的 store 写方法并入外层事务——异常时 job 与 issue 一起回滚。"""
-    job_store = JobStore(tmp_path)
-    issue_store = IssueStore(tmp_path)
+    job_store = make_job_store(tmp_path)
+    issue_store = make_issue_store(tmp_path)
 
     def _draft(source_path: str) -> IssueDraft:
         return IssueDraft(
@@ -162,7 +163,7 @@ def test_conn_participates_in_caller_transaction(tmp_path: Path):
 
 def test_resource_path_written_and_queried(tmp_path: Path):
     """report 落 resource_path（context.source_path 优先）；find_pending_failures 命中。"""
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     draft = IssueDraft(
         kind=IssueKind.INGESTION_FAILURE,
         title="t",
@@ -208,9 +209,8 @@ def test_claim_order_ties_break_by_insertion(tmp_path):
     """同事务入队的多行 created_at 相同——claim 顺序必须等于入队顺序。"""
     from datetime import UTC, datetime
 
-    from wiki_agent.jobs.store import JobStore
 
-    store = JobStore(tmp_path)
+    store = make_job_store(tmp_path)
     first = store.enqueue(kind="restructure", resource="r1", mode="manual")
     second = store.enqueue(kind="restructure", resource="r2", mode="manual")
     same = datetime.now(UTC).isoformat()

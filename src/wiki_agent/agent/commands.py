@@ -18,7 +18,6 @@ from uuid import uuid4
 
 from wiki_agent.config import load_config
 from wiki_agent.events import CommandProgress, RunContext
-from wiki_agent.jobs import Kind
 from wiki_agent.log import emit_event, get_logger
 
 if TYPE_CHECKING:
@@ -250,9 +249,7 @@ def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
     # 能力是显式声明的可选属性（ReActAgent.job_service），缺席=本会话无执行入口
     if agent.job_service is None:
         return 0
-    return agent.job_service.store.in_flight_for_kinds(
-        (Kind.COMPILE, Kind.DELETE, Kind.REFINE, Kind.RESTRUCTURE)
-    )
+    return agent.job_service.wiki_write_in_flight()
 
 
 # 内置命令

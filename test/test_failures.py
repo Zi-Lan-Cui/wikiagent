@@ -10,13 +10,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from helpers import make_issue_store, make_job_service
 
 from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.errors import IngestError, IngestStage, RetryableError
-from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus, IssueStore
+from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 from wiki_agent.jobs import JobResult
 from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
-from wiki_agent.jobs.service import JobService
 
 
 def _reported_failure(tmp_path: Path, *, error: IngestError | None = None):
@@ -29,7 +29,7 @@ def _reported_failure(tmp_path: Path, *, error: IngestError | None = None):
         error_class="transient",
         retry_policy="auto_retry",
     )
-    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")
     source_abs = str((tmp_path / "note.md").resolve())
     service.submit(kind="compile", resource=source_abs, mode="compile")
     claimed = service.claim_next(kinds={"compile"})
@@ -53,7 +53,7 @@ def _reported_failure(tmp_path: Path, *, error: IngestError | None = None):
             },
         ),
     )
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     return store, store.list()[0]
 
 
@@ -89,7 +89,7 @@ def test_failure_outcome_classifies_error_in_diagnostics(tmp_path: Path):
 
 
 def test_report_failure_bumps_attempts_by_fingerprint(tmp_path: Path):
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
 
     def draft(error: str) -> IssueDraft:
         return IssueDraft(
@@ -133,7 +133,7 @@ def test_ingest_error_merges_and_keeps_issue_open(tmp_path: Path):
     """同一失败重复发生：outcome 按指纹合并进同一账——attempts 递增、停 open、无排程。"""
     source = tmp_path / "note.md"
     source.write_text("重试输入", encoding="utf-8")
-    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")
     service.submit(kind="compile", resource=str(source.resolve()), mode="sync")
     claimed = service.claim_next(kinds={"compile"})
     assert claimed is not None
@@ -160,7 +160,7 @@ def test_ingest_error_merges_and_keeps_issue_open(tmp_path: Path):
 
 def test_handler_bug_failure_does_not_record(tmp_path: Path):
     """无联动语义的失败（handler bug 由 Worker 以日志/事件承接）不进问题账本。"""
-    service = JobService(tmp_path, wiki_dir=tmp_path / "wiki")
+    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")
     job = service.submit(kind="compile", resource="/abs/x.md", mode="sync", payload={"digest": "d"})
     claimed = service.claim_next(kinds={"compile"})
     assert claimed is not None and claimed.id == job.id
@@ -180,7 +180,7 @@ def test_retry_resolves_stale_refine_path_from_current_wiki(tmp_path: Path):
     page = wiki / "concepts" / "move-semantics.md"
     page.parent.mkdir(parents=True)
     page.write_text("# Move semantics", encoding="utf-8")
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     issue = store.report(
         IssueDraft(
             kind=IssueKind.INGESTION_FAILURE,

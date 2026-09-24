@@ -6,9 +6,10 @@
 import tempfile
 from pathlib import Path
 
+from helpers import make_issue_service
+
 from wiki_agent.context import ContextBuilder
 from wiki_agent.conversation import Message, Session
-from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.producers import report_correction
 from wiki_agent.memory import MemoryStore
 from wiki_agent.tools import ToolRegistry
@@ -30,7 +31,7 @@ def _make_env(tmp: Path) -> tuple[ContextBuilder, Path]:
         encoding="utf-8",
     )
     store = MemoryStore(workspace=tmp)
-    issue_service = IssueService(IssueStore(tmp))
+    issue_service = make_issue_service(tmp)
     builder = ContextBuilder(
         system_prompt=_TEMPLATE,
         tool_registry=ToolRegistry(),

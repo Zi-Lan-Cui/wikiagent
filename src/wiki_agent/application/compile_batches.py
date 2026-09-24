@@ -133,9 +133,14 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
 
     async def execute(batch_dir: Path) -> int:
         from wiki_agent.compiler.workflows.ingest import CompilePipeline
+        from wiki_agent.issues import IssueService, IssueStore
+        from wiki_agent.jobs import JobStore
+        from wiki_agent.jobs.outcomes import JobOutcomeHandler
         from wiki_agent.jobs.service import JobService
         from wiki_agent.jobs.worker import JobWorker
         from wiki_agent.log import setup_event_log
+        from wiki_agent.persistence import Database
+        from wiki_agent.snapshots import SnapshotStore
         from wiki_agent.sync.job_consumer import SyncConsumer
         from wiki_agent.sync.state import SyncState
         from wiki_agent.versioning import WikiGitManager
@@ -146,11 +151,22 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             setup_event_log(workspace / "logs" / "compile-batches-events.jsonl")
             source_records_dir = source_records_dir_for(workspace)
             state = SyncState(sync_state_path_for(workspace))
+            # 沙箱自己的组合根：Database → store → JobService
+            database = Database(workspace)
+            issue_store = IssueStore(database)
             service = JobService(
-                workspace,
+                database=database,
+                store=JobStore(database),
+                issues=issue_store,
+                issue_service=IssueService(issue_store),
+                snapshots=SnapshotStore(workspace),
+                outcomes=JobOutcomeHandler(
+                    issue_store,
+                    sync_state=state,
+                    source_records_dir=source_records_dir,
+                ),
                 wiki_dir=wiki_dir,
                 sync_state=state,
-                source_records_dir=source_records_dir,
             )
             from wiki_agent.llm.factory import create_llm, create_vlm
 

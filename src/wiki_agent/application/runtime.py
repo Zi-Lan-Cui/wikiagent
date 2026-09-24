@@ -22,10 +22,13 @@ from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
-from wiki_agent.jobs import Kind
+from wiki_agent.jobs import JobStore, Kind
+from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.llm.factory import create_llm, create_vlm
+from wiki_agent.persistence import Database
+from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.job_consumer import SyncConsumer
 from wiki_agent.sync.state import SyncState
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
@@ -45,17 +48,28 @@ class AppRuntime:
         self.workspace = config.paths.resolved_workspace_dir()
         self.wiki_dir = config.paths.resolved_wiki_dir()
         self.source_records_dir = config.paths.resolved_source_records_dir()
-        self.issue_store = IssueStore(self.workspace)
+        # 装配顺序：Database → store → JobService；构造只发生在组合根
+        database = Database(self.workspace)
+        self.issue_store = IssueStore(database)
+        self.issue_service = IssueService(self.issue_store)
         self.sync_state = SyncState(config.paths.resolved_sync_state_path())
         # wiki 版本面：HEAD=最近已结算状态，sync/retry 逐 job 提交由 consumer 执行
         self.git_manager = WikiGitManager(self.wiki_dir)
+        self.snapshots = SnapshotStore(self.workspace)
         self.job_service = JobService(
-            self.workspace,
+            database=database,
+            store=JobStore(database),
+            issues=self.issue_store,
+            issue_service=self.issue_service,
+            snapshots=self.snapshots,
+            outcomes=JobOutcomeHandler(
+                self.issue_store,
+                sync_state=self.sync_state,
+                source_records_dir=self.source_records_dir,
+            ),
             wiki_dir=self.wiki_dir,
             sync_state=self.sync_state,
-            source_records_dir=self.source_records_dir,
         )
-        self.issue_service = IssueService(self.issue_store)
         self.event_publisher = EventPublisher()
         self.issue_reporter = IssueReporterHook(self.issue_service)
         self.tool_registry = ToolRegistry()
@@ -91,7 +105,7 @@ class AppRuntime:
             self.sync_state,
             wiki_dir=self.wiki_dir,
             source_records_dir=self.source_records_dir,
-            snapshots=self.job_service.snapshots,
+            snapshots=self.snapshots,
             git=self.git_manager,
         )
         # refine 是 wiki 自编译——mode=refine 的流水线（index 排他、不存档案页）

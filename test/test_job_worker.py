@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 
+from helpers import make_issue_store, make_job_service
+
 from wiki_agent.jobs.models import JobResult
-from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 
 
 def test_worker_claims_updates_stage_and_completes(tmp_path):
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
     job = service.submit(kind="compile", resource="note.md", mode="sync")
     worker = JobWorker(service)
     stages: list[str] = []
@@ -29,7 +30,7 @@ def test_worker_claims_updates_stage_and_completes(tmp_path):
 
 def test_worker_with_no_registrations_claims_nothing(tmp_path):
     """S1 契约：零注册 worker 不领任何活——排队行原样等待有资格的进程。"""
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
     job = service.submit(kind="unknown", resource="note.md", mode="test")
     assert asyncio.run(JobWorker(service).run_once()) is None
     assert service.store.get(job.id).status == "queued"
@@ -55,10 +56,8 @@ class _FakeSyncState:
 
 
 def _service_with_state(tmp_path):
-    from wiki_agent.jobs.service import JobService as _JS
-
     state = _FakeSyncState()
-    service = _JS(tmp_path, sync_state=state)
+    service = make_job_service(tmp_path, sync_state=state)
     return service, state
 
 
@@ -67,9 +66,8 @@ def test_handler_exception_fails_job_without_issue(tmp_path):
 
     代码错误由 Worker 的日志/事件承接——用户看到的账本只装业务失败。
     """
-    from wiki_agent.issues import IssueStore
 
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
     job = service.submit(kind="compile", resource="/x", mode="sync")
     worker = JobWorker(service)
 
@@ -82,7 +80,7 @@ def test_handler_exception_fails_job_without_issue(tmp_path):
     row = service.store.get(job.id)
     assert row.status == "failed" and "boom" in row.error
     assert service.store.in_flight_by_resource("/x") is None
-    assert IssueStore(tmp_path).list() == [], "bug 不落账"
+    assert make_issue_store(tmp_path).list() == [], "bug 不落账"
 
 
 def test_succeeded_writes_sync_state_after_commit(tmp_path):
@@ -111,7 +109,7 @@ def test_cancelled_leaves_linked_issue_open(tmp_path):
     """cancel_terminal：挂账 job 被取消 → job cancelled；issue 全程 open 无账可还。"""
     from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
     issue = service.issues.report(
         IssueDraft(
             kind=IssueKind.INGESTION_FAILURE,
@@ -133,7 +131,7 @@ def test_cancelled_leaves_linked_issue_open(tmp_path):
 
 
 def test_worker_claims_only_registered_kinds(tmp_path):
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
     service.submit(kind="compile", resource="/mine", mode="sync")
     other = service.submit(kind="issue_action", resource="i1", mode="retry")
     worker = JobWorker(service)
@@ -150,7 +148,7 @@ def test_terminal_cas_supersede_race(tmp_path):
     """取代竞态：行已被 cancel → 迟到终态写静默跳过，不排链、不覆盖。"""
     from wiki_agent.jobs import JobResult
 
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
     job = service.submit(kind="compile", resource="/abs/note.md", mode="sync")
     claimed = service.claim_next(kinds={"compile"})
     assert claimed is not None and claimed.id == job.id
