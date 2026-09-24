@@ -372,6 +372,15 @@ class RootConfig(BaseSettings):
         return self
 
 
+def default_project_root() -> Path:
+    """入口未显式指定项目根时的约定：进程当前目录。
+
+    这条策略只有这一个持有者；宿主工厂与入口都经它取值，不在各处
+    手写 Path.cwd()。
+    """
+    return Path.cwd()
+
+
 def load_config(
     env_file: str | Path | None = None,
     *,

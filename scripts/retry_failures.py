@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from pathlib import Path
 
 from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
@@ -26,7 +25,7 @@ logger = get_logger("RETRY_FAILURES")
 async def main(selected: str | None = None) -> None:
     # 结果直接走终端：INFO 级提示需要显式配置才可见
     configure_logging(console_level=logging.INFO)
-    runtime = AppRuntime.from_project_root(Path.cwd())
+    runtime = AppRuntime.from_project_root()
     service = runtime.job_service
     # 本进程充当 worker 泵：执行锁保证与 web/批脚本不同时写 wiki
     acquire_execution_lock(runtime.workspace)

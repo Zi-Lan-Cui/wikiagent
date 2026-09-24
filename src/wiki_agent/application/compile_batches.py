@@ -30,6 +30,7 @@ from typing import Any
 
 from wiki_agent.config import (
     RootConfig,
+    default_project_root,
     load_config,
     source_records_dir_for,
     sync_state_path_for,
@@ -217,7 +218,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _main(args: argparse.Namespace) -> int:
-    cfg = load_config(project_root=Path.cwd())
+    cfg = load_config(project_root=default_project_root())
     if args.root is None:
         raise SystemExit("--root 必填（manifest.path 相对它的根目录）")
     wiki_dir = args.wiki_dir.expanduser().resolve()

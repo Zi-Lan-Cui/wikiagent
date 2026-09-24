@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import httpx
@@ -21,6 +22,8 @@ from wiki_agent.web import create_app
 
 class _Runtime:
     def __init__(self, root: Path):
+        # create_app 用 config.paths.project_root 定位 frontend，替身只带上这一面
+        self.config = SimpleNamespace(paths=SimpleNamespace(project_root=root))
         self.workspace = root / "workspace"
         self.wiki_dir = root / "wiki"
         self.wiki_dir.mkdir()

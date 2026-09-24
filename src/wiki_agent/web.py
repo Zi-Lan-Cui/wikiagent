@@ -57,7 +57,7 @@ def create_app(
     """
     # executor/handler/启动核对、worker 泵都由 AppRuntime 在装配根完成；
     # web 只做 HTTP 映射
-    app_runtime = runtime or AppRuntime.from_project_root(project_root or Path.cwd())
+    app_runtime = runtime or AppRuntime.from_project_root(project_root)
     facade = WikiAgentFacade(app_runtime)
     issue_actions = app_runtime.issue_actions
     job_service = app_runtime.job_service
@@ -326,7 +326,8 @@ def create_app(
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
-    frontend_dir = (project_root or Path.cwd()) / "frontend"
+    # 前端目录跟着 runtime 的配置走：注入 runtime 时不再回退 cwd
+    frontend_dir = app_runtime.config.paths.project_root / "frontend"
     if frontend_dir.is_dir():
         app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
