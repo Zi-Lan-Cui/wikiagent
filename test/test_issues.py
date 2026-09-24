@@ -285,14 +285,13 @@ def _rescan_setup(tmp_path: Path):
 
     wiki = _dead_link_wiki(tmp_path)
     service = make_job_service(tmp_path / "ws", wiki_dir=wiki)
-    report_quality_findings(service.issue_service, scan_wiki(wiki), origin={"mode": "test"})
+    issue_service = IssueService(service.issues)
+    report_quality_findings(issue_service, scan_wiki(wiki), origin={"mode": "test"})
     target = next(
         i for i in service.issues.list(kinds={IssueKind.QUALITY_ISSUE}) if "死链" in i.summary
     )
     executor = IssueActionExecutor(
-        SimpleNamespace(
-            wiki_dir=wiki, issue_service=service.issue_service, issue_store=service.issues
-        )
+        SimpleNamespace(wiki_dir=wiki, issue_service=issue_service, issue_store=service.issues)
     )
     return wiki, service, target, executor
 

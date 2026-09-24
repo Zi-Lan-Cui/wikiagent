@@ -134,7 +134,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
 
     async def execute(batch_dir: Path) -> int:
         from wiki_agent.compiler.workflows.ingest import CompilePipeline
-        from wiki_agent.issues import IssueService, IssueStore
+        from wiki_agent.issues import IssueStore
         from wiki_agent.jobs import JobStore
         from wiki_agent.jobs.outcomes import JobOutcomeHandler
         from wiki_agent.jobs.service import JobService
@@ -156,10 +156,8 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             database = Database(workspace)
             issue_store = IssueStore(database)
             service = JobService(
-                database=database,
                 store=JobStore(database),
                 issues=issue_store,
-                issue_service=IssueService(issue_store),
                 snapshots=SnapshotStore(workspace),
                 outcomes=JobOutcomeHandler(
                     issue_store,
