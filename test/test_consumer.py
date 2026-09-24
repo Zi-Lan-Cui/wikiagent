@@ -1,6 +1,6 @@
 """SyncConsumer 测试——读快照输入的执行规则 + 删除处理 + 快照故障分类。
 
-核心语义（快照是输入）：compile 任务只读提交时定格的副本；执行期间原件
+核心语义（快照是输入）：compile 任务只读提交时保存的副本；执行期间原件
 修改/删除都照常完成本批；快照件被篡改或任务缺坐标 = 存储故障，不是业务失败。
 
 直接运行:  .venv/bin/python test/test_consumer.py
@@ -124,7 +124,7 @@ def test_compile_idempotent_short_circuit():
 
 
 def test_source_modified_after_submit_still_processes_snapshot():
-    """提交后原件被改：本批仍处理定格内容，改动留给下一次点击。"""
+    """提交后原件被改：本批仍处理当时保存的副本，改动留给下一次点击。"""
 
     async def run():
         tmp = Path(tempfile.mkdtemp())

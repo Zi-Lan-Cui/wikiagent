@@ -1,4 +1,4 @@
-"""SnapshotStore：定格、不可变读、相对路径、故障分类、启动清扫。
+"""SnapshotStore：提交时复制、副本不再变化、相对路径、故障分类、启动清扫。
 
 直接运行:  .venv/bin/python test/test_snapshots.py
 """
