@@ -31,7 +31,7 @@ from wiki_agent.llm.llm import LLMClient
 class Integrator:
     """四阶段组装器——保持 pipeline 的编排形状不变。
 
-    模式差异收敛在"组装哪个 Planner"（工厂函数），facade 只转发。
+    模式差异收敛在"组装哪个 Planner"（工厂函数），Integrator 本身只转发。
     """
 
     def __init__(

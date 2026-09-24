@@ -369,6 +369,7 @@ class ReActAgent(BaseAgent):
         tool_registry: ToolRegistry,
         workspace: Path,
         issue_service: IssueService,
+        session_manager: SessionManager | None = None,
         wiki_dir: str | Path | None = None,
         hooks: list[AgentHook] | None = None,
         agent_config=None,
@@ -389,7 +390,8 @@ class ReActAgent(BaseAgent):
         # 直接构造 Agent 的兼容路径。
         self.compile_config = compile_config or CompileConfig()
         self.retry_config = retry_config or RetryConfig()
-        self.session_manager = SessionManager(workspace=workspace)
+        # 会话存储由组合根注入；独立构造 agent 时用默认实现
+        self.session_manager = session_manager or SessionManager(workspace=workspace)
         self.tool_registry = tool_registry
         self.memory_store = MemoryStore(workspace=workspace)
         self.issue_service = issue_service

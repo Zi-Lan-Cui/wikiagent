@@ -1,4 +1,4 @@
-"""面向用户操作的会话与只读门面——CLI/Web 共用，不含 HTTP/Rich 概念。"""
+"""会话用例：会话生命周期、历史读取与一次问答回合的驱动。"""
 
 from __future__ import annotations
 
@@ -6,43 +6,33 @@ import asyncio
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from wiki_agent.conversation import Session
 from wiki_agent.events import AgentEvent
-from wiki_agent.issues import IssueCard, IssueKind, IssueStatus
-from wiki_agent.wiki import (
-    WikiPage,
-    read_authorized_source,
-    read_page,
-    read_source,
-    search_pages,
-)
 
 if TYPE_CHECKING:
-    # 装配根仅作类型注解（from __future__ import annotations）——真导入会把
-    # 整个执行栈（sync/agent/llm/…）拖进本模块的 import 环。
-    from wiki_agent.application.runtime import AppRuntime
+    from wiki_agent.agent import ReActAgent
+    from wiki_agent.conversation import SessionManager
+    from wiki_agent.events import EventPublisher
 
 
 class ServiceError(Exception):
-    """Base error raised at the application boundary."""
+    """应用边界抛出的错误基类。"""
 
 
 class SessionNotFoundError(ServiceError):
-    """Raised when an operation refers to a non-existent session."""
+    """操作指向了不存在的会话。"""
 
 
 class InvalidInputError(ServiceError):
-    """Raised when a caller supplies invalid user input."""
+    """调用方传入了非法输入。"""
 
 
 @dataclass(frozen=True, slots=True)
 class SessionInfo:
-    """Stable session representation exposed to adapters."""
+    """暴露给适配器的稳定会话表示。"""
 
     id: str
     title: str
@@ -54,7 +44,7 @@ class SessionInfo:
 
 @dataclass(frozen=True, slots=True)
 class SessionMessage:
-    """User-visible message returned by the history API."""
+    """历史接口返回的用户可见消息。"""
 
     role: str
     content: str
@@ -62,20 +52,11 @@ class SessionMessage:
 
 @dataclass(frozen=True, slots=True)
 class MessageResult:
-    """Result of one completed Agent turn."""
+    """一次完成的 Agent 回合的结果快照。"""
 
     run_id: str
     session: SessionInfo
     assistant_text: str
-
-
-@dataclass(frozen=True, slots=True)
-class WikiFileInfo:
-    """Read-only metadata for a generated Wiki file."""
-
-    path: str
-    size: int
-    updated_at: str
 
 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -83,117 +64,45 @@ _DEFAULT_SESSION_TITLE = "未命名"
 _SESSION_TITLE_MAX_LENGTH = 40
 
 
-class WikiAgentFacade:
-    """问答会话与只读浏览的门面：会话回合、wiki 浏览、issue 卡片读取。
+class SessionService:
+    """会话用例；依赖（agent 执行、会话持久化、事件订阅）由组合根注入。"""
 
-    这里不是统一 service 层。执行类操作各有端口：提交与终态走
-    JobService（jobs 域），issue 动作走 IssueActionExecutor（本包用例）；
-    本类刻意不转发它们——"Service"字样只保留在域服务
-    （JobService/IssueService）里，门面就叫门面。
-    """
-
-    def __init__(self, runtime: AppRuntime) -> None:
-        self.runtime = runtime
-
-    @property
-    def session_manager(self):
-        """Return the runtime's shared session manager."""
-        return self.runtime.agent.session_manager
+    def __init__(
+        self,
+        *,
+        agent: ReActAgent,
+        session_manager: SessionManager,
+        event_publisher: EventPublisher,
+    ) -> None:
+        self._agent = agent
+        self._session_manager = session_manager
+        self._event_publisher = event_publisher
 
     def create_session(self, *, title: str = "未命名") -> SessionInfo:
-        """Create and persist an empty session."""
+        """创建并持久化一个空会话。"""
         session_id = f"session_{uuid4().hex}"
         session = Session(key=session_id)
         session.session_title = title.strip() or _DEFAULT_SESSION_TITLE
-        if not self.session_manager.save_checkpoint(session):
+        if not self._session_manager.save_checkpoint(session):
             raise ServiceError(f"无法保存会话: {session_id}")
         return self._to_info(session)
 
     def list_sessions(self) -> list[SessionInfo]:
-        """List persisted sessions, newest first."""
+        """按更新时间倒序列出持久化会话。"""
         return [
-            self.get_session(session_id) for session_id in self.session_manager.list_session_keys()
+            self.get_session(session_id)
+            for session_id in self._session_manager.list_session_keys()
         ]
 
-    def list_wiki_files(self) -> list[WikiFileInfo]:
-        """List generated Markdown files below the configured Wiki root."""
-        if not self.runtime.wiki_dir.is_dir():
-            return []
-        files: list[WikiFileInfo] = []
-        for path in sorted(self.runtime.wiki_dir.rglob("*.md")):
-            if not path.is_file() or any(part.startswith(".") for part in path.parts):
-                continue
-            stat = path.stat()
-            files.append(
-                WikiFileInfo(
-                    path=path.relative_to(self.runtime.wiki_dir).as_posix(),
-                    size=stat.st_size,
-                    updated_at=datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
-                )
-            )
-        return files
-
-    def list_issues(
-        self,
-        *,
-        statuses: set[IssueStatus] | None = None,
-        kinds: set[IssueKind] | None = None,
-        limit: int = 200,
-        offset: int = 0,
-    ) -> list[IssueCard]:
-        """Return sanitized issue cards shared by all adapters."""
-        return self.runtime.issue_service.list(
-            statuses=statuses,
-            kinds=kinds,
-            limit=limit,
-            offset=offset,
-        )
-
-    def get_issue(self, issue_id: str) -> IssueCard:
-        return self.runtime.issue_service.get(issue_id)
-
-    def get_issue_resource(self, issue_id: str) -> WikiPage:
-        """Read the resource bound to an issue without exposing its private path."""
-        issue = self.runtime.issue_store.require(issue_id)
-        public_path = str(issue.resource.get("path") or issue.resource.get("label") or "")
-        source_path = issue.context.get("source_path")
-        if isinstance(source_path, str) and source_path.strip():
-            target = Path(source_path)
-            if not target.is_absolute():
-                target = self.runtime.config.paths.project_root / target
-            try:
-                relative = target.resolve().relative_to(self.runtime.wiki_dir.resolve())
-            except ValueError:
-                return read_authorized_source(target, label=public_path)
-            return read_page(self.runtime.wiki_dir, relative.as_posix())
-        if issue.resource.get("type") == "wiki_page":
-            return read_page(self.runtime.wiki_dir, public_path)
-        return read_source(self.runtime.source_records_dir, public_path)
-
-    def count_active_issues(self) -> int:
-        return self.runtime.issue_service.count(statuses={IssueStatus.OPEN, IssueStatus.BLOCKED})
-
-    def get_wiki_page(self, path: str) -> WikiPage:
-        """Read one public Wiki page using the shared safe resolver."""
-        return read_page(self.runtime.wiki_dir, path)
-
-    def get_wiki_source(self, path: str) -> WikiPage:
-        """Read one source through the Web-only read boundary."""
-        return read_source(self.runtime.source_records_dir, path)
-
-    def search_wiki_pages(self, query: str, *, limit: int = 30) -> list[WikiPage]:
-        """Search public Wiki page paths and contents."""
-        return search_pages(self.runtime.wiki_dir, query, limit=limit)
-
     def get_session(self, session_id: str) -> SessionInfo:
-        """Load one persisted session or raise a boundary error."""
+        """读取单个会话，不存在时抛边界错误。"""
         self._validate_session_id(session_id)
-        if not (self.session_manager.sessions_dir / f"{session_id}.jsonl").is_file():
+        if not (self._session_manager.sessions_dir / f"{session_id}.jsonl").is_file():
             raise SessionNotFoundError(f"会话不存在: {session_id}")
-        return self._to_info(self.session_manager.get_or_create(session_id))
+        return self._to_info(self._session_manager.get_or_create(session_id))
 
     def get_session_messages(self, session_id: str) -> list[SessionMessage]:
-        """Return visible chat history, excluding internal tool/system turns."""
+        """返回用户可见的聊天历史，工具/系统轮次不在此列。"""
         self._validate_session_id(session_id)
         session = self._get_loaded_session(session_id)
         return [
@@ -203,7 +112,7 @@ class WikiAgentFacade:
         ]
 
     async def send_message(self, session_id: str, text: str) -> MessageResult:
-        """Run one user turn and return a stable result snapshot."""
+        """跑完一个用户回合，返回稳定的结果快照。"""
         self._validate_session_id(session_id)
         text = text.strip()
         if not text:
@@ -222,7 +131,7 @@ class WikiAgentFacade:
         )
 
     async def stream_message(self, session_id: str, text: str) -> AsyncIterator[AgentEvent]:
-        """Yield lifecycle events for one Agent turn in sequence order."""
+        """按顺序产出一次 Agent 回合的生命周期事件。"""
         self._validate_session_id(session_id)
         text = text.strip()
         if not text:
@@ -239,11 +148,11 @@ class WikiAgentFacade:
         text: str,
         run_id: str,
     ) -> AsyncIterator[AgentEvent]:
-        """Run an Agent task while draining its per-run event queue."""
+        """执行 agent 任务，同时消费该回合的事件队列。"""
         task: asyncio.Task[None] | None = None
-        async with self.runtime.event_publisher.subscribe(run_id) as queue:
+        async with self._event_publisher.subscribe(run_id) as queue:
             task = asyncio.create_task(
-                self.runtime.agent.run(
+                self._agent.run(
                     session_key=session_id,
                     user_input=text,
                     stream=True,
@@ -278,15 +187,15 @@ class WikiAgentFacade:
                 raise
 
     def _get_loaded_session(self, session_id: str) -> Session:
-        if not (self.session_manager.sessions_dir / f"{session_id}.jsonl").is_file():
+        if not (self._session_manager.sessions_dir / f"{session_id}.jsonl").is_file():
             raise SessionNotFoundError(f"会话不存在: {session_id}")
         try:
-            return self.session_manager.get_or_create(session_id)
+            return self._session_manager.get_or_create(session_id)
         except (OSError, ValueError) as exc:
             raise SessionNotFoundError(f"无法加载会话: {session_id}") from exc
 
     def _ensure_session_title(self, session: Session, query: str) -> None:
-        """Set a useful title from the first query, preserving custom titles."""
+        """首条提问后生成实用标题，自定义标题保持不变。"""
         if session.session_title.strip() != _DEFAULT_SESSION_TITLE:
             return
         if any(message.role == "user" for message in session.history):
@@ -294,12 +203,12 @@ class WikiAgentFacade:
         title = self.title_from_query(query)
         if title:
             session.session_title = title
-            if not self.session_manager.save_checkpoint(session):
+            if not self._session_manager.save_checkpoint(session):
                 raise ServiceError(f"无法保存会话标题: {session.key}")
 
     @staticmethod
     def title_from_query(query: str, max_length: int = _SESSION_TITLE_MAX_LENGTH) -> str:
-        """Return a compact, deterministic title derived from user text."""
+        """从用户文本生成紧凑、确定的标题。"""
         normalized = " ".join(query.split())
         if not normalized:
             return _DEFAULT_SESSION_TITLE
@@ -317,9 +226,8 @@ class WikiAgentFacade:
 
     @staticmethod
     def _to_info(session: Session) -> SessionInfo:
-        # Tool messages are internal execution traces, not user-visible chat
-        # turns.  Counting them made the UI appear to gain messages after a
-        # refresh whenever a turn used tools.
+        # 工具消息是内部执行记录，不是用户可见的聊天轮次。把它们计入
+        # 会让界面在刷新后凭空多出消息。
         visible_message_count = sum(
             bool(
                 message.role == "user" or (message.role == "assistant" and message.content.strip())

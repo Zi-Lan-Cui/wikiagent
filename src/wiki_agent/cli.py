@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from wiki_agent.application import AppRuntime, WikiAgentFacade
+from wiki_agent.application import AppRuntime
 from wiki_agent.errors import RetryableError
 from wiki_agent.log.logger import configure_logging
 from wiki_agent.render import TerminalRenderer
@@ -24,8 +24,8 @@ def _footer(elapsed: float, total_tokens: int, win: int, cap: int) -> Panel:
     return Panel(text, border_style="cyan")
 
 
-async def _interactive_loop(facade: WikiAgentFacade, session_key: str) -> None:
-    agent = facade.runtime.agent
+async def _interactive_loop(runtime: AppRuntime, session_key: str) -> None:
+    agent = runtime.agent
     console.print(Panel(f"模型: {agent.llm.model_id}\n会话: {session_key}", title="Wiki Agent"))
     dream_task = asyncio.create_task(agent.dream_loop(interval=agent.agent_config.dream_interval))
     try:
@@ -40,7 +40,7 @@ async def _interactive_loop(facade: WikiAgentFacade, session_key: str) -> None:
                 break
             started = time.monotonic()
             try:
-                await facade.send_message(session_id=session_key, text=user_input)
+                await runtime.session.send_message(session_id=session_key, text=user_input)
             except RetryableError as exc:
                 console.print(f"[red]调用失败（网络/限流）: {exc}[/]")
             except Exception as exc:
@@ -59,10 +59,9 @@ async def _interactive_loop(facade: WikiAgentFacade, session_key: str) -> None:
         await asyncio.gather(dream_task, return_exceptions=True)
 
 
-async def _run(facade: WikiAgentFacade, session_key: str) -> None:
-    runtime = facade.runtime
+async def _run(runtime: AppRuntime, session_key: str) -> None:
     async with runtime:
-        await _interactive_loop(facade, session_key)
+        await _interactive_loop(runtime, session_key)
 
 
 def main() -> None:
@@ -83,14 +82,14 @@ def main() -> None:
     configure_logging(
         file_path=str(runtime.workspace / "debug.log") if runtime.config.logging.debug else None
     )
-    facade = WikiAgentFacade(runtime)
+    sessions = runtime.session
     if args.list:
-        for session in facade.list_sessions():
+        for session in sessions.list_sessions():
             console.print(f"{session.id}\t{session.title}")
         return
     if args.resume:
         session_id = args.resume
-        facade.get_session(session_id)
+        sessions.get_session(session_id)
     else:
-        session_id = facade.create_session().id
-    asyncio.run(_run(facade, session_id))
+        session_id = sessions.create_session().id
+    asyncio.run(_run(runtime, session_id))
