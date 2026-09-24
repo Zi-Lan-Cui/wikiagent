@@ -39,17 +39,17 @@ async def main(source_dir: str | None = None) -> None:
             jobs = []
         if jobs:
             logger.info("快照入队 %d 个任务（源目录 %s）", len(jobs), target)
-        elif not service.store.count_in_flight():
+        elif not service.count_in_flight():
             logger.info("无待同步变更（账本与磁盘一致）")
 
         worker = runtime.job_worker
-        while service.store.count_in_flight() > 0:
+        while service.count_in_flight() > 0:
             done = await worker.run_once()
             if done is None:
                 break
             logger.info("  %s: %s", Path(done.resource).name, done.status)
 
-        pending = service.store.count_in_flight()
+        pending = service.count_in_flight()
         if pending:
             logger.info("仍有 %d 个任务未领取（再跑一次本脚本继续泵）", pending)
 
