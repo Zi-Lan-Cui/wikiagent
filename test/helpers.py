@@ -38,10 +38,8 @@ def make_job_service(
     database = Database(workspace)
     issues = IssueStore(database)
     return JobService(
-        database=database,
         store=JobStore(database),
         issues=issues,
-        issue_service=IssueService(issues),
         snapshots=SnapshotStore(workspace),
         outcomes=outcomes
         or JobOutcomeHandler(

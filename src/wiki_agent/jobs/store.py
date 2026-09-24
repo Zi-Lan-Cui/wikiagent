@@ -41,6 +41,18 @@ class JobStore:
     # 连接与事务
 
     @contextmanager
+    def transaction(self, *, immediate: bool = False) -> Generator[sqlite3.Connection]:
+        """库级事务：返回连接指向共享的 state.db。
+
+        连接可以传给任何同库 store 写方法的 ``_conn`` 参数（如
+        IssueStore.transition）——跨表提交边界只有一个事务，这是 store
+        之间既定的 _conn 协议；"jobs store 的事务"管到 issues 表不是
+        越权，是同一 Database 上的同一连接。
+        """
+        with self.database.transaction(immediate=immediate) as conn:
+            yield conn
+
+    @contextmanager
     def _tx(self, _conn: sqlite3.Connection | None = None) -> Generator[sqlite3.Connection]:
         """持 _conn 时用调用方事务（不再开新事务），否则自管 immediate 事务。"""
         if _conn is not None:

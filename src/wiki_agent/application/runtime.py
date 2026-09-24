@@ -56,10 +56,8 @@ class AppRuntime:
         self.git_manager = WikiGitManager(self.wiki_dir)
         self.snapshots = SnapshotStore(self.workspace)
         self.job_service = JobService(
-            database=database,
             store=JobStore(database),
             issues=self.issue_store,
-            issue_service=self.issue_service,
             snapshots=self.snapshots,
             outcomes=JobOutcomeHandler(
                 self.issue_store,

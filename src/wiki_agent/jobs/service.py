@@ -11,7 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
-from wiki_agent.issues import IssueKind, IssueService, IssueStatus, IssueStore
+from wiki_agent.issues import IssueKind, IssueStatus, IssueStore
 from wiki_agent.jobs import (
     DuplicateInFlightJob,
     Job,
@@ -23,7 +23,6 @@ from wiki_agent.jobs import (
 )
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
-from wiki_agent.persistence import Database
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
 from wiki_agent.sync.state import SyncState, scan_disk
 
@@ -34,20 +33,16 @@ class JobService:
     def __init__(
         self,
         *,
-        database: Database,
         store: JobStore,
         issues: IssueStore,
-        issue_service: IssueService,
         snapshots: SnapshotStore,
         outcomes: JobOutcomeHandler,
         wiki_dir: str | Path | None = None,
         sync_state: SyncState | None = None,
     ):
-        # 依赖全部由组合根注入（Database → store → 本服务）；本类不自建组件。
-        self.database = database
+        # 依赖全部由组合根注入；存储的唯一端口是 store——本类不认识 Database。
         self.store = store
         self.issues = issues
-        self.issue_service = issue_service
         self.snapshots = snapshots
         self.outcomes = outcomes
         # issue retry 解析重试输入需要 wiki 根（wiki_page 型资源的定位）
@@ -103,7 +98,7 @@ class JobService:
         except SnapshotError as exc:
             raise SourceUnavailableError(f"重试输入不可读: {exc}") from exc
         try:
-            with self.database.transaction(immediate=True) as conn:
+            with self.store.transaction(immediate=True) as conn:
                 existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
                 if existing is not None:
                     return existing
@@ -185,7 +180,7 @@ class JobService:
         dirty, removed = self.sync_state.diff(disk)
         if not dirty and not removed:
             # 无任务时也要检查：孤儿失败记录的判定只依赖磁盘与完成账本
-            with self.database.transaction(immediate=True) as conn:
+            with self.store.transaction(immediate=True) as conn:
                 self._close_vanished_failures(disk, conn)
             return []
         if self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE)) > 0:
@@ -196,7 +191,7 @@ class JobService:
                 self.snapshots.capture(batch, root, [path for path, _ in dirty]) if dirty else {}
             )
             jobs: list[Job] = []
-            with self.database.transaction(immediate=True) as conn:
+            with self.store.transaction(immediate=True) as conn:
                 if self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE), _conn=conn) > 0:
                     raise SyncInProgress()
                 for path, _disk_digest in dirty:
@@ -282,7 +277,7 @@ class JobService:
             pages = pages[:limit]
         batch = f"refine_{uuid4().hex}"
         jobs: list[Job] = []
-        with self.database.transaction(immediate=True) as conn:
+        with self.store.transaction(immediate=True) as conn:
             for page in pages:
                 resource = str(Path(page).resolve())
                 jobs.append(
@@ -314,7 +309,7 @@ class JobService:
         typed = [Proposal(**item) for item in proposals]
         units = partition_units(typed)
         jobs: list[Job] = []
-        with self.database.transaction(immediate=True) as conn:
+        with self.store.transaction(immediate=True) as conn:
             if self.store.in_flight_for_kinds((Kind.RESTRUCTURE,), _conn=conn) > 0:
                 raise RestructureInProgress()
             for index, unit in enumerate(units):
@@ -351,7 +346,7 @@ class JobService:
         文件在提交后执行。手动重试模型下这里不产生任何后继 job：失败就是
         终态 + 一笔账。
         """
-        with self.database.transaction(immediate=True) as conn:
+        with self.store.transaction(immediate=True) as conn:
             won = self.store.try_finalize(
                 job.id,
                 status=result.status,
