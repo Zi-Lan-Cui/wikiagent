@@ -69,7 +69,7 @@ def main() -> None:
     """Launch the installed ``wiki-agent`` command."""
     parser = argparse.ArgumentParser(description="wiki-agent — 基于 wiki 知识库的问答助手")
     parser.add_argument(
-        "--project-root", type=Path, default=Path.cwd(), help="项目根目录（默认当前目录）"
+        "--project-root", type=Path, default=None, help="项目根目录（默认当前目录）"
     )
     parser.add_argument("--resume", metavar="KEY", help="恢复指定会话")
     parser.add_argument("--list", action="store_true", help="列出历史会话后退出")

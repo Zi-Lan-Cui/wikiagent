@@ -17,7 +17,7 @@ from wiki_agent.agent import ReActAgent
 from wiki_agent.application.issue_actions import IssueActionExecutor, IssueActionJobHandler
 from wiki_agent.application.wiki_ops import WikiOpsConsumer
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
-from wiki_agent.config import RootConfig, load_config
+from wiki_agent.config import RootConfig, default_project_root, load_config
 from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
@@ -141,14 +141,14 @@ class AppRuntime:
     @classmethod
     def from_project_root(
         cls,
-        project_root: Path,
+        project_root: str | Path | None = None,
         *,
         debug: bool = False,
         hooks: list[AgentHook] | None = None,
     ) -> AppRuntime:
-        """Load project configuration and construct a ready runtime."""
+        """装配一个就绪的 runtime；project_root 未给定时取 default_project_root()。"""
         config = load_config(
-            project_root=project_root,
+            project_root=project_root if project_root is not None else default_project_root(),
             overrides={"logging": {"debug": debug}},
         )
         return cls(config, hooks=hooks)
