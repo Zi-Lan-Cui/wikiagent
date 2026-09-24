@@ -1,11 +1,11 @@
-from wiki_agent.application.facade import WikiAgentFacade
+from wiki_agent.application.session import SessionService
 from wiki_agent.conversation import Message, Session
 
 
 def test_title_from_query_normalizes_and_truncates() -> None:
-    assert WikiAgentFacade.title_from_query("  如何  编译 Wiki？ ") == "如何 编译 Wiki？"
-    assert WikiAgentFacade.title_from_query("abcdefgh", max_length=5) == "abcd…"
-    assert WikiAgentFacade.title_from_query("   ") == "未命名"
+    assert SessionService.title_from_query("  如何  编译 Wiki？ ") == "如何 编译 Wiki？"
+    assert SessionService.title_from_query("abcdefgh", max_length=5) == "abcd…"
+    assert SessionService.title_from_query("   ") == "未命名"
 
 
 def test_session_info_counts_only_visible_chat_messages() -> None:
@@ -17,6 +17,6 @@ def test_session_info_counts_only_visible_chat_messages() -> None:
         Message(role="tool", content="内部工具结果"),
     ]
 
-    info = WikiAgentFacade._to_info(session)
+    info = SessionService._to_info(session)
 
     assert info.message_count == 2

@@ -11,8 +11,13 @@ from typing import cast
 import httpx
 from helpers import make_issue_store, make_job_service
 
+from wiki_agent.agent import ReActAgent
 from wiki_agent.application.issue_actions import IssueActionExecutor, IssueActionJobHandler
 from wiki_agent.application.runtime import AppRuntime
+from wiki_agent.application.session import SessionService
+from wiki_agent.application.wiki_browser import WikiBrowser
+from wiki_agent.conversation import SessionManager
+from wiki_agent.events import EventPublisher
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.log import emit_event
@@ -43,6 +48,19 @@ class _Runtime:
         self.issue_actions = IssueActionExecutor(cast(AppRuntime, self))
         self.job_worker.register("issue_action", IssueActionJobHandler(self.issue_actions))
         self.issue_actions.reconcile_retry_sources()
+        # 装配根契约镜像：会话服务与 wiki 读模型（被测路由不跑 agent 回合，
+        # agent 用空替身占位）
+        self.session = SessionService(
+            agent=cast(ReActAgent, object()),
+            session_manager=SessionManager(workspace=self.workspace),
+            event_publisher=EventPublisher(),
+        )
+        self.wiki_browser = WikiBrowser(
+            wiki_dir=self.wiki_dir,
+            source_records_dir=self.workspace / "provenance" / "sources",
+            issue_store=self.issue_store,
+            project_root=root,
+        )
         self._worker_task = None
 
     async def __aenter__(self):

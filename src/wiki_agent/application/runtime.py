@@ -15,9 +15,12 @@ from typing import Any
 
 from wiki_agent.agent import ReActAgent
 from wiki_agent.application.issue_actions import IssueActionExecutor, IssueActionJobHandler
+from wiki_agent.application.session import SessionService
+from wiki_agent.application.wiki_browser import WikiBrowser
 from wiki_agent.application.wiki_ops import WikiOpsConsumer
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, default_project_root, load_config
+from wiki_agent.conversation import SessionManager
 from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
@@ -36,11 +39,7 @@ from wiki_agent.versioning import WikiGitManager
 
 
 class AppRuntime:
-    """Own the process-wide dependencies used by CLI and future Web adapters.
-
-    A runtime is intentionally single-process scoped.  Construct one instance
-    at application startup and reuse it for all requests in that process.
-    """
+    """进程级依赖的装配根。一个进程一个实例，启动时构造一次，进程内复用。"""
 
     def __init__(self, config: RootConfig, *, hooks: list[AgentHook] | None = None) -> None:
         self.config = config
@@ -76,19 +75,34 @@ class AppRuntime:
         self.tool_registry.register(ReadFile(self.wiki_dir, workspace=self.workspace))
         self.tool_registry.register(ListDir(self.wiki_dir))
         self.tool_registry.register(Grep(self.wiki_dir))
+        self.session_manager = SessionManager(workspace=self.workspace)
         self.agent = ReActAgent(
             name="wiki-qa",
             llm=create_llm(config.llm, config.retry),
             vlm=create_vlm(config.vlm, config.retry),
             tool_registry=self.tool_registry,
             workspace=self.workspace,
+            issue_service=self.issue_service,
+            session_manager=self.session_manager,
             wiki_dir=self.wiki_dir,
             agent_config=config.agent,
             compile_config=config.compile,
             retry_config=config.retry,
-            issue_service=self.issue_service,
             job_service=self.job_service,
             hooks=[self.event_publisher, self.issue_reporter, *(hooks or [])],
+        )
+        # 面向用户的应用服务：会话用例与 wiki 读模型。issue 读由适配器
+        # 直用 issue_service，不在此再转发一层。
+        self.session = SessionService(
+            agent=self.agent,
+            session_manager=self.session_manager,
+            event_publisher=self.event_publisher,
+        )
+        self.wiki_browser = WikiBrowser(
+            wiki_dir=self.wiki_dir,
+            source_records_dir=self.source_records_dir,
+            issue_store=self.issue_store,
+            project_root=config.paths.project_root,
         )
         # 执行装配：worker 是唯一终态写入者；装配根注册全部 job 类型
         # （写 wiki 四类 + issue_action），适配器只提供入口映射，

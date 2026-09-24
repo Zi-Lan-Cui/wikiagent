@@ -14,11 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from wiki_agent.application import (
-    InvalidInputError,
-    SessionNotFoundError,
-    WikiAgentFacade,
-)
+from wiki_agent.application import InvalidInputError, SessionNotFoundError
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import (
     IssueAlreadyClaimedError,
@@ -58,7 +54,10 @@ def create_app(
     # executor/handler/启动核对、worker 泵都由 AppRuntime 在装配根完成；
     # web 只做 HTTP 映射
     app_runtime = runtime or AppRuntime.from_project_root(project_root)
-    facade = WikiAgentFacade(app_runtime)
+    # 端口都取自装配根：会话服务、wiki 读模型、issue 读服务、命令端口
+    session_service = app_runtime.session
+    browser = app_runtime.wiki_browser
+    issue_service = app_runtime.issue_service
     issue_actions = app_runtime.issue_actions
     job_service = app_runtime.job_service
     job_worker = app_runtime.job_worker
@@ -88,7 +87,7 @@ def create_app(
         item["stage_index"] = 0
         item["stage_total"] = 0
         try:
-            issue = facade.get_issue(issue_id) if issue_id else None
+            issue = issue_service.get(issue_id) if issue_id else None
         except LookupError:
             issue = None
         if issue is not None:
@@ -117,7 +116,7 @@ def create_app(
 
     app = FastAPI(title="wiki-agent", version="0.1.0", lifespan=lifespan)
     app.state.runtime = app_runtime
-    app.state.facade = facade
+    app.state.session = session_service
     app.state.job_service = job_service
     app.state.job_worker = job_worker
 
@@ -127,11 +126,11 @@ def create_app(
 
     @app.get("/api/sessions")
     async def list_sessions() -> list[dict[str, Any]]:
-        return [asdict(session) for session in facade.list_sessions()]
+        return [asdict(session) for session in session_service.list_sessions()]
 
     @app.get("/api/wiki/files")
     async def list_wiki_files() -> list[dict[str, Any]]:
-        return [asdict(file) for file in facade.list_wiki_files()]
+        return [asdict(file) for file in browser.list_wiki_files()]
 
     @app.get("/api/issues")
     async def list_issues(
@@ -144,7 +143,7 @@ def create_app(
         try:
             statuses = {IssueStatus(value) for value in status.split(",") if value}
             kinds = {IssueKind(value) for value in kind.split(",") if value} or None
-            cards = facade.list_issues(
+            cards = issue_service.list(
                 statuses=statuses or None,
                 kinds=kinds,
                 limit=limit,
@@ -160,7 +159,7 @@ def create_app(
     @app.get("/api/issues/summary")
     async def issue_summary() -> dict[str, int]:
         active_task_issues = _in_flight_issue_ids()
-        active_issues = facade.list_issues(
+        active_issues = issue_service.list(
             statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
             limit=1000,
         )
@@ -196,14 +195,14 @@ def create_app(
     @app.get("/api/issues/{issue_id}")
     async def get_issue(issue_id: str) -> dict[str, Any]:
         try:
-            return asdict(facade.get_issue(issue_id))
+            return asdict(issue_service.get(issue_id))
         except IssueNotFoundError as exc:
             raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
 
     @app.get("/api/issues/{issue_id}/resource")
     async def get_issue_resource(issue_id: str) -> dict[str, Any]:
         try:
-            return asdict(facade.get_issue_resource(issue_id))
+            return asdict(browser.get_issue_resource(issue_id))
         except IssueNotFoundError as exc:
             raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
         except WikiPageNotFound as exc:
@@ -254,14 +253,14 @@ def create_app(
     @app.get("/api/wiki/pages/{page_path:path}")
     async def get_wiki_page(page_path: str) -> dict[str, Any]:
         try:
-            return asdict(facade.get_wiki_page(page_path))
+            return asdict(browser.get_wiki_page(page_path))
         except WikiPageNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/wiki/sources/{source_path:path}")
     async def get_wiki_source(source_path: str) -> dict[str, Any]:
         try:
-            return asdict(facade.get_wiki_source(source_path))
+            return asdict(browser.get_wiki_source(source_path))
         except WikiPageNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -269,19 +268,19 @@ def create_app(
     async def search_wiki_pages(q: str, limit: int = 30) -> list[dict[str, Any]]:
         if not 1 <= limit <= 100:
             raise HTTPException(status_code=400, detail="limit 必须在 1 到 100 之间")
-        return [asdict(page) for page in facade.search_wiki_pages(q, limit=limit)]
+        return [asdict(page) for page in browser.search_wiki_pages(q, limit=limit)]
 
     @app.post("/api/sessions", status_code=201)
     async def create_session(request: CreateSessionRequest) -> dict[str, Any]:
         try:
-            return asdict(facade.create_session(title=request.title))
+            return asdict(session_service.create_session(title=request.title))
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.get("/api/sessions/{session_id}")
     async def get_session(session_id: str) -> dict[str, Any]:
         try:
-            return asdict(facade.get_session(session_id))
+            return asdict(session_service.get_session(session_id))
         except SessionNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except InvalidInputError as exc:
@@ -290,7 +289,7 @@ def create_app(
     @app.get("/api/sessions/{session_id}/messages")
     async def get_session_messages(session_id: str) -> list[dict[str, str]]:
         try:
-            return [asdict(message) for message in facade.get_session_messages(session_id)]
+            return [asdict(message) for message in session_service.get_session_messages(session_id)]
         except SessionNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except InvalidInputError as exc:
@@ -299,7 +298,7 @@ def create_app(
     @app.post("/api/sessions/{session_id}/messages")
     async def send_message(session_id: str, request: MessageRequest) -> dict[str, Any]:
         try:
-            result = await facade.send_message(session_id, request.text)
+            result = await session_service.send_message(session_id, request.text)
             return asdict(result)
         except SessionNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -309,7 +308,7 @@ def create_app(
     @app.post("/api/sessions/{session_id}/messages/stream")
     async def stream_message(session_id: str, request: MessageRequest) -> StreamingResponse:
         try:
-            facade.get_session(session_id)
+            session_service.get_session(session_id)
         except SessionNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except InvalidInputError as exc:
@@ -317,7 +316,7 @@ def create_app(
 
         async def events() -> AsyncIterator[str]:
             try:
-                async for event in facade.stream_message(session_id, request.text):
+                async for event in session_service.stream_message(session_id, request.text):
                     payload = json.dumps(asdict(event), ensure_ascii=False)
                     yield f"event: {event.type}\ndata: {payload}\n\n"
             except (SessionNotFoundError, InvalidInputError) as exc:

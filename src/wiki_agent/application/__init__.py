@@ -1,6 +1,7 @@
 """应用层：组装与用例边界。
 
-只放门面（WikiAgentFacade，会话与只读）、用例（issue_actions/compile_*…）与装配根。
+只放应用服务（session.SessionService 会话用例、wiki_browser 只读查询）、
+用例（issue_actions/compile_*…）与装配根。issue 读由适配器直用 issue_service。
 执行引擎在 `wiki_agent.jobs`，快照账本与源 handler 在 `wiki_agent.sync`。
 
 装配根（runtime）经 ``__getattr__`` 在首次访问时才导入：子模块被单独
@@ -10,16 +11,16 @@ consumer→application→runtime→consumer 的导入环，是否报错取决于
 
 from typing import TYPE_CHECKING
 
-from wiki_agent.application.facade import (
+from wiki_agent.application.session import (
     InvalidInputError,
     MessageResult,
     ServiceError,
     SessionInfo,
     SessionMessage,
     SessionNotFoundError,
-    WikiAgentFacade,
-    WikiFileInfo,
+    SessionService,
 )
+from wiki_agent.application.wiki_browser import WikiBrowser, WikiFileInfo
 from wiki_agent.events import AgentEvent, EventPublisher
 
 if TYPE_CHECKING:
@@ -36,7 +37,8 @@ __all__ = [
     "SessionInfo",
     "SessionNotFoundError",
     "WikiFileInfo",
-    "WikiAgentFacade",
+    "SessionService",
+    "WikiBrowser",
 ]
 
 # 名字 → 所在模块；首次属性访问时导入并缓存进 globals
