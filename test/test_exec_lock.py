@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from helpers import make_job_service
 
 from wiki_agent.exec_lock import (
     ExecutionBusy,
@@ -81,12 +82,11 @@ def test_wiki_revert_refused_while_job_in_flight(tmp_path: Path):
 
     from wiki_agent.agent.commands import CommandContext, WikiCommand
     from wiki_agent.conversation import Session
-    from wiki_agent.jobs.service import JobService
 
     ws = tmp_path / "ws"
     wiki = ws / "wiki"
     wiki.mkdir(parents=True)
-    service = JobService(ws)
+    service = make_job_service(ws)
     service.submit(kind="compile", resource="/x", mode="sync")
 
     class _ReadFile:

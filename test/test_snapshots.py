@@ -7,6 +7,7 @@
 from pathlib import Path
 
 import pytest
+from helpers import make_job_service
 
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
 
@@ -62,12 +63,11 @@ def test_drop_and_sweep(tmp_path: Path):
 
 def test_orphan_sweep_at_service_construction(tmp_path: Path):
     """模拟崩溃：入队后任务被清成终态，重建 JobService 时无主快照目录被扫掉。"""
-    from wiki_agent.jobs.service import JobService
     from wiki_agent.sync.state import SyncState
 
     root = _src(tmp_path)
     ws = tmp_path / "ws"
-    service = JobService(
+    service = make_job_service(
         ws, wiki_dir=tmp_path / "wiki", sync_state=SyncState(ws / "watch" / "state.json")
     )
     jobs = service.submit_sync(root)
@@ -76,7 +76,7 @@ def test_orphan_sweep_at_service_construction(tmp_path: Path):
     # 该批任务全部终态（模拟处理完后崩溃前没走到 GC——重启清扫兜底）
     for job in jobs:
         service.store.update(job.id, status="succeeded", stage="completed")
-    revived = JobService(
+    revived = make_job_service(
         ws, wiki_dir=tmp_path / "wiki", sync_state=SyncState(ws / "watch" / "state.json")
     )
     assert not (revived.snapshots.root / batch).exists()
@@ -85,12 +85,11 @@ def test_orphan_sweep_at_service_construction(tmp_path: Path):
 def test_last_terminal_job_drops_batch_snapshot(tmp_path: Path):
     """GC 主规则：批内最后一个任务进入终态 → 快照目录即删。"""
     from wiki_agent.jobs import JobResult
-    from wiki_agent.jobs.service import JobService
     from wiki_agent.sync.state import SyncState
 
     root = _src(tmp_path)
     ws = tmp_path / "ws"
-    service = JobService(
+    service = make_job_service(
         ws, wiki_dir=tmp_path / "wiki", sync_state=SyncState(ws / "watch" / "state.json")
     )
     jobs = service.submit_sync(root)

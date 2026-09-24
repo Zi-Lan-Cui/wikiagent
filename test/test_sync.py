@@ -5,9 +5,10 @@
 
 from pathlib import Path
 
+from helpers import make_job_service
+
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 from wiki_agent.jobs import JobResult, SyncInProgress
-from wiki_agent.jobs.service import JobService
 from wiki_agent.sync.state import SyncState, digest_file_text
 
 
@@ -17,7 +18,7 @@ def _svc(tmp: Path):
     wiki = tmp / "wiki"
     wiki.mkdir(exist_ok=True)
     state = SyncState(tmp / "watch" / "state.json")
-    return src, JobService(tmp, wiki_dir=wiki, sync_state=state)
+    return src, make_job_service(tmp, wiki_dir=wiki, sync_state=state)
 
 
 def _write(src: Path, name: str, content: str) -> Path:

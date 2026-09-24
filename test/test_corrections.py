@@ -5,15 +5,17 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from helpers import make_issue_service
+
 from wiki_agent.agent.commands import CommandContext, ResolveCommand
 from wiki_agent.conversation import Session
-from wiki_agent.issues import IssueKind, IssueService, IssueStatus, IssueStore
+from wiki_agent.issues import IssueKind, IssueStatus
 from wiki_agent.issues.producers import report_correction
 from wiki_agent.tools import RecordCorrection, ToolRegistry
 
 
 def test_record_correction_tool_reports_issue(tmp_path: Path):
-    service = IssueService(IssueStore(tmp_path))
+    service = make_issue_service(tmp_path)
     tool = RecordCorrection(service)
     registry = ToolRegistry()
     registry.register(tool)
@@ -31,7 +33,7 @@ def test_record_correction_tool_reports_issue(tmp_path: Path):
 
 
 def test_record_correction_tool_rejects_empty_issue(tmp_path: Path):
-    service = IssueService(IssueStore(tmp_path))
+    service = make_issue_service(tmp_path)
     tool = RecordCorrection(service)
     registry = ToolRegistry()
     registry.register(tool)
@@ -44,7 +46,7 @@ def test_record_correction_tool_rejects_empty_issue(tmp_path: Path):
 
 def test_resolve_command_flow(tmp_path: Path):
     class _Agent:
-        issue_service = IssueService(IssueStore(tmp_path))
+        issue_service = make_issue_service(tmp_path)
 
     report_correction(_Agent.issue_service, text="说法有误", page="concepts/a.md")
     report_correction(_Agent.issue_service, text="缺少示例", page="concepts/b.md")
@@ -81,7 +83,7 @@ def test_resolve_command_flow(tmp_path: Path):
 
 def test_resolve_invalid_index(tmp_path: Path):
     class _Agent:
-        issue_service = IssueService(IssueStore(tmp_path))
+        issue_service = make_issue_service(tmp_path)
 
     result = asyncio.run(
         ResolveCommand().execute(

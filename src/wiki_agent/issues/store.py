@@ -9,7 +9,6 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import uuid4
 
 from wiki_agent.issues.models import (
@@ -54,12 +53,12 @@ def issue_fingerprint(draft: IssueDraft) -> str:
 
 
 class IssueStore:
-    """Own the issue database and all lifecycle transactions."""
+    """issues 表的存储层：Database 之上的适配器，schema 由本类维护。"""
 
-    def __init__(self, workspace: str | Path):
-        self.database = Database(workspace)
-        self.workspace = self.database.workspace
-        self.path = self.database.path
+    def __init__(self, database: Database):
+        self.database = database
+        self.workspace = database.workspace
+        self.path = database.path
         self._initialize()
 
     def _connect(self):

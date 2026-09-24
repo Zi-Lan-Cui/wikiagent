@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import cast
 
 import httpx
+from helpers import make_issue_store, make_job_service
 
 from wiki_agent.application.issue_actions import IssueActionExecutor, IssueActionJobHandler
 from wiki_agent.application.runtime import AppRuntime
-from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus, IssueStore
-from wiki_agent.jobs.service import JobService
+from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.log import emit_event
 from wiki_agent.sync.state import SyncState
@@ -26,10 +26,10 @@ class _Runtime:
         self.wiki_dir.mkdir()
         self.materials_dir = root / "materials"
         self.materials_dir.mkdir()
-        self.issue_store = IssueStore(self.workspace)
+        self.issue_store = make_issue_store(self.workspace)
         self.issue_service = IssueService(self.issue_store)
         # 统一执行模型：web 装配从 runtime 拿 job_service/job_worker
-        self.job_service = JobService(
+        self.job_service = make_job_service(
             self.workspace,
             wiki_dir=self.wiki_dir,
             sync_state=SyncState(self.workspace / "watch" / "state.json"),

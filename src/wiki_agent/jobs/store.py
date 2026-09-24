@@ -17,7 +17,6 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import uuid4
 
 from wiki_agent.jobs.errors import DuplicateInFlightJob
@@ -33,10 +32,10 @@ def _now() -> str:
 
 
 class JobStore:
-    """jobs 表的存储层；数据库是唯一事实来源。"""
+    """jobs 表的存储层：Database 之上的适配器，schema 由本类维护。"""
 
-    def __init__(self, workspace: str | Path):
-        self.database = Database(workspace)
+    def __init__(self, database: Database):
+        self.database = database
         self._initialize()
 
     # 连接与事务

@@ -3,10 +3,11 @@
 import asyncio
 from pathlib import Path
 
+from helpers import make_issue_service
+
 from wiki_agent.agent.commands import CommandContext, CompileCommand, ScanCommand
 from wiki_agent.conversation import Session
 from wiki_agent.events import AgentHook
-from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.wiki.normalize import inject_title_from_h1
 from wiki_agent.wiki.quality import cleanup_exact_duplicates, scan_wiki
 
@@ -81,7 +82,7 @@ def test_scan_command_returns_formatted_report(tmp_path: Path):
     class _Agent:
         tool_registry = _Registry()
         # /scan 收尾把发现写进问题账本——issue_service 是命令层的必备能力
-        issue_service = IssueService(IssueStore(tmp_path / "workspace"))
+        issue_service = make_issue_service(tmp_path / "workspace")
 
     result = asyncio.run(
         ScanCommand().execute(

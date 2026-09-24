@@ -11,9 +11,10 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+from helpers import make_job_service
+
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueKind
-from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.sync.job_consumer import SyncConsumer
 from wiki_agent.sync.state import SyncState
@@ -67,7 +68,7 @@ def _env(tmp: Path, *, fail_names: tuple[str, ...] = (), bad_names: tuple[str, .
     records.mkdir(exist_ok=True)
     state = SyncState(tmp / "watch" / "state.json")
     git = WikiGitManager(wiki)  # wiki 机器管理：初始化自带空仓库
-    service = JobService(
+    service = make_job_service(
         tmp,
         wiki_dir=wiki,
         sync_state=state,

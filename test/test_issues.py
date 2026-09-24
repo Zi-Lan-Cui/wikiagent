@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from helpers import make_issue_service, make_issue_store, make_job_service
 
 from wiki_agent.application.issue_actions import resolve_correction_issue
 from wiki_agent.events import RunContext
@@ -18,12 +19,10 @@ from wiki_agent.issues import (
     IssueService,
     IssueSeverity,
     IssueStatus,
-    IssueStore,
 )
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.issues.producers import report_correction, report_quality_findings
 from wiki_agent.jobs import JobResult
-from wiki_agent.jobs.service import JobService
 
 
 def _draft(**changes) -> IssueDraft:
@@ -43,7 +42,7 @@ def _draft(**changes) -> IssueDraft:
 
 
 def test_issue_store_reports_and_deduplicates(tmp_path: Path):
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     first = store.report(_draft())
     second = store.report(_draft(summary="同一问题再次出现"))
 
@@ -54,7 +53,7 @@ def test_issue_store_reports_and_deduplicates(tmp_path: Path):
 
 
 def test_issue_store_filters_and_transitions(tmp_path: Path):
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     ingest = store.report(_draft())
     store.report(
         _draft(
@@ -74,7 +73,7 @@ def test_issue_store_filters_and_transitions(tmp_path: Path):
 
 def test_transition_cas_guards_expected_state(tmp_path: Path):
     """expected CAS 取代旧 claim 原子性：状态不符的操作方大声失败。"""
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     issue = store.report(_draft())
 
     store.transition(
@@ -87,7 +86,7 @@ def test_transition_cas_guards_expected_state(tmp_path: Path):
 
 
 def test_issue_card_hides_absolute_paths_and_derives_retry_state(tmp_path: Path):
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     expired = (datetime.now() - timedelta(seconds=1)).isoformat()
     issue = store.report(
         _draft(
@@ -110,7 +109,7 @@ def test_issue_card_hides_absolute_paths_and_derives_retry_state(tmp_path: Path)
 
 
 def test_unavailable_source_disables_retry_and_resource_actions(tmp_path: Path):
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     reason = "原始来源已不存在"
     issue = store.report(_draft(retry={"policy": "auto_retry", "unavailable_reason": reason}))
 
@@ -124,7 +123,7 @@ def test_unavailable_source_disables_retry_and_resource_actions(tmp_path: Path):
 
 
 def test_run_error_hook_reports_fatal_turn_but_not_cancellation(tmp_path: Path):
-    service = IssueService(IssueStore(tmp_path))
+    service = make_issue_service(tmp_path)
     hook = IssueReporterHook(service)
     failed = RunContext(session_key="session_1", run_id="run_1")
     failed.error = "provider unavailable"
@@ -142,7 +141,7 @@ def test_run_error_hook_reports_fatal_turn_but_not_cancellation(tmp_path: Path):
 
 
 def test_correction_decision_uses_audited_issue_workflow(tmp_path: Path):
-    service = IssueService(IssueStore(tmp_path))
+    service = make_issue_service(tmp_path)
     issue_id = report_correction(service, text="示例已经过时", page="concepts/example.md")
 
     card = resolve_correction_issue(service, issue_id, "accept")
@@ -155,7 +154,7 @@ def test_correction_decision_uses_audited_issue_workflow(tmp_path: Path):
 
 def test_quality_issue_advertises_review_actions(tmp_path: Path):
     """质量账的出口 = 复核销账/误报/忽略——没有"自动解决"，正确性交还用户。"""
-    service = IssueService(IssueStore(tmp_path))
+    service = make_issue_service(tmp_path)
     card = service.report(
         _draft(
             kind=IssueKind.QUALITY_ISSUE,
@@ -180,7 +179,6 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     from wiki_agent.compiler.workflows.failures import failure_diagnostics
     from wiki_agent.errors import IngestError, IngestStage
     from wiki_agent.jobs import JobResult
-    from wiki_agent.jobs.service import JobService
 
     workspace = tmp_path / "workspace"
     wiki = tmp_path / "wiki"
@@ -188,7 +186,7 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     source = tmp_path / "note.md"
     source.write_text("# note", encoding="utf-8")
 
-    service = JobService(workspace, wiki_dir=wiki)
+    service = make_job_service(workspace, wiki_dir=wiki)
     err = IngestError(
         IngestStage.EXECUTE,
         "1 个页面生成失败",
@@ -286,7 +284,7 @@ def _rescan_setup(tmp_path: Path):
     from wiki_agent.wiki.quality import scan_wiki
 
     wiki = _dead_link_wiki(tmp_path)
-    service = JobService(tmp_path / "ws", wiki_dir=wiki)
+    service = make_job_service(tmp_path / "ws", wiki_dir=wiki)
     report_quality_findings(service.issue_service, scan_wiki(wiki), origin={"mode": "test"})
     target = next(
         i for i in service.issues.list(kinds={IssueKind.QUALITY_ISSUE}) if "死链" in i.summary
@@ -305,7 +303,7 @@ def test_execute_rejects_synchronous_rescan(tmp_path: Path):
 
     from wiki_agent.application.issue_actions import IssueActionExecutor
 
-    store = IssueStore(tmp_path)
+    store = make_issue_store(tmp_path)
     issue = store.report(_draft(kind=IssueKind.QUALITY_ISSUE, fingerprint="q-rescan"))
     executor = IssueActionExecutor(
         SimpleNamespace(
