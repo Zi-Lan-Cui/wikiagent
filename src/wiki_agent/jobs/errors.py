@@ -26,6 +26,18 @@ class PipelineBusy(RuntimeError):
         super().__init__(message)
 
 
+class SyncBaselineLag(PipelineBusy):
+    """同步基线落后：存在未同步（且未挂失败账）的源，批操作提交被暂拒。
+
+    refine/restructure 的判断基于 wiki 现状，wiki 落后于源材料时分析
+    依据已经过期——先 sync 追平再提交。挂 open/blocked 编译失败账的
+    源属隔离区、不算落后（失败即保持脏是账本语义，不该卡死批操作）。
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class SyncInProgress(PipelineBusy):
     """上一次 sync 的批次还在执行——sync 互斥串行，快照不允许叠加快照。"""
 

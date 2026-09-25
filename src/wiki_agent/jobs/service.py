@@ -15,6 +15,15 @@ PipelineBusy。retry 的幂等收敛排在闸之前：该 issue 已有在途挂�
 执行，结论可能基于改到一半的 wiki，批结束后再复扫一次即自愈。
 判定只经由 JobStore.in_flight_kinds 从 jobs 表派生，无内存镜像；
 执行层对这个概念零感知。
+
+同步基线闸门：refine 与 restructure 的判断基于 wiki 现状，wiki 落后
+于源材料时分析依据已经过期。落后集合 = 脏源（scan_disk 与完成账之差，
+与 sync_status 同源）− 隔离区（挂 open/blocked 编译失败账的源——失败
+即保持脏是账本语义，已被打账隔离，不该卡死批操作），非空即
+SyncBaselineLag 暂拒、提示先 sync。主闸在 /refine 命令与重组脚本的
+分析之前（dry-run 同样被闸——预览也是分析），本文件的两个提交口是
+防绕过的兜底。与流水线互斥的分工：基线闸挡"提交时的脏"，互斥闸挡
+"提交后的插队"，restructure 的提议从分析到执行全程新鲜靠两者联合保证。
 """
 
 from __future__ import annotations
@@ -34,6 +43,7 @@ from wiki_agent.jobs import (
     Kind,
     PipelineBusy,
     RestructureInProgress,
+    SyncBaselineLag,
     SyncInProgress,
 )
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
@@ -54,6 +64,7 @@ class JobService:
         outcomes: JobOutcomeHandler,
         wiki_dir: str | Path | None = None,
         sync_state: SyncState | None = None,
+        materials_dir: str | Path | None = None,
     ):
         # 依赖全部由组合根注入；存储的唯一端口是 store——本类不认识 Database。
         self.store = store
@@ -64,6 +75,8 @@ class JobService:
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         # sync 快照对比需要完成账本
         self.sync_state = sync_state
+        # refine/restructure 的基线判定要对比磁盘源材料与账本
+        self.materials_dir = Path(materials_dir) if materials_dir is not None else None
         self.recovered_jobs = self.store.recover_stale()
         # 崩溃/中断遗留的无主快照目录在构造期清扫（保留名单=非终态任务引用的批）
         self.snapshots.sweep_orphans(self.store.in_flight_batch_ids())
@@ -90,6 +103,37 @@ class JobService:
         if Kind.COMPILE in busy or Kind.DELETE in busy:
             return SyncInProgress()
         return JobService._pipeline_busy(busy)
+
+    def sync_baseline_lag(self) -> set[str]:
+        """基线落后集合 = 脏源 − 隔离区。
+
+        脏判定与 sync_status 同源（scan_disk 对比完成账）；隔离区是挂着
+        open/blocked 编译失败账的源——失败即保持脏是账本语义，这些源已经
+        被打账隔离、页面与账本一致，不该再卡批操作。materials_dir 或
+        sync_state 未注入（离线装配）时返回空集，闸不适用。
+        """
+        if self.materials_dir is None or self.sync_state is None:
+            return set()
+        disk = scan_disk(self.materials_dir)
+        dirty, _removed = self.sync_state.diff(disk)
+        quarantined = {
+            str(record.context.get("source_path") or "")
+            for record in self.issues.list(
+                statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
+                kinds={IssueKind.INGESTION_FAILURE},
+                limit=1000,
+            )
+        }
+        return {str(Path(path).resolve()) for path, _digest in dirty} - quarantined
+
+    def _raise_if_baseline_lagging(self) -> None:
+        lagging = self.sync_baseline_lag()
+        if not lagging:
+            return
+        preview = "、".join(sorted(lagging)[:3])
+        raise SyncBaselineLag(
+            f"{len(lagging)} 个源未同步（{preview}）：请先 sync，基线追平后再提交"
+        )
 
     def submit(
         self,
@@ -324,9 +368,14 @@ class JobService:
         流水线互斥（含自挡）：写 wiki 的任一类任务在途——包括 refine
         自己的上一批——即 PipelineBusy 暂拒；refine 批不接收追加，
         想改范围就等这批跑完重新点击。同页幂等键因此只剩竞态兜底。
+        基线闸：存在未同步（且未挂失败账）的源时 SyncBaselineLag 暂拒。
         """
         if self.wiki_dir is None:
             raise RuntimeError("submit_refine_batch 需要 wiki_dir")
+        busy = self._in_flight_wiki_write_counts()
+        if busy:
+            raise self._pipeline_busy(busy)
+        self._raise_if_baseline_lagging()
         from wiki_agent.compiler.workflows.refine import refine_pages
 
         pages = refine_pages(self.wiki_dir)
@@ -360,12 +409,19 @@ class JobService:
         按入参顺序入队、claim 按 (created_at, rowid) 保序执行。
         批间互斥：上一批 restructure 未到全终态时拒绝新提交
         （RestructureInProgress）——保证"撤销这一批"有清晰边界；
-        跨阶段互斥：compile/delete/refine 在途时同样暂拒（PipelineBusy）。
+        跨阶段互斥：compile/delete/refine 在途时同样暂拒（PipelineBusy）；
+        基线闸：存在未同步（且未挂失败账）的源时 SyncBaselineLag 暂拒。
         resource 用带字面前缀的批内坐标，与绝对路径、issue id 构造性不相交；
         payload.batch 进每个单元 commit 的尾注，revert-batch 整批可撤。
         """
         from wiki_agent.compiler.restructure import Proposal, partition_units
 
+        busy = self._in_flight_wiki_write_counts()
+        if Kind.RESTRUCTURE in busy:
+            raise RestructureInProgress()
+        if busy:
+            raise self._pipeline_busy(busy)
+        self._raise_if_baseline_lagging()
         batch = f"restructure_{uuid4().hex}"
         typed = [Proposal(**item) for item in proposals]
         units = partition_units(typed)

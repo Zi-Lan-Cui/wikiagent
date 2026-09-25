@@ -655,6 +655,9 @@ class RefineCommand(Command):
         执行由后台泵串行完成：refine 每页失败只撤该页，重组 job 自带
         scan 闸门（error/skipped 整批撤销）；想撤销整批用
         ``/wiki revert-batch <batch_id>``。
+        基线主闸在分析与入队之前：存在未同步（且未挂失败账）的源时
+        直接暂拒并提示先 sync，dry-run 同样被闸——落后基线上算出的
+        重组提议没有执行价值。
         """
         from dataclasses import asdict
 
@@ -665,12 +668,23 @@ class RefineCommand(Command):
         wiki = self._wiki_dir(ctx)
         if wiki is None:
             return CommandResult(text="# /refine 失败\n\n无法定位 wiki 目录。")
-        pages = refine_pages(wiki)
-        if not pages:
-            return CommandResult(text="# /refine\n\n没有可 refine 的页面。")
         job_service = ctx.agent.job_service
         if job_service is None:
             return CommandResult(text="# /refine\n\n当前会话未装配任务队列（无执行入口）。")
+        # 主闸在一切分析与入队之前：dry-run 同样被闸（预览也是分析）
+        lag = job_service.sync_baseline_lag()
+        if lag:
+            preview = "、".join(sorted(lag)[:3])
+            return CommandResult(
+                text=(
+                    "# /refine 已暂拒\n\n"
+                    f"{len(lag)} 个源未同步（{preview}）。refine 与重组的判断基于 wiki 现状，"
+                    "请先 /compile（快照 sync）追平基线，再执行本命令。"
+                )
+            )
+        pages = refine_pages(wiki)
+        if not pages:
+            return CommandResult(text="# /refine\n\n没有可 refine 的页面。")
         dry_run = "--dry-run" in ctx.args.split()
 
         lines = ["# /refine 已入队" if not dry_run else "# /refine dry-run", ""]

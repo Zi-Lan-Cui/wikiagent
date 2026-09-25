@@ -27,7 +27,7 @@ from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.issues.producers import report_quality_findings
-from wiki_agent.jobs import PipelineBusy
+from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
 from wiki_agent.wiki.quality import scan_wiki
 
@@ -46,6 +46,9 @@ async def main(wiki_dir: Path | None = None, limit: int | None = None) -> None:
     try:
         try:
             jobs = service.submit_refine_batch(limit=limit)
+        except SyncBaselineLag as exc:
+            logger.error("%s——本脚本不代替 sync，先运行 scripts/sync.py", exc)
+            return
         except PipelineBusy as exc:
             # 持锁进程就是唯一的泵：崩溃遗留的在途任务先泵空再提交
             logger.info("%s——先泵空在途任务", exc)

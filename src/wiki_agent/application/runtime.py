@@ -66,6 +66,7 @@ class AppRuntime:
             ),
             wiki_dir=self.wiki_dir,
             sync_state=self.sync_state,
+            materials_dir=self.materials_dir,
         )
         self.event_publisher = EventPublisher()
         self.issue_reporter = IssueReporterHook(self.issue_service)

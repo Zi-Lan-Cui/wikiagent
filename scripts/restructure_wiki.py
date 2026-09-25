@@ -56,6 +56,16 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
             while service.count_in_flight() > 0:
                 if await runtime.job_worker.run_once() is None:
                     break
+        # 主闸在 LLM 分析之前（dry-run 同样被闸）：基线落后的提议没有执行价值
+        lag = service.sync_baseline_lag()
+        if lag:
+            preview = "、".join(sorted(lag)[:3])
+            logger.error(
+                "%d 个源未同步（%s）——先运行 scripts/sync.py 追平基线，再重组",
+                len(lag),
+                preview,
+            )
+            return 1
         confirm = None if (yes or dry_run) else _interactive_confirm
         # 只跑提议阶段：dry_run=True 保证 restructure_wiki 不执行手术，
         # 执行由 job 在队列里做（accepted 即人确认的结果）
