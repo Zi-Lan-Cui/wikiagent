@@ -223,11 +223,19 @@ def test_restructure_batch_mutex(tmp_path: Path):
         )
 
 
-def test_refine_idempotency_single_in_flight_per_page(tmp_path: Path):
+def test_refine_batch_self_block_second_click_rejected(tmp_path: Path):
+    """流水线互斥（自挡）：上一批 refine 未到终态时第二次点击暂拒。
+
+    旧语义是"同页幂等键收敛为同一批"；互斥闸之后收敛路径在提交层就到不了，
+    同页幂等键只剩竞态兜底——批不接收追加，改范围要等这批跑完重新点击。
+    """
+    from wiki_agent.jobs import PipelineBusy
+
     wiki, git, service, worker, _ = _env(tmp_path)
     first = service.submit_refine_batch()
-    again = service.submit_refine_batch()
-    assert [j.id for j in again] == [j.id for j in first], "同页在途收敛为同一 job"
+    assert len(first) == 1
+    with pytest.raises(PipelineBusy):
+        service.submit_refine_batch()
     assert service.store.count_in_flight() == 1
 
 

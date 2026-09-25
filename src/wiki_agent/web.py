@@ -22,7 +22,7 @@ from wiki_agent.issues import (
     IssueNotFoundError,
     IssueStatus,
 )
-from wiki_agent.jobs import SyncInProgress
+from wiki_agent.jobs import PipelineBusy
 from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import setup_event_log
 from wiki_agent.wiki import WikiPageNotFound
@@ -176,15 +176,15 @@ def create_app(
             issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_in_flight_issue_ids())
             tasks = [submit_retry_job(issue_id) for issue_id in issue_ids]
             return {"count": len(tasks), "tasks": tasks}
-        except (IssueAlreadyClaimedError, SourceUnavailableError, ValueError) as exc:
+        except (IssueAlreadyClaimedError, SourceUnavailableError, PipelineBusy, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/sync", status_code=202)
     async def trigger_sync() -> dict[str, Any]:
-        """快照同步：拍 materials 现状入队一批；上一次批次未跑完则 409。"""
+        """快照同步：拍 materials 现状入队一批；写 wiki 的任务有在途则 409。"""
         try:
             jobs = job_service.submit_sync(app_runtime.materials_dir)
-        except SyncInProgress as exc:
+        except PipelineBusy as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"count": len(jobs), "tasks": [_job_task(job) for job in jobs]}
 
@@ -224,6 +224,8 @@ def create_app(
         except IssueAlreadyClaimedError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except SourceUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except PipelineBusy as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
