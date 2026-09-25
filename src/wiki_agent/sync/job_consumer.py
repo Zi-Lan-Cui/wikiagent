@@ -10,14 +10,15 @@ digest 不符，都属于存储层故障（snapshot_error：任务失败 + 事�
 wiki、不动账本），不是源文件的业务失败。业务身份（resource、页面和档案
 页引用的名字、完成账的键）始终是原始路径。
 
-每个 compile/delete job 都走同一协议：
+每个 compile/delete job 都走同一协议（jobs.wiki_session，上下文管理器形式）：
 
-    pre-reset（工作区收敛到 HEAD）→ 执行 → 成功 commit / 失败 restore
+    with session.open(job) as write: 执行 → 成功 write.commit() /
+    业务失败 write.abort_export()；离开上下文时工作区必收敛回 HEAD
 
-wiki 是机器管理的，未提交改动都出自失败或中断的任务，因此 pre-reset 无条件安全；
-崩溃时来不及 restore 留下的改动，由下一个 job 的 pre-reset 清除。HEAD
-于是始终等于"最近已结算状态"。失败 restore 前把未提交改动 diff 导出到
-workspace/provenance/debris/ 留证据（日志/事件/未提交改动快照不随回滚清除）。
+wiki 是机器管理的，未提交改动都出自失败或中断的任务，因此 pre-reset
+（进入上下文时）无条件安全；异常、漏结算留下的改动由出口兜底 restore。
+HEAD 于是始终等于"最近已结算状态"。业务失败 restore 前把 diff 导出到
+workspace/provenance/debris/ 留证据（日志/事件/证据文件不随回滚清除）。
 
 本模块不写"完成账"也不报失败 issue：
 - 成功时把快照件的 digest+text（+档案页内容、commit）放进 JobResult.detail，
@@ -47,6 +48,7 @@ from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job, JobResult, Kind, Settlement
 from wiki_agent.jobs.wiki_session import (
     Subject,
+    WikiWrite,
     WikiWriteSession,
     commit_subject,
     debris_dir_for,
@@ -114,18 +116,22 @@ class SyncConsumer:
         self._session = WikiWriteSession(git, debris_dir=debris_dir_for(self._source_records_dir))
 
     async def handle_job(self, job: Job, progress) -> JobResult:
-        """执行一个源文件 Job，返回业务结局（bug 才抛）。"""
-        self._session.pre_reset()
-        progress("load")
-        if job.kind == Kind.DELETE:
-            return self._handle_delete(job)
-        if job.kind != Kind.COMPILE:
-            raise ValueError(f"unsupported source job: {job.kind}")
-        return await self._handle_compile(job, progress)
+        """执行一个源文件 Job，返回业务结局（程序错误才抛）。
+
+        git 三段协议由 session.open() 包住整个分发：进入即 pre-reset，
+        离开必收敛回 HEAD；分发内只管 write.commit() / write.abort_export()。
+        """
+        with self._session.open(job) as write:
+            progress("load")
+            if job.kind == Kind.DELETE:
+                return self._handle_delete(job, write)
+            if job.kind != Kind.COMPILE:
+                raise ValueError(f"unsupported source job: {job.kind}")
+            return await self._handle_compile(job, progress, write)
 
     # delete
 
-    def _handle_delete(self, job: Job) -> JobResult:
+    def _handle_delete(self, job: Job, write: WikiWrite) -> JobResult:
         """删除任务：决定来自快照的 removed 差集，执行时不重看磁盘。
 
         原件此刻复活也照常清旧账（wiki 引用清理 + 档案清单 + 完成账条目
@@ -133,7 +139,7 @@ class SyncConsumer:
         """
         name = Path(job.resource).name
         archive_ops = self._plan_archive_cleanup(name)
-        commit = self._session.commit(job, commit_subject(Subject.SYNC, f"delete {name}"))
+        commit = write.commit(commit_subject(Subject.SYNC, f"delete {name}"))
         detail: dict[str, object] = {"settlement": Settlement.DELETE_APPLIED}
         if archive_ops:
             detail["archive_ops"] = archive_ops
@@ -190,7 +196,7 @@ class SyncConsumer:
 
     # compile
 
-    async def _handle_compile(self, job: Job, progress) -> JobResult:
+    async def _handle_compile(self, job: Job, progress, write: WikiWrite) -> JobResult:
         """ingest 一个源文件；输入只认提交时保存的快照副本。"""
         path = Path(job.resource)  # 业务身份：resource、事件名、完成账键
         batch = str(job.payload.get("batch") or "")
@@ -217,6 +223,7 @@ class SyncConsumer:
         loader = DataLoader()
         summary = loader.load([staged])
         if not summary.files:
+            write.abort_export()
             return self._ingest_error_result(
                 job, IngestError(IngestStage.LOAD, "文件加载为空", source=path.name)
             )
@@ -227,6 +234,7 @@ class SyncConsumer:
         try:
             outcome = await self._pipeline.ingest_one(summary.files[0])
         except IngestError as exc:
+            write.abort_export()
             return self._ingest_error_result(job, exc)
 
         # 单 source 局部质量闸门：检查本轮产出——生成页查结构/死链，
@@ -242,6 +250,7 @@ class SyncConsumer:
         local_errors = [issue for issue in local_issues if issue.level == "error"]
         if local_errors:
             reason = "; ".join(str(issue) for issue in local_errors[:3])
+            write.abort_export()
             return self._ingest_error_result(
                 job,
                 IngestError(
@@ -255,7 +264,7 @@ class SyncConsumer:
         # 成功：wiki 变更即刻 commit（HEAD 前移一步），账本与档案页随后由
         # outcome 结算——先文件后库的方向保证崩溃只会重做、不会丢内容。
         prefix = Subject.RETRY if job.mode == "issue_retry" else Subject.SYNC
-        commit = self._session.commit(job, commit_subject(prefix, path.name))
+        commit = write.commit(commit_subject(prefix, path.name))
         detail: dict[str, object] = {"settlement": Settlement.INGESTED, "digest": digest, "text": text}
         if commit:
             detail["commit"] = commit
@@ -275,10 +284,10 @@ class SyncConsumer:
         return JobResult(status="failed", detail={"error": f"snapshot_error: {reason}"[:500]})
 
     def _ingest_error_result(self, job: Job, exc: IngestError) -> JobResult:
-        """业务失败 → 导出未提交改动+restore → 结果化（issue 记账统一在 outcome）。"""
+        """业务失败的结果化（未提交改动已由 write.abort_export() 收拾；
+        issue 记账统一在 outcome）。"""
         name = Path(job.resource).name
         logger.error("  ingest 失败 [%s]: %s", exc.stage.value, str(exc)[:200])
-        self._session.discard_debris(job.id)
         # 事件是机器通道——全量不截断（截断是给人看的习惯）
         emit_event(
             "sync_failure",
