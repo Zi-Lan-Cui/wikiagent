@@ -8,6 +8,7 @@ from wiki_agent.jobs.errors import (
     DuplicateInFlightJob,
     PipelineBusy,
     RestructureInProgress,
+    SyncBaselineLag,
     SyncInProgress,
 )
 from wiki_agent.jobs.models import WIKI_WRITE_KINDS, Job, JobResult, Kind, Settlement
@@ -23,5 +24,6 @@ __all__ = [
     "PipelineBusy",
     "RestructureInProgress",
     "Settlement",
+    "SyncBaselineLag",
     "SyncInProgress",
 ]
