@@ -1,4 +1,5 @@
-"""git 融入 sync 的全链路——per-job 协议（pre-reset/成功 commit/失败 restore+未提交改动）、
+"""git 融入 sync 的全链路——per-job 协议（session.open 三段：进入 pre-reset、
+成功 commit、失败 abort_export+restore、出口不变量收敛未宣布结局的改动）、
 结算面（档案页与账本同点落盘）、批尾注与撤销批。
 
 装配 = 真实 JobService + SyncConsumer(带 WikiGitManager) + JobWorker 泵，
@@ -11,6 +12,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from helpers import make_job_service
 
 from wiki_agent.errors import IngestError, IngestStage
@@ -235,3 +237,31 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(tests) - failed}/{len(tests)} 通过")
     raise SystemExit(1 if failed else 0)
+
+
+def test_exit_invariant_converges_unsettled_changes(tmp_path: Path):
+    """出口不变量：漏结算与异常通道离开上下文后，工作区都收敛回 HEAD。"""
+    from wiki_agent.jobs.models import Job
+    from wiki_agent.jobs.wiki_session import WikiWriteSession
+
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    git = WikiGitManager(wiki)
+    git.commit_all("wiki: seed")
+    session = WikiWriteSession(git, debris_dir=tmp_path / "debris")
+
+    def _job(id_: str) -> Job:
+        return Job(
+            id=id_, kind="compile", resource="/x", mode="sync", status="running",
+            stage="", attempts=1, error="", payload={}, created_at="", updated_at="",
+        )
+
+    with session.open(_job("job_unsettled")):  # 写了改动但不宣布结局
+        (wiki / "dirty.md").write_text("漏结算的改动\n", encoding="utf-8")
+    assert git.is_clean() and not (wiki / "dirty.md").exists()
+
+    with pytest.raises(RuntimeError):
+        with session.open(_job("job_raise")):  # 异常通道
+            (wiki / "half.md").write_text("半成品\n", encoding="utf-8")
+            raise RuntimeError("handler bug")
+    assert git.is_clean() and not (wiki / "half.md").exists()
