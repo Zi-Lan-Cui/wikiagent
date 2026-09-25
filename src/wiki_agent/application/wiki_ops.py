@@ -1,4 +1,4 @@
-"""refine / restructure 执行体——与 SyncConsumer 同一 wiki 写协议。
+"""refine / restructure 执行体——与 SourceJobHandler 同一 wiki 写协议。
 
 with session.open(job) as write: 执行 → 成功 write.commit() /
 业务失败 write.abort_export()（jobs.wiki_session 的出口不变量兜底）。
@@ -20,7 +20,7 @@ from wiki_agent.compiler.restructure import Proposal, execute
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.jobs import Job, JobResult, Settlement
+from wiki_agent.jobs import Job, JobResult, Kind, Settlement
 from wiki_agent.jobs.wiki_session import (
     Subject,
     WikiWrite,
@@ -32,6 +32,7 @@ from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
+    from wiki_agent.jobs.worker import JobWorker
     from wiki_agent.versioning import WikiGitManager
 
 logger = get_logger("WIKI_OPS")
@@ -43,7 +44,7 @@ def proposals_from_payload(payload: dict) -> list[Proposal]:
     return [Proposal(**item) for item in raw if isinstance(item, dict)]
 
 
-class WikiOpsConsumer:
+class WikiOpsHandler:
     """refine/restructure 两类 job 的 handler（注册进 JobWorker）。"""
 
     def __init__(
@@ -57,6 +58,11 @@ class WikiOpsConsumer:
         self._pipeline = refine_pipeline
         self._wiki_dir = Path(wiki_dir)
         self._session = WikiWriteSession(git, debris_dir=debris_dir_for(source_records_dir))
+
+    def register_jobs(self, worker: JobWorker) -> None:
+        """声明认领的 kind——refine 与 restructure 的执行体都在本类。"""
+        worker.register(Kind.REFINE, self.handle_refine)
+        worker.register(Kind.RESTRUCTURE, self.handle_restructure)
 
     async def handle_refine(self, job: Job, progress) -> JobResult:
         """refine 一页：输入是 wiki 页面自身，成功一页一提交。"""

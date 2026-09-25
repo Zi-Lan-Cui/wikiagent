@@ -18,7 +18,7 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.issues.projectors import available_actions, to_card
-from wiki_agent.jobs import Job, JobResult, Settlement
+from wiki_agent.jobs import Job, JobResult, Kind, Settlement
 from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.wiki.quality import scan_wiki
 
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from wiki_agent.application.runtime import AppRuntime
     from wiki_agent.issues.models import IssueCard
     from wiki_agent.issues.service import IssueService
+    from wiki_agent.jobs.worker import JobWorker
 
 
 def resolve_correction_issue(
@@ -276,7 +277,7 @@ class IssueActionExecutor:
 
 
 class IssueActionJobHandler:
-    """issue_action job 的执行体（装配根注册进 JobWorker，适配器只做 HTTP/入口映射）。
+    """issue_action job 的执行体（经 register_job_handlers 进 JobWorker，适配器只做入口映射）。
 
     业务拒绝（来源丢失/动作非法/未实现）是终态——返回无联动语义的
     failed 结果，问题账本不因被拒绝的动作而新增记录。rescan 的 issue
@@ -302,3 +303,8 @@ class IssueActionJobHandler:
             return JobResult(status="failed", detail={"error": str(exc)[:500]})
         effect_detail: dict[str, object] = {k: v for k, v in detail.items()}
         return JobResult(status="succeeded", detail=effect_detail)
+
+
+def register_job_handlers(worker: JobWorker, executor: IssueActionExecutor) -> None:
+    """声明 issue_action 的认领——执行体是 IssueActionJobHandler，业务本体在 executor。"""
+    worker.register(Kind.ISSUE_ACTION, IssueActionJobHandler(executor))

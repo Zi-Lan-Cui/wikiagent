@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from helpers import make_job_service
 
-from wiki_agent.application.wiki_ops import WikiOpsConsumer
+from wiki_agent.application.wiki_ops import WikiOpsHandler
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.versioning import WikiGitManager
@@ -50,15 +50,14 @@ def _env(tmp: Path, *, raises: IngestError | None = None):
     records = tmp / "workspace" / "provenance" / "sources"
     records.mkdir(parents=True)
     service = make_job_service(tmp / "workspace", wiki_dir=wiki, source_records_dir=records)
-    ops = WikiOpsConsumer(
+    ops = WikiOpsHandler(
         _RefinePipeline(wiki, raises),
         wiki_dir=wiki,
         source_records_dir=records,
         git=git,
     )
     worker = JobWorker(service)
-    worker.register("refine", ops.handle_refine)
-    worker.register("restructure", ops.handle_restructure)
+    ops.register_jobs(worker)
     return wiki, git, service, worker, records
 
 

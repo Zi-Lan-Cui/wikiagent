@@ -12,7 +12,7 @@ import httpx
 from helpers import make_issue_store, make_job_service
 
 from wiki_agent.agent import ReActAgent
-from wiki_agent.application.issue_actions import IssueActionExecutor, IssueActionJobHandler
+from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.application.session import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
@@ -44,9 +44,9 @@ class _Runtime:
         )
         self.job_worker = JobWorker(self.job_service)
         # 装配根契约镜像（AppRuntime.__init__ 同款三步）：executor、
-        # issue_action handler 注册、启动核对
+        # issue_action 注册、启动核对
         self.issue_actions = IssueActionExecutor(cast(AppRuntime, self))
-        self.job_worker.register("issue_action", IssueActionJobHandler(self.issue_actions))
+        register_job_handlers(self.job_worker, self.issue_actions)
         self.issue_actions.reconcile_retry_sources()
         # 装配根契约镜像：会话服务与 wiki 读模型（被测路由不跑 agent 回合，
         # agent 用空替身占位）

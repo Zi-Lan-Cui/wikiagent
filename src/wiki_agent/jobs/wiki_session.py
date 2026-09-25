@@ -16,7 +16,7 @@
 commit 的时机含义是"质量闸门已通过，这批改动值得成为 HEAD 的下一步"，
 只能由执行体宣布。
 
-SyncConsumer（compile/delete）与 WikiOpsConsumer（refine/restructure）
+SourceJobHandler（compile/delete）与 WikiOpsHandler（refine/restructure）
 共用这一协议。commit subject 用操作语义前缀（sync:/retry:/refine:/
 restructure:），payload.batch 进 commit 尾注——"撤销这一批"按尾注选段
 revert。失败导出的 patch 与 commit 批尾注都是执行记录，不随 wiki 回退

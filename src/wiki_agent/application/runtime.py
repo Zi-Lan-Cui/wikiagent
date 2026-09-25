@@ -14,10 +14,10 @@ from types import TracebackType
 from typing import Any
 
 from wiki_agent.agent import ReActAgent
-from wiki_agent.application.issue_actions import IssueActionExecutor, IssueActionJobHandler
+from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.application.session import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
-from wiki_agent.application.wiki_ops import WikiOpsConsumer
+from wiki_agent.application.wiki_ops import WikiOpsHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, default_project_root, load_config
 from wiki_agent.conversation import SessionManager
@@ -25,14 +25,14 @@ from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
-from wiki_agent.jobs import JobStore, Kind
+from wiki_agent.jobs import JobStore
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.persistence import Database
 from wiki_agent.snapshots import SnapshotStore
-from wiki_agent.sync.job_consumer import SyncConsumer
+from wiki_agent.sync.source_jobs import SourceJobHandler
 from wiki_agent.sync.state import SyncState
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
 from wiki_agent.versioning import WikiGitManager
@@ -112,7 +112,7 @@ class AppRuntime:
             source_records_dir=self.source_records_dir,
             compile_config=config.compile,
         )
-        self.sync_consumer = SyncConsumer(
+        self.source_jobs = SourceJobHandler(
             self.pipeline,
             self.sync_state,
             wiki_dir=self.wiki_dir,
@@ -128,7 +128,7 @@ class AppRuntime:
             mode="refine",
             compile_config=config.compile,
         )
-        self.wiki_ops = WikiOpsConsumer(
+        self.wiki_ops = WikiOpsHandler(
             self.refine_pipeline,
             wiki_dir=self.wiki_dir,
             source_records_dir=self.source_records_dir,
@@ -136,12 +136,11 @@ class AppRuntime:
         )
         # issue_action 用例：执行体与适配器解耦，web/脚本只映射入口
         self.issue_actions = IssueActionExecutor(self)
+        # 认领哪些 kind 由各执行体自己声明，装配根只接线
         self.job_worker = JobWorker(self.job_service)
-        self.job_worker.register(Kind.COMPILE, self.sync_consumer.handle_job)
-        self.job_worker.register(Kind.DELETE, self.sync_consumer.handle_job)
-        self.job_worker.register(Kind.REFINE, self.wiki_ops.handle_refine)
-        self.job_worker.register(Kind.RESTRUCTURE, self.wiki_ops.handle_restructure)
-        self.job_worker.register(Kind.ISSUE_ACTION, IssueActionJobHandler(self.issue_actions))
+        self.source_jobs.register_jobs(self.job_worker)
+        self.wiki_ops.register_jobs(self.job_worker)
+        register_job_handlers(self.job_worker, self.issue_actions)
         # 启动核对（与 recover_stale、快照清扫同族）：丢失的重试输入
         # 标记 unavailable——任何宿主进程启动后账目即如实
         self.issue_actions.reconcile_retry_sources()
