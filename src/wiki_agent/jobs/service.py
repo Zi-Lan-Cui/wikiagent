@@ -2,6 +2,19 @@
 
 Job 是唯一执行事实来源：全部提交入口在这里；终态写入只有一个点，
 即 complete_with_outcome，jobs 行与 issue 联动同事务、带 CAS。
+
+任务流水线互斥：写 wiki 的任一类任务（compile/delete/refine/
+restructure，见 WIKI_WRITE_KINDS）在途时，写类提交口不收新活，
+raise PipelineBusy。同族自撞保留专门异常——sync 撞在途的
+compile/delete 报 SyncInProgress、restructure 撞在途批报
+RestructureInProgress（均为 PipelineBusy 子类）；跨阶段穿插直接报
+PipelineBusy。retry 的幂等收敛排在闸之前：该 issue 已有在途挂账、
+或同一来源已被在途任务占用时照常收敛返回既有 job，收敛不上且队列
+非空才拒。issue_action（rescan）双向豁免——它不写 wiki、不产生
+快照批，不挡批、批也不挡它；代价如实记录：rescan 可插在写批中间
+执行，结论可能基于改到一半的 wiki，批结束后再复扫一次即自愈。
+判定只经由 JobStore.in_flight_kinds 从 jobs 表派生，无内存镜像；
+执行层对这个概念零感知。
 """
 
 from __future__ import annotations
@@ -13,11 +26,13 @@ from uuid import uuid4
 
 from wiki_agent.issues import IssueKind, IssueStatus, IssueStore
 from wiki_agent.jobs import (
+    WIKI_WRITE_KINDS,
     DuplicateInFlightJob,
     Job,
     JobResult,
     JobStore,
     Kind,
+    PipelineBusy,
     RestructureInProgress,
     SyncInProgress,
 )
@@ -55,6 +70,27 @@ class JobService:
 
     # 提交
 
+    # 流水线互斥闸：判定与消息只在这三个 helper 里，提交口只负责在正确位置调用
+
+    def _in_flight_wiki_write_counts(
+        self, _conn: sqlite3.Connection | None = None
+    ) -> dict[str, int]:
+        """写 wiki 各 kind 的在途行数——互斥判定的唯一依据。"""
+        counts = self.store.in_flight_kinds(_conn=_conn)
+        return {kind: n for kind, n in counts.items() if kind in WIKI_WRITE_KINDS}
+
+    @staticmethod
+    def _pipeline_busy(busy: dict[str, int]) -> PipelineBusy:
+        parts = "、".join(f"{kind} {n} 个" for kind, n in sorted(busy.items()))
+        return PipelineBusy(f"写 wiki 的任务在途（{parts}）：等当前批到达终态后再提交")
+
+    @staticmethod
+    def _sync_blocked(busy: dict[str, int]) -> PipelineBusy:
+        """sync 提交被挡：撞同族的在途 compile/delete 保留 SyncInProgress 专门语义。"""
+        if Kind.COMPILE in busy or Kind.DELETE in busy:
+            return SyncInProgress()
+        return JobService._pipeline_busy(busy)
+
     def submit(
         self,
         *,
@@ -86,12 +122,20 @@ class JobService:
         与 submit_sync 同一规则：digest 来自点击时复制的快照件，
         点击后文件再变，本次重试处理的仍是当时保存的这份副本。issue 终态由
         compile job 的 outcome 落，提交本身不改变 issue 状态。
+
+        流水线互斥闸排在收敛之后：该 issue 已有在途挂账、或同一资源已被
+        在途任务占用时照常收敛返回，只有两个收敛通道都空且写 wiki 任务
+        在途时才 PipelineBusy 暂拒——双击 retry 的幂等语义不因加闸而破。
         """
         if self.wiki_dir is None:
             raise RuntimeError("submit_issue_retry 需要 wiki_dir")
         issue = self.issues.require(issue_id)
         source = resolve_retry_source(issue, self.wiki_dir)
         resource = str(Path(source).resolve())
+        busy = self._in_flight_wiki_write_counts()
+        if busy and self.store.in_flight_job_by_issue(issue_id) is None:
+            if self.store.in_flight_by_resource(resource) is None:
+                raise self._pipeline_busy(busy)
         batch = f"retry_{uuid4().hex}"
         try:
             digest = self.snapshots.capture(batch, Path(resource).parent, [resource])[resource]
@@ -102,6 +146,11 @@ class JobService:
                 existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
                 if existing is not None:
                     return existing
+                if self.store.in_flight_by_resource(resource, _conn=conn) is None:
+                    # 事务内复查：早退之后队列可能已被别的提交点亮
+                    busy = self._in_flight_wiki_write_counts(_conn=conn)
+                    if busy:
+                        raise self._pipeline_busy(busy)
                 try:
                     return self.store.enqueue(
                         kind=Kind.COMPILE,
@@ -153,15 +202,16 @@ class JobService:
         return {
             "dirty": len(dirty),
             "removed": len(removed),
-            "in_flight": self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE)),
+            "in_flight": self.store.in_flight_for_kinds(WIKI_WRITE_KINDS),
         }
 
     def submit_sync(self, source_dir: str | Path) -> list[Job]:
         """快照同步：点击时"磁盘 − 账本"之差即本批；脏文件复制保存后整批入队。
 
         语义契约——"快照是输入"：
-        - 互斥串行：compile/delete 有在途则 SyncInProgress，上一批没跑完
-          不叠快照；
+        - 互斥串行：写 wiki 的四类任务任一在途即拒——撞在途的 compile/delete
+          报 SyncInProgress（上一批没跑完不叠快照），撞 refine/restructure
+          报 PipelineBusy；无脏无删的空跑不在此列（不入队任何任务）；
         - compile 任务的输入是点击时复制进 workspace/snapshots/<批>/
           的副本。执行期间原件修改、删除、复活都不影响本批；改动归下一次
           点击。payload.digest 就是副本的实际内容；
@@ -179,12 +229,14 @@ class JobService:
         disk = scan_disk(root)
         dirty, removed = self.sync_state.diff(disk)
         if not dirty and not removed:
-            # 无任务时也要检查：孤儿失败记录的判定只依赖磁盘与完成账本
+            # 无任务时也要检查：孤儿失败记录的判定只依赖磁盘与完成账本。
+            # 这一分支不产生写任务，流水线互斥闸不适用——sync 是解药，永远放行
             with self.store.transaction(immediate=True) as conn:
                 self._close_vanished_failures(disk, conn)
             return []
-        if self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE)) > 0:
-            raise SyncInProgress()
+        busy = self._in_flight_wiki_write_counts()
+        if busy:
+            raise self._sync_blocked(busy)
         batch = f"sync_{uuid4().hex}"
         try:
             digests = (
@@ -192,8 +244,9 @@ class JobService:
             )
             jobs: list[Job] = []
             with self.store.transaction(immediate=True) as conn:
-                if self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE), _conn=conn) > 0:
-                    raise SyncInProgress()
+                busy = self._in_flight_wiki_write_counts(_conn=conn)
+                if busy:
+                    raise self._sync_blocked(busy)
                 for path, _disk_digest in dirty:
                     original = str(Path(path).resolve())
                     pending = self.issues.find_pending_failures(original)
@@ -266,7 +319,11 @@ class JobService:
         """把 wiki 知识页逐页排队 refine——一页一个 job、一页一笔提交。
 
         与 sync 同一协议：入队即快照（当刻的页面清单），执行串行；
-        同页幂等键收敛在途行，payload.batch 进 commit 尾注供整批撤销。
+        payload.batch 进 commit 尾注供整批撤销。
+
+        流水线互斥（含自挡）：写 wiki 的任一类任务在途——包括 refine
+        自己的上一批——即 PipelineBusy 暂拒；refine 批不接收追加，
+        想改范围就等这批跑完重新点击。同页幂等键因此只剩竞态兜底。
         """
         if self.wiki_dir is None:
             raise RuntimeError("submit_refine_batch 需要 wiki_dir")
@@ -278,6 +335,9 @@ class JobService:
         batch = f"refine_{uuid4().hex}"
         jobs: list[Job] = []
         with self.store.transaction(immediate=True) as conn:
+            busy = self._in_flight_wiki_write_counts(_conn=conn)
+            if busy:
+                raise self._pipeline_busy(busy)
             for page in pages:
                 resource = str(Path(page).resolve())
                 jobs.append(
@@ -299,7 +359,8 @@ class JobService:
         单元由 restructure.partition_units 划分（事务组 + 依赖闭包），
         按入参顺序入队、claim 按 (created_at, rowid) 保序执行。
         批间互斥：上一批 restructure 未到全终态时拒绝新提交
-        （RestructureInProgress）——保证"撤销这一批"有清晰边界。
+        （RestructureInProgress）——保证"撤销这一批"有清晰边界；
+        跨阶段互斥：compile/delete/refine 在途时同样暂拒（PipelineBusy）。
         resource 用带字面前缀的批内坐标，与绝对路径、issue id 构造性不相交；
         payload.batch 进每个单元 commit 的尾注，revert-batch 整批可撤。
         """
@@ -312,6 +373,9 @@ class JobService:
         with self.store.transaction(immediate=True) as conn:
             if self.store.in_flight_for_kinds((Kind.RESTRUCTURE,), _conn=conn) > 0:
                 raise RestructureInProgress()
+            busy = self._in_flight_wiki_write_counts(_conn=conn)
+            if busy:
+                raise self._pipeline_busy(busy)
             for index, unit in enumerate(units):
                 jobs.append(
                     self.store.enqueue(
@@ -395,7 +459,5 @@ class JobService:
         return set(self.store.open_issue_ids_with_in_flight_job())
 
     def wiki_write_in_flight(self) -> int:
-        """写 wiki 的 job（compile/delete/refine/restructure）在途行数。"""
-        return self.store.in_flight_for_kinds(
-            (Kind.COMPILE, Kind.DELETE, Kind.REFINE, Kind.RESTRUCTURE)
-        )
+        """写 wiki 的 job 在途行数——集合与提交互斥闸同源（WIKI_WRITE_KINDS）。"""
+        return self.store.in_flight_for_kinds(WIKI_WRITE_KINDS)

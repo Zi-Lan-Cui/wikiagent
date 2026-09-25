@@ -330,6 +330,17 @@ class JobStore:
             ).fetchone()
         return int(row["total"]) if row is not None else 0
 
+    def in_flight_kinds(
+        self, *, _conn: sqlite3.Connection | None = None
+    ) -> dict[str, int]:
+        """在途 kind → 行数——任务流水线互斥判定的唯一查询口。"""
+        with self._tx(_conn) as db:
+            rows = db.execute(
+                f"SELECT kind, COUNT(*) AS total FROM jobs"
+                f" WHERE {_IN_FLIGHT_SQL} GROUP BY kind"
+            ).fetchall()
+        return {str(row["kind"]): int(row["total"]) for row in rows}
+
     def in_flight_for_kinds(
         self, kinds: tuple[str, ...], *, _conn: sqlite3.Connection | None = None
     ) -> int:

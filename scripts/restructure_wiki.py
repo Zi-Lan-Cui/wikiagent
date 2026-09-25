@@ -24,6 +24,7 @@ from wiki_agent.application.restructure_service import restructure_wiki
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
+from wiki_agent.jobs import PipelineBusy
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
 from wiki_agent.wiki.quality import format_scan_report, scan_wiki
 
@@ -45,10 +46,16 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
     runtime = AppRuntime(cfg)
     wiki_dir = runtime.wiki_dir
 
+    service = runtime.job_service
     if not dry_run:
         # 本进程要执行 restructure job，因此持执行锁（dry-run 纯预览不触库）
         acquire_execution_lock(runtime.workspace)
     try:
+        if not dry_run:
+            # 提议必须基于静止的 wiki：崩溃遗留的在途任务先泵空再开始分析
+            while service.count_in_flight() > 0:
+                if await runtime.job_worker.run_once() is None:
+                    break
         confirm = None if (yes or dry_run) else _interactive_confirm
         # 只跑提议阶段：dry_run=True 保证 restructure_wiki 不执行手术，
         # 执行由 job 在队列里做（accepted 即人确认的结果）
@@ -82,8 +89,11 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
             logger.info("未确认任何提议——未入队。")
             return 0
 
-        service = runtime.job_service
-        jobs = service.submit_restructure([asdict(p) for p in outcome.accepted])
+        try:
+            jobs = service.submit_restructure([asdict(p) for p in outcome.accepted])
+        except PipelineBusy as exc:
+            logger.error("重组提交暂拒: %s", exc)
+            return 1
         batch = str(jobs[0].payload["batch"])
         logger.info("重组已入队: %d 个执行单元（批 %s）", len(jobs), batch)
         while service.count_in_flight() > 0:

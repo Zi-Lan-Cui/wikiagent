@@ -15,7 +15,7 @@ from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueAlreadyClaimedError
-from wiki_agent.jobs import DuplicateInFlightJob
+from wiki_agent.jobs import DuplicateInFlightJob, PipelineBusy
 from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import configure_logging, get_logger
 
@@ -36,6 +36,10 @@ async def main(selected: str | None = None) -> None:
             logger.info("没有可重试的问题。")
             return
 
+        # 持锁进程先泵空崩溃遗留的在途任务，retry 提交才不会被互斥闸挡住
+        while service.count_in_flight() > 0:
+            if await runtime.job_worker.run_once() is None:
+                break
         outcomes: dict[str, str] = {}
         for issue_id in issue_ids:
             try:
@@ -44,6 +48,8 @@ async def main(selected: str | None = None) -> None:
                 outcomes[issue_id] = "skipped（已有在途任务）"
             except SourceUnavailableError as exc:
                 outcomes[issue_id] = f"unavailable — {exc}"
+            except PipelineBusy as exc:
+                outcomes[issue_id] = f"skipped（流水线在途）— {exc}"
             else:
                 logger.info("%s: 已排队 %s", issue_id, job.id)
 

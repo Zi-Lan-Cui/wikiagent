@@ -27,6 +27,7 @@ from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.issues.producers import report_quality_findings
+from wiki_agent.jobs import PipelineBusy
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
 from wiki_agent.wiki.quality import scan_wiki
 
@@ -43,7 +44,15 @@ async def main(wiki_dir: Path | None = None, limit: int | None = None) -> None:
 
     acquire_execution_lock(runtime.workspace)
     try:
-        jobs = service.submit_refine_batch(limit=limit)
+        try:
+            jobs = service.submit_refine_batch(limit=limit)
+        except PipelineBusy as exc:
+            # 持锁进程就是唯一的泵：崩溃遗留的在途任务先泵空再提交
+            logger.info("%s——先泵空在途任务", exc)
+            while service.count_in_flight() > 0:
+                if await runtime.job_worker.run_once() is None:
+                    raise
+            jobs = service.submit_refine_batch(limit=limit)
         if not jobs:
             logger.info("没有可 refine 的页面")
             return

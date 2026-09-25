@@ -344,6 +344,7 @@ class QueueCommand(Command):
 
         if args == "retry-all" or args.startswith("retry "):
             from wiki_agent.issues import IssueKind
+            from wiki_agent.jobs import PipelineBusy
             from wiki_agent.jobs.retry_source import SourceUnavailableError
             from wiki_agent.jobs.service import JobService
 
@@ -375,6 +376,8 @@ class QueueCommand(Command):
                     lines.append(f"- `{issue_id}`: 未找到")
                 except SourceUnavailableError as exc:
                     lines.append(f"- `{issue_id}`: 输入不可用 — {exc}")
+                except PipelineBusy as exc:
+                    lines.append(f"- `{issue_id}`: 流水线在途，暂拒 — {exc}")
                 except ValueError as exc:
                     lines.append(f"- `{issue_id}`: 不能重试 — {exc}")
                 else:
@@ -448,7 +451,7 @@ class CompileCommand(Command):
     description = "编译 source 文件夹（一次快照 sync；首次运行即全量编译）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.jobs import SyncInProgress
+        from wiki_agent.jobs import PipelineBusy
 
         try:
             args = shlex.split(ctx.args.strip())
@@ -474,8 +477,8 @@ class CompileCommand(Command):
             return CommandResult(text=f"# /compile\n\n源目录不存在: {target}")
         try:
             jobs = job_service.submit_sync(target)
-        except SyncInProgress:
-            return CommandResult(text="# /compile\n\n上一批快照仍在执行（互斥串行）——等它跑完再拍。")
+        except PipelineBusy as exc:
+            return CommandResult(text=f"# /compile 提交暂拒\n\n{exc}。")
         return CommandResult(
             text=(
                 "# /compile 已入队\n\n"
@@ -644,8 +647,10 @@ class RefineCommand(Command):
         """/refine 不直接写 wiki，与 sync 同一条队列。
 
         - 非 dry-run：refine 逐页入队（一页一 job、一页一提交）；重组在
-          提交侧同步跑提议阶段（粗提→复判→消解），有效提议切成执行单元
-          入队、一单元一 job 一提交——无交互全收，逐条确认在脚本侧；
+          提交侧同步跑提议阶段（粗提→复判→消解），有效提议在队列空闲时
+          切成执行单元入队、一单元一 job 一提交——无交互全收，逐条确认在
+          脚本侧。refine 批在途会挡住同一次点击的重组入队（阶段互斥），
+          此时提议原样报出，重组改用独立入口执行；
         - dry-run：什么都不入队，只预览重组提议。
         执行由后台泵串行完成：refine 每页失败只撤该页，重组 job 自带
         scan 闸门（error/skipped 整批撤销）；想撤销整批用
@@ -655,6 +660,7 @@ class RefineCommand(Command):
 
         from wiki_agent.application.restructure_service import restructure_wiki
         from wiki_agent.compiler.workflows.refine import refine_pages
+        from wiki_agent.jobs import PipelineBusy
 
         wiki = self._wiki_dir(ctx)
         if wiki is None:
@@ -672,7 +678,10 @@ class RefineCommand(Command):
         if dry_run:
             lines.append("页面精炼: dry-run（未入队、未修改）")
         else:
-            jobs = job_service.submit_refine_batch()
+            try:
+                jobs = job_service.submit_refine_batch()
+            except PipelineBusy as exc:
+                return CommandResult(text=f"# /refine 提交暂拒\n\n{exc}。")
             lines.append(f"页面精炼: {len(jobs)} 个 refine job 已入队（一页一提交）")
 
         try:
@@ -695,14 +704,23 @@ class RefineCommand(Command):
         elif not outcome.effective:
             lines.append("结构重组: 无有效提议，未入队")
         else:
-            jobs = job_service.submit_restructure([asdict(p) for p in outcome.effective])
-            lines.append(
-                f"结构重组: {len(outcome.effective)} 条提议切成 {len(jobs)} 个执行单元入队"
-                f"（批 {jobs[0].payload['batch']}，某单元校验不过只撤销该单元；"
-                f"整批回撤: /wiki revert-batch {jobs[0].payload['batch']}）"
-            )
+            try:
+                jobs = job_service.submit_restructure([asdict(p) for p in outcome.effective])
+            except PipelineBusy as exc:
+                # refine 批刚入队即挡住重组提交——阶段互斥的必然结果，
+                # /refine 一次点击不再能同时排两类批；重组改用独立入口执行
+                lines.append(
+                    f"结构重组: 未入队——{exc}。提议已算出，等本批跑完后用 "
+                    "scripts/restructure_wiki.py（逐条确认）或再次 /refine 入队。"
+                )
+            else:
+                lines.append(
+                    f"结构重组: {len(outcome.effective)} 条提议切成 {len(jobs)} 个执行单元入队"
+                    f"（批 {jobs[0].payload['batch']}，某单元校验不过只撤销该单元；"
+                    f"整批回撤: /wiki revert-batch {jobs[0].payload['batch']}）"
+                )
         if not dry_run:
-            lines.extend(["", "队列串行执行（sync 在途者先行）；进度与结果看工作台。"])
+            lines.extend(["", "队列串行执行；各阶段在提交层互斥，进度与结果看工作台。"])
         return CommandResult(text="\n".join(lines))
 
     @staticmethod

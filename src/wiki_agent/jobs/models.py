@@ -17,6 +17,16 @@ class Kind(StrEnum):
     ISSUE_ACTION = "issue_action"  # issue 动作（rescan 等）
 
 
+# 写 wiki 的任务家族——提交互斥闸与 /wiki revert 的门共用这一集合，
+# 写者身份在系统里只有这一个事实来源
+WIKI_WRITE_KINDS: tuple[Kind, ...] = (
+    Kind.COMPILE,
+    Kind.DELETE,
+    Kind.REFINE,
+    Kind.RESTRUCTURE,
+)
+
+
 class Settlement(StrEnum):
     """成功 job 的结算类别：说明完成的是哪一种业务事实。
 
