@@ -2,7 +2,7 @@
 成功 commit、失败 abort_export+restore、出口不变量收敛未宣布结局的改动）、
 结算面（档案页与账本同点落盘）、批尾注与撤销批。
 
-装配 = 真实 JobService + SyncConsumer(带 WikiGitManager) + JobWorker 泵，
+装配 = 真实 JobService + SourceJobHandler(带 WikiGitManager) + JobWorker 泵，
 pipeline 用假件（写页面/制造失败），LLM 不出场。
 
 直接运行:  .venv/bin/python test/test_sync_git.py
@@ -18,14 +18,14 @@ from helpers import make_job_service
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueKind
 from wiki_agent.jobs.worker import JobWorker
-from wiki_agent.sync.job_consumer import SyncConsumer
+from wiki_agent.sync.source_jobs import SourceJobHandler
 from wiki_agent.sync.state import SyncState
 from wiki_agent.versioning import WikiGitManager
 
 
 class _FakePipeline:
     """假 ingest：成功写一个概念页并构造档案页；失败先留半页未提交改动再抛；
-    bad 名单写出缺 frontmatter 的坏页（触发消费端单 source 质量闸门）。"""
+    bad 名单写出缺 frontmatter 的坏页（触发执行体的单 source 质量闸门）。"""
 
     def __init__(self, wiki: Path, fail_names: tuple[str, ...] = (), bad_names: tuple[str, ...] = ()):
         self._wiki = wiki
@@ -77,7 +77,7 @@ def _env(tmp: Path, *, fail_names: tuple[str, ...] = (), bad_names: tuple[str, .
         source_records_dir=records,
     )
     pipeline = _FakePipeline(wiki, fail_names, bad_names)
-    consumer = SyncConsumer(
+    handler = SourceJobHandler(
         pipeline,
         state,
         wiki_dir=wiki,
@@ -86,8 +86,7 @@ def _env(tmp: Path, *, fail_names: tuple[str, ...] = (), bad_names: tuple[str, .
         git=git,
     )
     worker = JobWorker(service)
-    worker.register("compile", consumer.handle_job)
-    worker.register("delete", consumer.handle_job)
+    handler.register_jobs(worker)
     return src, wiki, records, git, state, service, worker
 
 

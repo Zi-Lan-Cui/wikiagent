@@ -1,4 +1,4 @@
-"""消费端——源文件 Job handler：读快照输入，per-job git 协议执行。
+"""源材料 job 的 handler：compile 与 delete，sync 点击与 issue retry 共用——读快照输入，per-job git 协议执行。
 
 串行由 JobWorker 保证，一次领取一个任务：编译会更新 wiki 与工作区溯源
 存档，并发执行会互相覆盖，因此必须串行。
@@ -60,9 +60,10 @@ from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.quality import scan_source
 
 if TYPE_CHECKING:
+    from wiki_agent.jobs.worker import JobWorker
     from wiki_agent.versioning import WikiGitManager
 
-logger = get_logger("SYNC_CONSUMER")
+logger = get_logger("SOURCE_JOBS")
 
 
 def clean_body_links(wiki: Path, slug: str) -> int:
@@ -94,8 +95,8 @@ def clean_body_links(wiki: Path, slug: str) -> int:
     return changed
 
 
-class SyncConsumer:
-    """sync/重试 Job 的执行体——compile/delete 两类 handler。"""
+class SourceJobHandler:
+    """源材料 job 的执行体——compile/delete 两类 handler。"""
 
     def __init__(
         self,
@@ -114,6 +115,11 @@ class SyncConsumer:
         self._source_records_dir = Path(source_records_dir)
         # git=None 只在离线单测里出现（无仓库环境的裸 handler 测试）
         self._session = WikiWriteSession(git, debris_dir=debris_dir_for(self._source_records_dir))
+
+    def register_jobs(self, worker: JobWorker) -> None:
+        """声明认领的 kind——与 handle_job 的内部分发同源，装配方不需要知道细节。"""
+        worker.register(Kind.COMPILE, self.handle_job)
+        worker.register(Kind.DELETE, self.handle_job)
 
     async def handle_job(self, job: Job, progress) -> JobResult:
         """执行一个源文件 Job，返回业务结局（程序错误才抛）。
@@ -148,7 +154,7 @@ class SyncConsumer:
         return JobResult(status="succeeded", detail=detail)
 
     def _plan_archive_cleanup(self, name: str) -> list[dict[str, str]]:
-        """源文件删除 → 规划溯源档案清理（消费者职责）。
+        """源文件删除 → 规划溯源档案清理（本 handler 的职责）。
 
         档案页在 wiki/git scope 外、不受回滚保护：这里只返回改写/移除
         清单，落盘由 outcome 在成功结算时执行（与账本 drop 同点）。

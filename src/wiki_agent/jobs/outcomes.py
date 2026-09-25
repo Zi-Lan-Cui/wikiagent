@@ -194,7 +194,7 @@ class JobOutcomeHandler:
             return []
         if job.kind == Kind.DELETE:
             # 删除结算（延迟到 commit 后，先库后文件）：溯源档案清理清单
-            # （消费者执行中只规划不落盘）+ state 条目移除，一并落盘。
+            # （执行体运行中只规划不落盘）+ state 条目移除，一并落盘。
 
             ops = result.detail.get("archive_ops")
 

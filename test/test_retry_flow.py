@@ -16,7 +16,7 @@ from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 from wiki_agent.jobs import JobResult
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
-from wiki_agent.sync.job_consumer import SyncConsumer
+from wiki_agent.sync.source_jobs import SourceJobHandler
 from wiki_agent.sync.state import SyncState, digest_file_text
 
 
@@ -89,7 +89,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
             raise IngestError(IngestStage.PLAN, "校验失败", source=source.name)
 
     (tmp_path / "wiki" / "concepts").mkdir(parents=True)
-    consumer = SyncConsumer(
+    handler = SourceJobHandler(
         _FailingPipeline(),
         state,
         wiki_dir=tmp_path / "wiki",
@@ -97,7 +97,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
         snapshots=service.snapshots,
     )
     worker = JobWorker(service)
-    worker.register("compile", consumer.handle_job)
+    handler.register_jobs(worker)
     jobs = service.submit_sync(src)
     assert len(jobs) == 1
     asyncio.run(worker.run_once())

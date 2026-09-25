@@ -1,4 +1,4 @@
-"""SyncConsumer 测试——读快照输入的执行规则 + 删除处理 + 快照故障分类。
+"""SourceJobHandler 测试——读快照输入的执行规则 + 删除处理 + 快照故障分类。
 
 核心语义（快照是输入）：compile 任务只读提交时保存的副本；执行期间原件
 修改/删除都照常完成本批；快照件被篡改或任务缺坐标 = 存储故障，不是业务失败。
@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job
 from wiki_agent.snapshots import SnapshotStore
-from wiki_agent.sync.job_consumer import SyncConsumer, clean_body_links
+from wiki_agent.sync.source_jobs import SourceJobHandler, clean_body_links
 from wiki_agent.sync.state import SyncState, digest_file_text
 
 BATCH = "b_test"
@@ -72,8 +72,8 @@ def _compile_env(tmp: Path, content: str = "编译器输入" * 8):
     return f, wiki, records, state, snapshots, payload
 
 
-def _consumer(state, wiki, records, pipeline, snapshots):
-    return SyncConsumer(
+def _handler(state, wiki, records, pipeline, snapshots):
+    return SourceJobHandler(
         pipeline,
         state,
         wiki_dir=wiki,
@@ -90,8 +90,8 @@ def test_compile_success_reads_snapshot_and_keeps_original_identity():
         f, wiki, records, state, snapshots, payload = _compile_env(tmp)
         digest, text = digest_file_text(snapshots.staged_path(BATCH, f.name))
         pipeline = _FakePipeline()
-        consumer = _consumer(state, wiki, records, pipeline, snapshots)
-        result = await consumer.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        handler = _handler(state, wiki, records, pipeline, snapshots)
+        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail == {
             "settlement": "ingested",
@@ -100,7 +100,7 @@ def test_compile_success_reads_snapshot_and_keeps_original_identity():
         }
         assert pipeline.calls == 1
         assert pipeline.seen_raw[0].path == f.resolve(), "业务身份必须是原路径"
-        assert state.get(str(f.resolve())).hash == "", "consumer 自己不写账"
+        assert state.get(str(f.resolve())).hash == "", "handler 自己不写账"
 
     asyncio.run(run())
 
@@ -114,8 +114,8 @@ def test_compile_idempotent_short_circuit():
         digest, text = digest_file_text(f)
         state.record(str(f.resolve()), digest, text)
         pipeline = _FakePipeline()
-        consumer = _consumer(state, wiki, records, pipeline, snapshots)
-        result = await consumer.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        handler = _handler(state, wiki, records, pipeline, snapshots)
+        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail == {"settlement": "already_ingested"}
         assert pipeline.calls == 0
@@ -131,8 +131,8 @@ def test_source_modified_after_submit_still_processes_snapshot():
         f, wiki, records, state, snapshots, payload = _compile_env(tmp)
         f.write_text("提交之后才写入的新内容" * 8, encoding="utf-8")
         pipeline = _FakePipeline()
-        consumer = _consumer(state, wiki, records, pipeline, snapshots)
-        result = await consumer.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        handler = _handler(state, wiki, records, pipeline, snapshots)
+        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail["digest"] == payload["digest"], "记的是快照件的内容"
         assert "新内容" not in result.detail["text"]
@@ -148,8 +148,8 @@ def test_source_deleted_after_submit_still_processes_snapshot():
         f, wiki, records, state, snapshots, payload = _compile_env(tmp)
         f.unlink()
         pipeline = _FakePipeline()
-        consumer = _consumer(state, wiki, records, pipeline, snapshots)
-        result = await consumer.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        handler = _handler(state, wiki, records, pipeline, snapshots)
+        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail["digest"] == payload["digest"]
         assert pipeline.calls == 1
@@ -165,8 +165,8 @@ def test_snapshot_tampered_fails_without_business_accounting():
         f, wiki, records, state, snapshots, payload = _compile_env(tmp)
         snapshots.staged_path(BATCH, f.name).write_text("被外部篡改", encoding="utf-8")
         pipeline = _FakePipeline()
-        consumer = _consumer(state, wiki, records, pipeline, snapshots)
-        result = await consumer.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        handler = _handler(state, wiki, records, pipeline, snapshots)
+        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "failed" and result.error_type == ""
         assert "snapshot_error" in result.detail["error"]
         assert pipeline.calls == 0
@@ -182,8 +182,8 @@ def test_job_without_snapshot_coordinates_is_snapshot_error():
         tmp = Path(tempfile.mkdtemp())
         f, wiki, records, state, snapshots, _payload = _compile_env(tmp)
         pipeline = _FakePipeline()
-        consumer = _consumer(state, wiki, records, pipeline, snapshots)
-        result = await consumer.handle_job(
+        handler = _handler(state, wiki, records, pipeline, snapshots)
+        result = await handler.handle_job(
             _job(str(f.resolve()), {"deleted": False, "digest": "a" * 64}), lambda s: None
         )
         assert result.status == "failed" and "snapshot_error" in result.detail["error"]
@@ -200,8 +200,8 @@ def test_compile_ingest_error_becomes_result_detail():
         f, wiki, records, state, snapshots, payload = _compile_env(tmp)
         err = IngestError(IngestStage.PLAN, "plan 输出校验失败", source=f.name)
         pipeline = _FakePipeline(raises=err)
-        consumer = _consumer(state, wiki, records, pipeline, snapshots)
-        result = await consumer.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        handler = _handler(state, wiki, records, pipeline, snapshots)
+        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "failed" and result.error_type == "ingest_error"
         assert result.detail["stage"] == "plan"
         assert result.detail["source_path"] == str(f.resolve())
@@ -218,8 +218,8 @@ def test_delete_applies_even_if_source_revived():
         tmp = Path(tempfile.mkdtemp())
         f, wiki, records, state, snapshots, _payload = _compile_env(tmp)
         # f（note.md）仍在磁盘上——快照却判定它该删（removed 差集成立）
-        consumer = _consumer(state, wiki, records, None, snapshots)
-        result = await consumer.handle_job(
+        handler = _handler(state, wiki, records, None, snapshots)
+        result = await handler.handle_job(
             _job(str(f.resolve()), _delete_payload(), kind="delete"), lambda s: None
         )
         assert result.status == "succeeded"
@@ -237,8 +237,8 @@ def test_delete_job_cleans_provenance():
         f, wiki, records, state, snapshots, _payload = _compile_env(tmp)
         ghost = tmp / "src" / "other.md"
         ghost.unlink(missing_ok=True)
-        consumer = _consumer(state, wiki, records, None, snapshots)
-        result = await consumer.handle_job(
+        handler = _handler(state, wiki, records, None, snapshots)
+        result = await handler.handle_job(
             _job(str(ghost.resolve()), _delete_payload(), kind="delete"), lambda s: None
         )
         assert result.status == "succeeded"
@@ -294,9 +294,9 @@ def test_plan_archive_cleanup_keeps_page_with_multiple_sources():
     tmp = Path(tempfile.mkdtemp())
     wiki, records = _make_wiki(tmp)
     state = SyncState(tmp / "state.json")
-    consumer = _consumer(state, wiki, records, None, SnapshotStore(tmp))
+    handler = _handler(state, wiki, records, None, SnapshotStore(tmp))
     # 删了 note 后 sources 只剩 other——页还在
-    ops = consumer._plan_archive_cleanup("note.md")
+    ops = handler._plan_archive_cleanup("note.md")
     assert ops == [
         {"action": "rewrite", "path": str(records / "note.md"), "content": ops[0]["content"]}
     ]
@@ -320,9 +320,9 @@ def test_plan_archive_cleanup_unlinks_page_and_cleans_links_now():
         "---\n\n# Ref\n\n见 [[sources/solo|Solo 档案]]。\n", encoding="utf-8"
     )
     state = SyncState(tmp / "state.json")
-    consumer = _consumer(state, wiki, records, None, SnapshotStore(tmp))
+    handler = _handler(state, wiki, records, None, SnapshotStore(tmp))
 
-    ops = consumer._plan_archive_cleanup("solo.pdf")
+    ops = handler._plan_archive_cleanup("solo.pdf")
 
     assert ops == [{"action": "unlink", "path": str(records / "solo.md")}]
     assert (records / "solo.md").exists()  # unlink 等结算
