@@ -56,7 +56,30 @@ Web 工作台的问题页同样有「同步」按钮，并常显"待同步变更
 
 每次快照批在 Wiki 的 Git 历史里带统一批标记：成功的文件逐个提交（`sync: <文件名>`），失败的文件不留任何改动。想撤销整批更新，在问答会话里执行 `/wiki revert-batch <批id>`（批 id 见任务详情或提交尾注）。
 
-### 2. 使用问答助手
+### 2. 结构维护（重组 + 逐页成文 + 批尾补链）
+
+合并重复页、拆分过长页、整理结构——提议四步：初步建议 → 逐组二次确认 → 冲突消解 → （执行时）章节分配。确认后整批入队：一个单元一个任务、一笔提交，产出页全部经 LLM 重写成文，指向消失页的链接按机械规则转纯文本（保留显示文字）；批尾自动跟一批补链任务（范围 = 本次产出页 + 消失页的入链页）。某个单元核对不过只撤销它自己；整批随时回撤：`/wiki revert-batch <批id>`。
+
+```bash
+uv run python scripts/restructure_wiki.py --dry-run   # 只预览提议
+uv run python scripts/restructure_wiki.py             # 逐条 y/N 确认后执行
+uv run python scripts/restructure_wiki.py --yes       # 全收入队
+```
+
+问答会话里的 `/maintain` 命令语义相同（无交互全收；`--dry-run` 只预览）。重组与补链都要求先追平基线（没有未同步的源材料），队列里有在途写任务时提交会被拒。
+
+### 3. 补全页面关联
+
+维护批只补"波及面"的链接；老页面该链向新页面这类发现型需求，手动跑一次全库关联扫（一页一个任务、一笔提交）：
+
+```bash
+uv run python scripts/link_wiki.py                # 全库内容页
+uv run python scripts/link_wiki.py concepts/a     # 指定页
+```
+
+问答会话里的 `/link` 命令语义相同。补链只做一件事：LLM 指出正文里哪里该加/改/去链接，代码校验后逐条替换——不整页重写，没东西可补就是空操作。
+
+### 4. 使用问答助手
 
 在 Wiki 上进行交互式问答：
 
@@ -66,7 +89,7 @@ uv run wiki-agent
 
 常用选项：`--list` 查看已有会话，`--resume SESSION_ID` 恢复会话，`--debug` 保存调试日志。输入 `/q`、`/quit` 或 `/exit` 结束当前会话。
 
-### 3. 使用 Web 工作台
+### 5. 使用 Web 工作台
 
 启动本地 Web 界面，在浏览器中浏览 Wiki、进行问答并处理问题队列：
 
@@ -112,7 +135,7 @@ uv run pytest
 
 ```text
 src/wiki_agent/   核心运行时代码（按业务领域组织）
-scripts/          同步与失败重试等运维入口
+scripts/          同步、结构维护、关联扫等运维入口
 evals/            评测框架与判词题集
 test/             自动化测试
 docs/             设计记录
