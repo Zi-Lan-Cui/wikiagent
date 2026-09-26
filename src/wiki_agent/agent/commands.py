@@ -654,6 +654,142 @@ class RetryCommand(Command):
         )
 
 
+class MaintainCommand(Command):
+    """结构维护：全库分析 → 单元提议 → 确认后整批入队（批尾自动补链）。"""
+
+    name = "maintain"
+    description = "结构重组入队（单元 + 批尾补链）；--dry-run 只预览提议"
+
+    async def execute(self, ctx: CommandContext) -> CommandResult:
+        """/maintain 不直接写 wiki——提议在提交侧同步算，确认后入队串行执行。
+
+        前提检查都在花钱之前：队列有在途写任务、或存在未同步（且未挂
+        失败账）的源时直接暂拒，dry-run 同样——基于动盘或落后基线算出的
+        提议没有执行价值。逐条确认走 scripts/restructure_wiki.py，
+        本命令无交互全收。想撤销整批用 ``/wiki revert-batch <batch_id>``。
+        """
+        from wiki_agent.application.restructure_service import propose_maintenance
+        from wiki_agent.compiler.restructure import UnitError
+        from wiki_agent.jobs import PipelineBusy, RestructureInProgress, SyncBaselineLag
+
+        wiki = _wiki_root(ctx)
+        if wiki is None:
+            return CommandResult(text="# /maintain 失败\n\n无法定位 wiki 目录。")
+        job_service = ctx.agent.job_service
+        if job_service is None:
+            return CommandResult(text="# /maintain\n\n当前会话未装配任务队列（无执行入口）。")
+        tokens = ctx.args.split()
+        bad = [t for t in tokens if t != "--dry-run"]
+        if bad:
+            return CommandResult(
+                text=f"# /maintain 参数不识别: {bad}\n\n用法: `/maintain [--dry-run]`"
+            )
+        dry_run = "--dry-run" in tokens
+        if job_service.wiki_write_in_flight() > 0:
+            return CommandResult(
+                text="# /maintain 提交暂拒\n\n写 wiki 的任务有在途，等当前批到终态后再执行。"
+            )
+        lag = job_service.sync_baseline_lag()
+        if lag:
+            preview = "、".join(sorted(lag)[:3])
+            return CommandResult(
+                text=(
+                    "# /maintain 已暂拒\n\n"
+                    f"{len(lag)} 个源未同步（{preview}）。请先 /compile（快照 sync）追平基线。"
+                )
+            )
+        try:
+            outcome = await propose_maintenance(ctx.agent.llm, wiki)
+        except Exception as e:
+            return CommandResult(
+                text=f"# /maintain 分析失败\n\n{type(e).__name__}: {str(e)[:200]}"
+            )
+
+        lines = ["# /maintain dry-run" if dry_run else "# /maintain", ""]
+        lines.append(
+            f"提议: {len(outcome.proposed)} 初提 → {len(outcome.confirmed)} 复核保留 → "
+            f"{len(outcome.effective)} 可执行；放弃 {len(outcome.rejected)}（复核）"
+            f"+ {len(outcome.dropped)}（消解）"
+        )
+        for unit, reason in outcome.rejected + outcome.dropped:
+            lines.append(f"- 放弃 {'+'.join(unit.in_pages)} — {reason[:80]}")
+        if outcome.healthy:
+            lines.append("结构健康，无需动手。")
+            return CommandResult(text="\n".join(lines))
+        if not outcome.effective:
+            lines.append("有建议但全部被消解拒绝（理由见上）——未入队。")
+            return CommandResult(text="\n".join(lines))
+        for unit in outcome.effective:
+            out = "+".join(unit.out_slugs) or "（删除）"
+            lines.append(f"- {'+'.join(unit.in_pages)} → {out} | {unit.reason[:60]}")
+        if dry_run:
+            lines.append("\ndry-run：未入队。")
+            return CommandResult(text="\n".join(lines))
+        try:
+            jobs = job_service.submit_maintenance([u.to_dict() for u in outcome.accepted])
+        except UnitError as exc:
+            return CommandResult(text="\n".join(lines) + f"\n\n入队拒绝——单元与盘面不符: {exc}")
+        except (PipelineBusy, RestructureInProgress, SyncBaselineLag) as exc:
+            return CommandResult(text="\n".join(lines) + f"\n\n提交暂拒——{exc}。")
+        if not jobs:
+            return CommandResult(text="\n".join(lines) + "\n\n没有可入队的单元。")
+        batch = str(jobs[0].payload.get("batch") or "")
+        n_units = sum(1 for j in jobs if j.kind == "restructure")
+        lines.append(
+            f"\n已入队: {n_units} 个单元 + {len(jobs) - n_units} 个补链"
+            f"（批 {batch}；某单元核对不过只撤该单元；整批回撤: /wiki revert-batch {batch}）"
+        )
+        return CommandResult(text="\n".join(lines))
+
+
+class LinkCommand(Command):
+    """关联扫：给指定页（默认全库内容页）补充/修正 wikilink。"""
+
+    name = "link"
+    description = "全库（或指定页）出链维护入队；发现型补链的手动入口"
+
+    async def execute(self, ctx: CommandContext) -> CommandResult:
+        """/link [页...] 入队一批 link job（一页一 job、一页一提交）。
+
+        维护批的批尾 link 只覆盖波及面；"老页该链新页"这类发现型需求由
+        这里的全库扫承接。互斥与基线检查与 /maintain 同一套，前置执行。
+        """
+        from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
+
+        wiki = _wiki_root(ctx)
+        if wiki is None:
+            return CommandResult(text="# /link 失败\n\n无法定位 wiki 目录。")
+        job_service = ctx.agent.job_service
+        if job_service is None:
+            return CommandResult(text="# /link\n\n当前会话未装配任务队列（无执行入口）。")
+        tokens = ctx.args.split()
+        flags = [t for t in tokens if t.startswith("-")]
+        if flags:
+            return CommandResult(
+                text=f"# /link 参数不识别: {flags}\n\n用法: `/link [页slug...]`"
+            )
+        if job_service.wiki_write_in_flight() > 0:
+            return CommandResult(
+                text="# /link 提交暂拒\n\n写 wiki 的任务有在途，等当前批到终态后再执行。"
+            )
+        lag = job_service.sync_baseline_lag()
+        if lag:
+            preview = "、".join(sorted(lag)[:3])
+            return CommandResult(
+                text=f"# /link 已暂拒\n\n{len(lag)} 个源未同步（{preview}）。请先 /compile 追平基线。"
+            )
+        try:
+            jobs = job_service.submit_link_batch(slugs=tokens or None)
+        except (PipelineBusy, SyncBaselineLag, ValueError) as exc:
+            return CommandResult(text=f"# /link 提交暂拒\n\n{exc}")
+        if not jobs:
+            return CommandResult(text="# /link\n\n没有可扫描的页面。")
+        scope = "、".join(tokens) if tokens else "全库内容页"
+        return CommandResult(
+            text=f"# /link 已入队\n\n范围: {scope}——{len(jobs)} 个 link job（一页一提交）。"
+        )
+
+
 # 内置命令聚合
 
 
@@ -670,6 +806,8 @@ def create_command_router() -> CommandRouter:
         RetryCommand(),
         WikiCommand(),
         CompileCommand(),
+        MaintainCommand(),
+        LinkCommand(),
         ScanCommand(),
         QueueCommand(),
         ResolveCommand(),

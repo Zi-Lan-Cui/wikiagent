@@ -39,6 +39,9 @@ class Settlement(StrEnum):
     INGESTED = "ingested"  # 源文件编译进 wiki
     ALREADY_INGESTED = "already_ingested"  # 快照内容已在完成账，崩溃重放时短路返回
     DELETE_APPLIED = "delete_applied"  # 删除清理完成
+    APPLIED = "applied"  # 重组单元执行并通过扫描闸门
+    UNIT_MISSING = "unit_missing"  # 单页改写/补链的目标页在排队期间已消失
+    LINKED = "linked"  # 该页出链核对完成（applied 计数在 detail，可为 0）
     RESCAN_STILL_PRESENT = "rescan_still_present"  # 复扫确认问题仍在
     RESCAN_CLEARED = "rescan_cleared"  # 复扫确认问题已消失
 

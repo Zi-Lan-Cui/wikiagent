@@ -12,7 +12,11 @@ from wiki_agent.jobs.models import Settlement
 from wiki_agent.jobs.outcomes import ISSUE_RULES
 
 # 显式"不碰账本"名单：成功但语义上不产生账本动作的类别
-NO_LEDGER: set[Settlement] = set()
+NO_LEDGER: set[Settlement] = {
+    Settlement.APPLIED,  # 批操作结果不是"源材料等人修"的待办
+    Settlement.LINKED,
+    Settlement.UNIT_MISSING,
+}
 
 # 产生方所在的执行体目录（handlers 在这里申报 detail["settlement"]）
 _PRODUCER_DIRS = ("sync", "application")
