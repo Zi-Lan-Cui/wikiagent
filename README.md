@@ -56,27 +56,7 @@ Web 工作台的问题页同样有「同步」按钮，并常显"待同步变更
 
 每次快照批在 Wiki 的 Git 历史里带统一批标记：成功的文件逐个提交（`sync: <文件名>`），失败的文件不留任何改动。想撤销整批更新，在问答会话里执行 `/wiki revert-batch <批id>`（批 id 见任务详情或提交尾注）。
 
-### 2. 优化已有 Wiki
-
-对已有页面做摘要、关联和缺口修订——逐页排进同步队列（一页一个任务、一页一笔提交，失败只撤该页）：
-
-```bash
-uv run python scripts/refine_wiki.py [--wiki-dir /path/to/wiki] [--limit N]
-```
-
-问答会话里的 `/refine` 命令语义相同（入队 + 附带结构重组提议）。
-
-### 3. 调整页面结构
-
-合并重复页面或整理结构前先预览提议（不动手）：
-
-```bash
-uv run python scripts/restructure_wiki.py --dry-run
-```
-
-确认后执行 `uv run python scripts/restructure_wiki.py`（逐条 y/N 或 `--yes` 全收）。提议会被切成互不依赖的执行单元排进队列：一个单元一次提交，某个单元校验不过只撤销它自己，其余照常生效；整批随时可按批 id 回撤：`/wiki revert-batch <批id>`。
-
-### 4. 使用问答助手
+### 2. 使用问答助手
 
 在 Wiki 上进行交互式问答：
 
@@ -86,7 +66,7 @@ uv run wiki-agent
 
 常用选项：`--list` 查看已有会话，`--resume SESSION_ID` 恢复会话，`--debug` 保存调试日志。输入 `/q`、`/quit` 或 `/exit` 结束当前会话。
 
-### 5. 使用 Web 工作台
+### 3. 使用 Web 工作台
 
 启动本地 Web 界面，在浏览器中浏览 Wiki、进行问答并处理问题队列：
 
@@ -115,7 +95,7 @@ workspace/     运行状态、日志、溯源档案和会话数据——其中 p
 
 - **wiki 是机器管理的生成物**：每次同步成功的文件各成一笔 Git 提交，HEAD
   永远是"最近已结算状态"。不要手工编辑 `wiki/`——未提交的修改会被下一次
-  同步当作执行残骸清除。查看与回退都走 Git 历史（`/wiki history`、
+  同步清除。查看与回退都走 Git 历史（`/wiki history`、
   `/wiki revert-batch <批id>`）。
 - **引用只指向原始文件**：`workspace/provenance/sources/` 里的档案页是给人
   浏览的来源摘要（信息中介），模型不会引用它、问答也不会把它当依据。
@@ -132,7 +112,7 @@ uv run pytest
 
 ```text
 src/wiki_agent/   核心运行时代码（按业务领域组织）
-scripts/          同步、refine、restructure 等运维入口
+scripts/          同步与失败重试等运维入口
 evals/            评测框架与判词题集
 test/             自动化测试
 docs/             设计记录

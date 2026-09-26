@@ -106,7 +106,7 @@ class Analyzer:
                 content,
                 candidates=result.rel_paths,
                 # 当前文档真实 slug 并入合法集——LLM 用真实路径自称
-                # 比固定标识 current-doc 自然（实测 refine 高频违规）
+                # 比固定标识 current-doc 自然（实测高频违规点）
                 extra_refs={extract.source_identity},
             ),
             extra_body=NO_THINKING,

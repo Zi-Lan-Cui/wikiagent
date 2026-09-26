@@ -17,7 +17,6 @@ from wiki_agent.agent import ReActAgent
 from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.application.session import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
-from wiki_agent.application.wiki_ops import WikiOpsHandler
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, default_project_root, load_config
 from wiki_agent.conversation import SessionManager
@@ -66,7 +65,6 @@ class AppRuntime:
             ),
             wiki_dir=self.wiki_dir,
             sync_state=self.sync_state,
-            materials_dir=self.materials_dir,
         )
         self.event_publisher = EventPublisher()
         self.issue_reporter = IssueReporterHook(self.issue_service)
@@ -103,9 +101,9 @@ class AppRuntime:
             issue_store=self.issue_store,
             project_root=config.paths.project_root,
         )
-        # 执行装配：worker 是唯一终态写入者；装配根注册全部 job 类型
-        # （写 wiki 四类 + issue_action），适配器只提供入口映射，
-        # 多进程共库按 kinds 分工。
+        # 执行装配：worker 是唯一终态写入者；装配根接线全部 job 类型
+        # （写 wiki 的 compile/delete 与 issue_action），适配器只提供入口
+        # 映射，多进程共库按 kinds 分工。
         self.pipeline = CompilePipeline(
             llm=self.agent.llm,
             vlm=self.agent.vlm,
@@ -121,26 +119,11 @@ class AppRuntime:
             snapshots=self.snapshots,
             git=self.git_manager,
         )
-        # refine 是 wiki 自编译——mode=refine 的流水线（index 排他、不存档案页）
-        self.refine_pipeline = CompilePipeline(
-            llm=self.agent.llm,
-            vlm=self.agent.vlm,
-            wiki_dir=self.wiki_dir,
-            mode="refine",
-            compile_config=config.compile,
-        )
-        self.wiki_ops = WikiOpsHandler(
-            self.refine_pipeline,
-            wiki_dir=self.wiki_dir,
-            source_records_dir=self.source_records_dir,
-            git=self.git_manager,
-        )
         # issue_action 用例：执行体与适配器解耦，web/脚本只映射入口
         self.issue_actions = IssueActionExecutor(self)
         # 认领哪些 kind 由各执行体自己声明，装配根只接线
         self.job_worker = JobWorker(self.job_service)
         self.source_jobs.register_jobs(self.job_worker)
-        self.wiki_ops.register_jobs(self.job_worker)
         register_job_handlers(self.job_worker, self.issue_actions)
         # 启动核对（与 recover_stale、快照清扫同族）：丢失的重试输入
         # 标记 unavailable——任何宿主进程启动后账目即如实

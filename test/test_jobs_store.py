@@ -211,10 +211,10 @@ def test_claim_order_ties_break_by_insertion(tmp_path):
 
 
     store = make_job_store(tmp_path)
-    first = store.enqueue(kind="restructure", resource="r1", mode="manual")
-    second = store.enqueue(kind="restructure", resource="r2", mode="manual")
+    first = store.enqueue(kind="compile", resource="r1", mode="manual")
+    second = store.enqueue(kind="compile", resource="r2", mode="manual")
     same = datetime.now(UTC).isoformat()
     with store.database.transaction(immediate=True) as conn:
         conn.execute("UPDATE jobs SET created_at = ?", (same,))
-    assert store.claim_next(kinds={"restructure"}).id == first.id
-    assert store.claim_next(kinds={"restructure"}).id == second.id
+    assert store.claim_next(kinds={"compile"}).id == first.id
+    assert store.claim_next(kinds={"compile"}).id == second.id

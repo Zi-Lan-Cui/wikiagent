@@ -1,8 +1,4 @@
-"""Plan 阶段——集成决策。
-
-按模式提供两种规划者: compile 是策展人（new/update 开放决策），
-refine 是润色师（只更新输入页自身）。共享 LLM 调用 + 校验 + 解析流程。
-"""
+"""Plan 阶段——集成决策：策展人（new/update 开放决策）。"""
 
 from __future__ import annotations
 
@@ -13,7 +9,7 @@ from wiki_agent.compiler.integration.checks import (
     check_plan_json,
 )
 from wiki_agent.compiler.integration.common import load_valid_slugs
-from wiki_agent.compiler.integration.parse import normalize_wiki_path, parse_plan
+from wiki_agent.compiler.integration.parse import parse_plan
 from wiki_agent.compiler.models import (
     JSON_MODE,
     NO_THINKING,
@@ -28,7 +24,6 @@ from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.wiki.frontmatter import split_frontmatter
 
 logger = get_logger("STAGES")
 
@@ -36,12 +31,7 @@ _PLAN_TOKENS = 8_192
 
 
 class Planner:
-    """plan 阶段接口——共享签名，实现自带模式语义。
-
-    needs_current_page: 组装器据此决定是否传 current_page。
-    """
-
-    needs_current_page: bool = False
+    """plan 阶段接口。"""
 
     def __init__(self, llm: LLMClient, wiki_dir: str | Path, prompts):
         self._llm = llm
@@ -130,7 +120,7 @@ class Planner:
 
 
 class CuratorPlanner(Planner):
-    """策展人——compile 模式: new/update 开放决策。不知道 current_page 存在。"""
+    """策展人——new/update 开放决策。"""
 
     async def plan(
         self,
@@ -141,7 +131,7 @@ class CuratorPlanner(Planner):
         purpose: str = "",
         index_content: str = "",
     ) -> IntegrationPlan:
-        """策展人决策——compile 模式，new/update 开放决策。
+        """策展人决策——new/update 开放决策。
 
         Args:
             extract: 源文档抽取结果。
@@ -191,109 +181,6 @@ class CuratorPlanner(Planner):
             ],
         )
         return plan
-
-
-class PolisherPlanner(Planner):
-    """润色师——refine 模式: 只更新自己。
-
-    current_page 是本类的领域参数（compile 的 Planner 不知道它存在）。
-    本页 goal/gaps/summary 自己从 wiki_dir 读——目标完成度判断依据。
-    """
-
-    needs_current_page: bool = True
-
-    async def plan(
-        self,
-        extract: ExtractResult,
-        analysis: AnalysisResult,
-        *,
-        schema: str = "",
-        purpose: str = "",
-        index_content: str = "",
-        current_page: str = "",
-    ) -> IntegrationPlan:
-        """润色师决策——refine 模式，只更新自己。
-
-        Args:
-            extract: 源文档抽取结果。
-            analysis: analyze 阶段的分析结果。
-            schema: 目录规范文本。
-            purpose: 知识库使命文本。
-            index_content: index.md 全文。
-            current_page: 当前精炼页面 slug（self-update 过滤依据）。
-
-        Returns:
-            集成计划（只含指向自身的 update target）。
-        """
-        page_meta = self._page_meta(current_page)
-        plan = await self._invoke_plan(
-            extract,
-            self._prompts.plan_system(schema=schema, purpose=purpose),
-            self._prompts.plan_user(
-                extract,
-                _format_analysis_for_plan(analysis),
-                current_page=current_page,
-                page_meta=page_meta,
-            ),
-        )
-        # refine 的目标就是当前页本身：只保留指向自身的 update，
-        # 防止 plan 混入指向别处的动作（易错点，最后一道过滤）
-        self._filter_self_updates(plan, current_page)
-        emit_event(
-            "plan_decision",
-            file=extract.source_identity,
-            mode="refine",
-            targets=[
-                {"path": t.wiki_path, "disposition": t.disposition.value, "reason": t.reason}
-                for t in plan.page_targets
-            ],
-            analysis_rels=[
-                {"from": r.from_page, "to": r.to_page, "relation": r.relation}
-                for r in analysis.relationships
-            ],
-        )
-        return plan
-
-    def _page_meta(self, current_page: str) -> str:
-        """读本页 frontmatter 摘要——goal/gaps/summary/type。
-
-        Args:
-            current_page: 页面 slug。
-
-        Returns:
-            元信息逐行文本（"k: v"）；读取失败/为空返回空串。
-        """
-        if not current_page:
-            return ""
-        try:
-            content = (self._wiki_dir / f"{current_page}.md").read_text(encoding="utf-8")
-        except OSError:
-            return ""
-        fm = split_frontmatter(content)[0]
-        return "\n".join(
-            f"- {k}: {fm[k]}" for k in ("goal", "gaps", "summary", "type") if fm.get(k)
-        )
-
-    def _filter_self_updates(self, plan: IntegrationPlan, self_slug: str) -> None:
-        """丢弃非 self-update 的 target——prompt+校验之后最后一道。
-
-        Args:
-            plan: 集成计划（就地过滤 page_targets）。
-            self_slug: 当前页面 slug。
-        """
-        kept = []
-        for t in plan.page_targets:
-            t_slug = normalize_wiki_path(t.wiki_path).replace(".md", "")
-            if t.disposition != Disposition.UPDATE:
-                logger.warning("  refine 丢弃非 update target: %s", t.wiki_path)
-                continue
-            if t_slug != self_slug:
-                logger.warning("  refine 丢弃非自身 target: %s（自身 %s）", t.wiki_path, self_slug)
-                continue
-            kept.append(t)
-        plan.page_targets = kept
-        if kept:
-            logger.info("  refine 保留 self-update: %d", len(kept))
 
 
 def _format_analysis_for_plan(analysis: AnalysisResult) -> str:

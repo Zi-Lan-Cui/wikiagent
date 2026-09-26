@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from wiki_agent.compiler.extraction import Extractor
-from wiki_agent.compiler.integration import compile_integrator, refine_integrator
+from wiki_agent.compiler.integration import compile_integrator
 from wiki_agent.compiler.models import (
     AnalysisResult,
     ExtractResult,
@@ -73,19 +73,9 @@ class CompilePipeline:
         model_context: int | None = None,
         extract_concurrency: int | None = None,
         compile_config: CompileConfig | None = None,
-        mode: str = "compile",
-        index_reader: Callable[[Path], str] | None = None,
-        save_sources: bool | None = None,
         on_progress: Callable[[str], None] | None = None,
     ):
-        """初始化流水线。
-
-        mode: "compile"（源→wiki 初次编译，默认）/ "refine"（wiki 自编译）。
-        模式声明一处、下游隐式推导:
-        - refine: index 排除自身（无 index_reader 时构造默认排除闭包）+
-          不存 source 页 + refine prompts（plan 带当前页身份段）
-        - compile: 全量 index + 存 source 页 + compile prompts
-        显式传入 index_reader/save_sources 时覆盖模式默认。
+        """初始化流水线：convert→chunk→extract→search→analyze→plan→execute。
 
         Args:
             llm: LLM 客户端。
@@ -95,9 +85,7 @@ class CompilePipeline:
             chunk_size: 分块大小（字符）。
             model_context: extract 阶段的模型上下文窗口。
             extract_concurrency: extract 并发数。
-            mode: "compile" 或 "refine"。
-            index_reader: 自定义 index 读取钩子。
-            save_sources: 是否写 sources 页（覆盖模式默认）。
+            compile_config: 编译预算配置。
             on_progress: 阶段切换回调，接收稳定的英文阶段代码。
         """
         self._wiki_dir = Path(wiki_dir)
@@ -105,9 +93,6 @@ class CompilePipeline:
             Path(source_records_dir) if source_records_dir is not None else None
         )
         self._on_progress = on_progress
-        if mode not in ("compile", "refine"):
-            raise ValueError(f"未知模式: {mode!r}——compile / refine")
-        self._mode = mode
         budget = compile_config or CompileConfig()
         chunk_size = budget.chunk_size if chunk_size is None else chunk_size
         model_context = budget.context_window if model_context is None else model_context
@@ -116,18 +101,8 @@ class CompilePipeline:
         )
 
         from wiki_agent.compiler import prompts as prompts_pkg
-        from wiki_agent.compiler.workflows.refine import build_index_excluding_self
 
-        self._prompts = prompts_pkg.refine if mode == "refine" else prompts_pkg.compile
-        # index 视图: 显式钩子 > refine 默认排除自身 > 全量（None=默认读法）
-        if index_reader is not None:
-            self._index_reader = index_reader
-        elif mode == "refine":
-            self._index_reader = build_index_excluding_self(self._wiki_dir)
-        else:
-            self._index_reader = None
-        # source 页: 显式开关 > refine 默认不存 > compile 默认存
-        self._save_sources = save_sources if save_sources is not None else (mode != "refine")
+        self._prompts = prompts_pkg.compile
 
         self._converter = Converter(
             converters=[
@@ -150,17 +125,13 @@ class CompilePipeline:
             model_context=model_context,
             max_concurrency=extract_concurrency,
             source_records_dir=self._source_records_dir,
-            save_source_page=self._save_sources,
+            save_source_page=True,
             prompts=self._prompts,
             system_tokens=budget.extract_system_tokens,
             output_tokens=budget.extract_output_tokens,
             safety_buffer=budget.context_safety_buffer,
         )
-        # 四阶段按模式组装——工厂是唯一知道"模式 = 哪套组合"的地方
-        if mode == "refine":
-            self._integrator = refine_integrator(llm, wiki_dir=self._wiki_dir)
-        else:
-            self._integrator = compile_integrator(llm, wiki_dir=self._wiki_dir)
+        self._integrator = compile_integrator(llm, wiki_dir=self._wiki_dir)
 
     async def ingest_one(self, raw_file: RawFileProperties) -> IngestOutcome:
         """单文件完整流水线。
@@ -177,7 +148,7 @@ class CompilePipeline:
         Raises:
             IngestError: 阶段失败，stage 指明失败发生在哪一段。
         """
-        async with span("ingest_file", file=raw_file.name, mode=self._mode):
+        async with span("ingest_file", file=raw_file.name):
             return await self._ingest_one(raw_file)
 
     async def _ingest_one(self, raw_file: RawFileProperties) -> IngestOutcome:
@@ -245,14 +216,10 @@ class CompilePipeline:
             )
 
         # 4. Search → Analyze → Plan（analyze/plan 内部已 raise IngestError）
-        # index 视图: 有钩子用钩子（refine 排除自身），否则默认读全量。
         # 首跑/被删时显式初始化——存在性保证在入口做一次，
         # 后续环节读到的要么是真实 index 要么是刚建的空 index。
         self._ensure_index()
-        if self._index_reader is not None:
-            index_content = self._index_reader(raw_file.path)
-        else:
-            index_content = (self._wiki_dir / "index.md").read_text(encoding="utf-8")
+        index_content = (self._wiki_dir / "index.md").read_text(encoding="utf-8")
         schema = self._read_optional("schema.md")
         purpose = self._read_optional("purpose.md")
 
@@ -281,15 +248,12 @@ class CompilePipeline:
             ) from e
         self._notify_progress(IngestStage.PLAN)
         try:
-            # planner 自己知道要不要 current_page（needs_current_page）——
-            # pipeline 无条件传，模式知识不泄漏到这里
             outcome.plan = await self._integrator.plan(
                 outcome.extract,
                 outcome.analysis,
                 schema=schema,
                 purpose=purpose,
                 index_content=index_content,
-                current_page=self._current_page(raw_file),
             )
         except IngestError:
             raise
@@ -340,26 +304,6 @@ class CompilePipeline:
         callback = getattr(self, "_on_progress", None)
         if callback is not None:
             callback(stage.value)
-
-    def _current_page(self, raw_file) -> str:
-        """refine 模式的当前页面 slug——compile 模式留空。
-
-        （只更新当前页的过滤与 page_meta 已归 PolisherPlanner——
-        planner 自持模式语义，pipeline 只剩 slug 计算这个纯函数。）
-
-        Args:
-            raw_file: 源文件属性。
-
-        Returns:
-            refine 模式的页面 slug；compile 模式或路径越界返回空串。
-        """
-        if self._mode != "refine":
-            return ""
-        try:
-            rel = Path(raw_file.path).relative_to(self._wiki_dir)
-            return str(rel).replace(".md", "")
-        except ValueError:
-            return ""
 
     def _ensure_index(self) -> None:
         """index 存在性保证——首跑/被删时创建空文件。

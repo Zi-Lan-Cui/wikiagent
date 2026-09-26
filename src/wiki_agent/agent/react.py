@@ -383,7 +383,7 @@ class ReActAgent(BaseAgent):
         # 自装配存储。
         self.job_service = job_service
         self.llm = llm
-        # vlm 供 /refine 等编译类命令使用（CompilePipeline 需要）
+        # vlm 供编译类命令使用（CompilePipeline 需要）
         self.vlm = vlm
         self.agent_config = agent_config or AgentCfg()
         # 由组装入口传入 RootConfig.compile；默认仅保留给单元测试和

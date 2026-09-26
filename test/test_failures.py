@@ -175,7 +175,7 @@ def test_handler_bug_failure_does_not_record(tmp_path: Path):
 # 重试输入解析
 
 
-def test_retry_resolves_stale_refine_path_from_current_wiki(tmp_path: Path):
+def test_retry_resolves_stale_page_path_from_current_wiki(tmp_path: Path):
     wiki = tmp_path / "wiki"
     page = wiki / "concepts" / "move-semantics.md"
     page.parent.mkdir(parents=True)
@@ -186,7 +186,7 @@ def test_retry_resolves_stale_refine_path_from_current_wiki(tmp_path: Path):
             kind=IssueKind.INGESTION_FAILURE,
             title="move-semantics.md 处理失败",
             summary="临时失败",
-            origin={"mode": "refine"},
+            origin={"mode": "eval"},
             resource={"type": "wiki_page", "path": "move-semantics.md"},
             context={"source_path": "/tmp/deleted/concepts/move-semantics.md"},
         )
