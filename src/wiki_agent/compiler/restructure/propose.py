@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from wiki_agent.compiler.content_pages import all_content_slugs
-from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
+from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.retry import async_invoke_with_retry
@@ -35,7 +35,10 @@ def outline_meta(wiki_dir: Path, slugs: list[str]) -> dict[str, dict]:
 
 
 async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
-    """跑一遍全库结构分析，产出通过形状与 slug 校验的单元清单。"""
+    """跑一遍全库结构分析，产出通过形状与 slug 校验的单元清单。
+
+    开思考：真实模型在 NO_THINKING 下对明显重合的页面簇也提空单元。
+    """
     wiki_dir = Path(wiki_dir)
     index_path = wiki_dir / "index.md"
     index = index_path.read_text(encoding="utf-8") if index_path.is_file() else ""
@@ -50,7 +53,6 @@ async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
         ],
         max_tokens=8192,
         check=prompts.check_propose_json,
-        extra_body=NO_THINKING,
         max_attempts=2,
         response_format=JSON_MODE,
     )

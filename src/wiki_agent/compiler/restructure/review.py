@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
+from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
@@ -33,9 +33,9 @@ async def recheck_units(
                 Message(role="system", content=prompts.RECHECK_SYSTEM),
                 Message(role="user", content=prompts.recheck_user(unit, prompts.outline(unit.in_pages + unit.out_slugs, meta))),
             ],
-            max_tokens=1024,
+            # 复核开思考：思考段计入 max_tokens，1024 会被吃光致输出为空
+            max_tokens=4096,
             check=prompts.check_recheck_json,
-            extra_body=NO_THINKING,
             max_attempts=2,
             response_format=JSON_MODE,
         )
