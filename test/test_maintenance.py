@@ -291,11 +291,12 @@ def test_apply_link_fixes_rejects_bad_items():
         {"find": "目标词", "replace": "[[concepts/a|目标词]]"},  # 不唯一
         {"find": "后文", "replace": "[[missing/x|后文]]"},  # 目标不在名册
         {"find": "前文", "replace": "[[self|前文]]"},  # 自链
+        {"find": "重复 目标词 两处", "replace": "重复 [[concepts/a]] 两处"},  # 裸链缺显示文字
     ]
     new, applied, skipped = apply_link_fixes(
         content, fixes, valid_slugs={"concepts/a"}, self_slug="self"
     )
-    assert applied == [] and len(skipped) == 3 and new == content
+    assert applied == [] and len(skipped) == 4 and new == content
 
 
 def test_settlement_values_registered():

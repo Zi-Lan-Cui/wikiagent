@@ -23,6 +23,7 @@ from wiki_agent.wiki.frontmatter import split_frontmatter
 LINK_PLAN_SYSTEM = (
     "你是 wiki 出链维护者。给定一页正文与可链接页面名册，指出正文里哪里该加、该改、该去 wikilink："
     "该加=文字实指名册某页却没有链接；该改=链接指向已不合适；该去=链接干扰阅读。"
+    "新写入的链接一律写成 [[slug|显示文本]]，禁止无竖线说明文字的裸 [[slug]]。"
     "每个修改是对原文的一次字面替换：find 必须是正文中恰好出现一次的原文片段，"
     "replace 是替换后的文本（去链时给纯文本）。不给修改就输出空数组。"
     '只输出 JSON：{"fixes":[{"find":"...","replace":"..."}]}'
@@ -100,12 +101,18 @@ def apply_link_fixes(
         if not find or find not in working or working.count(find) > 1:
             skipped.append({**fix, "why": "find 非唯一出现或缺失"})
             continue
-        targets = {m.group(1) for m in _LINK_RE.finditer(replace)}
+        matches = list(_LINK_RE.finditer(replace))
+        targets = {m.group(1) for m in matches}
         if any(t == self_slug for t in targets):
             skipped.append({**fix, "why": "自链"})
             continue
         if any(t not in valid_slugs for t in targets):
             skipped.append({**fix, "why": "目标 slug 不在名册"})
+            continue
+        if any(not m.group(2) for m in matches):
+            # 质量规则要求 [[slug|显示文字]]；整页会因规范化不过撤销，
+            # 在条目级跳过，坏一条不连坐同页其余修改
+            skipped.append({**fix, "why": "链接缺 | 显示文字"})
             continue
         working = working.replace(find, replace, 1)
         applied.append(fix)
