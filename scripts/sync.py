@@ -15,7 +15,7 @@ from pathlib import Path
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.issues.producers import report_quality_findings
-from wiki_agent.jobs import SyncInProgress
+from wiki_agent.jobs import PipelineBusy
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
 from wiki_agent.wiki.quality import scan_wiki
 
@@ -34,8 +34,8 @@ async def main(source_dir: str | None = None) -> None:
     try:
         try:
             jobs = service.submit_sync(target)
-        except SyncInProgress:
-            logger.info("上一次批次仍在执行，继续泵而不是拍新快照…")
+        except PipelineBusy as exc:
+            logger.info("%s——本进程继续泵而不是拍新快照…", exc)
             jobs = []
         if jobs:
             logger.info("快照入队 %d 个任务（源目录 %s）", len(jobs), target)
