@@ -36,6 +36,7 @@ from wiki_agent.jobs import (
     JobStore,
     Kind,
     PipelineBusy,
+    RestructureInProgress,
     SyncBaselineLag,
     SyncInProgress,
 )
@@ -57,6 +58,7 @@ class JobService:
         outcomes: JobOutcomeHandler,
         sync_state: SyncState | None = None,
         materials_dir: str | Path | None = None,
+        wiki_dir: str | Path | None = None,
     ):
         # 依赖全部由组合根注入；存储的唯一端口是 store——本类不认识 Database。
         self.store = store
@@ -65,6 +67,8 @@ class JobService:
         self.outcomes = outcomes
         # sync 快照对比需要完成账本
         self.sync_state = sync_state
+        # 维护提交口要按盘面校验单元与计算批尾 link 波及面
+        self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         # 维护类任务（restructure/link）的基线判定要对比磁盘源材料与账本
         self.materials_dir = Path(materials_dir) if materials_dir is not None else None
         self.recovered_jobs = self.store.recover_stale()
@@ -115,13 +119,6 @@ class JobService:
             )
         }
         return {str(Path(path).resolve()) for path, _digest in dirty} - quarantined
-
-    def _raise_if_busy_or_lagging(self, _conn: sqlite3.Connection | None = None) -> None:
-        """维护类提交口的共用前置：先查队列（便宜），再查基线。"""
-        busy = self._in_flight_wiki_write_counts(_conn=_conn)
-        if busy:
-            raise self._pipeline_busy(busy)
-        self._raise_if_baseline_lagging()
 
     def _raise_if_baseline_lagging(self) -> None:
         lagging = self.sync_baseline_lag()
@@ -350,6 +347,115 @@ class JobService:
                 )
                 closed += 1
         return closed
+
+    # 维护批（restructure 单元 + 批尾 link，执行体 application.wiki_ops）
+
+    def submit_maintenance(self, units: list[dict]) -> list[Job]:
+        """已确认的单元清单整批入队：一单元一 job，批尾自动跟波及面补链。
+
+        单元声明在此完成最终校验（消解规则对当前盘面重跑一遍，违例即
+        UnitError 拒绝——提交口不接受绕过消解的清单）；一个事务内先入队
+        全部单元再入队 link 任务（范围 = 全部产出页 ∪ 消失页的入链页，
+        提交时盘面静止故集合确定）。互斥与基线检查：重组自撞报
+        RestructureInProgress，其他写在途报 PipelineBusy，未同步源报
+        SyncBaselineLag。payload 只带声明——章节归属由执行时路由计算。
+        """
+        from wiki_agent.compiler.content_pages import all_content_slugs
+        from wiki_agent.compiler.restructure import (
+            Unit,
+            UnitError,
+            pages_linking_to,
+            resolve_unit_conflicts,
+        )
+
+        if self.wiki_dir is None:
+            raise RuntimeError("submit_maintenance 需要 wiki_dir")
+        try:
+            parsed = [Unit.from_dict(raw) for raw in units]
+        except (TypeError, ValueError) as exc:
+            raise UnitError(f"单元声明损坏: {exc}") from exc
+        clean, dropped = resolve_unit_conflicts(parsed, set(all_content_slugs(self.wiki_dir)))
+        if dropped:
+            raise UnitError(" ".join(f"{u.in_pages}: {r}" for u, r in dropped))
+        if not clean:
+            return []
+        batch = f"restructure_{uuid4().hex}"
+        jobs: list[Job] = []
+        with self.store.transaction(immediate=True) as conn:
+            self._raise_if_maintenance_blocked(conn)
+            for index, unit in enumerate(clean):
+                jobs.append(
+                    self.store.enqueue(
+                        kind=Kind.RESTRUCTURE,
+                        resource=f"restructure:{batch}:{index}",
+                        mode="manual",
+                        payload={"unit": unit.to_dict(), "batch": batch, "index": index},
+                        idempotency_key=f"restructure:{batch}:{index}",
+                        _conn=conn,
+                    )
+                )
+            vanished = sorted({s for unit in clean for s in unit.vanished})
+            link_targets = sorted(
+                {p for unit in clean for p in unit.out_slugs} | set(pages_linking_to(self.wiki_dir, vanished))
+            )
+            for slug in link_targets:
+                jobs.append(
+                    self.store.enqueue(
+                        kind=Kind.LINK,
+                        resource=f"link:{slug}",
+                        mode="tail",
+                        payload={"slug": slug, "batch": batch},
+                        idempotency_key=f"link:{batch}:{slug}",
+                        _conn=conn,
+                    )
+                )
+        return jobs
+
+    def submit_link_batch(self, slugs: list[str] | None = None) -> list[Job]:
+        """发现型补链：指定页（默认全库内容页）逐页入队，一页一 job 一提交。
+
+        slug 按名册白名单校验（不存在即 ValueError，不产生注定空转的行）；
+        互斥与基线检查同维护批。
+        """
+        from wiki_agent.compiler.content_pages import all_content_slugs
+
+        if self.wiki_dir is None:
+            raise RuntimeError("submit_link_batch 需要 wiki_dir")
+        roster = all_content_slugs(self.wiki_dir)
+        if slugs is None:
+            targets = list(roster)
+        else:
+            unknown = [s for s in dict.fromkeys(slugs) if s not in set(roster)]
+            if unknown:
+                raise ValueError(f"不是可维护的 wiki 页: {unknown}")
+            targets = list(dict.fromkeys(slugs))
+        if not targets:
+            return []
+        batch = f"link_{uuid4().hex}"
+        jobs: list[Job] = []
+        with self.store.transaction(immediate=True) as conn:
+            self._raise_if_maintenance_blocked(conn)
+            for slug in targets:
+                jobs.append(
+                    self.store.enqueue(
+                        kind=Kind.LINK,
+                        resource=f"link:{slug}",
+                        mode="manual",
+                        payload={"slug": slug, "batch": batch},
+                        idempotency_key=f"link:{batch}:{slug}",
+                        _conn=conn,
+                    )
+                )
+        return jobs
+
+    def _raise_if_maintenance_blocked(self, _conn: sqlite3.Connection | None = None) -> None:
+        """维护类提交的共用闸：自撞专门异常优先，其余在途统一 PipelineBusy。"""
+        busy = self._in_flight_wiki_write_counts(_conn=_conn)
+        if Kind.RESTRUCTURE in busy:
+            raise RestructureInProgress()
+        if busy:
+            raise self._pipeline_busy(busy)
+        self._raise_if_baseline_lagging()
 
     # 执行生命周期——Worker 独占
 

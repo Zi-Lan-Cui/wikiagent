@@ -1,0 +1,136 @@
+"""维护流水线的 LLM 提示词：粗提、复核、路由、成文。
+
+契约都收在 JSON 输出上，校验函数与各 prompt 同处一文件；解析与重试由
+调用方（async_invoke_with_retry）负责。
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from .models import Unit
+from .sections import Section
+
+
+def outline(slugs: list[str], meta: dict[str, dict]) -> str:
+    lines = []
+    for slug in slugs:
+        m = meta.get(slug, {})
+        lines.append(f"- {slug} | {m.get('title', '')} | goal: {m.get('goal', '')} | {m.get('summary', '')}")
+    return "\n".join(lines)
+
+
+PROPOSE_SYSTEM = (
+    "你是 wiki 结构维护的提议者。给定全部页面的目录大纲，找出结构问题并给出重组单元："
+    "每个单元声明输入页（in，被整体消费）与输出页（out，slug+intent 说明这页将来讲什么）。"
+    "合并=N→1，拆分/新建=1→M，改写=A→A（intent 给出改写方向），删除=out 空。"
+    "不引入新知识：一切内容必须来自 in 页。没有值得动的结构就输出空数组。"
+    '只输出 JSON：{"units":[{"in_pages":[...],"out":[{"slug":"concepts/x","intent":"..."}],"reason":"..."}]}'
+)
+
+
+def propose_user(index_content: str, outline: str) -> str:
+    return f"## 目录\n{index_content}\n\n## 页面大纲\n{outline}\n\n给出重组单元（可为空）。"
+
+
+def check_propose_json(content: str) -> tuple[bool, str]:
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        return False, f"不是合法 JSON: {exc}"
+    units = data.get("units") if isinstance(data, dict) else None
+    if not isinstance(units, list):
+        return False, '缺少 units 数组。输出 {{"units": [...]}}。'
+    for i, raw in enumerate(units):
+        if not isinstance(raw, dict) or not isinstance(raw.get("in_pages"), list) or not raw["in_pages"]:
+            return False, f"units[{i}] 需要非空 in_pages。"
+        if not isinstance(raw.get("out"), list):
+            return False, f"units[{i}] 缺少 out 数组（删除用空数组）。"
+    return True, ""
+
+
+RECHECK_SYSTEM = (
+    "你是结构决定的人工复核代理。给定一个重组单元与涉及页的大纲，判断这个重组现在是否成立、"
+    "方向是否正确（该不该合并/拆成这样）。结构决定影响面大，宁可放弃不可含糊。"
+    '只输出 JSON：{{"keep": true|false, "reason": "..."}}'
+)
+
+
+def recheck_user(unit: Unit, outline: str) -> str:
+    intents = "；".join(f"{p.slug}: {p.intent or '（搬运）'}" for p in unit.out) or "（整页删除）"
+    return (
+        f"## 单元\n消费 {unit.in_pages} → 产出 [{intents}]\n理由: {unit.reason}\n\n"
+        f"## 涉及页大纲\n{outline}\n\nkeep 还是放弃？"
+    )
+
+
+def check_recheck_json(content: str) -> tuple[bool, str]:
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        return False, f"不是合法 JSON: {exc}"
+    if not isinstance(data, dict) or not isinstance(data.get("keep"), bool):
+        return False, '需要 {{"keep": true/false, "reason": "..."}}。'
+    return True, ""
+
+
+ROUTE_SYSTEM = (
+    "你是章节分配器。给定一组输入页的章节大纲与输出页的 intent，把每个章节分配到恰好一个输出页"
+    "（删除单元则全部标 dropped——但只有输出为空时才允许，且必须来自显式删除提议）。"
+    "禁止丢弃章节、禁止一稿多投、禁止发明确实不存在的目标。"
+    '只输出 JSON：{{"assign": [{{"section": "章节id", "to": "out_slug"}}]}}'
+)
+
+
+def route_outline(sections: list[Section]) -> str:
+    return "\n".join(f"- {s.id} | {s.heading or '（页首）'} | {s.gist}" for s in sections)
+
+
+def route_user(unit: Unit, sections: list[Section], fixed_note: str) -> str:
+    intents = "；".join(f"{p.slug}: {p.intent}" for p in unit.out if not p.take)
+    return (
+        f"## 输出页 intent\n{intents or '（无待分配页）'}\n\n"
+        f"## 章节大纲\n{route_outline(sections)}\n\n{fixed_note}"
+    )
+
+
+def check_route_json(content: str) -> tuple[bool, str]:
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        return False, f"不是合法 JSON: {exc}"
+    assign = data.get("assign") if isinstance(data, dict) else None
+    if not isinstance(assign, list):
+        return False, '缺少 assign 数组。输出 {{"assign": [...]}}。'
+    for i, item in enumerate(assign):
+        if not isinstance(item, dict) or not item.get("section") or not item.get("to"):
+            return False, f"assign[{i}] 需要 section 与 to。"
+    return True, ""
+
+
+REWRITE_SYSTEM = (
+    "你是 wiki 页面成文者。给定装配好的草稿（章节按分配搬运而来）与该页的 intent 与旧版正文，"
+    "重写成连贯页面：只使用给定材料，不新增事实，保留全部 [[链接]] 与图片引用，"
+    "输出含 frontmatter 的完整 markdown（frontmatter 沿用旧版，新页按 type/title 字段给全）。"
+    "没有要改的就原样返回草稿。"
+)
+
+
+def rewrite_user(
+    slug: str, intent: str, draft: str, old: str, siblings: list[str]
+) -> str:
+    parts = [f"## 目标页\n{slug}\nintent: {intent or '（按草稿装配成文）'}"]
+    if siblings:
+        parts.append("## 同批产出页\n" + "、".join(siblings))
+    if old:
+        parts.append(f"## 旧版（结构与 frontmatter 基线）\n{old[:12000]}")
+    parts.append(f"## 草稿（分配后的内容全集）\n{draft[:30000]}")
+    parts.append("输出重写后的完整页面。")
+    return "\n\n".join(parts)
+
+
+def json_of(content: str) -> dict[str, Any]:
+    data = json.loads(content)
+    assert isinstance(data, dict)
+    return data
