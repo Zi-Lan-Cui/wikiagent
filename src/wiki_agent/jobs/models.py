@@ -8,18 +8,22 @@ from typing import Literal
 
 
 class Kind(StrEnum):
-    """job 类型：worker 按它分派 handler，sync 互斥与回撤门按它计数在途行。"""
+    """job 类型：worker 按它分派 handler，提交互斥与回撤门按它计数在途行。"""
 
     COMPILE = "compile"  # 编译一个源文件（sync 批与 issue retry 共用）
     DELETE = "delete"  # 清理一个已删除来源
+    RESTRUCTURE = "restructure"  # 重组单元：结构手术 + 触及页的逐页成文
+    LINK = "link"  # 单页出链维护（只改链接，不重写内容）
     ISSUE_ACTION = "issue_action"  # issue 动作（rescan 等）
 
 
-# 写 wiki 的任务家族——sync 互斥闸与 /wiki revert 的门共用这一集合，
-# 写者身份在系统里只有这一个事实来源
+# 写 wiki 的任务家族——提交互斥、sync_status 徽章与 /wiki revert 的门共用
+# 这一集合，写者身份在系统里只有这一个事实来源
 WIKI_WRITE_KINDS: tuple[Kind, ...] = (
     Kind.COMPILE,
     Kind.DELETE,
+    Kind.RESTRUCTURE,
+    Kind.LINK,
 )
 
 

@@ -32,6 +32,7 @@ def make_job_service(
     sync_state: SyncState | None = None,
     source_records_dir: str | Path | None = None,
     outcomes: JobOutcomeHandler | None = None,
+    materials_dir: str | Path | None = None,
 ) -> JobService:
     workspace = Path(workspace)
     database = Database(workspace)
@@ -47,4 +48,5 @@ def make_job_service(
             source_records_dir=source_records_dir,
         ),
         sync_state=sync_state,
+        materials_dir=materials_dir,
     )

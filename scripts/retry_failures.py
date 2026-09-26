@@ -15,7 +15,7 @@ from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueAlreadyClaimedError
-from wiki_agent.jobs import DuplicateInFlightJob
+from wiki_agent.jobs import DuplicateInFlightJob, PipelineBusy
 from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import configure_logging, get_logger
 
@@ -44,6 +44,8 @@ async def main(selected: str | None = None) -> None:
                 outcomes[issue_id] = "skipped（已有在途任务）"
             except SourceUnavailableError as exc:
                 outcomes[issue_id] = f"unavailable — {exc}"
+            except PipelineBusy as exc:
+                outcomes[issue_id] = f"skipped（流水线在途）— {exc}"
             else:
                 logger.info("%s: 已排队 %s", issue_id, job.id)
 

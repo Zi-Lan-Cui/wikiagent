@@ -3,11 +3,22 @@
 Job 是唯一执行事实来源：全部提交入口在这里；终态写入只有一个点，
 即 complete_with_outcome，jobs 行与 issue 联动同事务、带 CAS。
 
-sync 互斥串行：compile/delete 有在途时 submit_sync 报 SyncInProgress
-——上一批没跑完不叠快照；无脏无删的空跑不入队任何任务，不受此限。
-retry 与 sync 共享执行唯一性三层收敛：该 issue 已有在途挂账 → 返回
-既有 job；幂等键命中在途行 → 返回既有；撞唯一在途索引 → 返回占位者、
-其无账则补挂。
+任务流水线互斥：写 wiki 的任一类任务（compile/delete/restructure/link，
+见 WIKI_WRITE_KINDS）在途时，写类提交口不收新活，raise PipelineBusy；
+同族自撞保留专门异常——sync 撞在途 compile/delete 报 SyncInProgress、
+重组撞在途批报 RestructureInProgress（均为 PipelineBusy 子类）。retry
+的幂等收敛排在闸之前：该 issue 已有在途挂账、或同一资源已被在途任务
+占用时照常收敛返回既有 job，收敛不上且队列非空才拒。issue_action
+（rescan）双向豁免——它不写 wiki、不产生快照批；代价如实：rescan 可
+插在写批之间执行，结论可能基于改到一半的 wiki，批结束后再复扫即自愈。
+判定只经由 JobStore.in_flight_kinds 从 jobs 表派生，无内存镜像。
+
+同步基线闸门：restructure 的提议与 link 的判断基于 wiki 现状，wiki
+落后于源材料时依据已过期。落后集合 = 脏源（scan_disk 与完成账之差，
+与 sync_status 同源）− 隔离区（挂 open/blocked 编译失败账的源——失败
+即保持脏是账本语义，不该卡死批操作），非空即 SyncBaselineLag 暂拒、
+提示先 sync。SyncBaselineLag 与 PipelineBusy 分家：两种原因、两种补救
+动作，消息不互相冒充。提交前的互斥检查在前（便宜），基线检查在后。
 """
 
 from __future__ import annotations
@@ -24,6 +35,8 @@ from wiki_agent.jobs import (
     JobResult,
     JobStore,
     Kind,
+    PipelineBusy,
+    SyncBaselineLag,
     SyncInProgress,
 )
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
@@ -43,6 +56,7 @@ class JobService:
         snapshots: SnapshotStore,
         outcomes: JobOutcomeHandler,
         sync_state: SyncState | None = None,
+        materials_dir: str | Path | None = None,
     ):
         # 依赖全部由组合根注入；存储的唯一端口是 store——本类不认识 Database。
         self.store = store
@@ -51,11 +65,72 @@ class JobService:
         self.outcomes = outcomes
         # sync 快照对比需要完成账本
         self.sync_state = sync_state
+        # 维护类任务（restructure/link）的基线判定要对比磁盘源材料与账本
+        self.materials_dir = Path(materials_dir) if materials_dir is not None else None
         self.recovered_jobs = self.store.recover_stale()
         # 崩溃/中断遗留的无主快照目录在构造期清扫（保留名单=非终态任务引用的批）
         self.snapshots.sweep_orphans(self.store.in_flight_batch_ids())
 
     # 提交
+
+    # 流水线互斥与基线判定：只在这几个 helper 里，提交口负责在正确位置调用
+
+    def _in_flight_wiki_write_counts(
+        self, _conn: sqlite3.Connection | None = None
+    ) -> dict[str, int]:
+        """写 wiki 各 kind 的在途行数——互斥判定的唯一依据。"""
+        counts = self.store.in_flight_kinds(_conn=_conn)
+        return {kind: n for kind, n in counts.items() if kind in WIKI_WRITE_KINDS}
+
+    @staticmethod
+    def _pipeline_busy(busy: dict[str, int]) -> PipelineBusy:
+        parts = "、".join(f"{kind} {n} 个" for kind, n in sorted(busy.items()))
+        return PipelineBusy(f"写 wiki 的任务在途（{parts}）：等当前批到达终态后再提交")
+
+    @staticmethod
+    def _sync_blocked(busy: dict[str, int]) -> PipelineBusy:
+        """sync 提交被挡：撞同族的在途 compile/delete 保留 SyncInProgress 专门语义。"""
+        if Kind.COMPILE in busy or Kind.DELETE in busy:
+            return SyncInProgress()
+        return JobService._pipeline_busy(busy)
+
+    def sync_baseline_lag(self) -> set[str]:
+        """基线落后集合 = 脏源 − 隔离区。
+
+        脏判定与 sync_status 同源（scan_disk 对比完成账）；隔离区是挂着
+        open/blocked 编译失败账的源——这些源已被打账隔离、页面与账本
+        一致，不该再卡批操作。materials_dir 或 sync_state 未注入
+        （离线装配）时返回空集，闸不适用。
+        """
+        if self.materials_dir is None or self.sync_state is None:
+            return set()
+        disk = scan_disk(self.materials_dir)
+        dirty, _removed = self.sync_state.diff(disk)
+        quarantined = {
+            str(record.context.get("source_path") or "")
+            for record in self.issues.list(
+                statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
+                kinds={IssueKind.INGESTION_FAILURE},
+                limit=1000,
+            )
+        }
+        return {str(Path(path).resolve()) for path, _digest in dirty} - quarantined
+
+    def _raise_if_busy_or_lagging(self, _conn: sqlite3.Connection | None = None) -> None:
+        """维护类提交口的共用前置：先查队列（便宜），再查基线。"""
+        busy = self._in_flight_wiki_write_counts(_conn=_conn)
+        if busy:
+            raise self._pipeline_busy(busy)
+        self._raise_if_baseline_lagging()
+
+    def _raise_if_baseline_lagging(self) -> None:
+        lagging = self.sync_baseline_lag()
+        if not lagging:
+            return
+        preview = "、".join(sorted(lagging)[:3])
+        raise SyncBaselineLag(
+            f"{len(lagging)} 个源未同步（{preview}）：请先 sync，基线追平后再提交"
+        )
 
     def submit(
         self,
@@ -88,10 +163,18 @@ class JobService:
         与 submit_sync 同一规则：digest 来自点击时复制的快照件，
         点击后文件再变，本次重试处理的仍是当时保存的这份副本。issue 终态由
         compile job 的 outcome 落，提交本身不改变 issue 状态。
+
+        流水线互斥闸排在收敛之后：该 issue 已有在途挂账、或同一资源已被
+        在途任务占用时照常收敛返回，只有两个收敛通道都空且写 wiki 任务
+        在途时才 PipelineBusy 暂拒——双击 retry 的幂等语义不因加闸而破。
         """
         issue = self.issues.require(issue_id)
         source = resolve_retry_source(issue)
         resource = str(Path(source).resolve())
+        busy = self._in_flight_wiki_write_counts()
+        if busy and self.store.in_flight_job_by_issue(issue_id) is None:
+            if self.store.in_flight_by_resource(resource) is None:
+                raise self._pipeline_busy(busy)
         batch = f"retry_{uuid4().hex}"
         try:
             digest = self.snapshots.capture(batch, Path(resource).parent, [resource])[resource]
@@ -102,6 +185,11 @@ class JobService:
                 existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
                 if existing is not None:
                     return existing
+                if self.store.in_flight_by_resource(resource, _conn=conn) is None:
+                    # 事务内复查：早退之后队列可能已被别的提交点亮
+                    busy = self._in_flight_wiki_write_counts(_conn=conn)
+                    if busy:
+                        raise self._pipeline_busy(busy)
                 try:
                     return self.store.enqueue(
                         kind=Kind.COMPILE,
@@ -160,8 +248,9 @@ class JobService:
         """快照同步：点击时"磁盘 − 账本"之差即本批；脏文件复制保存后整批入队。
 
         语义契约——"快照是输入"：
-        - 互斥串行：compile/delete 有在途则 SyncInProgress，上一批没跑完
-          不叠快照；无脏无删的空跑不入队任务、不受此限；
+        - 互斥串行：写 wiki 的四类任务任一在途即拒——撞在途的 compile/delete
+          报 SyncInProgress（上一批没跑完不叠快照），撞 restructure/link
+          报 PipelineBusy；无脏无删的空跑不入队任务、不受此限；
         - compile 任务的输入是点击时复制进 workspace/snapshots/<批>/
           的副本。执行期间原件修改、删除、复活都不影响本批；改动归下一次
           点击。payload.digest 就是副本的实际内容；
@@ -183,8 +272,9 @@ class JobService:
             with self.store.transaction(immediate=True) as conn:
                 self._close_vanished_failures(disk, conn)
             return []
-        if self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE)) > 0:
-            raise SyncInProgress()
+        busy = self._in_flight_wiki_write_counts()
+        if busy:
+            raise self._sync_blocked(busy)
         batch = f"sync_{uuid4().hex}"
         try:
             digests = (
@@ -192,8 +282,9 @@ class JobService:
             )
             jobs: list[Job] = []
             with self.store.transaction(immediate=True) as conn:
-                if self.store.in_flight_for_kinds((Kind.COMPILE, Kind.DELETE), _conn=conn) > 0:
-                    raise SyncInProgress()
+                busy = self._in_flight_wiki_write_counts(_conn=conn)
+                if busy:
+                    raise self._sync_blocked(busy)
                 for path, _disk_digest in dirty:
                     original = str(Path(path).resolve())
                     pending = self.issues.find_pending_failures(original)

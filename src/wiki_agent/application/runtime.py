@@ -64,6 +64,7 @@ class AppRuntime:
                 source_records_dir=self.source_records_dir,
             ),
             sync_state=self.sync_state,
+            materials_dir=self.materials_dir,
         )
         self.event_publisher = EventPublisher()
         self.issue_reporter = IssueReporterHook(self.issue_service)

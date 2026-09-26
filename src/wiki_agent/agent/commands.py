@@ -359,6 +359,7 @@ class QueueCommand(Command):
 
         if args == "retry-all" or args.startswith("retry "):
             from wiki_agent.issues import IssueKind
+            from wiki_agent.jobs import PipelineBusy
             from wiki_agent.jobs.retry_source import SourceUnavailableError
             from wiki_agent.jobs.service import JobService
 
@@ -390,6 +391,8 @@ class QueueCommand(Command):
                     lines.append(f"- `{issue_id}`: 未找到")
                 except SourceUnavailableError as exc:
                     lines.append(f"- `{issue_id}`: 输入不可用 — {exc}")
+                except PipelineBusy as exc:
+                    lines.append(f"- `{issue_id}`: 流水线在途，暂拒 — {exc}")
                 except ValueError as exc:
                     lines.append(f"- `{issue_id}`: 不能重试 — {exc}")
                 else:
@@ -463,7 +466,7 @@ class CompileCommand(Command):
     description = "编译 source 文件夹（一次快照 sync；首次运行即全量编译）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.jobs import SyncInProgress
+        from wiki_agent.jobs import PipelineBusy
 
         try:
             args = shlex.split(ctx.args.strip())
@@ -489,8 +492,8 @@ class CompileCommand(Command):
             return CommandResult(text=f"# /compile\n\n源目录不存在: {target}")
         try:
             jobs = job_service.submit_sync(target)
-        except SyncInProgress:
-            return CommandResult(text="# /compile\n\n上一批快照仍在执行（互斥串行）——等它跑完再拍。")
+        except PipelineBusy as exc:
+            return CommandResult(text=f"# /compile 提交暂拒\n\n{exc}。")
         return CommandResult(
             text=(
                 "# /compile 已入队\n\n"
