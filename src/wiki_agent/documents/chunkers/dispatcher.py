@@ -38,17 +38,3 @@ class Chunker:
                 return ck.chunk(file)
         logger.warning(f"没有 chunker 支持 {file.name}（ext={file.ext}）")
         return []
-
-    def batch_chunk(
-        self,
-        files: list[ConvertedFile],
-    ) -> list[list[ChunkedFileProperties]]:
-        """批量切分多个文件。
-
-        Args:
-            files: 转换后的文件列表。
-
-        Returns:
-            每个文件的 chunk 列表（外层列表按入参顺序）。
-        """
-        return [self.chunk(f) for f in files]

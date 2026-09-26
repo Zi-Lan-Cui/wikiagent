@@ -284,13 +284,6 @@ class SessionManager:
         # 检查并返回文件是否保存成功
         return True
 
-    def get_session_token_cost(
-        self,
-        session_key: str,
-    ):
-        session = self.get_or_create(session_key=session_key)
-        return session.token_cost
-
     def list_session_keys(self) -> list[str]:
         """列出磁盘上所有 session key，按修改时间倒序。
 

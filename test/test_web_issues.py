@@ -39,7 +39,6 @@ class _Runtime:
         # 统一执行模型：web 装配从 runtime 拿 job_service/job_worker
         self.job_service = make_job_service(
             self.workspace,
-            wiki_dir=self.wiki_dir,
             sync_state=SyncState(self.workspace / "watch" / "state.json"),
         )
         self.job_worker = JobWorker(self.job_service)

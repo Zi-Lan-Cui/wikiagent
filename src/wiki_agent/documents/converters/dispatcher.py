@@ -38,21 +38,3 @@ class Converter:
                 return await conv.convert(raw_file)
         logger.warning(f"没有 converter 支持 {raw_file.name}（ext={raw_file.ext}）")
         return ConvertedFile.from_raw(raw_file, "")
-
-    async def batch_convert(
-        self,
-        raw_files: list[RawFileProperties],
-    ) -> list[ConvertedFile]:
-        """批量转换多个文件（保持入参顺序）。
-
-        Args:
-            raw_files: 原始文件属性列表。
-
-        Returns:
-            转换结果列表（顺序与入参一致）。
-        """
-        collected: list[tuple[int, ConvertedFile]] = []
-        for index, raw_file in enumerate(raw_files):
-            collected.append((index, await self.convert(raw_file)))
-        collected.sort(key=lambda entry: entry[0])
-        return [conv for _, conv in collected]

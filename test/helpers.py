@@ -29,7 +29,6 @@ def make_issue_service(workspace: str | Path) -> IssueService:
 def make_job_service(
     workspace: str | Path,
     *,
-    wiki_dir: str | Path | None = None,
     sync_state: SyncState | None = None,
     source_records_dir: str | Path | None = None,
     outcomes: JobOutcomeHandler | None = None,
@@ -47,6 +46,5 @@ def make_job_service(
             sync_state=sync_state,
             source_records_dir=source_records_dir,
         ),
-        wiki_dir=wiki_dir,
         sync_state=sync_state,
     )

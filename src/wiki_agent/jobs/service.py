@@ -42,7 +42,6 @@ class JobService:
         issues: IssueStore,
         snapshots: SnapshotStore,
         outcomes: JobOutcomeHandler,
-        wiki_dir: str | Path | None = None,
         sync_state: SyncState | None = None,
     ):
         # 依赖全部由组合根注入；存储的唯一端口是 store——本类不认识 Database。
@@ -50,8 +49,6 @@ class JobService:
         self.issues = issues
         self.snapshots = snapshots
         self.outcomes = outcomes
-        # issue retry 解析重试输入需要 wiki 根（wiki_page 型资源的定位）
-        self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         # sync 快照对比需要完成账本
         self.sync_state = sync_state
         self.recovered_jobs = self.store.recover_stale()
@@ -92,10 +89,8 @@ class JobService:
         点击后文件再变，本次重试处理的仍是当时保存的这份副本。issue 终态由
         compile job 的 outcome 落，提交本身不改变 issue 状态。
         """
-        if self.wiki_dir is None:
-            raise RuntimeError("submit_issue_retry 需要 wiki_dir")
         issue = self.issues.require(issue_id)
-        source = resolve_retry_source(issue, self.wiki_dir)
+        source = resolve_retry_source(issue)
         resource = str(Path(source).resolve())
         batch = f"retry_{uuid4().hex}"
         try:

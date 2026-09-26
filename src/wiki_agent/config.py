@@ -332,14 +332,6 @@ class McpConfig(BaseModel):
 
     servers: dict[str, McpServerConfig] = Field(default_factory=dict)
 
-    def enabled(self) -> dict[str, McpServerConfig]:
-        """返回启用的 MCP server（带有效 transport 的）。
-
-        Returns:
-            server 名 → 配置映射；transport 为空的被过滤。
-        """
-        return {k: v for k, v in self.servers.items() if v.transport}
-
 
 class RootConfig(BaseSettings):
     """应用根配置——顶层字段对应各子系统。"""

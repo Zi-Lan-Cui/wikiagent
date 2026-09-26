@@ -39,17 +39,6 @@ class MCPConnection:
         self._close_requsted = close_requsted
         self._dead = dead or asyncio.Event()
 
-    @property
-    def is_alive(self) -> bool:
-        """连接是否存活（未被请求关闭且健康检查未失败）。
-
-        Returns:
-            True 表示连接可用。
-        """
-        return (
-            not self._close_requsted.is_set() and not self._dead.is_set() and not self._owner.done()
-        )
-
     async def aclose(self):
         """请求关闭连接并等待 owner 退出。
 
@@ -152,9 +141,7 @@ async def connect_mcp_servers(
                 tool_registry.register(wrappered_tool)
 
             if cfg.need_resources:
-                # TODO（MCP Resources 支持）: wrapper 是空壳未实现——
-                # 注册空壳会在 get_all_schema_openai 读 name/description
-                # 属性时 AttributeError 必崩。实现前不注册，只留探测日志。
+                # Resources 支持未实现，只探测记录、不注册
                 resources = await session.list_resources()
                 logger.warning(
                     "MCP server '%s' 暴露 %d 个 resources——Resources 支持未实现，跳过注册",
@@ -446,14 +433,3 @@ class MCPToolWrapper(BaseTool):
                 continue
         return "\n".join(text_part)
 
-
-class MCPResourceWrapper:
-    """TODO: MCP Resources 支持（URI 寻址 + 动态发现）——未实现，不注册。"""
-
-    pass
-
-
-class MCPPromptWrapper:
-    """TODO: MCP Prompts 支持——未实现，不注册。"""
-
-    pass

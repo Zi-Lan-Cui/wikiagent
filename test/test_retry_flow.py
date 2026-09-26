@@ -34,7 +34,7 @@ def _failure_issue(service: JobService, source: Path):
 
 def test_issue_retry_creates_job(tmp_path: Path):
     """重试路径在 jobs 表新增挂账 compile job；提交不改 issue 状态。"""
-    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")
+    service = make_job_service(tmp_path)
     source = tmp_path / "note.md"
     source.write_text("重试内容", encoding="utf-8")
     issue = _failure_issue(service, source)
@@ -50,7 +50,7 @@ def test_issue_retry_creates_job(tmp_path: Path):
 
 def test_double_retry_click_single_job(tmp_path: Path):
     """双击 retry 的等价性证明：提交点收敛为"同一 job、至多一个在途"。"""
-    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")
+    service = make_job_service(tmp_path)
     source = tmp_path / "note.md"
     source.write_text("重试内容", encoding="utf-8")
     issue = _failure_issue(service, source)
@@ -62,7 +62,7 @@ def test_double_retry_click_single_job(tmp_path: Path):
 
 def test_retry_attaches_to_occupant_and_converges(tmp_path: Path):
     """retry 撞他人占位的在途 job：收敛返回占位者并补挂 issue_id。"""
-    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")
+    service = make_job_service(tmp_path)
     source = tmp_path / "note.md"
     source.write_text("内容" * 10, encoding="utf-8")
     occupant = service.submit(kind="compile", resource=str(source.resolve()), mode="sync")
@@ -78,7 +78,7 @@ def test_retry_attaches_to_occupant_and_converges(tmp_path: Path):
 def test_failed_job_does_not_mark_hash(tmp_path: Path):
     """sync 快照下 ingest 失败：SyncState 无记录；issue 记账等人，不排程。"""
     state = SyncState(tmp_path / "watch" / "state.json")
-    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki", sync_state=state)
+    service = make_job_service(tmp_path, sync_state=state)
     src = tmp_path / "materials"
     source = src / "note.md"
     source.parent.mkdir(parents=True)
@@ -113,7 +113,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
 def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
     """重试成功：job succeeded 与 issue RESOLVED、SyncState 落账同批生效。"""
     state = SyncState(tmp_path / "watch" / "state.json")
-    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki", sync_state=state)
+    service = make_job_service(tmp_path, sync_state=state)
     source = tmp_path / "note.md"
     source.write_text("重试输入", encoding="utf-8")
     digest, text = digest_file_text(source)
@@ -136,7 +136,7 @@ def test_success_resolves_issue_and_marks_hash(tmp_path: Path):
 
 def test_legacy_processing_rows_migrated_to_open(tmp_path: Path):
     """旧库残留：processing 行与 issue_actions 表在 schema v3 启动时一次收敛。"""
-    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")
+    service = make_job_service(tmp_path)
     source = tmp_path / "note.md"
     source.write_text("内容" * 10, encoding="utf-8")
     issue = _failure_issue(service, source)
@@ -159,7 +159,7 @@ def test_legacy_processing_rows_migrated_to_open(tmp_path: Path):
 
 def test_recover_stale_on_service_reinit(tmp_path: Path):
     """崩溃自愈：卡死的 running 行在下一个进程构造期回队（无常驻调度器）。"""
-    service = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")
+    service = make_job_service(tmp_path)
     job = service.submit(kind="compile", resource="/stale", mode="sync")
     claimed = service.claim_next(kinds={"compile"})
     assert claimed is not None
@@ -167,7 +167,7 @@ def test_recover_stale_on_service_reinit(tmp_path: Path):
     with service.store.database.transaction(immediate=True) as conn:
         conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (stale_time, job.id))
 
-    revived = make_job_service(tmp_path, wiki_dir=tmp_path / "wiki")  # 构造期 recover_stale
+    revived = make_job_service(tmp_path)  # 构造期 recover_stale
     assert revived.recovered_jobs == 1
     assert revived.store.get(job.id).status == "queued"
 

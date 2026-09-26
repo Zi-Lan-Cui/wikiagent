@@ -68,7 +68,7 @@ def test_orphan_sweep_at_service_construction(tmp_path: Path):
     root = _src(tmp_path)
     ws = tmp_path / "ws"
     service = make_job_service(
-        ws, wiki_dir=tmp_path / "wiki", sync_state=SyncState(ws / "watch" / "state.json")
+        ws, sync_state=SyncState(ws / "watch" / "state.json")
     )
     jobs = service.submit_sync(root)
     batch = str(jobs[0].payload["batch"])
@@ -77,7 +77,7 @@ def test_orphan_sweep_at_service_construction(tmp_path: Path):
     for job in jobs:
         service.store.update(job.id, status="succeeded", stage="completed")
     revived = make_job_service(
-        ws, wiki_dir=tmp_path / "wiki", sync_state=SyncState(ws / "watch" / "state.json")
+        ws, sync_state=SyncState(ws / "watch" / "state.json")
     )
     assert not (revived.snapshots.root / batch).exists()
 
@@ -90,7 +90,7 @@ def test_last_terminal_job_drops_batch_snapshot(tmp_path: Path):
     root = _src(tmp_path)
     ws = tmp_path / "ws"
     service = make_job_service(
-        ws, wiki_dir=tmp_path / "wiki", sync_state=SyncState(ws / "watch" / "state.json")
+        ws, sync_state=SyncState(ws / "watch" / "state.json")
     )
     jobs = service.submit_sync(root)
     batch = str(jobs[0].payload["batch"])

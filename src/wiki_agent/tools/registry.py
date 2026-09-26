@@ -29,14 +29,6 @@ class ToolRegistry:
         """
         self._tools[tool.name] = tool
 
-    def unregister(self, name: str) -> None:
-        """注销工具（不存在时静默）。
-
-        Args:
-            name: 工具名。
-        """
-        self._tools.pop(name, None)
-
     def get(self, name: str):
         """按名取工具实例。
 
