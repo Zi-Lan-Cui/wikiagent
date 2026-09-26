@@ -20,7 +20,9 @@ class Section:
 
     @property
     def id(self) -> str:
-        return f"{self.slug}::{self.heading}"
+        # 页首不用空标题结尾的 id：真实模型会把 "slug::" 连同大纲行的
+        # 说明列一起抄进分配表，边界必须显式。
+        return f"{self.slug}::{self.heading}" if self.heading else f"{self.slug}::§top"
 
     @property
     def gist(self) -> str:
