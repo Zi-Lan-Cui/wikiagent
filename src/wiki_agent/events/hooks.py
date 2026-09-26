@@ -328,26 +328,25 @@ class CompositeHook(AgentHook):
     async def _fanout(self, method: Any, *args: Any, **kwargs: Any) -> None:
         """逐 hook 扇出调用。
 
-        传入绑定方法（非字符串），编译期保证存在——字符串分发
-        （getattr(h, "on_x")）是运行时反射：方法名改错不报错、
-        拼写错误静默丢失。绑定方法调用让改名/删除在定义处直接暴露。
+        传入基类方法对象只为在定义处钉住方法名（改名时所有 _fanout
+        调用点直接报错，不像字符串那样静默丢失）；实际派发必须走
+        getattr(h, name)——AgentHook.on_x(h, ...) 是显式绑死基类实现，
+        绕过子类的 MRO 覆写，会让全部子 hook 静默失效。
 
         Args:
-            method: 要调用的 hook 方法（绑定方法）。
+            method: 基类的同名方法（用作方法名凭证与存在性检查）。
             *args / **kwargs: 透传给每个 hook 的参数。
         """
+        name = method.__name__
         for h in self._hooks:
+            fn = getattr(h, name)
             if h._reraise:
-                await method(h, *args, **kwargs)
+                await fn(*args, **kwargs)
                 continue
             try:
-                await method(h, *args, **kwargs)
+                await fn(*args, **kwargs)
             except Exception:
-                logger.exception(
-                    "AgentHook.%s 失败在 %s 中",
-                    getattr(method, "__name__", "?"),
-                    type(h).__name__,
-                )
+                logger.exception("AgentHook.%s 失败在 %s 中", name, type(h).__name__)
 
     # run
 
@@ -397,15 +396,21 @@ class CompositeHook(AgentHook):
     # tools
 
     async def on_tool_call_start(
-        self, c: RunContext, name: str, tid: str, args: dict[str, Any]
+        self, context: RunContext, tool_name: str, tool_call_id: str, arguments: dict[str, Any]
     ) -> None:
-        await self._fanout(AgentHook.on_tool_call_start, c, name, tid, args)
+        await self._fanout(
+            AgentHook.on_tool_call_start, context, tool_name, tool_call_id, arguments
+        )
 
-    async def on_tool_result(self, c: RunContext, name: str, tid: str, result: Any) -> None:
-        await self._fanout(AgentHook.on_tool_result, c, name, tid, result)
+    async def on_tool_result(
+        self, context: RunContext, tool_name: str, tool_call_id: str, result: Any
+    ) -> None:
+        await self._fanout(AgentHook.on_tool_result, context, tool_name, tool_call_id, result)
 
-    async def on_tool_error(self, c: RunContext, name: str, tid: str, error: Any) -> None:
-        await self._fanout(AgentHook.on_tool_error, c, name, tid, error)
+    async def on_tool_error(
+        self, context: RunContext, tool_name: str, tool_call_id: str, error: Any
+    ) -> None:
+        await self._fanout(AgentHook.on_tool_error, context, tool_name, tool_call_id, error)
 
     # reasoning
 
