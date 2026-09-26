@@ -5,8 +5,7 @@ wiki 是机器管理的：人禁止直接改动生成页，工作区的未提交
 收敛，崩溃留下的未提交改动由下一次 pre-reset 清除。
 
 - 一切写 wiki 的 job 逐笔提交：compile `sync: <文件>`（retry 用
-  `retry:`）、delete `sync: delete <文件>`、refine `refine: <页>`、
-  restructure 一个执行单元一笔。body 携带 `Batch: <快照id>` 尾注。
+  `retry:`）、delete `sync: delete <文件>`。body 携带 `Batch: <快照id>` 尾注。
   撤销一整批 = 按尾注在历史中选段 revert，纯历史操作，不回退账本。
 - 运行留痕 = commit 历史本身；失败的未提交改动在 restore 前导出 patch 存档。
 """

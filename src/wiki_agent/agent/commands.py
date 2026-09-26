@@ -239,8 +239,23 @@ class CommandRouter:
         return result
 
 
+def _wiki_root(ctx: CommandContext) -> Path | None:
+    """从工具注册表拿 wiki 根（ReadFile 的公开 root 属性）。
+
+    Args:
+        ctx: 命令上下文。
+
+    Returns:
+        wiki 根路径；ReadFile 未注册时返回 None。
+    """
+    read_file = ctx.agent.tool_registry.get("ReadFile")
+    if read_file is None:
+        return None
+    return Path(read_file.root)
+
+
 def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
-    """写 wiki 的 job（compile/delete/refine/restructure）在途数。
+    """写 wiki 的 job（compile/delete）在途数。
 
     跨进程互斥由执行锁（flock）强制，这条门只管同进程：/wiki revert
     入口带 restore——同进程正在执行写 wiki 的任务时拒绝改历史，
@@ -344,7 +359,6 @@ class QueueCommand(Command):
 
         if args == "retry-all" or args.startswith("retry "):
             from wiki_agent.issues import IssueKind
-            from wiki_agent.jobs import PipelineBusy
             from wiki_agent.jobs.retry_source import SourceUnavailableError
             from wiki_agent.jobs.service import JobService
 
@@ -376,8 +390,6 @@ class QueueCommand(Command):
                     lines.append(f"- `{issue_id}`: 未找到")
                 except SourceUnavailableError as exc:
                     lines.append(f"- `{issue_id}`: 输入不可用 — {exc}")
-                except PipelineBusy as exc:
-                    lines.append(f"- `{issue_id}`: 流水线在途，暂拒 — {exc}")
                 except ValueError as exc:
                     lines.append(f"- `{issue_id}`: 不能重试 — {exc}")
                 else:
@@ -418,7 +430,7 @@ class ScanCommand(Command):
             scan_wiki,
         )
 
-        wiki = RefineCommand._wiki_dir(ctx)
+        wiki = _wiki_root(ctx)
         if wiki is None:
             return CommandResult(text="# /scan 失败\n\n无法定位 wiki 目录。")
 
@@ -451,7 +463,7 @@ class CompileCommand(Command):
     description = "编译 source 文件夹（一次快照 sync；首次运行即全量编译）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.jobs import PipelineBusy
+        from wiki_agent.jobs import SyncInProgress
 
         try:
             args = shlex.split(ctx.args.strip())
@@ -477,8 +489,8 @@ class CompileCommand(Command):
             return CommandResult(text=f"# /compile\n\n源目录不存在: {target}")
         try:
             jobs = job_service.submit_sync(target)
-        except PipelineBusy as exc:
-            return CommandResult(text=f"# /compile 提交暂拒\n\n{exc}。")
+        except SyncInProgress:
+            return CommandResult(text="# /compile\n\n上一批快照仍在执行（互斥串行）——等它跑完再拍。")
         return CommandResult(
             text=(
                 "# /compile 已入队\n\n"
@@ -527,7 +539,7 @@ class WikiCommand(Command):
     async def execute(self, ctx: CommandContext) -> CommandResult:
         from wiki_agent.versioning import WikiGitManager
 
-        wiki = RefineCommand._wiki_dir(ctx)
+        wiki = _wiki_root(ctx)
         if wiki is None:
             return CommandResult(text="# /wiki 失败\n\n无法定位 wiki 目录。")
         args = shlex.split(ctx.args.strip())
@@ -639,120 +651,6 @@ class RetryCommand(Command):
         )
 
 
-class RefineCommand(Command):
-    name = "refine"
-    description = "把 wiki 精炼与结构重组排进队列；--dry-run 只预览重组提议"
-
-    async def execute(self, ctx: CommandContext) -> CommandResult:
-        """/refine 不直接写 wiki，与 sync 同一条队列。
-
-        - 非 dry-run：refine 逐页入队（一页一 job、一页一提交）；重组在
-          提交侧同步跑提议阶段（粗提→复判→消解），有效提议在队列空闲时
-          切成执行单元入队、一单元一 job 一提交——无交互全收，逐条确认在
-          脚本侧。refine 批在途会挡住同一次点击的重组入队（阶段互斥），
-          此时提议原样报出，重组改用独立入口执行；
-        - dry-run：什么都不入队，只预览重组提议。
-        执行由后台泵串行完成：refine 每页失败只撤该页，重组 job 自带
-        scan 闸门（error/skipped 整批撤销）；想撤销整批用
-        ``/wiki revert-batch <batch_id>``。
-        基线主闸在分析与入队之前：存在未同步（且未挂失败账）的源时
-        直接暂拒并提示先 sync，dry-run 同样被闸——落后基线上算出的
-        重组提议没有执行价值。
-        """
-        from dataclasses import asdict
-
-        from wiki_agent.application.restructure_service import restructure_wiki
-        from wiki_agent.compiler.workflows.refine import refine_pages
-        from wiki_agent.jobs import PipelineBusy
-
-        wiki = self._wiki_dir(ctx)
-        if wiki is None:
-            return CommandResult(text="# /refine 失败\n\n无法定位 wiki 目录。")
-        job_service = ctx.agent.job_service
-        if job_service is None:
-            return CommandResult(text="# /refine\n\n当前会话未装配任务队列（无执行入口）。")
-        # 主闸在一切分析与入队之前：dry-run 同样被闸（预览也是分析）
-        lag = job_service.sync_baseline_lag()
-        if lag:
-            preview = "、".join(sorted(lag)[:3])
-            return CommandResult(
-                text=(
-                    "# /refine 已暂拒\n\n"
-                    f"{len(lag)} 个源未同步（{preview}）。refine 与重组的判断基于 wiki 现状，"
-                    "请先 /compile（快照 sync）追平基线，再执行本命令。"
-                )
-            )
-        pages = refine_pages(wiki)
-        if not pages:
-            return CommandResult(text="# /refine\n\n没有可 refine 的页面。")
-        dry_run = "--dry-run" in ctx.args.split()
-
-        lines = ["# /refine 已入队" if not dry_run else "# /refine dry-run", ""]
-        lines.append(f"输入页面: {len(pages)} 个")
-        if dry_run:
-            lines.append("页面精炼: dry-run（未入队、未修改）")
-        else:
-            try:
-                jobs = job_service.submit_refine_batch()
-            except PipelineBusy as exc:
-                return CommandResult(text=f"# /refine 提交暂拒\n\n{exc}。")
-            lines.append(f"页面精炼: {len(jobs)} 个 refine job 已入队（一页一提交）")
-
-        try:
-            outcome = await restructure_wiki(ctx.agent.llm, wiki, confirm=None, dry_run=True)
-        except Exception as e:
-            lines.append(f"结构重组跳过: {type(e).__name__}: {str(e)[:100]}")
-            return CommandResult(text="\n".join(lines))
-        lines.append("")
-        lines.append(
-            f"结构重组: {len(outcome.proposals)} 粗提 → {len(outcome.confirmed)} 复判确认 → "
-            f"{len(outcome.effective)} 有效"
-        )
-        for p in outcome.effective:
-            lines.append(f"- {p.op} {p.pages} → {p.target} | {p.reason[:60]}")
-        if outcome.unresolved:
-            lines.append(f"{len(outcome.unresolved)} 组冲突放弃执行（结构决定权在你）")
-
-        if dry_run:
-            lines.append("结构重组: dry-run（未入队）")
-        elif not outcome.effective:
-            lines.append("结构重组: 无有效提议，未入队")
-        else:
-            try:
-                jobs = job_service.submit_restructure([asdict(p) for p in outcome.effective])
-            except PipelineBusy as exc:
-                # refine 批刚入队即挡住重组提交——阶段互斥的必然结果，
-                # /refine 一次点击不再能同时排两类批；重组改用独立入口执行
-                lines.append(
-                    f"结构重组: 未入队——{exc}。提议已算出，等本批跑完后用 "
-                    "scripts/restructure_wiki.py（逐条确认）或再次 /refine 入队。"
-                )
-            else:
-                lines.append(
-                    f"结构重组: {len(outcome.effective)} 条提议切成 {len(jobs)} 个执行单元入队"
-                    f"（批 {jobs[0].payload['batch']}，某单元校验不过只撤销该单元；"
-                    f"整批回撤: /wiki revert-batch {jobs[0].payload['batch']}）"
-                )
-        if not dry_run:
-            lines.extend(["", "队列串行执行；各阶段在提交层互斥，进度与结果看工作台。"])
-        return CommandResult(text="\n".join(lines))
-
-    @staticmethod
-    def _wiki_dir(ctx: CommandContext) -> Path | None:
-        """从工具注册表拿 wiki 根（ReadFile 的公开 root 属性）。
-
-        Args:
-            ctx: 命令上下文。
-
-        Returns:
-            wiki 根路径；ReadFile 未注册时返回 None。
-        """
-        read_file = ctx.agent.tool_registry.get("ReadFile")
-        if read_file is None:
-            return None
-        return Path(read_file.root)
-
-
 # 内置命令聚合
 
 
@@ -768,7 +666,6 @@ def create_command_router() -> CommandRouter:
         SessionCommand(),
         RetryCommand(),
         WikiCommand(),
-        RefineCommand(),
         CompileCommand(),
         ScanCommand(),
         QueueCommand(),

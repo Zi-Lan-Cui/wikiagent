@@ -3,9 +3,8 @@
 Job 是唯一执行事实来源。关键不变式：
 - 同一 resource 至多一个在途（in-flight = queued/running）Job——由部分
   唯一索引 uq_jobs_in_flight_resource 在数据库层强制。resource 是操作
-  对象身份键，三个命名空间互不相交：源材料用绝对路径字符串
-  （compile/delete/issue_retry 同族共享），rescan 用 issue id，
-  重组执行单元用 "restructure:<批id>:<序号>" 前缀。
+  对象身份键，两个命名空间互不相交：源材料用绝对路径字符串
+  （compile/delete/issue_retry 同族共享），rescan 用 issue id。
 - 所有写方法支持 ``_conn`` 透传：与 issue 账本同事务提交时由调用方
   持有连接，这里禁止自开事务。
 """
@@ -256,7 +255,7 @@ class JobStore:
             values.extend(sorted(kinds))
         with self._tx() as db:
             # rowid 决胜：同一提交事务入队的多行 created_at 相同，执行顺序
-            # 必须等于入队顺序（restructure 单元按依赖拓扑入队）
+            # 必须等于入队顺序（sync 批内 compile 与 delete 的相对次序）
             row = db.execute(
                 f"SELECT id FROM jobs WHERE {where} ORDER BY created_at, rowid LIMIT 1",
                 values,
@@ -329,17 +328,6 @@ class JobStore:
                 f"SELECT COUNT(*) AS total FROM jobs WHERE {_IN_FLIGHT_SQL}"
             ).fetchone()
         return int(row["total"]) if row is not None else 0
-
-    def in_flight_kinds(
-        self, *, _conn: sqlite3.Connection | None = None
-    ) -> dict[str, int]:
-        """在途 kind → 行数——任务流水线互斥判定的唯一查询口。"""
-        with self._tx(_conn) as db:
-            rows = db.execute(
-                f"SELECT kind, COUNT(*) AS total FROM jobs"
-                f" WHERE {_IN_FLIGHT_SQL} GROUP BY kind"
-            ).fetchall()
-        return {str(row["kind"]): int(row["total"]) for row in rows}
 
     def in_flight_for_kinds(
         self, kinds: tuple[str, ...], *, _conn: sqlite3.Connection | None = None

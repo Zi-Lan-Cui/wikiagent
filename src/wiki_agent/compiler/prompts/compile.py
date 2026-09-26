@@ -1,6 +1,5 @@
 """compile 模式 prompt——全量共享（sync 编译同用）。
 
-refine 模式继承本模块、只覆写 plan。
 """
 
 from __future__ import annotations
@@ -320,7 +319,7 @@ def analyze_user(extract: ExtractResult, candidates: str) -> str:
 
 
 # 模式契约——compile 允许 new + update。
-# plan() 用它约束 check_plan_json（refine 模块声明自己的 {"update"}）。
+# plan() 用它约束 check_plan_json。
 ALLOWED_DISPOSITIONS = {"new", "update"}
 
 

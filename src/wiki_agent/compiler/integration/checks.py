@@ -11,7 +11,7 @@ import json
 from wiki_agent.compiler.integration.parse import extract_analyze_parts, strip_fence
 
 _VALID_RELATIONS = {"duplicate", "extends", "related", "contradicts", "unrelated"}
-# "重要" 是 LLM 的自然语言高频词（实测 refine 3 次违规全是它）——
+# "重要" 是 LLM 的自然语言高频词（实测违规全是它）——
 # 枚举拦截性价比低，并入合法集
 _VALID_IMPORTANCE = {"核心", "边缘", "重要"}
 VALID_DISPOSITIONS = {"new", "update"}
@@ -138,7 +138,7 @@ def check_plan_json(
     Args:
         content: LLM 原始输出。
         allowed_dispositions: 模式契约（prompt 模块的
-            ALLOWED_DISPOSITIONS）。refine 只允许 update——
+            ALLOWED_DISPOSITIONS）。plan 只允许 update——
             LLM 输出 new 直接 retry 修正。
 
     Returns:

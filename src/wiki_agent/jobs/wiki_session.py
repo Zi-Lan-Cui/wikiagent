@@ -16,11 +16,10 @@
 commit 的时机含义是"质量闸门已通过，这批改动值得成为 HEAD 的下一步"，
 只能由执行体宣布。
 
-SourceJobHandler（compile/delete）与 WikiOpsHandler（refine/restructure）
-共用这一协议。commit subject 用操作语义前缀（sync:/retry:/refine:/
-restructure:），payload.batch 进 commit 尾注——"撤销这一批"按尾注选段
-revert。失败导出的 patch 与 commit 批尾注都是执行记录，不随 wiki 回退
-删除。
+SourceJobHandler（compile/delete）是当前唯一按此协议写 wiki 的
+执行体。commit subject 用操作语义前缀（sync:/retry:/sync: delete），
+payload.batch 进 commit 尾注——"撤销这一批"按尾注选段 revert。失败
+导出的 patch 与 commit 批尾注都是执行记录，不随 wiki 回退删除。
 """
 
 from __future__ import annotations
@@ -43,12 +42,10 @@ class Subject(StrEnum):
 
     SYNC = "sync"  # 快照批（compile 与 delete 共用，delete 拼作 "sync: delete <名>"）
     RETRY = "retry"  # issue retry 的 compile
-    REFINE = "refine"  # 单页精炼
-    RESTRUCTURE = "restructure"  # 重组执行单元
 
 
 def commit_subject(prefix: Subject, target: str) -> str:
-    """唯一的 subject 拼法——前缀家族只在这四处产生。"""
+    """唯一的 subject 拼法——前缀只从这两处产生。"""
     return f"{prefix.value}: {target}"
 
 

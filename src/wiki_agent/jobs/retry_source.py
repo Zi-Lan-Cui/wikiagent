@@ -19,7 +19,7 @@ class SourceUnavailableError(FileNotFoundError):
 def resolve_retry_source(issue: IssueRecord, wiki_dir: str | Path) -> Path:
     """从问题记录解析当前可用的重试输入。
 
-    refine 的输入是 Wiki 页面。旧评测记录可能保留了已消失的
+    wiki_page 型资源的输入是 Wiki 页面。旧评测记录可能保留了已消失的
     ``/tmp`` 绝对路径，此时允许用公开页面名在当前 Wiki 中唯一
     定位。compile 输入不能猜测，原始来源丢失时必须由用户重新提供。
     """

@@ -70,7 +70,7 @@ class AgentConfig(BaseSettings):
     agent 生成与治理参数——唯一配置来源（react/governor/consolidator 直接读本类）。
 
     治理参数:
-    - 工具结果 TTL: 可重复获得工具的驱逐时限——wiki 经 compile/refine
+    - 工具结果 TTL: 可重复获得工具的驱逐时限——wiki 经 compile
       变化，跨轮旧读取会失真；30 分钟是经验值
     - 转存/紧凑化/snip: 窗口维度治理的阈值——与 context_windows 配套调
     """
