@@ -1,7 +1,7 @@
 """逐页成文：以分配装配的草稿为材料，LLM 重写成连贯页面。
 
-不整页无中生有——prompt 约束只用给定材料；frontmatter 由代码补齐，
-输出取正文部分。调用方（handler）负责 normalize 与写盘。
+不整页无中生有——prompt 约束只用给定材料；输出形状（frontmatter 必填字段、
+fence 闭合）进 check 重试层，调用方（handler）负责 normalize、骨架兜底与写盘。
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ async def rewrite_unit_page(
             Message(role="user", content=prompts.rewrite_user(slug, intent, draft, old, siblings)),
         ],
         max_tokens=8192,
-        check=lambda content: (bool(content.strip()), "输出为空"),
+        check=prompts.check_rewrite_page,
         extra_body=NO_THINKING,
         max_attempts=2,
     )
