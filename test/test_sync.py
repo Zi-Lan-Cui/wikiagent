@@ -18,7 +18,7 @@ def _svc(tmp: Path):
     wiki = tmp / "wiki"
     wiki.mkdir(exist_ok=True)
     state = SyncState(tmp / "watch" / "state.json")
-    return src, make_job_service(tmp, wiki_dir=wiki, sync_state=state)
+    return src, make_job_service(tmp, sync_state=state)
 
 
 def _write(src: Path, name: str, content: str) -> Path:

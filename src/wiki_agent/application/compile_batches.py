@@ -163,7 +163,6 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
                     sync_state=state,
                     source_records_dir=source_records_dir,
                 ),
-                wiki_dir=wiki_dir,
                 sync_state=state,
             )
             from wiki_agent.llm.factory import create_llm, create_vlm

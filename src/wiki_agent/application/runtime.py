@@ -63,7 +63,6 @@ class AppRuntime:
                 sync_state=self.sync_state,
                 source_records_dir=self.source_records_dir,
             ),
-            wiki_dir=self.wiki_dir,
             sync_state=self.sync_state,
         )
         self.event_publisher = EventPublisher()

@@ -186,7 +186,7 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     source = tmp_path / "note.md"
     source.write_text("# note", encoding="utf-8")
 
-    service = make_job_service(workspace, wiki_dir=wiki)
+    service = make_job_service(workspace)
     err = IngestError(
         IngestStage.EXECUTE,
         "1 个页面生成失败",
@@ -284,7 +284,7 @@ def _rescan_setup(tmp_path: Path):
     from wiki_agent.wiki.quality import scan_wiki
 
     wiki = _dead_link_wiki(tmp_path)
-    service = make_job_service(tmp_path / "ws", wiki_dir=wiki)
+    service = make_job_service(tmp_path / "ws")
     issue_service = IssueService(service.issues)
     report_quality_findings(issue_service, scan_wiki(wiki), origin={"mode": "test"})
     target = next(
@@ -338,11 +338,11 @@ def test_rescan_still_present_settles_blocked(tmp_path: Path):
 
 
 def test_rescan_gone_settles_resolved(tmp_path: Path):
-    _, service, target, executor = _rescan_setup(tmp_path)
+    wiki, service, target, executor = _rescan_setup(tmp_path)
     page = service.issues.get(target.id)
     assert page.status == IssueStatus.OPEN
     # 死链修好后复扫：目标 finding 不再复现 → occurrences 不前进 → 裁决 RESOLVED
-    (service.wiki_dir / "concepts" / "a.md").write_text(
+    (wiki / "concepts" / "a.md").write_text(
         '---\ntype: concept\ntitle: "A 页面"\nsummary: "一个足够长的摘要"\n'
         "goal: \"说明测试页面\"\ncreated: 2026-09-01\nupdated: 2026-09-02\nrelated: []\n"
         "---\n# A 页面\n\n链接已移除，指向 [[concepts/a|本页]]之外的世界。\n",

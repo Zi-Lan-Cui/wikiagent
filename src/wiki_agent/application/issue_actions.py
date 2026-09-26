@@ -95,7 +95,7 @@ class IssueActionExecutor:
             if record.retry.get("unavailable_reason"):
                 continue
             try:
-                resolve_retry_source(record, self.runtime.wiki_dir)
+                resolve_retry_source(record)
             except SourceUnavailableError as exc:
                 self._mark_retry_unavailable(record.id, str(exc))
                 changed += 1
@@ -123,7 +123,7 @@ class IssueActionExecutor:
             if record.retry.get("unavailable_reason"):
                 continue
             try:
-                source = resolve_retry_source(record, self.runtime.wiki_dir)
+                source = resolve_retry_source(record)
             except SourceUnavailableError:
                 continue
             source_key = (str(record.origin.get("mode") or ""), str(source))
@@ -222,7 +222,7 @@ class IssueActionExecutor:
         if action != "retry":
             return
         try:
-            resolve_retry_source(record, self.runtime.wiki_dir)
+            resolve_retry_source(record)
         except SourceUnavailableError as exc:
             self._mark_retry_unavailable(record.id, str(exc))
             raise

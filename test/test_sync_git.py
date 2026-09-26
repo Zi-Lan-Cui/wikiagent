@@ -72,7 +72,6 @@ def _env(tmp: Path, *, fail_names: tuple[str, ...] = (), bad_names: tuple[str, .
     git = WikiGitManager(wiki)  # wiki 机器管理：初始化自带空仓库
     service = make_job_service(
         tmp,
-        wiki_dir=wiki,
         sync_state=state,
         source_records_dir=records,
     )
