@@ -19,6 +19,7 @@ from wiki_agent.compiler import restructure as rs
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.compiler.link import apply_link_fixes
 from wiki_agent.compiler.restructure import plan as plan_mod
+from wiki_agent.compiler.restructure import prompts
 from wiki_agent.compiler.restructure import route as route_mod
 from wiki_agent.compiler.restructure.sections import page_sections
 from wiki_agent.conversation import LLMResponse
@@ -32,6 +33,7 @@ from wiki_agent.jobs import (
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.sync.state import SyncState
+from wiki_agent.wiki.frontmatter import split_frontmatter
 
 _FM = (
     "---\ntype: {type}\ntitle: \"{title}\"\nsummary: \"一个足够长的摘要信息\"\n"
@@ -54,7 +56,10 @@ def _page(wiki: Path, slug: str, title: str, body: str) -> None:
     path = wiki / f"{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        _FM.format(type=_TYPE[slug.split("/")[0]], title=title) + f"# {title}\n\n{body}\n",
+        _FM.format(type=_TYPE[slug.split("/")[0]], title=title).replace(
+            "related: []", f'related: []\nsources: ["源文件-{slug.rsplit("/", 1)[-1]}.md"]'
+        )
+        + f"# {title}\n\n{body}\n",
         encoding="utf-8",
     )
 
@@ -212,6 +217,8 @@ def test_restructure_merge_end_to_end(tmp_path: Path, monkeypatch):
     assert unit_row.stage == "completed"
     merged = (wiki / "concepts/a.md").read_text(encoding="utf-8")
     assert "乙主题" in merged and not (wiki / "concepts/b.md").exists()
+    # 溯源并集：合并页 sources 含全部 in 页的来源文件（真实执行轮抓出的缺陷）
+    assert "源文件-a.md" in merged and "源文件-b.md" in merged
     # 消失页的入链被机械转纯文本（保留显示文字），index 条目同步移除
     c_text = (wiki / "concepts/c.md").read_text(encoding="utf-8")
     assert "[[concepts/b" not in c_text and "乙" in c_text
@@ -303,3 +310,48 @@ def test_settlement_values_registered():
     assert Settlement.APPLIED == "applied"
     assert Settlement.LINKED == "linked"
     assert Settlement.UNIT_MISSING == "unit_missing"
+
+
+# —— 成文形状校验与骨架兜底（真实模型跑出的两类失败） ——
+
+
+def test_rewrite_links_for_vanished_strips_related(tmp_path: Path):
+    """related 指向消失页必须整项移除——转纯文本会留死残项（真实扫描闸抓到）。"""
+    from wiki_agent.compiler.restructure.apply import rewrite_links_for_vanished
+
+    wiki = _seed_wiki(tmp_path)
+    c = wiki / "concepts/c.md"
+    c.write_text(
+        c.read_text(encoding="utf-8").replace(
+            "related: []",
+            'related: ["[[concepts/b|乙]]", "concepts/b", "[[concepts/a]]"]',
+        ),
+        encoding="utf-8",
+    )
+    rewrite_links_for_vanished(wiki, ["concepts/b"])
+    fm, body = split_frontmatter(c.read_text(encoding="utf-8"))
+    assert str(fm["related"]) == '["[[concepts/a]]"]'
+    assert "[[concepts/b" not in body and "乙" in body  # 正文 alias 转纯文本
+
+
+def test_check_rewrite_page_catches_real_failures():
+    good = _FM.format(type="concept", title="甲") + "# 甲\n\n正文\n\n```python\nx = 1\n```\n"
+    assert prompts.check_rewrite_page(good) == (True, "")
+    no_summary = "---\ntype: concept\ntitle: \"甲\"\ngoal: \"g\"\n---\n# 甲\n\n正文\n"
+    ok, reason = prompts.check_rewrite_page(no_summary)
+    assert not ok and "summary" in reason
+    open_fence = _FM.format(type="concept", title="甲") + "# 甲\n\n```python\nx = 1\n"
+    ok, reason = prompts.check_rewrite_page(open_fence)
+    assert not ok and "代码块未闭合" in reason
+
+
+def test_fill_frontmatter_backfills_skeleton_without_overwrite():
+    from wiki_agent.application.wiki_ops import _fill_frontmatter
+
+    text = "---\ntype: concept\ntitle: \"甲\"\nsummary: \"\"\nrelated: []\n---\n# 甲\n"
+    out = _fill_frontmatter(text, {"summary": "骨架摘要", "goal": "骨架目标", "title": "不该用"})
+    fm, _ = split_frontmatter(out)
+    assert fm["summary"] == "骨架摘要" and fm["goal"] == "骨架目标"
+    assert fm["title"] == "甲" and str(fm["related"]) == "[]"  # 已有值不覆盖、其余 key 不动
+    ok = _FM.format(type="concept", title="甲") + "# 甲\n\n正文\n"
+    assert _fill_frontmatter(ok, {"summary": "不该出现"}) == ok

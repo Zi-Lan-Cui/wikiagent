@@ -23,16 +23,57 @@ def _link_patterns(slug: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
     return alias, plain
 
 
+def _strip_related(text: str, vanished: set[str]) -> str:
+    """frontmatter related 列表里指向消失页的条目整项移除。
+
+    related 是引用清单不是散文——转纯文本会留下指向不存在页面的
+    残项（扫描 error），必须删干净。只动 related 行，条目兼容
+    "[[slug]]"、"[[slug|别名]]"、"slug" 三种存形。
+    """
+    if not vanished:
+        return text
+    pats = [
+        (
+            re.compile(rf'"?\[\[{re.escape(s)}(?:\|[^\]]*)?\]\]"?\s*,?\s*'),
+            re.compile(rf'"{re.escape(s)}"\s*,?\s*'),
+        )
+        for s in sorted(vanished)
+    ]
+    out = []
+    in_fm = False
+    for ln in text.splitlines(keepends=True):
+        if ln.strip() == "---":
+            in_fm = not in_fm
+        if in_fm and ln.strip().startswith("related:"):
+            for alias_p, plain_p in pats:
+                ln = alias_p.sub("", ln)
+                ln = plain_p.sub("", ln)
+            ln = re.sub(r",\s*\]", "]", ln)
+            ln = re.sub(r"\[\s*(,)?\s*\]", "[]", ln)
+        out.append(ln)
+    return "".join(out)
+
+
+def _fm_end(text: str) -> int:
+    m = re.match(r"^---\n.*?\n---\n", text, re.DOTALL)
+    return m.end() if m else 0
+
+
 def rewrite_links_for_vanished(wiki_dir: Path, vanished: list[str]) -> int:
-    """全库把指向消失页的 wikilink 转为纯文本（保留显示文字）。返回改写文件数。"""
+    """全库清理指向消失页的引用：frontmatter related 整项移除，正文
+    wikilink 转纯文本（保留显示文字）。返回改写文件数。"""
     changed = 0
+    vset = set(vanished)
     for path in sorted(p for p in wiki_dir.rglob("*.md") if p.name != "index.md"):
         content = path.read_text(encoding="utf-8")
-        new_content = content
+        new_content = _strip_related(content, vset)
+        head_end = _fm_end(new_content)
+        head, body = new_content[:head_end], new_content[head_end:]
         for slug in vanished:
             alias, plain = _link_patterns(slug)
-            new_content = alias.sub(lambda m: m.group(1), new_content)
-            new_content = plain.sub(slug.rsplit("/", 1)[-1], new_content)
+            body = alias.sub(lambda m: m.group(1), body)
+            body = plain.sub(slug.rsplit("/", 1)[-1], body)
+        new_content = head + body
         if new_content != content:
             path.write_text(new_content, encoding="utf-8")
             changed += 1

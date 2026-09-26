@@ -39,6 +39,21 @@ def split_frontmatter(content: str) -> tuple[dict, str]:
     return fm, body
 
 
+def list_field(raw: object) -> list[str]:
+    """把 frontmatter 列表字段归一化为字符串列表。
+
+    简单解析对 sources/related 返回的是 '["a", "b"]' 形态的单字符串，
+    也可能已是 list——两种存形都要能干净展开。
+    """
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        items = [str(x) for x in raw]
+    else:
+        items = str(raw).strip().strip("[]").split(",")
+    return [s.strip().strip("\"'") for s in items if s.strip().strip("\"'")]
+
+
 def parse_frontmatter(path) -> dict:
     """读文件 + 解析 frontmatter——返回字段 dict。
 

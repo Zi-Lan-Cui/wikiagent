@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.frontmatter import list_field, split_frontmatter
 
 from .models import OutPage, Unit, UnitMismatchError
 from .resolve import validate_unit
@@ -94,12 +94,22 @@ async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> UnitPlan:
     plan.assignment, plan.fixed = await route_unit(llm, unit, sections)
     plan.drafts = _draft(unit, sections, plan.assignment)
     plan.final_slugs = (existing - set(unit.vanished)) | set(unit.out_slugs)
+    # 溯源并集：合并/改名后 out 页的来源 = 全部 in 页 sources 的并集，
+    # 否则被消费页的源文件从溯源链消失（真实执行轮抓出的缺陷）
+    unit_sources: list[str] = []
+    for slug in unit.in_pages:
+        fm, _ = split_frontmatter((wiki_dir / f"{slug}.md").read_text(encoding="utf-8"))
+        for s in list_field(fm.get("sources")):
+            if s not in unit_sources:
+                unit_sources.append(s)
     for page in unit.out:
         path = wiki_dir / f"{page.slug}.md"
         plan.old_content[page.slug] = (
             path.read_text(encoding="utf-8") if path.is_file() else ""
         )
         plan.old_meta[page.slug] = _frontmatter_for(wiki_dir, page)
+        if unit_sources:
+            plan.old_meta[page.slug]["sources"] = unit_sources
         plan.sibling_titles[page.slug] = [
             p.slug for p in unit.out if p.slug != page.slug
         ]

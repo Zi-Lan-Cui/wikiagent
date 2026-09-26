@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from wiki_agent.wiki.frontmatter import split_frontmatter
+
 from .models import Unit
 from .sections import Section
 
@@ -82,6 +84,8 @@ ROUTE_SYSTEM = (
     '只输出 JSON：{{"assign": [{{"section": "章节id", "to": "out_slug"}}]}}。'
     "section 必须逐字复制大纲行开头的章节 id（含 :: 与 §top），"
     "不要包含竖线之后的标题或摘要文字。"
+    "to 必须是输出页列表中给出的完整 slug（含目录前缀如 concepts/），"
+    "不得回写输入页自身的 slug——输入页不是输出页时，它的章节只能进输出页。"
 )
 
 
@@ -114,9 +118,32 @@ def check_route_json(content: str) -> tuple[bool, str]:
 REWRITE_SYSTEM = (
     "你是 wiki 页面成文者。给定装配好的草稿（章节按分配搬运而来）与该页的 intent 与旧版正文，"
     "重写成连贯页面：只使用给定材料，不新增事实，保留全部 [[链接]] 与图片引用，"
-    "输出含 frontmatter 的完整 markdown（frontmatter 沿用旧版，新页按 type/title 字段给全）。"
+    "输出含 frontmatter 的完整 markdown。frontmatter 必须完整给出 type、title、"
+    "summary、goal 四个字段（沿用旧版，新页从草稿的 frontmatter 继承，不得省略）。"
+    "链接一律写成 [[slug|显示文字]]，禁止裸 [[slug]]；每个 ```python 代码块必须以裸 ``` 闭合。"
     "没有要改的就原样返回草稿。"
 )
+
+
+def check_rewrite_page(content: str) -> tuple[bool, str]:
+    """成文输出形状校验——进重试层，把字段丢失与 fence 不闭合在请求内修一次。
+
+    质量规则（wiki.rules）要求 frontmatter 必填字段与代码块闭合；此处用
+    同口径预检，避免整单元因模型一次手滑就失败。
+    """
+    body = content.strip()
+    if not body.startswith("---"):
+        return False, "缺少 frontmatter——必须以 --- 开头。"
+    try:
+        fm, _ = split_frontmatter(body)
+    except Exception:
+        return False, "frontmatter 无法解析——检查 --- 成对。"
+    missing = [k for k in ("type", "title", "summary", "goal") if not str(fm.get(k) or "").strip()]
+    if missing:
+        return False, f"frontmatter 缺少字段 {missing}——四个必填字段都要给出。"
+    if body.count("```") % 2:
+        return False, "代码块未闭合——每个 ```python 开块都要有配对的裸 ```。"
+    return True, ""
 
 
 def rewrite_user(

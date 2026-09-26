@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from wiki_agent.log import get_logger
+from wiki_agent.wiki.frontmatter import list_field
 from wiki_agent.wiki.quality import Issue, check_page_quality
 from wiki_agent.wiki.rules import iter_code_runs, iter_text_outside_code
 
@@ -253,7 +254,7 @@ def inject_metadata(
 
     existing_sources = existing or {}
     old_created = existing_sources.get("created", today)
-    old_sources = existing_sources.get("sources", "")
+    old_list = list_field(existing_sources.get("sources", ""))
 
     new_fm = fm
     # created: 保留旧的（追加路径同样用 old_created——LLM 不写 created，
@@ -266,10 +267,10 @@ def inject_metadata(
     if "updated:" not in fm:
         new_fm += f"\nupdated: {today}"
     # sources: 合并去重
-    sources = set(old_sources.strip("[]").replace('"', "").split(","))
+    sources = set(old_list)
     sources.add(source_identity)
     sources.discard("")
-    sources_str = ", ".join(f'"{s.strip()}"' for s in sources if s.strip())
+    sources_str = ", ".join(f'"{s}"' for s in sorted(sources) if s)
     if "sources:" in new_fm:
         new_fm = re.sub(
             r"^sources:.*$",

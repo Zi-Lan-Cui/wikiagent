@@ -15,6 +15,7 @@ link 只动出链（字面替换清单经代码校验应用，不重写正文）
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -29,6 +30,7 @@ from wiki_agent.compiler.restructure import (
     prepare_unit,
     rewrite_unit_page,
 )
+from wiki_agent.compiler.restructure.plan import PAGE_TYPE_BY_DIR
 from wiki_agent.jobs import Job, JobResult, Kind, Settlement
 from wiki_agent.jobs.wiki_session import (
     Subject,
@@ -46,6 +48,41 @@ if TYPE_CHECKING:
     from wiki_agent.versioning import WikiGitManager
 
 logger = get_logger("WIKI_OPS")
+
+_FM_REQUIRED = ("type", "title", "summary", "goal")
+
+
+def _fill_frontmatter(text: str, skeleton: dict) -> str:
+    """成文输出缺必填字段时用代码骨架补齐——模型丢字段不值得整单元失败。
+
+    只动缺失的必填 key：有行则替换值，无行则插入 frontmatter 末尾；
+    模型已给的值一律保留。骨架来自 _frontmatter_for（旧页=旧
+    frontmatter，新页=由 intent 派生），与草稿同源。
+    """
+    fm, _ = split_frontmatter(text)
+    missing = {
+        k: str(skeleton[k])
+        for k in _FM_REQUIRED
+        if not str(fm.get(k) or "").strip() and str(skeleton.get(k) or "").strip()
+    }
+    if not missing:
+        return text
+    lines = text.splitlines(keepends=True)
+    dash = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    if not lines[0].strip() == "---" or len(dash) < 2:
+        return text  # 无合法 frontmatter，交给 normalize 报错
+    replaced = set()
+    for i in range(dash[0] + 1, dash[1]):
+        key, _, _ = lines[i].partition(":")
+        if key.strip() in missing:
+            lines[i] = f'{key.strip()}: {json.dumps(missing[key.strip()], ensure_ascii=False)}\n'
+            replaced.add(key.strip())
+    insert_at = dash[1]
+    for k, v in missing.items():
+        if k not in replaced:
+            lines.insert(insert_at, f"{k}: {json.dumps(v, ensure_ascii=False)}\n")
+            insert_at += 1
+    return "".join(lines)
 
 
 class WikiOpsHandler:
@@ -121,6 +158,7 @@ class WikiOpsHandler:
                 except Exception as exc:
                     failures.append(f"{page.slug}: rewrite {str(exc)[:120]}")
                     continue
+                text = _fill_frontmatter(text, plan.old_meta[page.slug])
                 normalized, issues = normalize_page(
                     text,
                     path=f"{page.slug}.md",
@@ -128,6 +166,8 @@ class WikiOpsHandler:
                     source_identity="",
                     today=date.today().isoformat(),
                     existing=plan.old_meta[page.slug],
+                    # 类型由目录派生强制覆盖——成文模型偶发把目录名写进 type
+                    page_type=PAGE_TYPE_BY_DIR[page.slug.split("/", 1)[0]],
                 )
                 errors = [issue for issue in issues if issue.level == "error"]
                 if errors:
