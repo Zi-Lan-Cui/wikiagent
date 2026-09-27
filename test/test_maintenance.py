@@ -21,7 +21,6 @@ from wiki_agent.compiler.link import apply_link_fixes
 from wiki_agent.compiler.restructure import plan as plan_mod
 from wiki_agent.compiler.restructure import prompts
 from wiki_agent.compiler.restructure import route as route_mod
-from wiki_agent.compiler.restructure.sections import Section, page_sections
 from wiki_agent.conversation import LLMResponse
 from wiki_agent.jobs import (
     Kind,
@@ -34,6 +33,7 @@ from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.sections import Section, page_sections
 
 _FM = (
     "---\ntype: {type}\ntitle: \"{title}\"\nsummary: \"一个足够长的摘要信息\"\n"

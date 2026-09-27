@@ -45,6 +45,29 @@ def test_ingest_fills_chunk_source_name():
     assert "来自 sample.md" in prompts.chunk_user(sc)
 
 
+def test_candidate_outlines_include_section_gists():
+    from wiki_agent.compiler.integration.analyze import (
+        ANALYZE_GIST_SHORT_CHARS,
+        render_candidates,
+    )
+    from wiki_agent.wiki.sections import Section
+
+    long_text = "甲" * 120
+    secs = [
+        Section(slug="concepts/a", heading="", body=f"# 甲\n\n导语定调整页：{long_text}"),
+        Section(slug="concepts/a", heading="机制", body=f"```python\nx = 1\n```\n\n正文首句：{long_text}"),
+    ]
+    fm = {"title": "甲", "summary": "摘要", "type": "concept"}
+    out = render_candidates([("wiki/concepts/a.md", fm, secs)])[0]
+    assert "导语定调整页" in out and "正文首句" in out  # 节散文进大纲
+    assert "```python" not in out  # 代码块不当摘要
+
+    many = [Section(slug=f"concepts/p{i}", heading="节", body="乙" * 200) for i in range(13)]
+    out_short = render_candidates([("wiki/concepts/p0.md", fm, many)])[0]
+    gist_lens = [ln.split("—— ")[1] for ln in out_short.splitlines() if "—— " in ln]
+    assert all(len(g) <= ANALYZE_GIST_SHORT_CHARS for g in gist_lens)  # 合计超阈值落短档
+
+
 def test_page_prompts_separate_existing_page_from_new_source():
     new_system = prompts.new_page_system()
     update_system = prompts.update_system()

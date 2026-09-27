@@ -5,6 +5,8 @@
 不进 payload。
 """
 
+from wiki_agent.wiki.sections import Section, page_sections
+
 from .apply import apply_unit, pages_linking_to
 from .models import (
     OutPage,
@@ -19,7 +21,6 @@ from .propose import propose_units
 from .resolve import assert_units_valid, resolve_unit_conflicts, validate_unit
 from .review import recheck_units
 from .rewrite import rewrite_unit_page
-from .sections import Section, page_sections
 
 __all__ = [
     "OutPage",

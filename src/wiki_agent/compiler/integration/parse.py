@@ -218,33 +218,6 @@ def _parse_references(raw: list | None) -> list[dict[str, str]]:
     return result
 
 
-def extract_headings(content: str, max_depth: int = 3) -> str:
-    """提取页面标题（# / ## / ###），返回缩进大纲字符串。
-
-    Args:
-        content: 页面内容。
-        max_depth: 最大标题层级（默认 3）。
-
-    Returns:
-        缩进大纲文本；无标题或空内容返回空串。
-    """
-    if not content:
-        return ""
-    lines_out: list[str] = []
-    in_body = False
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if not in_body:
-            if stripped == "---":
-                in_body = True
-            continue
-        match = re.match(rf"^(#{{1,{max_depth}}})\s+(.+)$", stripped)
-        if match:
-            depth = len(match.group(1))
-            lines_out.append("  " * (depth - 1) + "- " + match.group(2))
-    return "\n".join(lines_out) if lines_out else ""
-
-
 def extract_analyze_parts(content: str) -> tuple[str, str]:
     """拆解 analyze 两段式输出 → (自由文本主体, JSON 尾巴文本)。
 

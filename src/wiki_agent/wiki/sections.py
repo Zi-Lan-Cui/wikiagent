@@ -1,6 +1,8 @@
-"""页面章节切分——分配路由与装配的输入形状。
+"""页面章节切分与按节摘要——compile 分析展示与维护路由共用（无 LLM，底层）。
 
 章节 = "## " 级标题及其正文；H1 与导语归入页首（heading ""）。
+摘要按散文段提取：标题、引用、围栏行与代码块内部不算正文——代码块
+开头的章节把 "```python" 当摘要曾让路由看到零信息行。
 """
 
 from __future__ import annotations
@@ -13,11 +15,6 @@ from wiki_agent.wiki.frontmatter import split_frontmatter
 
 
 def _prose_paragraphs(body: str) -> list[str]:
-    """按空行切段；标题、引用、围栏行与代码块内部不算散文。
-
-    代码块开头的章节此前会把 "```python" 当首段摘要——路由看到的是
-    零信息行。围栏及其内部整段跳过。
-    """
     paras: list[str] = []
     cur: list[str] = []
     in_fence = False
@@ -56,7 +53,7 @@ class Section:
         """大纲行用的摘要：前两段开头、共享 limit 预算。
 
         页首节的导语（H1 后到第一个 ## 的全部段落）同样按段取——
-        导语是 H1 下最有判断价值的文字，此前只取到第一行 80 字符。
+        导语是 H1 下最有判断价值的文字。
         """
         paras = _prose_paragraphs(self.body)
         if not paras:
@@ -70,8 +67,8 @@ class Section:
         return out
 
 
-def page_sections(md_path: Path, slug: str) -> list[Section]:
-    _, body = split_frontmatter(md_path.read_text(encoding="utf-8"))
+def text_sections(content: str, slug: str) -> list[Section]:
+    _, body = split_frontmatter(content)
     parts = re.split(r"(?m)^## (.+?)\s*$", body)
     sections: list[Section] = []
     head = parts[0].strip()
@@ -80,3 +77,7 @@ def page_sections(md_path: Path, slug: str) -> list[Section]:
     for heading, chunk in zip(parts[1::2], parts[2::2], strict=True):
         sections.append(Section(slug=slug, heading=heading.strip(), body=chunk.strip()))
     return sections
+
+
+def page_sections(md_path: Path, slug: str) -> list[Section]:
+    return text_sections(md_path.read_text(encoding="utf-8"), slug)

@@ -10,9 +10,9 @@ import json
 from typing import Any
 
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.sections import Section
 
 from .models import Unit
-from .sections import Section
 
 
 def outline(slugs: list[str], meta: dict[str, dict]) -> str:
