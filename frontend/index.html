@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=23" />
+    <link rel="stylesheet" href="/style.css?v=24" />
   </head>
   <body>
     <div class="app-shell">
@@ -69,7 +69,10 @@
               <h2 id="center-title"></h2>
               <p id="center-sub"></p>
             </div>
-            <button id="issue-center-close" class="ghost-button" type="button">返回会话</button>
+            <div class="center-header-right">
+              <p id="center-status" class="center-status" aria-live="polite"></p>
+              <button id="issue-center-close" class="ghost-button" type="button">返回会话</button>
+            </div>
           </header>
           <section id="organize-view" class="workbench-panel maintain-panel" hidden>
             <div class="maintain-cards">
@@ -155,6 +158,6 @@
       </footer>
     </dialog>
 
-    <script src="/app.js?v=32" defer></script>
+    <script src="/app.js?v=33" defer></script>
   </body>
 </html>
