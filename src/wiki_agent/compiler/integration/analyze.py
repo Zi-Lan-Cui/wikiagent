@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from wiki_agent.compiler.integration.checks import check_analyze_json
-from wiki_agent.compiler.integration.parse import extract_headings, parse_analysis
+from wiki_agent.compiler.integration.parse import parse_analysis
 from wiki_agent.compiler.models import NO_THINKING, AnalysisResult, ExtractResult, SearchResult
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
@@ -13,10 +13,59 @@ from wiki_agent.llm.llm import LLMClient
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.sections import text_sections
 
 logger = get_logger("STAGES")
 
 _ANALYZE_TOKENS = 6_000
+
+# 候选页节摘要预算：与路由大纲同形状、独立阈值——候选是 5~8 页的
+# 节数合计，12 节上限意味着多候选时自动落到短档。
+ANALYZE_GIST_CHARS = 160
+ANALYZE_GIST_SHORT_CHARS = 40
+ANALYZE_MAX_GIST_SECTIONS = 12
+
+
+def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
+    """候选页大纲行——frontmatter 概览 + 按节摘要（节数合计定档）。
+
+    parsed 项为 (path, frontmatter, sections)。节摘要与路由大纲共用
+    wiki.sections 的提取逻辑；候选多时整体落短档，控制提示规模。
+    """
+    total_secs = sum(len(secs) for _, _, secs in parsed)
+    gist_limit = (
+        ANALYZE_GIST_CHARS
+        if total_secs <= ANALYZE_MAX_GIST_SECTIONS
+        else ANALYZE_GIST_SHORT_CHARS
+    )
+    outlines: list[str] = []
+    for path, fm, secs in parsed:
+        title = fm.get("title", "")
+        summary = fm.get("summary", "")
+        page_type = fm.get("type", "")
+        sources = fm.get("sources", "")
+        related = fm.get("related", "")
+        gaps = fm.get("gaps", "")
+        goal = fm.get("goal", "")
+        slug = path.replace("wiki/", "").replace(".md", "")
+        meta = f"- [[{slug}]] — [{page_type}] {path} — {title}"
+        if summary:
+            meta += f" — {summary}"
+        if goal:
+            meta += f" — 使命: {goal}"
+        if gaps:
+            meta += f" — 缺口声明: {gaps}"
+        if sources:
+            meta += f" — 来源: {sources}"
+        if related:
+            meta += f" — 已有引用: {related}"
+        if secs:
+            section_lines = "\n".join(
+                f"  - {s.heading or '（页首）'} —— {s.gist(gist_limit)}" for s in secs
+            )
+            meta += f"\n{section_lines}"
+        outlines.append(meta)
+    return outlines
 
 
 class Analyzer:
@@ -61,33 +110,13 @@ class Analyzer:
         # 空候选也走完整分析——候选页面只影响 relationship 段，不影响
         # 文档内部知识结构的自由分析（entities/concepts/呼应/对比）。
         # 早退会让 plan 失去决策依据，且使首跑结果依赖文件顺序。
-        outlines: list[str] = []
+        parsed: list[tuple[str, dict, list]] = []
         for path in result.rel_paths:
             content = await self._read_page(path)
             fm = split_frontmatter(content)[0] if content else {}
-            title = fm.get("title", "")
-            summary = fm.get("summary", "")
-            page_type = fm.get("type", "")
-            sources = fm.get("sources", "")
-            related = fm.get("related", "")
-            gaps = fm.get("gaps", "")
-            goal = fm.get("goal", "")
-            headings = extract_headings(content)
             slug = path.replace("wiki/", "").replace(".md", "")
-            meta = f"- [[{slug}]] — [{page_type}] {path} — {title}"
-            if summary:
-                meta += f" — {summary}"
-            if goal:
-                meta += f" — 使命: {goal}"
-            if gaps:
-                meta += f" — 缺口声明: {gaps}"
-            if sources:
-                meta += f" — 来源: {sources}"
-            if related:
-                meta += f" — 已有引用: {related}"
-            if headings:
-                meta += f"\n{headings}"
-            outlines.append(meta)
+            parsed.append((path, fm, text_sections(content, slug) if content else []))
+        outlines = render_candidates(parsed)
 
         response = await async_invoke_with_retry(
             self._llm,

@@ -12,10 +12,10 @@ from typing import Any
 from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
 from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
+from wiki_agent.wiki.sections import Section
 
 from . import prompts
 from .models import RouteError, Unit
-from .sections import Section
 
 
 def take_assignment(unit: Unit, sections: list[Section]) -> dict[str, str]:
