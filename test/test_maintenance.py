@@ -33,6 +33,7 @@ from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.rules import count_unclosed_fences
 from wiki_agent.wiki.sections import Section, page_sections
 
 _FM = (
@@ -363,6 +364,8 @@ def test_fix_fence_closes_trailing_open_block():
     assert fixed.count("```") % 2 == 0 and fixed.rstrip().endswith("```")
     good = "---\ntype: concept\ntitle: t\n---\n# t\n\n```python\nx = 1\n```\n"
     assert fix_markdown_fence(good) == good.strip()
+    two_opens = "---\ntype: concept\ntitle: t\n---\n# t\n\n```python\nx = 1\n```python\ny = 2\n"
+    assert count_unclosed_fences(fix_markdown_fence(two_opens)) == 0, "双开零闭须补两个闭合"
 
 
 def test_fill_frontmatter_synthesizes_when_absent():
@@ -411,6 +414,10 @@ def test_route_outline_degrades_beyond_threshold():
     open_fence = _FM.format(type="concept", title="甲") + "# 甲\n\n```python\nx = 1\n"
     ok, reason = prompts.check_rewrite_page(open_fence)
     assert not ok and "代码块未闭合" in reason
+    # 双开零闭：奇偶计数判"已闭合"的假阴性形态，括号配对判据必须抓住
+    two_opens = _FM.format(type="concept", title="甲") + "# 甲\n\n```python\nx = 1\n```python\ny = 2\n"
+    ok, _ = prompts.check_rewrite_page(two_opens)
+    assert not ok
 
 
 def test_fill_frontmatter_backfills_skeleton_without_overwrite():

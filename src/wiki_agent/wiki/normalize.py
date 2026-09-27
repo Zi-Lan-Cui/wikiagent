@@ -12,7 +12,7 @@ import re
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import list_field
 from wiki_agent.wiki.quality import Issue, check_page_quality
-from wiki_agent.wiki.rules import iter_code_runs, iter_text_outside_code
+from wiki_agent.wiki.rules import count_unclosed_fences, iter_code_runs, iter_text_outside_code
 
 logger = get_logger("NORMALIZE")
 
@@ -76,9 +76,10 @@ def fix_markdown_fence(content: str) -> str:
             if m:
                 content = content[: fm_end + 5] + rest[m.end() :]
     content = content.strip()
-    # 5. 正文 fence 数为奇 → 最后一个代码块缺闭合，文末补裸 ```
-    if content.count("```") % 2:
-        content += "\n```\n"
+    # 5. 有未闭合的开块 → 文末按块数补裸 ```。判据用 rules 的括号配对
+    #    状态机，不用奇偶计数（两个 ```python 开块 0 闭合时计数判"已闭合"）
+    for _ in range(count_unclosed_fences(content)):
+        content += "\n```"
     return content
 
 
