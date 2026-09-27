@@ -11,7 +11,6 @@ from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
-from wiki_agent.wiki.frontmatter import split_frontmatter
 
 from . import prompts
 from .models import OutPage, Unit
@@ -25,21 +24,6 @@ def read_wiki_const(wiki_dir: Path, name: str) -> str:
         return (wiki_dir / name).read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         return ""
-
-
-def outline_meta(wiki_dir: Path, slugs: list[str]) -> dict[str, dict]:
-    meta: dict[str, dict] = {}
-    for slug in slugs:
-        path = wiki_dir / f"{slug}.md"
-        if not path.is_file():
-            continue
-        fm, _ = split_frontmatter(path.read_text(encoding="utf-8"))
-        meta[slug] = {
-            "title": str(fm.get("title") or ""),
-            "goal": str(fm.get("goal") or ""),
-            "summary": str(fm.get("summary") or ""),
-        }
-    return meta
 
 
 async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
@@ -64,7 +48,6 @@ async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
                 role="user",
                 content=prompts.propose_user(
                     index,
-                    prompts.outline(slugs, outline_meta(wiki_dir, slugs)),
                     read_wiki_const(wiki_dir, "schema.md"),
                     read_wiki_const(wiki_dir, "purpose.md"),
                 ),

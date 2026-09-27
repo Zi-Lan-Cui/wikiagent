@@ -16,11 +16,17 @@ from wiki_agent.wiki.sections import TOP_LABEL, Section, pick_gist_limit
 from .models import Unit
 
 
-def outline(slugs: list[str], meta: dict[str, dict]) -> str:
+def section_outline(entries: list[tuple[str, str, list[str]]]) -> str:
+    """复核用的章节骨架行：slug — title — 章节: 标题1；标题2…
+
+    章节是"两页是否同一事物的复述""这页是否杂烩"最强的信号，但只配
+    出现在复核——那里输入只覆盖单元涉及页；粗提看全库，逐页挂章节
+    会把可处理的库规模压掉一大截。
+    """
     lines = []
-    for slug in slugs:
-        m = meta.get(slug, {})
-        lines.append(f"- {slug} | {m.get('title', '')} | goal: {m.get('goal', '')} | {m.get('summary', '')}")
+    for slug, title, headings in entries:
+        shown = "；".join(headings[:8]) + ("…" if len(headings) > 8 else "")
+        lines.append(f"- {slug} — {title} — 章节: {shown or '（无小节）'}")
     return "\n".join(lines)
 
 
@@ -35,13 +41,15 @@ PROPOSE_SYSTEM = (
 )
 
 
-def propose_user(index_content: str, outline: str, schema: str = "", purpose: str = "") -> str:
+def propose_user(index_content: str, schema: str = "", purpose: str = "") -> str:
     parts = []
     if purpose:
         parts.append(f"## 知识库使命\n{purpose}")
     if schema:
         parts.append(f"## 组织规范\n{schema}")
-    parts += [f"## 目录\n{index_content}", f"## 页面大纲\n{outline}", "给出重组单元（可为空）。"]
+    # index 行本身携带 title/summary/goal——不再附单独的页面大纲节（同
+    # 源字段的复读只会稀释注意力并压低全库规模上限）
+    parts += [f"## 目录\n{index_content}", "给出重组单元（可为空）。"]
     return "\n\n".join(parts)
 
 

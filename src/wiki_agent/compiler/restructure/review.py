@@ -9,10 +9,12 @@ from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
+from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.sections import page_sections
 
 from . import prompts
 from .models import Unit
-from .propose import outline_meta, read_wiki_const
+from .propose import read_wiki_const
 
 logger = get_logger("RESTRUCTURE")
 
@@ -24,8 +26,20 @@ async def recheck_units(
     wiki_dir = Path(wiki_dir)
     confirmed: list[Unit] = []
     rejected: list[tuple[Unit, str]] = []
-    touched = sorted({s for u in units for s in u.in_pages} | {p.slug for u in units for p in u.out})
-    meta = outline_meta(wiki_dir, touched)
+
+    def section_entries(slugs: list[str]) -> list[tuple[str, str, list[str]]]:
+        entries = []
+        for slug in dict.fromkeys(slugs):
+            path = wiki_dir / f"{slug}.md"
+            if not path.is_file():
+                continue
+            fm, _ = split_frontmatter(path.read_text(encoding="utf-8"))
+            entries.append((
+                slug,
+                str(fm.get("title") or ""),
+                [sec.heading for sec in page_sections(path, slug) if sec.heading],
+            ))
+        return entries
     for unit in units:
         response = await async_invoke_with_retry(
             llm,
@@ -35,7 +49,7 @@ async def recheck_units(
                     role="user",
                     content=prompts.recheck_user(
                         unit,
-                        prompts.outline(unit.in_pages + unit.out_slugs, meta),
+                        prompts.section_outline(section_entries(unit.in_pages + unit.out_slugs)),
                         read_wiki_const(wiki_dir, "schema.md"),
                     ),
                 ),
