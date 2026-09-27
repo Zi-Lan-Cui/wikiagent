@@ -19,6 +19,14 @@ from .models import OutPage, Unit
 logger = get_logger("RESTRUCTURE")
 
 
+def read_wiki_const(wiki_dir: Path, name: str) -> str:
+    """读 wiki 根下的系统文件（schema.md/purpose.md）；缺失返回空串。"""
+    try:
+        return (wiki_dir / name).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
 def outline_meta(wiki_dir: Path, slugs: list[str]) -> dict[str, dict]:
     meta: dict[str, dict] = {}
     for slug in slugs:
@@ -52,7 +60,15 @@ async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
         llm,
         [
             Message(role="system", content=prompts.PROPOSE_SYSTEM),
-            Message(role="user", content=prompts.propose_user(index, prompts.outline(slugs, outline_meta(wiki_dir, slugs)))),
+            Message(
+                role="user",
+                content=prompts.propose_user(
+                    index,
+                    prompts.outline(slugs, outline_meta(wiki_dir, slugs)),
+                    read_wiki_const(wiki_dir, "schema.md"),
+                    read_wiki_const(wiki_dir, "purpose.md"),
+                ),
+            ),
         ],
         max_tokens=8192,
         check=prompts.check_propose_json,

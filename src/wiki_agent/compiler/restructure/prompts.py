@@ -28,13 +28,21 @@ PROPOSE_SYSTEM = (
     "你是 wiki 结构维护的提议者。给定全部页面的目录大纲，找出结构问题并给出重组单元："
     "每个单元声明输入页（in，被整体消费）与输出页（out，slug+intent 说明这页将来讲什么）。"
     "合并=N→1，拆分/新建=1→M，改写=A→A（intent 给出改写方向），删除=out 空。"
-    "不引入新知识：一切内容必须来自 in 页。没有值得动的结构就输出空数组。"
+    "不引入新知识：一切内容必须来自 in 页。合并与拆分的取舍以组织规范为准："
+    "同一事物的不同侧面不是冗余，不同页面类型（concept/entity/topic）各司其职。"
+    "没有值得动的结构就输出空数组。"
     '只输出 JSON：{"units":[{"in_pages":[...],"out":[{"slug":"concepts/x","intent":"..."}],"reason":"..."}]}'
 )
 
 
-def propose_user(index_content: str, outline: str) -> str:
-    return f"## 目录\n{index_content}\n\n## 页面大纲\n{outline}\n\n给出重组单元（可为空）。"
+def propose_user(index_content: str, outline: str, schema: str = "", purpose: str = "") -> str:
+    parts = []
+    if purpose:
+        parts.append(f"## 知识库使命\n{purpose}")
+    if schema:
+        parts.append(f"## 组织规范\n{schema}")
+    parts += [f"## 目录\n{index_content}", f"## 页面大纲\n{outline}", "给出重组单元（可为空）。"]
+    return "\n\n".join(parts)
 
 
 def check_propose_json(content: str) -> tuple[bool, str]:
@@ -60,12 +68,16 @@ RECHECK_SYSTEM = (
 )
 
 
-def recheck_user(unit: Unit, outline: str) -> str:
+def recheck_user(unit: Unit, outline: str, schema: str = "") -> str:
     intents = "；".join(f"{p.slug}: {p.intent or '（搬运）'}" for p in unit.out) or "（整页删除）"
-    return (
-        f"## 单元\n消费 {unit.in_pages} → 产出 [{intents}]\n理由: {unit.reason}\n\n"
-        f"## 涉及页大纲\n{outline}\n\nkeep 还是放弃？"
-    )
+    parts = [
+        f"## 单元\n消费 {unit.in_pages} → 产出 [{intents}]\n理由: {unit.reason}",
+        f"## 涉及页大纲\n{outline}",
+    ]
+    if schema:
+        parts.insert(0, f"## 组织规范\n{schema}")
+    parts.append("keep 还是放弃？")
+    return "\n\n".join(parts)
 
 
 def check_recheck_json(content: str) -> tuple[bool, str]:
