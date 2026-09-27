@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from wiki_agent.log import get_logger
-from wiki_agent.wiki.frontmatter import list_field
+from wiki_agent.wiki.frontmatter import list_field, set_fields
 from wiki_agent.wiki.quality import Issue, check_page_quality
 from wiki_agent.wiki.rules import count_unclosed_fences, iter_code_runs, iter_text_outside_code
 
@@ -254,52 +254,24 @@ def inject_metadata(
 
     # 合并连续/空 frontmatter: "---\n---\ntype: x" → "---\ntype: x"
     content = re.sub(r"^---\s*\n+---\s*\n", "---\n", content, count=1)
-
-    try:
-        end = content.index("\n---\n", 3)
-    except ValueError:
+    if content.find("\n---\n", 3) < 0:
         return content
 
-    fm = content[len("---\n") : end]
-    rest = content[end:]
-
-    existing_sources = existing or {}
-    old_created = existing_sources.get("created", today)
-    old_list = list_field(existing_sources.get("sources", ""))
-
-    new_fm = fm
-    # created: 保留旧的（追加路径同样用 old_created——LLM 不写 created，
-    # 追加才是常规路径，用 today 会把已有页面的 created 重置）
-    new_fm = re.sub(r"^created:.*$", f"created: {old_created}", new_fm, flags=re.MULTILINE)
-    if "created:" not in fm:
-        new_fm += f"\ncreated: {old_created}"
-    # updated: 覆盖
-    new_fm = re.sub(r"^updated:.*$", f"updated: {today}", new_fm, flags=re.MULTILINE)
-    if "updated:" not in fm:
-        new_fm += f"\nupdated: {today}"
-    # sources: 合并去重
-    sources = set(old_list)
+    ex = existing or {}
+    # created 以已有页为准——LLM 不写 created，追加是常规路径，
+    # 一律 today 会把老页的 created 重置
+    updates: dict[str, object] = {
+        "created": str(ex.get("created", today)),
+        "updated": today,
+    }
+    sources = set(list_field(ex.get("sources", "")))
     sources.add(source_identity)
     sources.discard("")
-    sources_str = ", ".join(f'"{s}"' for s in sorted(sources) if s)
-    if "sources:" in new_fm:
-        new_fm = re.sub(
-            r"^sources:.*$",
-            f"sources: [{sources_str}]",
-            new_fm,
-            flags=re.MULTILINE,
-        )
-    else:
-        new_fm += f"\nsources: [{sources_str}]"
-    # type: plan 决策的单一权威——generate 写的 type 只是占位，
-    # 以系统注入为准（空串=update 目标，沿用已有页面 type 不动）
+    updates["sources"] = sorted(sources)
     if page_type:
-        if "type:" in new_fm:
-            new_fm = re.sub(r"^type:.*$", f"type: {page_type}", new_fm, flags=re.MULTILINE)
-        else:
-            new_fm += f"\ntype: {page_type}"
-
-    return f"---\n{new_fm}{rest}"
+        # plan 决策的单一权威——generate 写的 type 只是占位（空串=沿用已有）
+        updates["type"] = page_type
+    return set_fields(content, updates)
 
 
 # 规范化编排——页面生成主路径的唯一入口

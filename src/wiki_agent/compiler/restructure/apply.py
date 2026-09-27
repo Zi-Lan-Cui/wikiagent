@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.frontmatter import list_field, set_fields, split_frontmatter
 
 from .models import Unit
 from .plan import UnitPlan
@@ -27,31 +27,23 @@ def _strip_related(text: str, vanished: set[str]) -> str:
     """frontmatter related 列表里指向消失页的条目整项移除。
 
     related 是引用清单不是散文——转纯文本会留下指向不存在页面的
-    残项（扫描 error），必须删干净。只动 related 行，条目兼容
-    "[[slug]]"、"[[slug|别名]]"、"slug" 三种存形。
+    残项（扫描 error），必须删干净。条目兼容 "[[slug]]"、
+    "[[slug|别名]]"、"slug" 三种存形，保留原形态写回。
     """
     if not vanished:
         return text
-    pats = [
-        (
-            re.compile(rf'"?\[\[{re.escape(s)}(?:\|[^\]]*)?\]\]"?\s*,?\s*'),
-            re.compile(rf'"{re.escape(s)}"\s*,?\s*'),
-        )
-        for s in sorted(vanished)
-    ]
-    out = []
-    in_fm = False
-    for ln in text.splitlines(keepends=True):
-        if ln.strip() == "---":
-            in_fm = not in_fm
-        if in_fm and ln.strip().startswith("related:"):
-            for alias_p, plain_p in pats:
-                ln = alias_p.sub("", ln)
-                ln = plain_p.sub("", ln)
-            ln = re.sub(r",\s*\]", "]", ln)
-            ln = re.sub(r"\[\s*(,)?\s*\]", "[]", ln)
-        out.append(ln)
-    return "".join(out)
+    fm, _ = split_frontmatter(text)
+    items = list_field(fm.get("related"))
+    if not items:
+        return text
+
+    def bare(item: str) -> str:
+        return item.removeprefix("[[").removesuffix("]]").split("|")[0].strip()
+
+    kept = [i for i in items if bare(i) not in vanished]
+    if len(kept) == len(items):
+        return text
+    return set_fields(text, {"related": kept})
 
 
 def _fm_end(text: str) -> int:
