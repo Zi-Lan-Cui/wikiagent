@@ -17,6 +17,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+from wiki_agent.application.pump import drain_queue
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
@@ -34,9 +35,7 @@ async def main(slugs: list[str]) -> int:
     acquire_execution_lock(runtime.workspace)
     try:
         # 与重组同一前提：判断基于静止且追平基线的 wiki
-        while service.count_in_flight() > 0:
-            if await runtime.job_worker.run_once() is None:
-                break
+        await drain_queue(service, runtime.job_worker)
         lag = service.sync_baseline_lag()
         if lag:
             preview = "、".join(sorted(lag)[:3])
@@ -59,9 +58,7 @@ async def main(slugs: list[str]) -> int:
             return 0
         batch = str(jobs[0].payload["batch"])
         logger.info("已入队: %d 个 link job（一页一提交，批 %s）", len(jobs), batch)
-        while service.count_in_flight() > 0:
-            if await runtime.job_worker.run_once() is None:
-                break
+        await drain_queue(service, runtime.job_worker)
         rows = [service.get(job.id) for job in jobs]
         failed = [row for row in rows if row.status != "succeeded"]
         for row in failed:
