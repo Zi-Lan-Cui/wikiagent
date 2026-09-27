@@ -221,7 +221,7 @@ function updateWikiNavigation() {
   wikiHistoryBack.disabled = state.wikiHistoryIndex < 0;
   wikiHistoryForward.disabled = state.wikiHistoryIndex >= state.wikiHistory.length - 1;
   const backLabel = state.wikiHistoryIndex <= 0
-    ? (state.wikiReturnView === "issues" ? "返回需要留意" : state.wikiReturnView === "organize" ? "返回整理 Wiki" : "返回会话")
+    ? (state.wikiReturnView === "issues" ? "返回待处理" : state.wikiReturnView === "organize" ? "返回维护" : "返回会话")
     : "上一页";
   wikiHistoryBack.title = `${backLabel} (Alt+←)`;
   wikiHistoryBack.setAttribute("aria-label", backLabel);
@@ -267,13 +267,13 @@ function restoreChatView() {
 const CENTER_COPY = {
   organize: {
     eyebrow: "知识库维护",
-    title: "整理 Wiki",
+    title: "维护",
     sub: "同步笔记、整理结构、补全链接；提交的任务在下方排队执行。",
   },
   issues: {
     eyebrow: "知识库运行",
-    title: "需要留意",
-    sub: "资料处理失败、你提出的纠错、质量提醒，在这里逐条决定怎么处理。",
+    title: "待处理",
+    sub: "资料处理失败、你提出的纠错、质量提醒——需要你逐条决定怎么处理的事。",
   },
 };
 
