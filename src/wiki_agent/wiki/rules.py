@@ -15,8 +15,8 @@ from wiki_agent.wiki.frontmatter import split_frontmatter
 
 # fence 配对 = 括号匹配（带标记的 ```python 是左括号，裸 ``` 是右括号，
 # 且右括号只在块内才有效——块内的 ```python 是内容不翻转）。
-# 旧奇数计数假阴性事故: 两个 ```python（2 开 0 闭）被误判"已闭合"，
-# anonymous-function.md 标题全被吞进代码块还落了盘。
+# 奇数计数判据有假阴性: 两个 ```python（2 开 0 闭）计数为偶会被判"已闭合"，
+# 正文标题随后全被吞进代码块。
 _FENCE_OPEN = re.compile(r"^```\S+\s*$")  # 带语言标记 = 开（裸 ``` 不匹配）
 
 

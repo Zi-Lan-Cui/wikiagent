@@ -173,9 +173,8 @@ def check_plan_json(
         path = str(t.get("wiki_path", "")).strip()
         if not path:
             return False, f"page_targets[{i}].wiki_path 不能为空。"
-        # 路由校验——页面只允许落在 schema 定义的内容目录。
-        # （实测事故: LLM 造出 languages/python.md、tools/sphinx.md，
-        # 四个内容目录外的页面在 scan_wiki 里完全隐形）
+        # 路由校验——页面只允许落在内容目录；目录外的页面在 scan_wiki
+        # 里完全隐形（实测模型造过 languages/、tools/ 这类目录）
         first_seg = path.replace("wiki/", "").split("/", 1)[0]
         if first_seg not in CONTENT_DIRS:
             return False, (

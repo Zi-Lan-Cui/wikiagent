@@ -6,9 +6,8 @@ wiki 写协议（pre-reset/commit/restore）隐含前提是工作树写者唯一
 flock——进程死亡内核自动释放，没有判活、没有 stale 清理入口（与被退役
 的 run 容器的 O_EXCL 锁本质不同）。
 
-持有者 = 一切会泵队列的宿主：web runtime.start()、sync 自泵脚本、
-compile_batches 评测编排（批流程已全部入队，
-不存在旁路写者）。同进程按引用计数重入：runtime.start() 已持有的宿主里
+持有者 = 一切会泵队列的宿主：web runtime.start()、各批处理脚本
+（自泵到空）。同进程按引用计数重入：runtime.start() 已持有的宿主里
 再执行 /compile 不会自锁。
 """
 

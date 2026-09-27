@@ -56,15 +56,14 @@ def fix_markdown_fence(content: str) -> str:
     content = re.sub(r"^```(?:markdown|md|yaml|text)?\s*\n?", "", content)
     # 2. 结尾 stray fence——只有去掉后余下 fence 配成对（偶数）才说明这个 ```
     #    是多余的；页面以合法代码块收尾时这行 ``` 是那个块的闭合，删了
-    #    就制造出"代码块未闭合"（历史事故的真实来源之一）
+    #    就自己制造出"代码块未闭合"的违例
     trimmed = re.sub(r"\n?```\s*$", "", content)
     if trimmed != content and trimmed.count("```") % 2 == 0:
         content = trimmed
     # 3. frontmatter 闭合后、正文前的 stray ``` 行——
-    #    只处理 frontmatter 后紧跟的 stray fence（count=1 + 锚定 frontmatter）。
-    #    事故教训（2026-08-15）: 旧实现全局替换 `\n```\n# 标题`，把
-    #    合法代码块的裸闭合（块结束紧跟下一节标题）全删了——
-    #    3 开 3 闭的完好页面被修成 3 开 0 闭，落盘后标题全被吞。
+    #    只处理 frontmatter 后紧跟的那一处（count=1 + 锚定 frontmatter）。
+    #    不能全局替换 `\n```\n# 标题`：合法代码块的裸闭合后紧跟下一节
+    #    标题时形态完全相同，全局替换会把完好页面修成全部不闭合。
     if content.startswith("---"):
         try:
             fm_end = content.index("\n---\n", 3)
