@@ -58,7 +58,7 @@ class SourceChunk:
     """源文件名，如 ``吴恩达深度学习笔记.md``——chunk 级摘要 prompt 的出处标注。"""
 
     # 未实现字段（预留——需要时再加，理由见下）
-    # heading_path 已由 chunker metadata 产出（2026-08-14），见 text_chunker。
+    # heading_path 已由 chunker metadata 产出，见 text_chunker。
     # chunk_overlap：检索场景（RAG 按相似度选 chunk）才需要——防切分点切断
     #   语义导致漏命中。编译是全量消费（每 chunk 都喂 LLM），边界语义由
     #   滚动压缩的 digest（全局摘要）与均匀分配的 synthesis（全量合成）覆盖，

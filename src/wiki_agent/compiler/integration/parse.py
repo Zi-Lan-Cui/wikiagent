@@ -25,7 +25,7 @@ logger = get_logger("PARSE")
 def _try_repair_trailing_braces(cleaned: str) -> str | None:
     """确定性修复: 仅缺尾部闭合括号时补全。
 
-    实测事故：深嵌套 JSON（page_targets 数组套 references 数组）模型
+    深嵌套 JSON（page_targets 数组套 references 数组）模型
     写完就停（finish=stop 非 token 截断），但少写一个尾部 }——重试
     两次仍犯同样错，烧 token 无收益。这里保守修复: 只尝试补
     ]} 组合，补完能 loads 才返回修复版，否则 None（不掩盖真截断）。
@@ -53,7 +53,7 @@ def strip_fence(content: str) -> str:
 
     fence 是格式化噪声不是内容错误：check 层和 parse 层必须用
     同一份剥除逻辑，否则出现"check 剥了能过、parse 没剥就炸"
-    （2026-08-15 full_pipeline 验收 run 事故）。
+    （实测）。
 
     尾部缺闭合括号是同类格式化噪声——模型深嵌套 JSON
     少写一个 }。repair 也在此层: check 用修复版判定、parse 用
