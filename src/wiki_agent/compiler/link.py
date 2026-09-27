@@ -1,10 +1,10 @@
 """出链维护（link）：LLM 出替换清单，代码校验后逐条应用。
 
 link 只做连通性：不重写内容、不动正文文字本身。每个替换项是对页面
-原文的一次字面替换（find → replace），代码校验三条：find 在正文中
-恰好出现一次、替换后的目标 slug 存在、不自链。校验不过的项跳过并计数，
-全部无效与"无可补"都走空操作。清单生成失败（LLM 校验穷尽）返回 None，
-调用方按任务失败处理。
+原文的一次字面替换（find → replace），校验不过的项逐条跳过并给理由：
+find 非唯一、目标 slug 不在名册、自链、缺 | 显示文字。空清单=无可补，
+空操作不写盘。清单生成失败（LLM 输出校验穷尽）抛 IngestError，
+与 compile 各阶段同一约定。
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
 from wiki_agent.conversation import Message
+from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.wiki.frontmatter import split_frontmatter
 
@@ -52,8 +53,8 @@ def _check_plan_json(content: str) -> tuple[bool, str]:
     return True, ""
 
 
-async def plan_link_fixes(llm: Any, wiki_dir: str | Path, slug: str) -> list[dict[str, str]] | None:
-    """返回替换清单（可为空=无可补）；None=清单生成失败（调用方按失败处理）。"""
+async def plan_link_fixes(llm: Any, wiki_dir: str | Path, slug: str) -> list[dict[str, str]]:
+    """返回替换清单（可为空=无可补）；清单生成失败抛 IngestError。"""
     wiki_dir = Path(wiki_dir)
     path = wiki_dir / f"{slug}.md"
     if not path.is_file():
@@ -72,7 +73,15 @@ async def plan_link_fixes(llm: Any, wiki_dir: str | Path, slug: str) -> list[dic
         response_format=JSON_MODE,
     )
     if not response.check_ok:
-        return None
+        raise IngestError(
+            IngestStage.PLAN,
+            f"link 清单校验失败: {response.check_reason}",
+            source=f"link:{slug}",
+            raw=response.content,
+            error_code="output_validation",
+            error_class="transient",
+            retry_policy="manual",
+        )
     data = json.loads(response.content)
     fixes = data.get("fixes")
     return [
