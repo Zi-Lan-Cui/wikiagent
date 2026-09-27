@@ -15,7 +15,6 @@ link 只动出链（字面替换清单经代码校验应用，不重写正文）
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -39,7 +38,7 @@ from wiki_agent.jobs.wiki_session import (
     debris_dir_for,
 )
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.frontmatter import render_frontmatter, set_fields, split_frontmatter
 from wiki_agent.wiki.normalize import normalize_page
 from wiki_agent.wiki.quality import scan_wiki
 
@@ -55,9 +54,10 @@ _FM_REQUIRED = ("type", "title", "summary", "goal")
 def _fill_frontmatter(text: str, skeleton: dict) -> str:
     """成文输出缺必填字段时用代码骨架补齐——模型丢字段不值得整单元失败。
 
-    只动缺失的必填 key：有行则替换值，无行则插入 frontmatter 末尾；
-    模型已给的值一律保留。骨架来自 _frontmatter_for（旧页=旧
-    frontmatter，新页=由 intent 派生），与草稿同源。
+    只动缺失的必填 key，模型已给的值一律保留；骨架来自
+    _frontmatter_for（旧页=旧 frontmatter，新页=由 intent 派生），
+    与草稿同源。输出没有 frontmatter（模型对拆分新页常返回纯正文
+    片段）时整页由骨架合成，正文原样保留。
     """
     fm, _ = split_frontmatter(text)
     missing = {
@@ -67,30 +67,12 @@ def _fill_frontmatter(text: str, skeleton: dict) -> str:
     }
     if not missing:
         return text
-    lines = text.splitlines(keepends=True)
-    dash = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
-    if not lines[0].strip() == "---" or len(dash) < 2:
-        # 模型对拆分新页常返回纯正文片段（真实重试两次同形）：
-        # 整页 frontmatter 由骨架合成，正文原样保留
-        if not lines or not missing:
-            return text
-        head = ["---"]
-        for k, v in skeleton.items():
-            head.append(f"{k}: {json.dumps(str(v), ensure_ascii=False)}")
-        head.append("---")
-        return "\n".join(head) + "\n" + text
-    replaced = set()
-    for i in range(dash[0] + 1, dash[1]):
-        key, _, _ = lines[i].partition(":")
-        if key.strip() in missing:
-            lines[i] = f'{key.strip()}: {json.dumps(missing[key.strip()], ensure_ascii=False)}\n'
-            replaced.add(key.strip())
-    insert_at = dash[1]
-    for k, v in missing.items():
-        if k not in replaced:
-            lines.insert(insert_at, f"{k}: {json.dumps(v, ensure_ascii=False)}\n")
-            insert_at += 1
-    return "".join(lines)
+    dash = [ln for ln in text.splitlines() if ln.strip() == "---"]
+    if text.startswith("---") and len(dash) >= 2:
+        return set_fields(text, missing)
+    fields = {k: v for k, v in skeleton.items() if str(v).strip()}
+    fields.update(missing)
+    return render_frontmatter(fields) + text
 
 
 class WikiOpsHandler:
