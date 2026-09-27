@@ -260,6 +260,26 @@ def test_single_page_rewrite_missing_settles_unit_missing(tmp_path: Path, monkey
     assert row.status == "succeeded" and row.error == ""
 
 
+def test_delete_unit_end_to_end(tmp_path: Path, monkeypatch):
+    """删除单元（out 空）：路由短路、页面消失、入链转纯文本、index 清除。"""
+    service, worker, wiki = _env(tmp_path)
+
+    async def empty_plan(llm, wiki_dir, slug):
+        return []
+
+    monkeypatch.setattr(wiki_ops_mod, "plan_link_fixes", empty_plan)
+    unit = {"in_pages": ["concepts/b"], "out": [], "reason": "空壳页删除"}
+    jobs = service.submit_maintenance([unit])
+    while service.count_in_flight() > 0:
+        asyncio.run(worker.run_once())
+    row = service.get(jobs[0].id)
+    assert row.status == "succeeded", row.error
+    assert not (wiki / "concepts/b.md").exists()
+    c_text = (wiki / "concepts/c.md").read_text(encoding="utf-8")
+    assert "[[concepts/b" not in c_text and "乙" in c_text
+    assert "[[concepts/b]]" not in (wiki / "index.md").read_text(encoding="utf-8")
+
+
 # —— link 执行 ——
 
 
@@ -332,6 +352,28 @@ def test_rewrite_links_for_vanished_strips_related(tmp_path: Path):
     fm, body = split_frontmatter(c.read_text(encoding="utf-8"))
     assert str(fm["related"]) == '["[[concepts/a]]"]'
     assert "[[concepts/b" not in body and "乙" in body  # 正文 alias 转纯文本
+
+
+def test_fix_fence_closes_trailing_open_block():
+    """真实模型高频症状：正文末尾代码块缺闭合——文末机械补裸 ```。"""
+    from wiki_agent.wiki.normalize import fix_markdown_fence
+
+    open_page = "---\ntype: concept\ntitle: t\n---\n# t\n\n```python\nx = 1\n"
+    fixed = fix_markdown_fence(open_page)
+    assert fixed.count("```") % 2 == 0 and fixed.rstrip().endswith("```")
+    good = "---\ntype: concept\ntitle: t\n---\n# t\n\n```python\nx = 1\n```\n"
+    assert fix_markdown_fence(good) == good.strip()
+
+
+def test_fill_frontmatter_synthesizes_when_absent():
+    """拆分新页模型常返回纯正文片段：整页 frontmatter 由骨架合成。"""
+    from wiki_agent.application.wiki_ops import _fill_frontmatter
+
+    body = "# 标题\n\n正文足够长可以过质量检查的要求，描述明确主题。\n"
+    out = _fill_frontmatter(body, {"type": "topic", "title": "T", "summary": "摘要", "goal": "目标"})
+    fm, rest = split_frontmatter(out)
+    assert fm["type"] == "topic" and fm["title"] == "T" and fm["summary"] == "摘要"
+    assert rest == body
 
 
 def test_check_rewrite_page_catches_real_failures():

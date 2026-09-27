@@ -51,8 +51,11 @@ async def route_unit(
 ) -> tuple[dict[str, str], dict[str, str]]:
     """返回 (分配表 章节id→out_slug, 固定表——take 直给的部分，供审计)。
 
-    全单元都是 take 装配时不调 LLM。
+    全单元都是 take 装配时不调 LLM。删除单元（out 空）短路：章节的
+    归宿就是消失，没有分配可算——守恒约束不适用于无输出页的单元。
     """
+    if not unit.out:
+        return {}, {}
     fixed = take_assignment(unit, sections)
     flexible_pages = [p for p in unit.out if not p.take]
     remaining = [s for s in sections if s.id not in fixed]
