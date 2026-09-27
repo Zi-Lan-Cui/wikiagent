@@ -43,12 +43,17 @@ class WikiBrowser:
         self._project_root = project_root
 
     def list_wiki_files(self) -> list[WikiFileInfo]:
-        """列出 wiki 根下的生成 Markdown 文件。"""
+        """列出 wiki 根下的生成 Markdown 文件。
+
+        隐藏判断只针对 wiki 根内部的相对路径——根目录本身叫
+        .e2e-llm 之类时，绝对路径前缀不算隐藏。
+        """
         if not self._wiki_dir.is_dir():
             return []
         files: list[WikiFileInfo] = []
         for path in sorted(self._wiki_dir.rglob("*.md")):
-            if not path.is_file() or any(part.startswith(".") for part in path.parts):
+            rel = path.relative_to(self._wiki_dir)
+            if not path.is_file() or any(part.startswith(".") for part in rel.parts):
                 continue
             stat = path.stat()
             files.append(

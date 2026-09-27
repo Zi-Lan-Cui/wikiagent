@@ -40,6 +40,14 @@ class IssueActionRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class MaintenanceSubmitRequest(BaseModel):
+    units: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LinkBatchRequest(BaseModel):
+    slugs: list[str] | None = None
+
+
 def create_app(
     *,
     project_root: Path | None = None,
@@ -98,6 +106,16 @@ def create_app(
         else:
             item["title"] = f"{job.kind} {Path(job.resource).name}"
             item["resource"] = job.resource
+        # 维护线 job 的 resource 是内部定位键，卡片用声明内容做标题
+        if job.kind == "restructure":
+            unit = job.payload.get("unit") or {}
+            ins = "+".join(unit.get("in_pages") or []) or job.resource
+            outs = "+".join(str(p.get("slug") or "") for p in unit.get("out") or []) or "（删除）"
+            item["title"] = f"重组 {ins} → {outs}"
+            item["resource"] = ins
+        elif job.kind == "link":
+            item["title"] = f"补链 {job.payload.get('slug') or job.resource}"
+            item["resource"] = str(job.payload.get("slug") or job.resource)
         if item["status"] == "succeeded":
             item["status"] = "completed"
         if job.status == "succeeded" and issue is not None:
@@ -196,6 +214,92 @@ def create_app(
     @app.get("/api/sync/status")
     async def sync_status() -> dict[str, int]:
         return job_service.sync_status(app_runtime.materials_dir)
+
+    # 维护线：结构重组预览/提交、关联扫提交——执行走同一队列与泵
+
+    def _maintenance_busy_detail() -> str | None:
+        """预览与提交共用的花钱前检查：在途或基线落后返回文案，None=放行。"""
+        in_flight = job_service.wiki_write_in_flight()
+        if in_flight:
+            return f"写 wiki 的任务在途（{in_flight} 个）：等当前批到达终态后再提交"
+        lag = job_service.sync_baseline_lag()
+        if lag:
+            preview = "、".join(sorted(lag)[:3])
+            return f"{len(lag)} 个源未同步（{preview}）：请先同步，基线追平后再提交"
+        return None
+
+    def _unit_wire(unit: Any) -> dict[str, Any]:
+        return {
+            "in_pages": list(unit.in_pages),
+            "out": [
+                {"slug": p.slug, "intent": p.intent, "take": len(p.take), "polish": p.polish}
+                for p in unit.out
+            ],
+            "reason": unit.reason,
+        }
+
+    @app.post("/api/maintenance/preview")
+    async def maintenance_preview() -> dict[str, Any]:
+        """结构维护预览：提议→复核→消解，只返回清单不入队。
+
+        LLM 分析需要一到几分钟；闸在分析之前（与提交口同一判定），
+        在途或基线落后 409——基于动盘或落后基线的提议没有执行价值。
+        """
+        from wiki_agent.application.restructure_service import propose_maintenance
+
+        blocked = _maintenance_busy_detail()
+        if blocked:
+            raise HTTPException(status_code=409, detail=blocked)
+        try:
+            outcome = await propose_maintenance(app_runtime.agent.llm, app_runtime.wiki_dir)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502, detail=f"维护分析失败: {type(exc).__name__}: {str(exc)[:300]}"
+            ) from exc
+        return {
+            "healthy": outcome.healthy,
+            "proposed": len(outcome.proposed),
+            "confirmed": len(outcome.confirmed),
+            "effective": [_unit_wire(u) for u in outcome.effective],
+            "rejected": [
+                {"in_pages": u.in_pages, "reason": r} for u, r in outcome.rejected
+            ],
+            "dropped": [{"in_pages": u.in_pages, "reason": r} for u, r in outcome.dropped],
+        }
+
+    @app.post("/api/maintenance", status_code=202)
+    async def maintenance_submit(request: MaintenanceSubmitRequest) -> dict[str, Any]:
+        """确认后的单元清单整批入队（批尾自动跟波及面补链），整批同 batch。"""
+        from wiki_agent.compiler.restructure import UnitError
+        from wiki_agent.jobs import RestructureInProgress, SyncBaselineLag
+
+        try:
+            jobs = job_service.submit_maintenance(request.units)
+        except UnitError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (PipelineBusy, RestructureInProgress, SyncBaselineLag) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if not jobs:
+            raise HTTPException(status_code=400, detail="单元清单为空")
+        return {
+            "count": len(jobs),
+            "batch": str(jobs[0].payload.get("batch") or ""),
+            "tasks": [_job_task(job) for job in jobs],
+        }
+
+    @app.post("/api/link", status_code=202)
+    async def link_submit(request: LinkBatchRequest) -> dict[str, Any]:
+        """关联扫入队：指定页（默认全库内容页），一页一 job 一提交。"""
+        from wiki_agent.jobs import SyncBaselineLag
+
+        try:
+            jobs = job_service.submit_link_batch(slugs=request.slugs)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (PipelineBusy, SyncBaselineLag) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        batch = str(jobs[0].payload.get("batch") or "") if jobs else ""
+        return {"count": len(jobs), "batch": batch, "tasks": [_job_task(job) for job in jobs]}
 
     @app.get("/api/issues/{issue_id}")
     async def get_issue(issue_id: str) -> dict[str, Any]:
