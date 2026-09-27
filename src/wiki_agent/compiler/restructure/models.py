@@ -72,7 +72,10 @@ class Unit:
         }
 
     @staticmethod
-    def from_dict(raw: dict) -> Unit:
+    def from_dict(raw: object) -> Unit:
+        """从 payload 对象还原声明；非法形状抛 TypeError/ValueError。"""
+        if not isinstance(raw, dict):
+            raise TypeError(f"单元声明必须是对象，收到 {type(raw).__name__}")
         return Unit(
             in_pages=[str(s) for s in raw.get("in_pages") or []],
             out=[OutPage.from_dict(p) for p in raw.get("out") or [] if isinstance(p, dict)],
