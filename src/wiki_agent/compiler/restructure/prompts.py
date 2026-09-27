@@ -10,6 +10,7 @@ import json
 from typing import Any
 
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.rules import count_unclosed_fences
 from wiki_agent.wiki.sections import Section
 
 from .models import Unit
@@ -153,7 +154,7 @@ def check_rewrite_page(content: str) -> tuple[bool, str]:
     missing = [k for k in ("type", "title", "summary", "goal") if not str(fm.get(k) or "").strip()]
     if missing:
         return False, f"frontmatter 缺少字段 {missing}——四个必填字段都要给出。"
-    if body.count("```") % 2:
+    if count_unclosed_fences(body):
         return False, "代码块未闭合——每个 ```python 开块都要有配对的裸 ```。"
     return True, ""
 
