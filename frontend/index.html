@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=22" />
+    <link rel="stylesheet" href="/style.css?v=23" />
   </head>
   <body>
     <div class="app-shell">
@@ -19,8 +19,12 @@
           <p class="wiki-managed-note">Wiki 由同步生成并用 Git 管理：手工修改会在下一次同步时被清除。</p>
           <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
         </details>
-        <button id="issue-center-open" class="sidebar-destination" type="button">
-          <span><b>运营</b><small>任务队列、问题与维护</small></span>
+        <button id="organize-open" class="sidebar-destination" type="button">
+          <span><b>整理 Wiki</b><small>同步笔记、整理结构、补链</small></span>
+          <span class="summary-action"><b id="organize-running" class="section-count">0</b><b class="section-chevron">›</b></span>
+        </button>
+        <button id="attention-open" class="sidebar-destination" type="button">
+          <span><b>需要留意</b><small>失败、纠错与质量提醒</small></span>
           <span class="summary-action"><b id="queue-count" class="section-count">0</b><b class="section-chevron">›</b></span>
         </button>
       </aside>
@@ -61,58 +65,44 @@
         <section id="issue-center" class="issue-center" hidden aria-live="polite">
           <header class="issue-center-header">
             <div>
-              <p class="eyebrow">知识库运行与维护</p>
-              <h2>运营</h2>
-              <p>任务队列看进度，问题页做处理，维护页发起全局动作。</p>
+              <p class="eyebrow" id="center-eyebrow"></p>
+              <h2 id="center-title"></h2>
+              <p id="center-sub"></p>
             </div>
             <button id="issue-center-close" class="ghost-button" type="button">返回会话</button>
           </header>
-          <div class="workbench-tabs" role="tablist" aria-label="运营视图">
-            <button id="workbench-tab-tasks" type="button" role="tab" aria-controls="workbench-tasks-panel">
-              任务队列 <span id="workbench-task-tab-count">0</span>
-            </button>
-            <button id="workbench-tab-issues" class="active" type="button" role="tab" aria-controls="workbench-issues-panel" aria-selected="true">
-              问题 <span id="workbench-issue-tab-count">0</span>
-            </button>
-            <button id="workbench-tab-maintain" type="button" role="tab" aria-controls="workbench-maintain-panel">
-              维护
-            </button>
-          </div>
-          <section id="workbench-tasks-panel" class="workbench-panel task-panel" role="tabpanel" hidden>
+          <section id="organize-view" class="workbench-panel maintain-panel" hidden>
+            <div class="maintain-cards">
+              <section class="maintain-card">
+                <header><h3>同步笔记</h3><span id="sync-state" class="maintain-state"></span></header>
+                <p>查看笔记文件夹里新增和改动的内容，重新编译成 Wiki 页面。整理结构和补链之前，需要先同步到这里。</p>
+                <button id="sync-now" class="primary-button" type="button">
+                  同步 <span id="sync-badge">0</span>
+                </button>
+              </section>
+              <section class="maintain-card">
+                <header><h3>整理结构</h3></header>
+                <p>通读整个 Wiki，把重复的页面合并、杂烩页面拆开、空页删掉；每条建议先给你过目再执行。分析需要几分钟。</p>
+                <button id="maintain-preview" class="primary-button" type="button">检查并给出整理建议</button>
+              </section>
+              <section class="maintain-card">
+                <header><h3>补全链接</h3></header>
+                <p>全库逐页检查，把互相相关却没连起来的页面补上链接，失效的链接修好。每页一个小改动，可单独回退。</p>
+                <button id="link-scan" class="primary-button" type="button">全库补链一次</button>
+              </section>
+            </div>
             <section class="issue-task-queue" aria-labelledby="issue-task-heading">
               <header>
                 <div>
-                  <h3 id="issue-task-heading">运行队列</h3>
-                  <p>等待任务会按顺序执行，避免同时修改 Wiki。</p>
+                  <h3 id="issue-task-heading">进行中的任务</h3>
+                  <p>同一时间只做一个改动，按提交顺序排队执行。</p>
                 </div>
                 <span id="issue-task-count" class="issue-task-count">0 个活动任务</span>
               </header>
               <div id="issue-task-list" class="issue-task-list" aria-live="polite"></div>
             </section>
           </section>
-          <section id="workbench-maintain-panel" class="workbench-panel maintain-panel" role="tabpanel" hidden>
-            <p id="maintain-queue-hint" class="maintain-queue-hint"></p>
-            <div class="maintain-cards">
-              <section class="maintain-card">
-                <header><h3>同步</h3><span id="sync-state" class="maintain-state"></span></header>
-                <p>拍一次源目录快照，增量编译新增和变更的笔记，追平 wiki 基线。维护类操作要求基线已追平。</p>
-                <button id="sync-now" class="primary-button" type="button">
-                  立即同步 <span id="sync-badge">0</span>
-                </button>
-              </section>
-              <section class="maintain-card">
-                <header><h3>结构维护</h3></header>
-                <p>全库分析结构问题（合并冗余、拆分杂页、清理空壳），逐条提议确认后入队执行；分析需要几分钟。</p>
-                <button id="maintain-preview" class="primary-button" type="button">分析并提出建议</button>
-              </section>
-              <section class="maintain-card">
-                <header><h3>关联扫</h3></header>
-                <p>全库内容页逐页补链与修链，一页一任务一提交；每次维护批只补波及面，这里覆盖全库的长尾。</p>
-                <button id="link-scan" class="primary-button" type="button">全库扫一次</button>
-              </section>
-            </div>
-          </section>
-          <section id="workbench-issues-panel" class="workbench-panel issue-panel" role="tabpanel">
+          <section id="attention-view" class="workbench-panel issue-panel">
             <div class="issue-filters" aria-label="问题筛选">
               <label>状态
                 <select id="issue-status-filter">
@@ -154,7 +144,7 @@
 
     <dialog id="maintain-dialog" class="maintain-dialog">
       <header>
-        <h3>结构维护提议</h3>
+        <h3>整理建议</h3>
         <p id="maintain-summary" class="maintain-summary"></p>
       </header>
       <div id="maintain-units" class="maintain-units" aria-label="可执行单元"></div>
@@ -165,6 +155,6 @@
       </footer>
     </dialog>
 
-    <script src="/app.js?v=30" defer></script>
+    <script src="/app.js?v=31" defer></script>
   </body>
 </html>
