@@ -70,7 +70,15 @@ def _fill_frontmatter(text: str, skeleton: dict) -> str:
     lines = text.splitlines(keepends=True)
     dash = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
     if not lines[0].strip() == "---" or len(dash) < 2:
-        return text  # 无合法 frontmatter，交给 normalize 报错
+        # 模型对拆分新页常返回纯正文片段（真实重试两次同形）：
+        # 整页 frontmatter 由骨架合成，正文原样保留
+        if not lines or not missing:
+            return text
+        head = ["---"]
+        for k, v in skeleton.items():
+            head.append(f"{k}: {json.dumps(str(v), ensure_ascii=False)}")
+        head.append("---")
+        return "\n".join(head) + "\n" + text
     replaced = set()
     for i in range(dash[0] + 1, dash[1]):
         key, _, _ = lines[i].partition(":")
