@@ -267,6 +267,21 @@ def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
     return agent.job_service.wiki_write_in_flight()
 
 
+def _maintenance_gate_text(job_service) -> str | None:
+    """/maintain 与 /link 共用的花钱前预检：在途或基线落后返回暂拒文案，None=放行。
+
+    提交口（JobService._raise_if_maintenance_blocked）在事务内还会复查同一
+    判定——这里只是把注定失败的提交挡在 LLM 分析之前，文案以查询派生。
+    """
+    if job_service.wiki_write_in_flight() > 0:
+        return "写 wiki 的任务有在途，等当前批到终态后再执行。"
+    lag = job_service.sync_baseline_lag()
+    if lag:
+        preview = "、".join(sorted(lag)[:3])
+        return f"{len(lag)} 个源未同步（{preview}）。请先 /compile（快照 sync）追平基线。"
+    return None
+
+
 # 内置命令
 
 
@@ -685,19 +700,9 @@ class MaintainCommand(Command):
                 text=f"# /maintain 参数不识别: {bad}\n\n用法: `/maintain [--dry-run]`"
             )
         dry_run = "--dry-run" in tokens
-        if job_service.wiki_write_in_flight() > 0:
-            return CommandResult(
-                text="# /maintain 提交暂拒\n\n写 wiki 的任务有在途，等当前批到终态后再执行。"
-            )
-        lag = job_service.sync_baseline_lag()
-        if lag:
-            preview = "、".join(sorted(lag)[:3])
-            return CommandResult(
-                text=(
-                    "# /maintain 已暂拒\n\n"
-                    f"{len(lag)} 个源未同步（{preview}）。请先 /compile（快照 sync）追平基线。"
-                )
-            )
+        blocked = _maintenance_gate_text(job_service)
+        if blocked:
+            return CommandResult(text=f"# /maintain 提交暂拒\n\n{blocked}")
         try:
             outcome = await propose_maintenance(ctx.agent.llm, wiki)
         except Exception as e:
@@ -768,16 +773,9 @@ class LinkCommand(Command):
             return CommandResult(
                 text=f"# /link 参数不识别: {flags}\n\n用法: `/link [页slug...]`"
             )
-        if job_service.wiki_write_in_flight() > 0:
-            return CommandResult(
-                text="# /link 提交暂拒\n\n写 wiki 的任务有在途，等当前批到终态后再执行。"
-            )
-        lag = job_service.sync_baseline_lag()
-        if lag:
-            preview = "、".join(sorted(lag)[:3])
-            return CommandResult(
-                text=f"# /link 已暂拒\n\n{len(lag)} 个源未同步（{preview}）。请先 /compile 追平基线。"
-            )
+        blocked = _maintenance_gate_text(job_service)
+        if blocked:
+            return CommandResult(text=f"# /link 提交暂拒\n\n{blocked}")
         try:
             jobs = job_service.submit_link_batch(slugs=tokens or None)
         except (PipelineBusy, SyncBaselineLag, ValueError) as exc:

@@ -103,11 +103,8 @@ class WikiOpsHandler:
         单元失败等于从未发生（落盘前失败无工作区改动；落盘后失败由
         abort_export 撤销并入 debris 证据）。
         """
-        raw_unit = job.payload.get("unit")
-        if not isinstance(raw_unit, dict):
-            return JobResult(status="failed", detail={"error": "单元声明损坏: payload 缺 unit 对象"})
         try:
-            unit = Unit.from_dict(raw_unit)
+            unit = Unit.from_dict(job.payload.get("unit"))
         except (TypeError, ValueError) as exc:
             return JobResult(status="failed", detail={"error": f"单元声明损坏: {exc}"[:500]})
         with self._session.open(job) as write:
