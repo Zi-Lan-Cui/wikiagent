@@ -89,8 +89,20 @@ ROUTE_SYSTEM = (
 )
 
 
+# 路由大纲的摘要预算：常规档每节两段开头共 160 字符；节数超过 20 的
+# 大单元退化为短档（首句 40），控制提示规模与注意力稀释。
+ROUTE_GIST_CHARS = 160
+ROUTE_GIST_SHORT_CHARS = 40
+ROUTE_OUTLINE_MAX_GIST_SECTIONS = 20
+
+
 def route_outline(sections: list[Section]) -> str:
-    return "\n".join(f"- {s.id} | {s.heading or '（页首）'} | {s.gist}" for s in sections)
+    limit = (
+        ROUTE_GIST_CHARS
+        if len(sections) <= ROUTE_OUTLINE_MAX_GIST_SECTIONS
+        else ROUTE_GIST_SHORT_CHARS
+    )
+    return "\n".join(f"- {s.id} | {s.heading or '（页首）'} | {s.gist(limit)}" for s in sections)
 
 
 def route_user(unit: Unit, sections: list[Section], fixed_note: str) -> str:

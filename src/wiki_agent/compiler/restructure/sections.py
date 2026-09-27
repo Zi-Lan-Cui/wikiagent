@@ -12,6 +12,34 @@ from pathlib import Path
 from wiki_agent.wiki.frontmatter import split_frontmatter
 
 
+def _prose_paragraphs(body: str) -> list[str]:
+    """按空行切段；标题、引用、围栏行与代码块内部不算散文。
+
+    代码块开头的章节此前会把 "```python" 当首段摘要——路由看到的是
+    零信息行。围栏及其内部整段跳过。
+    """
+    paras: list[str] = []
+    cur: list[str] = []
+    in_fence = False
+    for line in body.splitlines():
+        s = line.strip()
+        if s.startswith("```"):
+            in_fence = not in_fence
+            if cur:
+                paras.append(" ".join(cur))
+                cur = []
+            continue
+        if in_fence or not s or s.startswith(("#", ">", "!")):
+            if cur:
+                paras.append(" ".join(cur))
+                cur = []
+            continue
+        cur.append(s)
+    if cur:
+        paras.append(" ".join(cur))
+    return paras
+
+
 @dataclass(frozen=True, slots=True)
 class Section:
     slug: str
@@ -24,14 +52,22 @@ class Section:
         # 说明列一起抄进分配表，边界必须显式。
         return f"{self.slug}::{self.heading}" if self.heading else f"{self.slug}::§top"
 
-    @property
-    def gist(self) -> str:
-        """大纲行用的摘要：标题后首段前 80 字符。"""
-        for line in self.body.splitlines():
-            text = line.strip()
-            if text and not text.startswith(("#", "!", ">")):
-                return text[:80]
-        return ""
+    def gist(self, limit: int) -> str:
+        """大纲行用的摘要：前两段开头、共享 limit 预算。
+
+        页首节的导语（H1 后到第一个 ## 的全部段落）同样按段取——
+        导语是 H1 下最有判断价值的文字，此前只取到第一行 80 字符。
+        """
+        paras = _prose_paragraphs(self.body)
+        if not paras:
+            return ""
+        if len(paras) == 1:
+            return paras[0][:limit]
+        half = limit // 2
+        out = paras[0][:half]
+        if limit - half - 1 > 0:
+            out += " / " + paras[1][: limit - half - 1]
+        return out
 
 
 def page_sections(md_path: Path, slug: str) -> list[Section]:

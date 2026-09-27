@@ -21,7 +21,7 @@ from wiki_agent.compiler.link import apply_link_fixes
 from wiki_agent.compiler.restructure import plan as plan_mod
 from wiki_agent.compiler.restructure import prompts
 from wiki_agent.compiler.restructure import route as route_mod
-from wiki_agent.compiler.restructure.sections import page_sections
+from wiki_agent.compiler.restructure.sections import Section, page_sections
 from wiki_agent.conversation import LLMResponse
 from wiki_agent.jobs import (
     Kind,
@@ -376,7 +376,33 @@ def test_fill_frontmatter_synthesizes_when_absent():
     assert rest == body
 
 
-def test_check_rewrite_page_catches_real_failures():
+def test_gist_skips_code_blocks_and_takes_two_paragraphs():
+    sec = Section(
+        slug="concepts/x",
+        heading="用法",
+        body="```python\nx = [1]\nx += [2]\n```\n\n原地合并跳过右侧可迭代并逐元素追加，不创建新列表。\n\n第二段落补充共享引用下所有别名都可见的效果说明。",
+    )
+    g = sec.gist(160)
+    assert not g.startswith("```") and "原地合并" in g and "第二段落" in g
+
+
+def test_gist_top_includes_lead_prose():
+    sec = Section(slug="concepts/x", heading="", body="# 标题\n\n导语一句定调。\n\n导语第二句展开。")
+    g = sec.gist(160)
+    assert g.startswith("导语一句") and "导语第二句" in g
+
+
+def test_route_outline_degrades_beyond_threshold():
+    sections = [
+        Section(slug=f"concepts/p{i}", heading="节", body="甲" * 200 + "\n\n" + "乙" * 200) for i in range(21)
+    ]
+    lines = prompts.route_outline(sections).splitlines()
+    assert len(lines) == 21
+    # 退化档：每节 gist 不超过短预算（40）+ 拼接符
+    for ln in lines:
+        assert len(ln.split(" | ")[-1]) <= prompts.ROUTE_GIST_SHORT_CHARS + 3
+    normal = prompts.route_outline(sections[:5])
+    assert any(len(ln.split(" | ")[-1]) > 100 for ln in normal.splitlines())
     good = _FM.format(type="concept", title="甲") + "# 甲\n\n正文\n\n```python\nx = 1\n```\n"
     assert prompts.check_rewrite_page(good) == (True, "")
     no_summary = "---\ntype: concept\ntitle: \"甲\"\ngoal: \"g\"\n---\n# 甲\n\n正文\n"
