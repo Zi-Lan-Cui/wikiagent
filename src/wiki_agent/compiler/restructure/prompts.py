@@ -11,7 +11,7 @@ from typing import Any
 
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.rules import count_unclosed_fences
-from wiki_agent.wiki.sections import Section
+from wiki_agent.wiki.sections import TOP_LABEL, Section, pick_gist_limit
 
 from .models import Unit
 
@@ -98,12 +98,10 @@ ROUTE_OUTLINE_MAX_GIST_SECTIONS = 20
 
 
 def route_outline(sections: list[Section]) -> str:
-    limit = (
-        ROUTE_GIST_CHARS
-        if len(sections) <= ROUTE_OUTLINE_MAX_GIST_SECTIONS
-        else ROUTE_GIST_SHORT_CHARS
+    limit = pick_gist_limit(
+        len(sections), ROUTE_GIST_CHARS, ROUTE_GIST_SHORT_CHARS, ROUTE_OUTLINE_MAX_GIST_SECTIONS
     )
-    return "\n".join(f"- {s.id} | {s.heading or '（页首）'} | {s.gist(limit)}" for s in sections)
+    return "\n".join(f"- {s.id} | {s.heading or TOP_LABEL} | {s.gist(limit)}" for s in sections)
 
 
 def route_user(unit: Unit, sections: list[Section], fixed_note: str) -> str:
