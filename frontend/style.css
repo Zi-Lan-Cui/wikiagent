@@ -258,3 +258,21 @@ button { -webkit-tap-highlight-color: transparent; }
 .maintain-dropped { margin-top: 10px; }
 .maintain-dropped p { color: #8b949e; font-size: 12px; margin: 2px 0; }
 .maintain-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* 运营：维护页 */
+.maintain-panel { padding: 14px 16px; }
+.maintain-queue-hint { color: #57606a; font-size: 13px; margin: 0 0 12px; }
+.maintain-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.maintain-card {
+  border: 1px solid #d8dee4;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.maintain-card header { display: flex; justify-content: space-between; align-items: baseline; }
+.maintain-card h3 { margin: 0; font-size: 15px; }
+.maintain-card p { margin: 0; color: #57606a; font-size: 13px; line-height: 1.5; flex: 1; }
+.maintain-state { font-size: 12px; color: #1a7f37; }
+.maintain-state.warn { color: #bf5b16; }

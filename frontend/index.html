@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=21" />
+    <link rel="stylesheet" href="/style.css?v=22" />
   </head>
   <body>
     <div class="app-shell">
@@ -20,7 +20,7 @@
           <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
         </details>
         <button id="issue-center-open" class="sidebar-destination" type="button">
-          <span><b>工作台</b><small>运行任务、问题与质量提醒</small></span>
+          <span><b>运营</b><small>任务队列、问题与维护</small></span>
           <span class="summary-action"><b id="queue-count" class="section-count">0</b><b class="section-chevron">›</b></span>
         </button>
       </aside>
@@ -62,17 +62,20 @@
           <header class="issue-center-header">
             <div>
               <p class="eyebrow">知识库运行与维护</p>
-              <h2>工作台</h2>
-              <p>分别查看后台任务和需要处理的问题。</p>
+              <h2>运营</h2>
+              <p>任务队列看进度，问题页做处理，维护页发起全局动作。</p>
             </div>
             <button id="issue-center-close" class="ghost-button" type="button">返回会话</button>
           </header>
-          <div class="workbench-tabs" role="tablist" aria-label="工作台视图">
+          <div class="workbench-tabs" role="tablist" aria-label="运营视图">
             <button id="workbench-tab-tasks" type="button" role="tab" aria-controls="workbench-tasks-panel">
-              运行任务 <span id="workbench-task-tab-count">0</span>
+              任务队列 <span id="workbench-task-tab-count">0</span>
             </button>
             <button id="workbench-tab-issues" class="active" type="button" role="tab" aria-controls="workbench-issues-panel" aria-selected="true">
-              问题处理 <span id="workbench-issue-tab-count">0</span>
+              问题 <span id="workbench-issue-tab-count">0</span>
+            </button>
+            <button id="workbench-tab-maintain" type="button" role="tab" aria-controls="workbench-maintain-panel">
+              维护
             </button>
           </div>
           <section id="workbench-tasks-panel" class="workbench-panel task-panel" role="tabpanel" hidden>
@@ -86,6 +89,28 @@
               </header>
               <div id="issue-task-list" class="issue-task-list" aria-live="polite"></div>
             </section>
+          </section>
+          <section id="workbench-maintain-panel" class="workbench-panel maintain-panel" role="tabpanel" hidden>
+            <p id="maintain-queue-hint" class="maintain-queue-hint"></p>
+            <div class="maintain-cards">
+              <section class="maintain-card">
+                <header><h3>同步</h3><span id="sync-state" class="maintain-state"></span></header>
+                <p>拍一次源目录快照，增量编译新增和变更的笔记，追平 wiki 基线。维护类操作要求基线已追平。</p>
+                <button id="sync-now" class="primary-button" type="button">
+                  立即同步 <span id="sync-badge">0</span>
+                </button>
+              </section>
+              <section class="maintain-card">
+                <header><h3>结构维护</h3></header>
+                <p>全库分析结构问题（合并冗余、拆分杂页、清理空壳），逐条提议确认后入队执行；分析需要几分钟。</p>
+                <button id="maintain-preview" class="primary-button" type="button">分析并提出建议</button>
+              </section>
+              <section class="maintain-card">
+                <header><h3>关联扫</h3></header>
+                <p>全库内容页逐页补链与修链，一页一任务一提交；每次维护批只补波及面，这里覆盖全库的长尾。</p>
+                <button id="link-scan" class="primary-button" type="button">全库扫一次</button>
+              </section>
+            </div>
           </section>
           <section id="workbench-issues-panel" class="workbench-panel issue-panel" role="tabpanel">
             <div class="issue-filters" aria-label="问题筛选">
@@ -109,15 +134,6 @@
               </label>
               <button id="retry-eligible" class="bulk-retry" type="button" disabled>
                 一键重试 <span id="retry-eligible-count">0</span>
-              </button>
-              <button id="sync-now" class="bulk-retry" type="button" title="拍一次源目录快照并入队编译">
-                同步 <span id="sync-badge">0</span>
-              </button>
-              <button id="maintain-preview" class="bulk-retry" type="button" title="全库分析结构问题：提议→复核→勾选入队">
-                结构维护
-              </button>
-              <button id="link-scan" class="bulk-retry" type="button" title="全库内容页逐页补链，一页一提交">
-                关联扫
               </button>
             </div>
             <div class="issue-workspace">
@@ -149,6 +165,6 @@
       </footer>
     </dialog>
 
-    <script src="/app.js?v=29" defer></script>
+    <script src="/app.js?v=30" defer></script>
   </body>
 </html>
