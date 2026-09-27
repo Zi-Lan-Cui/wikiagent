@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-CONTENT_DIRS = ("concepts", "entities", "topics")
+from wiki_agent.wiki.pages import CONTENT_DIRS
 
 
 def all_content_slugs(wiki_dir: str | Path) -> list[str]:

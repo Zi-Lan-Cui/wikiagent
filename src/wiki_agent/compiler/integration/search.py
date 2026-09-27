@@ -13,11 +13,11 @@ from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.wiki.pages import CONTENT_DIRS
 
 logger = get_logger("STAGES")
 
 _SEARCH_TOKENS = 2_048
-_SEARCH_PAGE_DIRS = {"concepts", "entities", "topics"}
 
 __all__ = ["Searcher", "load_valid_slugs"]
 
@@ -42,7 +42,7 @@ def _filter_search_paths(
         safe = (
             not path.is_absolute()
             and len(parts) >= 2
-            and parts[0] in _SEARCH_PAGE_DIRS
+            and parts[0] in CONTENT_DIRS
             and path.suffix == ".md"
             and ".." not in parts
             and root in candidate.parents

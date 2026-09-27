@@ -10,13 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from wiki_agent.wiki.frontmatter import list_field, split_frontmatter
+from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR
 from wiki_agent.wiki.sections import Section, page_sections
 
 from .models import OutPage, Unit, UnitMismatchError
 from .resolve import validate_unit
 from .route import route_unit
-
-PAGE_TYPE_BY_DIR = {"concepts": "concept", "entities": "entity", "topics": "topic"}
 
 
 @dataclass

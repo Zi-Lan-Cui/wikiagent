@@ -9,16 +9,14 @@ from __future__ import annotations
 import json
 
 from wiki_agent.compiler.integration.parse import extract_analyze_parts, strip_fence
+from wiki_agent.wiki.pages import CONTENT_DIRS, TYPE_DIR
 
 _VALID_RELATIONS = {"duplicate", "extends", "related", "contradicts", "unrelated"}
 # "重要" 是 LLM 的自然语言高频词（实测违规全是它）——
 # 枚举拦截性价比低，并入合法集
 _VALID_IMPORTANCE = {"核心", "边缘", "重要"}
 VALID_DISPOSITIONS = {"new", "update"}
-# 页面类型与目录的权威映射（与 quality._TYPE_DIRS 同义——plan 校验先行，
-# 落盘闸门兜底，两处一致）
-_VALID_PAGE_TYPES = {"concept", "entity", "topic"}
-_TYPE_DIRS = {"concept": "concepts", "entity": "entities", "topic": "topics"}
+_VALID_PAGE_TYPES = set(TYPE_DIR)
 
 
 def check_analyze_json(
@@ -179,7 +177,7 @@ def check_plan_json(
         # （实测事故: LLM 造出 languages/python.md、tools/sphinx.md，
         # 四个内容目录外的页面在 scan_wiki 里完全隐形）
         first_seg = path.replace("wiki/", "").split("/", 1)[0]
-        if first_seg not in ("concepts", "entities", "topics"):
+        if first_seg not in CONTENT_DIRS:
             return False, (
                 f"page_targets[{i}].wiki_path 目录非法: {path!r}。"
                 f"只允许 concepts/ entities/ topics/ 三个内容目录"
@@ -207,10 +205,10 @@ def check_plan_json(
                     f"page_targets[{i}]（{path}）是 new，必须给出 page_type，"
                     f"且只能是 {sorted(_VALID_PAGE_TYPES)} 之一，当前: {page_type!r}。"
                 )
-            if _TYPE_DIRS.get(page_type) != first_seg:
+            if TYPE_DIR.get(page_type) != first_seg:
                 return False, (
                     f"page_targets[{i}]（{path}）page_type={page_type!r} 与目录不一致: "
-                    f"type={page_type} 应位于 {_TYPE_DIRS[page_type]}/ 下。"
+                    f"type={page_type} 应位于 {TYPE_DIR[page_type]}/ 下。"
                     f"请统一两者——改 wiki_path 或改 page_type。"
                 )
         title = str(t.get("title", "")).strip()
