@@ -25,11 +25,13 @@ WIKILINK_RE = re.compile(r"\[\[([a-zA-Z0-9][^\]|]+?)(?:\|([^\]]+?))?\]\]")
 def fix_markdown_fence(content: str) -> str:
     """去掉 LLM 输出中的格式噪声。
 
-    处理 4 种常见情况:
+    处理 5 种常见情况:
     1. 开头 stray fence: ```markdown / ```yaml
     2. 结尾 stray fence: ```
     3. frontmatter 后 stray fence: ---\\n```
     4. LLM 在 frontmatter 前插入的说明文字
+    5. 正文末尾代码块缺闭合（真实模型高频症状）：配不上对就在文末补
+       裸 ```，与 wiki.rules 的"开块必须有裸闭"同口径
 
     Args:
         content: LLM 生成的原始内容。
@@ -52,8 +54,12 @@ def fix_markdown_fence(content: str) -> str:
 
     # 1. 开头 fence
     content = re.sub(r"^```(?:markdown|md|yaml|text)?\s*\n?", "", content)
-    # 2. 结尾 fence
-    content = re.sub(r"\n?```\s*$", "", content)
+    # 2. 结尾 stray fence——只有去掉后余下 fence 配成对（偶数）才说明这个 ```
+    #    是多余的；页面以合法代码块收尾时这行 ``` 是那个块的闭合，删了
+    #    就制造出"代码块未闭合"（历史事故的真实来源之一）
+    trimmed = re.sub(r"\n?```\s*$", "", content)
+    if trimmed != content and trimmed.count("```") % 2 == 0:
+        content = trimmed
     # 3. frontmatter 闭合后、正文前的 stray ``` 行——
     #    只处理 frontmatter 后紧跟的 stray fence（count=1 + 锚定 frontmatter）。
     #    事故教训（2026-08-15）: 旧实现全局替换 `\n```\n# 标题`，把
@@ -69,7 +75,11 @@ def fix_markdown_fence(content: str) -> str:
             m = re.match(r"\n?```\s*\n", rest)
             if m:
                 content = content[: fm_end + 5] + rest[m.end() :]
-    return content.strip()
+    content = content.strip()
+    # 5. 正文 fence 数为奇 → 最后一个代码块缺闭合，文末补裸 ```
+    if content.count("```") % 2:
+        content += "\n```\n"
+    return content
 
 
 def fix_wikilinks(content: str, *, valid_slugs: set[str]) -> str:
