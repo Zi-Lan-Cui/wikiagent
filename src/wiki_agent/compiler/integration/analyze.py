@@ -13,7 +13,7 @@ from wiki_agent.llm.llm import LLMClient
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
-from wiki_agent.wiki.sections import text_sections
+from wiki_agent.wiki.sections import TOP_LABEL, pick_gist_limit, text_sections
 
 logger = get_logger("STAGES")
 
@@ -33,10 +33,8 @@ def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
     wiki.sections 的提取逻辑；候选多时整体落短档，控制提示规模。
     """
     total_secs = sum(len(secs) for _, _, secs in parsed)
-    gist_limit = (
-        ANALYZE_GIST_CHARS
-        if total_secs <= ANALYZE_MAX_GIST_SECTIONS
-        else ANALYZE_GIST_SHORT_CHARS
+    gist_limit = pick_gist_limit(
+        total_secs, ANALYZE_GIST_CHARS, ANALYZE_GIST_SHORT_CHARS, ANALYZE_MAX_GIST_SECTIONS
     )
     outlines: list[str] = []
     for path, fm, secs in parsed:
@@ -61,7 +59,7 @@ def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
             meta += f" — 已有引用: {related}"
         if secs:
             section_lines = "\n".join(
-                f"  - {s.heading or '（页首）'} —— {s.gist(gist_limit)}" for s in secs
+                f"  - {s.heading or TOP_LABEL} —— {s.gist(gist_limit)}" for s in secs
             )
             meta += f"\n{section_lines}"
         outlines.append(meta)

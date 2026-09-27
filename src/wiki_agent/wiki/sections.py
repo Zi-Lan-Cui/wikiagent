@@ -67,6 +67,14 @@ class Section:
         return out
 
 
+TOP_LABEL = "（页首）"
+
+
+def pick_gist_limit(count: int, regular: int, short: int, max_regular: int) -> int:
+    """按节数合计选摘要预算——路由大纲与候选页展示共用的两档形状。"""
+    return regular if count <= max_regular else short
+
+
 def text_sections(content: str, slug: str) -> list[Section]:
     _, body = split_frontmatter(content)
     parts = re.split(r"(?m)^## (.+?)\s*$", body)
