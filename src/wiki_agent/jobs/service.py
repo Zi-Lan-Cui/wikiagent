@@ -364,8 +364,8 @@ class JobService:
         from wiki_agent.compiler.restructure import (
             Unit,
             UnitError,
+            assert_units_valid,
             pages_linking_to,
-            resolve_unit_conflicts,
         )
 
         if self.wiki_dir is None:
@@ -374,16 +374,14 @@ class JobService:
             parsed = [Unit.from_dict(raw) for raw in units]
         except (TypeError, ValueError) as exc:
             raise UnitError(f"单元声明损坏: {exc}") from exc
-        clean, dropped = resolve_unit_conflicts(parsed, set(all_content_slugs(self.wiki_dir)))
-        if dropped:
-            raise UnitError(" ".join(f"{u.in_pages}: {r}" for u, r in dropped))
-        if not clean:
+        assert_units_valid(parsed, set(all_content_slugs(self.wiki_dir)))
+        if not parsed:
             return []
         batch = f"restructure_{uuid4().hex}"
         jobs: list[Job] = []
         with self.store.transaction(immediate=True) as conn:
             self._raise_if_maintenance_blocked(conn)
-            for index, unit in enumerate(clean):
+            for index, unit in enumerate(parsed):
                 jobs.append(
                     self.store.enqueue(
                         kind=Kind.RESTRUCTURE,
@@ -394,9 +392,9 @@ class JobService:
                         _conn=conn,
                     )
                 )
-            vanished = sorted({s for unit in clean for s in unit.vanished})
+            vanished = sorted({s for unit in parsed for s in unit.vanished})
             link_targets = sorted(
-                {p for unit in clean for p in unit.out_slugs} | set(pages_linking_to(self.wiki_dir, vanished))
+                {p for unit in parsed for p in unit.out_slugs} | set(pages_linking_to(self.wiki_dir, vanished))
             )
             for slug in link_targets:
                 jobs.append(
