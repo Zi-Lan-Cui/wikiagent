@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR
+
 from .models import Unit, UnitError
 
 
@@ -24,7 +26,7 @@ def validate_unit(unit: Unit, existing: set[str]) -> str:
     if out_slugs and not any(p.intent or p.take for p in unit.out):
         return "out 页既无 intent 也无 take——路由与装配没有依据"
     for p in unit.out:
-        if p.slug.split("/", 1)[0] not in ("concepts", "entities", "topics"):
+        if p.slug.split("/", 1)[0] not in PAGE_TYPE_BY_DIR:
             return f"out slug 目录非法: {p.slug}——只能是 concepts/entities/topics"
         if p.slug not in existing and p.slug in unit.in_pages:
             return f"out {p.slug} 在 in 中却不存在于盘面"

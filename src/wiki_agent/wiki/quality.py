@@ -17,6 +17,7 @@ from pathlib import Path
 
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.pages import CONTENT_DIRS, TYPE_DIR
 from wiki_agent.wiki.rules import (
     WIKILINK_RE,
     body_without_title,
@@ -33,12 +34,7 @@ logger = get_logger("QUALITY")
 _MIN_BODY_CHARS = 80
 _MIN_TITLE_CHARS = 2
 _MIN_META_CHARS = 4
-_TYPE_DIRS = {
-    "concept": "concepts",
-    "entity": "entities",
-    "topic": "topics",
-    "source": "sources",
-}
+_TYPE_DIRS = {**TYPE_DIR, "source": "sources"}
 _PLACEHOLDER_VALUES = {
     "todo",
     "tbd",
@@ -53,8 +49,6 @@ _PLACEHOLDER_VALUES = {
 }
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-# 内容页面所在的子目录（scan_wiki 扫描范围）
-CONTENT_DIRS = ("concepts", "entities", "topics")
 
 
 @dataclass
@@ -511,11 +505,11 @@ def cleanup_exact_duplicates(wiki_dir: str | Path) -> list[tuple[str, str]]:
     wiki = Path(wiki_dir)
     pages = [
         page
-        for sub in ("concepts", "entities", "topics")
+        for sub in CONTENT_DIRS
         for page in sorted((wiki / sub).rglob("*.md"))
         if (wiki / sub).is_dir()
     ]
-    priority = {"concepts": 0, "entities": 1, "topics": 2}
+    priority = {d: i for i, d in enumerate(CONTENT_DIRS)}
     groups: dict[str, list[Path]] = {}
     for page in pages:
         try:

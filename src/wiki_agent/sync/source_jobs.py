@@ -57,6 +57,7 @@ from wiki_agent.log import emit_event, get_logger
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.state import SyncState, digest_file_text
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.pages import CONTENT_DIRS
 from wiki_agent.wiki.quality import scan_source
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ def clean_body_links(wiki: Path, slug: str) -> int:
         清理的文件数。
     """
     changed = 0
-    for sub in ("concepts", "entities", "topics"):
+    for sub in CONTENT_DIRS:
         d = wiki / sub
         if not d.is_dir():
             continue
