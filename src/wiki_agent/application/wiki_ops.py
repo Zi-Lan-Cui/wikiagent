@@ -211,9 +211,12 @@ class WikiOpsHandler:
                     status="succeeded", detail={"settlement": Settlement.UNIT_MISSING}
                 )
             progress("plan")
-            replacements = await plan_link_fixes(self._llm, self._wiki_dir, slug)
-            if replacements is None:
-                return JobResult(status="failed", detail={"error": "link 清单生成失败"})
+            try:
+                replacements = await plan_link_fixes(self._llm, self._wiki_dir, slug)
+            except Exception as exc:
+                return JobResult(
+                    status="failed", detail={"error": f"link 清单生成失败: {str(exc)[:300]}"}
+                )
             content = page.read_text(encoding="utf-8")
             valid_slugs = set(all_content_slugs(self._wiki_dir))
             new_content, applied, skipped = apply_link_fixes(
