@@ -12,7 +12,7 @@ from wiki_agent.log import get_logger
 
 from . import prompts
 from .models import Unit
-from .propose import outline_meta
+from .propose import outline_meta, read_wiki_const
 
 logger = get_logger("RESTRUCTURE")
 
@@ -31,7 +31,14 @@ async def recheck_units(
             llm,
             [
                 Message(role="system", content=prompts.RECHECK_SYSTEM),
-                Message(role="user", content=prompts.recheck_user(unit, prompts.outline(unit.in_pages + unit.out_slugs, meta))),
+                Message(
+                    role="user",
+                    content=prompts.recheck_user(
+                        unit,
+                        prompts.outline(unit.in_pages + unit.out_slugs, meta),
+                        read_wiki_const(wiki_dir, "schema.md"),
+                    ),
+                ),
             ],
             # 复核开思考：思考段计入 max_tokens，1024 会被吃光致输出为空
             max_tokens=4096,
