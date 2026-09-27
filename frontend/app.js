@@ -36,6 +36,13 @@ const retryEligibleButton = $("retry-eligible");
 const retryEligibleCount = $("retry-eligible-count");
 const syncButton = $("sync-now");
 const syncBadge = $("sync-badge");
+const maintainPreviewButton = $("maintain-preview");
+const linkScanButton = $("link-scan");
+const maintainDialog = $("maintain-dialog");
+const maintainSummary = $("maintain-summary");
+const maintainUnits = $("maintain-units");
+const maintainDropped = $("maintain-dropped");
+const maintainSubmitButton = $("maintain-submit");
 const wikiViewer = $("wiki-viewer");
 const wikiContent = $("wiki-content");
 const wikiViewerPath = $("wiki-viewer-path");
@@ -866,6 +873,104 @@ async function retryEligibleIssues() {
   await Promise.all([refreshIssues(), refreshIssueTasks()]);
 }
 
+async function openMaintenancePreview() {
+  maintainPreviewButton.disabled = true;
+  setStatus("结构维护分析中（提议→复核→消解），需要几分钟……");
+  try {
+    const response = await fetch("/api/maintenance/preview", { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || "维护分析失败");
+    state.maintainUnits = payload.effective || [];
+    renderMaintainDialog(payload);
+    if (payload.healthy || !state.maintainUnits.length) {
+      setStatus(payload.healthy ? "结构健康，无需重组" : "有提议但全部被复核或消解放弃");
+      return;
+    }
+    maintainDialog.showModal();
+    setStatus(`${state.maintainUnits.length} 个可执行单元待确认`);
+  } finally {
+    maintainPreviewButton.disabled = false;
+  }
+}
+
+function renderMaintainDialog(payload) {
+  maintainSummary.textContent = `初提 ${payload.proposed} → 复核保留 ${payload.confirmed} → 消解后可执行 ${(payload.effective || []).length}`;
+  maintainUnits.innerHTML = "";
+  (payload.effective || []).forEach((unit, index) => {
+    const row = document.createElement("label");
+    row.className = "maintain-unit";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = true;
+    box.dataset.index = String(index);
+    box.addEventListener("change", updateMaintainSubmit);
+    const title = document.createElement("span");
+    const out = (unit.out || []).map((p) => p.slug).join(" + ") || "（删除）";
+    title.textContent = `${(unit.in_pages || []).join(" + ")} → ${out}`;
+    const reason = document.createElement("small");
+    reason.textContent = unit.reason || "";
+    row.append(box, title, reason);
+    maintainUnits.appendChild(row);
+  });
+  maintainDropped.innerHTML = "";
+  for (const item of [...(payload.rejected || []), ...(payload.dropped || [])]) {
+    const line = document.createElement("p");
+    line.textContent = `放弃 ${(item.in_pages || []).join(" + ")} — ${item.reason || ""}`;
+    maintainDropped.appendChild(line);
+  }
+  updateMaintainSubmit();
+}
+
+function updateMaintainSubmit() {
+  const checked = maintainUnits.querySelectorAll("input:checked").length;
+  maintainSubmitButton.disabled = checked === 0;
+  maintainSubmitButton.textContent = `勾选入队执行（${checked}）`;
+}
+
+async function submitMaintenance() {
+  const units = [...maintainUnits.querySelectorAll("input:checked")].map(
+    (box) => state.maintainUnits[Number(box.dataset.index)],
+  );
+  maintainSubmitButton.disabled = true;
+  const response = await fetch("/api/maintenance", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ units }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    maintainSubmitButton.disabled = false;
+    throw new Error(payload.detail || "维护入队失败");
+  }
+  maintainDialog.close();
+  for (const task of payload.tasks || []) upsertIssueTask(task);
+  renderIssueTasks();
+  selectWorkbenchTab("tasks");
+  setStatus(`已入队 ${payload.count} 个任务（单元+批尾补链，同批可整批回撤）`);
+  await Promise.all([refreshIssues(), refreshIssueTasks()]);
+}
+
+async function linkScan() {
+  if (!window.confirm("全库内容页逐页补链入队？一页一个任务、一页一笔提交。")) return;
+  linkScanButton.disabled = true;
+  try {
+    const response = await fetch("/api/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || "关联扫入队失败");
+    for (const task of payload.tasks || []) upsertIssueTask(task);
+    renderIssueTasks();
+    selectWorkbenchTab("tasks");
+    setStatus(payload.count ? `关联扫已入队 ${payload.count} 页` : "没有可扫描的页面");
+    await Promise.all([refreshIssues(), refreshIssueTasks()]);
+  } finally {
+    linkScanButton.disabled = false;
+  }
+}
+
 async function executeIssueAction(issue, action) {
   if (action.id === "open_resource") {
     openIssueResource(issue);
@@ -996,6 +1101,16 @@ retryEligibleButton.addEventListener("click", () => {
     setStatus(error.message || "批量重试失败");
     await Promise.all([refreshIssues(), refreshIssueTasks()]);
   });
+});
+maintainPreviewButton.addEventListener("click", () => {
+  openMaintenancePreview().catch((error) => setStatus(error.message));
+});
+linkScanButton.addEventListener("click", () => {
+  linkScan().catch((error) => setStatus(error.message));
+});
+$("maintain-cancel").addEventListener("click", () => maintainDialog.close());
+maintainSubmitButton.addEventListener("click", () => {
+  submitMaintenance().catch((error) => setStatus(error.message));
 });
 syncButton.addEventListener("click", () => {
   syncNow().catch(async (error) => {

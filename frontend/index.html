@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=20" />
+    <link rel="stylesheet" href="/style.css?v=21" />
   </head>
   <body>
     <div class="app-shell">
@@ -113,6 +113,12 @@
               <button id="sync-now" class="bulk-retry" type="button" title="拍一次源目录快照并入队编译">
                 同步 <span id="sync-badge">0</span>
               </button>
+              <button id="maintain-preview" class="bulk-retry" type="button" title="全库分析结构问题：提议→复核→勾选入队">
+                结构维护
+              </button>
+              <button id="link-scan" class="bulk-retry" type="button" title="全库内容页逐页补链，一页一提交">
+                关联扫
+              </button>
             </div>
             <div class="issue-workspace">
               <div id="issue-list" class="issue-list" aria-label="问题列表"></div>
@@ -129,6 +135,20 @@
         </form>
       </main>
     </div>
-    <script src="/app.js?v=28" defer></script>
+
+    <dialog id="maintain-dialog" class="maintain-dialog">
+      <header>
+        <h3>结构维护提议</h3>
+        <p id="maintain-summary" class="maintain-summary"></p>
+      </header>
+      <div id="maintain-units" class="maintain-units" aria-label="可执行单元"></div>
+      <div id="maintain-dropped" class="maintain-dropped" aria-label="被放弃的提议"></div>
+      <footer>
+        <button id="maintain-cancel" class="ghost-button" type="button">取消</button>
+        <button id="maintain-submit" class="primary-button" type="button" disabled>勾选入队执行</button>
+      </footer>
+    </dialog>
+
+    <script src="/app.js?v=29" defer></script>
   </body>
 </html>
