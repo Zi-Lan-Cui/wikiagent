@@ -20,6 +20,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+from wiki_agent.application.pump import drain_queue
 from wiki_agent.application.restructure_service import propose_maintenance
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
@@ -54,9 +55,7 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
     try:
         if not dry_run:
             # 提议必须基于静止的 wiki：崩溃遗留的在途任务先泵空再开始分析
-            while service.count_in_flight() > 0:
-                if await runtime.job_worker.run_once() is None:
-                    break
+            await drain_queue(service, runtime.job_worker)
         # 主闸在 LLM 分析之前（dry-run 同样被闸）：基线落后的提议没有执行价值
         lag = service.sync_baseline_lag()
         if lag:
@@ -107,9 +106,7 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
         logger.info(
             "已入队: %d 个单元 + %d 个补链（批 %s）", n_units, len(jobs) - n_units, batch
         )
-        while service.count_in_flight() > 0:
-            if await runtime.job_worker.run_once() is None:
-                break
+        await drain_queue(service, runtime.job_worker)
         rows = [service.get(job.id) for job in jobs]
         failed = [row for row in rows if row.status != "succeeded"]
         for row in failed:
