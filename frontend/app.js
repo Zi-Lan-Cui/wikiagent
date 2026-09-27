@@ -26,8 +26,6 @@ const issueList = $("issue-list");
 const issueDetail = $("issue-detail");
 const issueTaskList = $("issue-task-list");
 const issueTaskCount = $("issue-task-count");
-const workbenchTasksPanel = $("workbench-tasks-panel");
-const workbenchIssuesPanel = $("workbench-issues-panel");
 const workbenchTaskTab = $("workbench-tab-tasks");
 const workbenchIssueTab = $("workbench-tab-issues");
 const workbenchTaskTabCount = $("workbench-task-tab-count");
@@ -43,6 +41,8 @@ const maintainSummary = $("maintain-summary");
 const maintainUnits = $("maintain-units");
 const maintainDropped = $("maintain-dropped");
 const maintainSubmitButton = $("maintain-submit");
+const syncState = $("sync-state");
+const maintainQueueHint = $("maintain-queue-hint");
 const wikiViewer = $("wiki-viewer");
 const wikiContent = $("wiki-content");
 const wikiViewerPath = $("wiki-viewer-path");
@@ -271,15 +271,17 @@ function showIssueCenter() {
   restoreIssueView({ refresh: true });
 }
 
+const WORKBENCH_TABS = ["tasks", "issues", "maintain"];
+
 function selectWorkbenchTab(tab) {
-  state.workbenchTab = tab === "tasks" ? "tasks" : "issues";
-  const showTasks = state.workbenchTab === "tasks";
-  workbenchTasksPanel.hidden = !showTasks;
-  workbenchIssuesPanel.hidden = showTasks;
-  workbenchTaskTab.classList.toggle("active", showTasks);
-  workbenchIssueTab.classList.toggle("active", !showTasks);
-  workbenchTaskTab.setAttribute("aria-selected", String(showTasks));
-  workbenchIssueTab.setAttribute("aria-selected", String(!showTasks));
+  state.workbenchTab = WORKBENCH_TABS.includes(tab) ? tab : "issues";
+  for (const name of WORKBENCH_TABS) {
+    const active = state.workbenchTab === name;
+    document.getElementById(`workbench-${name}-panel`).hidden = !active;
+    const tabButton = document.getElementById(`workbench-tab-${name}`);
+    tabButton.classList.toggle("active", active);
+    tabButton.setAttribute("aria-selected", String(active));
+  }
 }
 
 function restoreIssueView({ refresh = false } = {}) {
@@ -830,7 +832,12 @@ async function refreshIssues() {
     syncButton.title = syncButton.disabled
       ? "上一次快照还在执行，等队列排空"
       : `待同步变更 ${pending} 个：拍快照并入队编译`;
+    syncState.textContent = pending > 0 ? `${pending} 个源未同步` : "基线已追平";
+    syncState.classList.toggle("warn", pending > 0);
   }
+  maintainQueueHint.textContent = state.issueTasks.length
+    ? `队列里有 ${state.issueTasks.length} 个任务在跑或排队；维护动作会等队列到终态后按顺序执行。`
+    : "队列空闲，可以随时发起维护动作。";
   state.issues = await response.json();
   const summary = await summaryResponse.json();
   const activeCount = summary.active || 0;
@@ -1092,6 +1099,10 @@ workbenchTaskTab.addEventListener("click", () => {
 });
 workbenchIssueTab.addEventListener("click", () => {
   selectWorkbenchTab("issues");
+  refreshIssues().catch((error) => setStatus(error.message));
+});
+$("workbench-tab-maintain").addEventListener("click", () => {
+  selectWorkbenchTab("maintain");
   refreshIssues().catch((error) => setStatus(error.message));
 });
 $("issue-status-filter").addEventListener("change", () => refreshIssues().catch((error) => setStatus(error.message)));
