@@ -10,7 +10,7 @@ const state = {
   issues: [],
   activeIssue: null,
   issueTasks: [],
-  workbenchTab: "issues",
+  centerView: "issues",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -26,10 +26,9 @@ const issueList = $("issue-list");
 const issueDetail = $("issue-detail");
 const issueTaskList = $("issue-task-list");
 const issueTaskCount = $("issue-task-count");
-const workbenchTaskTab = $("workbench-tab-tasks");
-const workbenchIssueTab = $("workbench-tab-issues");
-const workbenchTaskTabCount = $("workbench-task-tab-count");
-const workbenchIssueTabCount = $("workbench-issue-tab-count");
+const organizeView = $("organize-view");
+const attentionView = $("attention-view");
+const organizeRunning = $("organize-running");
 const retryEligibleButton = $("retry-eligible");
 const retryEligibleCount = $("retry-eligible-count");
 const syncButton = $("sync-now");
@@ -42,7 +41,6 @@ const maintainUnits = $("maintain-units");
 const maintainDropped = $("maintain-dropped");
 const maintainSubmitButton = $("maintain-submit");
 const syncState = $("sync-state");
-const maintainQueueHint = $("maintain-queue-hint");
 const wikiViewer = $("wiki-viewer");
 const wikiContent = $("wiki-content");
 const wikiViewerPath = $("wiki-viewer-path");
@@ -223,7 +221,7 @@ function updateWikiNavigation() {
   wikiHistoryBack.disabled = state.wikiHistoryIndex < 0;
   wikiHistoryForward.disabled = state.wikiHistoryIndex >= state.wikiHistory.length - 1;
   const backLabel = state.wikiHistoryIndex <= 0
-    ? state.wikiReturnView === "issues" ? "返回工作台" : "返回会话"
+    ? (state.wikiReturnView === "issues" ? "返回需要留意" : state.wikiReturnView === "organize" ? "返回整理 Wiki" : "返回会话")
     : "上一页";
   wikiHistoryBack.title = `${backLabel} (Alt+←)`;
   wikiHistoryBack.setAttribute("aria-label", backLabel);
@@ -247,7 +245,7 @@ function showWikiViewer() {
 
 function closeWikiPage(destination = state.wikiReturnView || "chat") {
   rememberWikiScroll();
-  if (destination === "issues") restoreIssueView();
+  if (destination === "issues" || destination === "organize") restoreCenterView(destination);
   else restoreChatView();
   state.wikiReturnView = "chat";
   wikiMetadata.replaceChildren();
@@ -266,35 +264,56 @@ function restoreChatView() {
   $("message-form").hidden = false;
 }
 
-function showIssueCenter() {
-  rememberWikiScroll();
-  restoreIssueView({ refresh: true });
-}
+const CENTER_COPY = {
+  organize: {
+    eyebrow: "知识库维护",
+    title: "整理 Wiki",
+    sub: "同步笔记、整理结构、补全链接；提交的任务在下方排队执行。",
+  },
+  issues: {
+    eyebrow: "知识库运行",
+    title: "需要留意",
+    sub: "资料处理失败、你提出的纠错、质量提醒，在这里逐条决定怎么处理。",
+  },
+};
 
-const WORKBENCH_TABS = ["tasks", "issues", "maintain"];
-
-function selectWorkbenchTab(tab) {
-  state.workbenchTab = WORKBENCH_TABS.includes(tab) ? tab : "issues";
-  for (const name of WORKBENCH_TABS) {
-    const active = state.workbenchTab === name;
-    document.getElementById(`workbench-${name}-panel`).hidden = !active;
-    const tabButton = document.getElementById(`workbench-tab-${name}`);
-    tabButton.classList.toggle("active", active);
-    tabButton.setAttribute("aria-selected", String(active));
-  }
-}
-
-function restoreIssueView({ refresh = false } = {}) {
-  state.view = "issues";
+function showCenterView(view) {
+  state.view = view;
   chatHeader.hidden = true;
   messages.hidden = true;
   wikiViewer.hidden = true;
   $("message-form").hidden = true;
   issueCenter.hidden = false;
-  selectWorkbenchTab(state.workbenchTab);
+  organizeView.hidden = view !== "organize";
+  attentionView.hidden = view !== "issues";
+  const copy = CENTER_COPY[view];
+  $("center-eyebrow").textContent = copy.eyebrow;
+  $("center-title").textContent = copy.title;
+  $("center-sub").textContent = copy.sub;
+}
+
+function restoreCenterView(view, { refresh = false } = {}) {
+  const target = view === "organize" ? "organize" : "issues";
+  state.centerView = target;
+  showCenterView(target);
   if (refresh) {
     Promise.all([refreshIssues(), refreshIssueTasks()]).catch((error) => setStatus(error.message));
   }
+}
+
+function showOrganize() {
+  rememberWikiScroll();
+  restoreCenterView("organize", { refresh: true });
+}
+
+function showAttention() {
+  rememberWikiScroll();
+  restoreCenterView("issues", { refresh: true });
+}
+
+// 动作提交后把用户带到能看见任务进度的地方
+function showTaskProgress() {
+  if (state.view !== "organize") showOrganize();
 }
 
 function closeIssueCenter() {
@@ -340,7 +359,7 @@ async function loadWikiEntry(entry) {
 function openWikiPage(path, kind = "page", issueId = null) {
   const continuingNavigation = state.view === "wiki" && state.wikiHistoryIndex >= 0;
   if (continuingNavigation) rememberWikiScroll();
-  else state.wikiReturnView = state.view === "issues" ? "issues" : "chat";
+  else state.wikiReturnView = state.view === "issues" || state.view === "organize" ? state.view : "chat";
   const entry = { path, kind, issueId, scrollTop: 0 };
   if (continuingNavigation) {
     state.wikiHistory = state.wikiHistory.slice(0, state.wikiHistoryIndex + 1);
@@ -741,7 +760,8 @@ function renderIssueTasks() {
   issueTaskList.replaceChildren();
   const active = state.issueTasks.filter((task) => ["queued", "running"].includes(task.status));
   issueTaskCount.textContent = `${active.length} 个活动任务`;
-  workbenchTaskTabCount.textContent = String(active.length);
+  organizeRunning.textContent = String(active.length);
+  organizeRunning.classList.toggle("has-errors", active.length > 0);
   issueTaskCount.classList.toggle("active", active.length > 0);
   if (!active.length) {
     const empty = document.createElement("p");
@@ -835,16 +855,12 @@ async function refreshIssues() {
     syncState.textContent = pending > 0 ? `${pending} 个源未同步` : "基线已追平";
     syncState.classList.toggle("warn", pending > 0);
   }
-  maintainQueueHint.textContent = state.issueTasks.length
-    ? `队列里有 ${state.issueTasks.length} 个任务在跑或排队；维护动作会等队列到终态后按顺序执行。`
-    : "队列空闲，可以随时发起维护动作。";
   state.issues = await response.json();
   const summary = await summaryResponse.json();
   const activeCount = summary.active || 0;
   const retryableCount = summary.retryable || 0;
   retryEligibleCount.textContent = String(retryableCount);
   retryEligibleButton.disabled = retryableCount === 0;
-  workbenchIssueTabCount.textContent = String(activeCount);
   queueCount.textContent = activeCount;
   queueCount.classList.toggle("has-errors", activeCount > 0);
   reconcileActiveIssue();
@@ -875,7 +891,7 @@ async function retryEligibleIssues() {
   if (!response.ok) throw new Error(payload.detail || "无法创建批量重试任务");
   for (const task of payload.tasks || []) upsertIssueTask(task);
   renderIssueTasks();
-  selectWorkbenchTab("tasks");
+  showTaskProgress();
   setStatus(payload.count ? `已加入 ${payload.count} 个重试任务` : "当前没有可重试项");
   await Promise.all([refreshIssues(), refreshIssueTasks()]);
 }
@@ -952,7 +968,7 @@ async function submitMaintenance() {
   maintainDialog.close();
   for (const task of payload.tasks || []) upsertIssueTask(task);
   renderIssueTasks();
-  selectWorkbenchTab("tasks");
+  showTaskProgress();
   setStatus(`已入队 ${payload.count} 个任务（单元+批尾补链，同批可整批回撤）`);
   await Promise.all([refreshIssues(), refreshIssueTasks()]);
 }
@@ -970,7 +986,7 @@ async function linkScan() {
     if (!response.ok) throw new Error(payload.detail || "关联扫入队失败");
     for (const task of payload.tasks || []) upsertIssueTask(task);
     renderIssueTasks();
-    selectWorkbenchTab("tasks");
+    showTaskProgress();
     setStatus(payload.count ? `关联扫已入队 ${payload.count} 页` : "没有可扫描的页面");
     await Promise.all([refreshIssues(), refreshIssueTasks()]);
   } finally {
@@ -998,7 +1014,7 @@ async function executeIssueAction(issue, action) {
     const task = await response.json();
     upsertIssueTask(task);
     renderIssueTasks();
-    selectWorkbenchTab("tasks");
+    showTaskProgress();
     await waitForIssueTask(task.id, action.label);
   }
   setStatus("就绪");
@@ -1091,20 +1107,9 @@ wikiContent.addEventListener("click", (event) => {
 wikiHistoryBack.addEventListener("click", () => navigateWikiHistory(-1));
 wikiHistoryForward.addEventListener("click", () => navigateWikiHistory(1));
 $("wiki-close").addEventListener("click", () => closeWikiPage("chat"));
-$("issue-center-open").addEventListener("click", showIssueCenter);
+$("organize-open").addEventListener("click", showOrganize);
+$("attention-open").addEventListener("click", showAttention);
 $("issue-center-close").addEventListener("click", closeIssueCenter);
-workbenchTaskTab.addEventListener("click", () => {
-  selectWorkbenchTab("tasks");
-  refreshIssueTasks().catch((error) => setStatus(error.message));
-});
-workbenchIssueTab.addEventListener("click", () => {
-  selectWorkbenchTab("issues");
-  refreshIssues().catch((error) => setStatus(error.message));
-});
-$("workbench-tab-maintain").addEventListener("click", () => {
-  selectWorkbenchTab("maintain");
-  refreshIssues().catch((error) => setStatus(error.message));
-});
 $("issue-status-filter").addEventListener("change", () => refreshIssues().catch((error) => setStatus(error.message)));
 $("issue-kind-filter").addEventListener("change", () => refreshIssues().catch((error) => setStatus(error.message)));
 retryEligibleButton.addEventListener("click", () => {
