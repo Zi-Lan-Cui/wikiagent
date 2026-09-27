@@ -183,6 +183,7 @@ def test_resolve_drops_unit_sharing_page(tmp_path: Path):
 
 
 def test_take_conservation_rejects_unplaceable_section(tmp_path: Path):
+    """take 未覆盖且无待分配页——守恒在 route_unit 单点拒绝（不重复预判）。"""
     wiki = _seed_wiki(tmp_path)
     sections = page_sections(wiki / "concepts/b.md", "concepts/b")
     assert len(sections) == 2, "页首 + 乙主题"
@@ -190,8 +191,8 @@ def test_take_conservation_rejects_unplaceable_section(tmp_path: Path):
         in_pages=["concepts/b"],
         out=[rs.OutPage(slug="concepts/b", take=[rs.Take(from_slug="concepts/b", sections=["乙主题"])])],
     )
-    with pytest.raises(rs.RouteError):
-        route_mod.take_assignment(unit, sections)
+    with pytest.raises(rs.RouteError, match="无处安放"):
+        asyncio.run(route_mod.route_unit(None, unit, sections))
 
 
 # —— 执行体：五段落盘 ——

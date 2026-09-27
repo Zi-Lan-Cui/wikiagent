@@ -19,10 +19,12 @@ from .models import RouteError, Unit
 
 
 def take_assignment(unit: Unit, sections: list[Section]) -> dict[str, str]:
-    """take 声明 → 固定归属。章节必须存在于 in 页；未被 take 指定的
-    章节归属其余待分配页（若无其他 out，则视为删除式裁剪的剩余内容，
-    仍必须落入某个 out——守恒不因 take 而失效）。"""
-    by_id = {s.id: s for s in sections}
+    """take 声明 → 固定归属。章节必须存在于 in 页，且不得被两个输出页重复取用。
+
+    未被 take 覆盖的章节归属其余待分配页，由路由 LLM 决定；take 未覆盖且
+    无待分配页的落点不在此预判——route_unit 尾部的守恒检查统一拒绝
+    （守恒只在单一位置判定）。
+    """
     assignment: dict[str, str] = {}
     for page in unit.out:
         for t in page.take:
@@ -36,13 +38,6 @@ def take_assignment(unit: Unit, sections: list[Section]) -> dict[str, str]:
                 if s.id in assignment:
                     raise RouteError(f"章节被两个输出页重复取用: {s.id}")
                 assignment[s.id] = page.slug
-    unassigned = [sid for sid in by_id if sid not in assignment]
-    flexible = [p.slug for p in unit.out if not p.take]
-    if unassigned:
-        if not flexible:
-            raise RouteError(f"take 未覆盖且无待分配页，章节无处安放: {unassigned[:5]}")
-        # 剩余章节默认全部进第一个待分配页——路由 LLM 会对这部分改写归属
-        pass
     return assignment
 
 
