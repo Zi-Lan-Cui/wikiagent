@@ -41,6 +41,7 @@ const maintainUnits = $("maintain-units");
 const maintainDropped = $("maintain-dropped");
 const maintainSubmitButton = $("maintain-submit");
 const syncState = $("sync-state");
+const centerStatus = $("center-status");
 const wikiViewer = $("wiki-viewer");
 const wikiContent = $("wiki-content");
 const wikiViewerPath = $("wiki-viewer-path");
@@ -52,7 +53,26 @@ const wikiSummary = $("wiki-summary");
 const wikiHistoryBack = $("wiki-history-back");
 const wikiHistoryForward = $("wiki-history-forward");
 
-function setStatus(text) { status.textContent = text; }
+function setStatus(text) {
+  status.textContent = text;
+  // 聊天头部在维护/待处理页是隐藏的——同一句话必须也落在当前页可见处，
+  // 否则长动作（整理结构分析要几分钟）期间界面像卡死
+  centerStatus.textContent = text;
+  centerStatus.classList.remove("error");
+}
+
+function setStatusError(text) {
+  setStatus(text);
+  centerStatus.classList.add("error");
+}
+
+// 动作按钮忙态：禁用 + 旋转伪元素 + 卡片高亮，恢复在 finally
+function setBusy(button, busy) {
+  button.disabled = busy;
+  button.classList.toggle("busy", busy);
+  const card = button.closest(".maintain-card");
+  if (card) card.classList.toggle("pending", busy);
+}
 
 function addMessage(role, text = "") {
   const node = document.createElement("div");
@@ -297,7 +317,7 @@ function restoreCenterView(view, { refresh = false } = {}) {
   state.centerView = target;
   showCenterView(target);
   if (refresh) {
-    Promise.all([refreshIssues(), refreshIssueTasks()]).catch((error) => setStatus(error.message));
+    Promise.all([refreshIssues(), refreshIssueTasks()]).catch((error) => setStatusError(error.message));
   }
 }
 
@@ -869,15 +889,20 @@ async function refreshIssues() {
 }
 
 async function syncNow() {
-  syncButton.disabled = true;
+  setBusy(syncButton, true);
   setStatus("正在拍快照并入队编译……");
-  const response = await fetch("/api/sync", { method: "POST" });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || "无法发起同步");
-  for (const task of payload.tasks || []) upsertIssueTask(task);
-  renderIssueTasks();
-  setStatus(payload.count ? `快照入队 ${payload.count} 个任务` : "没有待同步变更");
-  await Promise.all([refreshIssues(), refreshIssueTasks()]);
+  try {
+    const response = await fetch("/api/sync", { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || "无法发起同步");
+    for (const task of payload.tasks || []) upsertIssueTask(task);
+    renderIssueTasks();
+    showTaskProgress();
+    setStatus(payload.count ? `快照入队 ${payload.count} 个任务，进度见下方队列` : "没有待同步变更");
+  } finally {
+    setBusy(syncButton, false);
+    await Promise.all([refreshIssues(), refreshIssueTasks()]).catch(() => {});
+  }
 }
 
 async function retryEligibleIssues() {
@@ -897,8 +922,10 @@ async function retryEligibleIssues() {
 }
 
 async function openMaintenancePreview() {
-  maintainPreviewButton.disabled = true;
-  setStatus("结构维护分析中（提议→复核→消解），需要几分钟……");
+  const partners = [syncButton, linkScanButton];
+  setBusy(maintainPreviewButton, true);
+  partners.forEach((b) => { b.disabled = true; b.title = "整理结构分析进行中"; });
+  setStatus("正在通读全库找结构问题（合并、拆分、清理），需要几分钟，请稍候……");
   try {
     const response = await fetch("/api/maintenance/preview", { method: "POST" });
     const payload = await response.json().catch(() => ({}));
@@ -906,13 +933,18 @@ async function openMaintenancePreview() {
     state.maintainUnits = payload.effective || [];
     renderMaintainDialog(payload);
     if (payload.healthy || !state.maintainUnits.length) {
-      setStatus(payload.healthy ? "结构健康，无需重组" : "有提议但全部被复核或消解放弃");
+      setStatus(payload.healthy ? "结构健康，无需整理" : "有提议但全部在复核或消解阶段被放弃");
       return;
     }
     maintainDialog.showModal();
-    setStatus(`${state.maintainUnits.length} 个可执行单元待确认`);
+    setStatus(`${state.maintainUnits.length} 个可执行整理单元待确认`);
+  } catch (error) {
+    setStatusError(error.message || "整理分析失败");
+    throw error;
   } finally {
-    maintainPreviewButton.disabled = false;
+    setBusy(maintainPreviewButton, false);
+    partners.forEach((b) => { b.title = ""; b.disabled = false; });
+    await refreshIssues().catch(() => {});
   }
 }
 
@@ -954,7 +986,7 @@ async function submitMaintenance() {
   const units = [...maintainUnits.querySelectorAll("input:checked")].map(
     (box) => state.maintainUnits[Number(box.dataset.index)],
   );
-  maintainSubmitButton.disabled = true;
+  setBusy(maintainSubmitButton, true);
   const response = await fetch("/api/maintenance", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -962,7 +994,7 @@ async function submitMaintenance() {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    maintainSubmitButton.disabled = false;
+    setBusy(maintainSubmitButton, false);
     throw new Error(payload.detail || "维护入队失败");
   }
   maintainDialog.close();
@@ -975,7 +1007,7 @@ async function submitMaintenance() {
 
 async function linkScan() {
   if (!window.confirm("全库内容页逐页补链入队？一页一个任务、一页一笔提交。")) return;
-  linkScanButton.disabled = true;
+  setBusy(linkScanButton, true);
   try {
     const response = await fetch("/api/link", {
       method: "POST",
@@ -990,7 +1022,7 @@ async function linkScan() {
     setStatus(payload.count ? `关联扫已入队 ${payload.count} 页` : "没有可扫描的页面");
     await Promise.all([refreshIssues(), refreshIssueTasks()]);
   } finally {
-    linkScanButton.disabled = false;
+    setBusy(linkScanButton, false);
   }
 }
 
@@ -1114,28 +1146,28 @@ $("issue-status-filter").addEventListener("change", () => refreshIssues().catch(
 $("issue-kind-filter").addEventListener("change", () => refreshIssues().catch((error) => setStatus(error.message)));
 retryEligibleButton.addEventListener("click", () => {
   retryEligibleIssues().catch(async (error) => {
-    setStatus(error.message || "批量重试失败");
+    setStatusError(error.message || "批量重试失败");
     await Promise.all([refreshIssues(), refreshIssueTasks()]);
   });
 });
 maintainPreviewButton.addEventListener("click", () => {
-  openMaintenancePreview().catch((error) => setStatus(error.message));
+  openMaintenancePreview().catch((error) => setStatusError(error.message));
 });
 linkScanButton.addEventListener("click", () => {
-  linkScan().catch((error) => setStatus(error.message));
+  linkScan().catch((error) => setStatusError(error.message));
 });
 $("maintain-cancel").addEventListener("click", () => maintainDialog.close());
 maintainSubmitButton.addEventListener("click", () => {
-  submitMaintenance().catch((error) => setStatus(error.message));
+  submitMaintenance().catch((error) => setStatusError(error.message));
 });
 syncButton.addEventListener("click", () => {
   syncNow().catch(async (error) => {
-    setStatus(error.message || "同步失败");
+    setStatusError(error.message || "同步失败");
     await refreshIssues();
   });
 });
 document.addEventListener("keydown", (event) => {
-  if (state.view === "issues" && event.key === "Escape") {
+  if ((state.view === "issues" || state.view === "organize") && event.key === "Escape") {
     closeIssueCenter();
     return;
   }
