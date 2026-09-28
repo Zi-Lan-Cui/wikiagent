@@ -1183,6 +1183,71 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+const AGENT_AVATAR = `
+  <svg class="msg-avatar" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="12" fill="#e8754b"></circle>
+    <path d="M11.4 7.2H7.6a1.1 1.1 0 0 0-1.1 1.1v7.4c0 .6.5 1.1 1.1 1.1h3.8Zm1.2 0v9.6h3.8c.6 0 1.1-.5 1.1-1.1V8.3c0-.6-.5-1.1-1.1-1.1Z" fill="#fff"></path>
+  </svg>`;
+
+// 流式渲染时给未闭合的代码围栏虚拟补闭合，避免半截 ``` 把后文吞成代码
+function renderLiveMarkdown(source) {
+  let src = source;
+  if (((src.match(/```/g) || []).length % 2) === 1) src += "\n```";
+  return renderMarkdown(src);
+}
+
+function createAssistantMessage() {
+  const node = addMessage("assistant");
+  node.classList.add("agent-turn");
+  const avatarHost = document.createElement("span");
+  avatarHost.innerHTML = AGENT_AVATAR;
+  node.appendChild(avatarHost.firstChild);
+  const content = document.createElement("div");
+  content.className = "agent-content";
+  node.appendChild(content);
+
+  const view = {
+    node,
+    content,
+    body: document.createElement("div"),
+    think: null,
+    steps: new Map(),
+    thinkText: "",
+  };
+  view.body.className = "agent-body markdown";
+  view.content.appendChild(view.body);
+
+  view.ensureThink = () => {
+    if (view.think) return view.think;
+    const details = document.createElement("details");
+    details.className = "agent-think";
+    details.open = true;
+    const summary = document.createElement("summary");
+    summary.innerHTML = '<span class="think-chev">▸</span><span class="think-label">正在思考</span><span class="think-dots"><i></i><i></i><i></i></span>';
+    const reasoning = document.createElement("div");
+    reasoning.className = "agent-reasoning";
+    const steps = document.createElement("div");
+    steps.className = "agent-steps";
+    details.append(summary, reasoning, steps);
+    view.content.prepend(details);
+    view.think = { details, summary, reasoning, steps };
+    return view.think;
+  };
+  view.settleThink = () => {
+    if (!view.think) return;
+    const label = view.think.summary.querySelector(".think-label");
+    const n = view.steps.size;
+    if (view.thinkText) {
+      label.textContent = n ? `思考过程 · 检索 ${n} 步` : "思考过程";
+    } else {
+      label.textContent = `检索了 ${n} 步`;
+    }
+    view.think.summary.classList.remove("running");
+    view.think.details.open = false;
+  };
+  return view;
+}
+
 async function sendMessage(text) {
   if (!state.activeSession || state.busy) return;
   state.busy = true;
@@ -1190,9 +1255,17 @@ async function sendMessage(text) {
   sendButton.disabled = true;
   messages.querySelector(".empty-state")?.remove();
   addMessage("user", text);
-  const answer = addMessage("assistant");
+  const view = createAssistantMessage();
   let answerText = "";
-  setStatus("正在思考……");
+  let renderTimer = null;
+  const scheduleRender = () => {
+    if (renderTimer) return;
+    renderTimer = window.setTimeout(() => {
+      renderTimer = null;
+      view.body.innerHTML = renderLiveMarkdown(answerText);
+    }, 180);
+  };
+  setStatus("正在回答……");
   try {
     const response = await fetch(`/api/sessions/${state.activeSession}/messages/stream`, {
       method: "POST",
@@ -1210,11 +1283,32 @@ async function sendMessage(text) {
       // AgentEvent keeps lifecycle payloads under `data`; older adapters
       // may put fields at the top level, so accept both shapes.
       const data = event.data || event;
-      if (data.delta && event.type !== "reasoning_delta") {
+      if (event.type === "reasoning_started") {
+        view.ensureThink();
+        view.think.summary.classList.add("running");
+      } else if (event.type === "reasoning_delta" && data.delta) {
+        view.ensureThink();
+        view.thinkText += data.delta;
+        view.think.reasoning.textContent = view.thinkText;
+      } else if (event.type === "tool_started") {
+        const t = view.ensureThink();
+        if (!view.thinkText) t.summary.querySelector(".think-label").textContent = "正在检索";
+        const row = document.createElement("div");
+        row.textContent = `⚙ 检索 ${data.tool_name || "工具"} …`;
+        row.dataset.startedAt = String(Date.now());
+        t.steps.appendChild(row);
+        view.steps.set(String(data.tool_call_id || `${data.tool_name}:${t.steps.childElementCount}`), row);
+      } else if (event.type === "tool_finished") {
+        const id = String(data.tool_call_id || "");
+        const row = view.steps.get(id);
+        if (row) {
+          const secs = ((Date.now() - Number(row.dataset.startedAt || Date.now())) / 1000).toFixed(1);
+          row.textContent = row.textContent.replace(" …", ` · ${secs}s`);
+        }
+      } else if (data.delta && event.type !== "reasoning_delta") {
         answerText += data.delta;
-        // Keep the in-progress view stable; Markdown is rendered once the
-        // complete response arrives so unfinished fences do not flicker.
-        answer.textContent = answerText;
+        view.settleThink();
+        scheduleRender();
       }
       if (event.type === "run_error" || event.type === "error" || data.error) {
         throw new Error(data.error || "运行失败");
@@ -1230,14 +1324,15 @@ async function sendMessage(text) {
       messages.scrollTop = messages.scrollHeight;
     }
     if (buffer.trim()) handleEventBlock(buffer);
-    answer.innerHTML = renderMarkdown(answerText);
-    answer.classList.add("markdown");
+    if (renderTimer) { window.clearTimeout(renderTimer); renderTimer = null; }
+    view.body.innerHTML = renderMarkdown(answerText);
+    view.settleThink();
     setStatus("就绪");
     await refreshSessions();
     await refreshWikiFiles();
     await refreshIssues();
   } catch (error) {
-    answer.remove();
+    view.node.remove();
     addMessage("error", error.message || "请求失败");
     setStatus("请求失败");
   } finally {
