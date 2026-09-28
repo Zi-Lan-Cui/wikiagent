@@ -526,6 +526,37 @@ class ReActAgent(BaseAgent):
         except Exception as exc:
             logger.warning("取消收尾失败: %s: %s", type(exc).__name__, str(exc)[:160])
 
+    TITLE_PROMPT = (
+        "你在为一次本地知识库问答起标题。用一个不超过十个字的名词短语"
+        "概括用户问题的主题，跟随用户提问的语言；不要引号、句号或前缀，"
+        "只输出标题本身。"
+    )
+
+    async def generate_session_title(self, question: str, answer: str) -> str:
+        """一次轻量非流式调用生成会话短标题。
+
+        关思考、小 max_tokens，不进 ReAct 循环。调用失败抛异常，
+        由编排方兜底为已落盘的截断标题。
+
+        Args:
+            question: 用户首轮问题原文。
+            answer: 助手首轮回答（截断后作为主题上下文）。
+
+        Returns:
+            模型产出的标题文本（未清洗）。
+        """
+        prompt = f"用户问题：{question.strip()}\n助手回答：{answer.strip()[:300]}"
+        response = await self.llm.async_invoke(
+            [
+                Message(role="system", content=self.TITLE_PROMPT),
+                Message(role="user", content=prompt),
+            ],
+            max_tokens=48,
+            temperature=0.3,
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+        return (response.content or "").strip()
+
     async def _run_turn(
         self,
         *,

@@ -82,6 +82,8 @@ class SessionService:
         self._agent = agent
         self._session_manager = session_manager
         self._event_publisher = event_publisher
+        # 后台标题生成任务持引用，防止未 await 前被 GC 回收
+        self._title_tasks: set[asyncio.Task] = set()
 
     def create_session(self, *, title: str = "未命名") -> SessionInfo:
         """创建并持久化一个空会话。"""
@@ -134,11 +136,13 @@ class SessionService:
         if not text:
             raise InvalidInputError("消息内容不能为空")
         session = self._get_loaded_session(session_id)
-        self._ensure_session_title(session, text)
         run_id = f"run_{uuid4().hex}"
         async for event in self._stream_message(session_id, text, run_id):
             if event.type == "run_error":
                 raise ServiceError(str(event.data.get("error") or "Agent 运行失败"))
+        # 同步接口定名后再返回：CLI/脚本调用完即退出进程，后台任务不能吊着
+        if self._title_tasks:
+            await asyncio.gather(*list(self._title_tasks), return_exceptions=True)
         assistant_text = self._last_assistant_text(session)
         return MessageResult(
             run_id=run_id,
@@ -152,8 +156,6 @@ class SessionService:
         text = text.strip()
         if not text:
             raise InvalidInputError("消息内容不能为空")
-        session = self._get_loaded_session(session_id)
-        self._ensure_session_title(session, text)
         run_id = f"run_{uuid4().hex}"
         async for event in self._stream_message(session_id, text, run_id):
             yield event
@@ -164,7 +166,21 @@ class SessionService:
         text: str,
         run_id: str,
     ) -> AsyncIterator[AgentEvent]:
-        """执行 agent 任务，同时消费该回合的事件队列。"""
+        """执行 agent 任务，同时消费该回合的事件队列。
+
+        首轮正常结束后后台发起 LLM 标题生成——不阻塞 run_finished
+        完成信号；标题全程只落一次盘（定名，失败时截断兜底），
+        回合进行中新会话保持"未命名"，避免占位→定名两段抖动。
+        """
+        session = self._get_loaded_session(session_id)
+        is_first_turn = session.session_title.strip() == _DEFAULT_SESSION_TITLE
+        stop_reason = ""
+
+        def _capture(event: AgentEvent) -> None:
+            nonlocal stop_reason
+            if event.type == "run_finished":
+                stop_reason = str(event.data.get("stop_reason") or "")
+
         task: asyncio.Task[None] | None = None
         async with self._event_publisher.subscribe(run_id) as queue:
             task = asyncio.create_task(
@@ -185,6 +201,7 @@ class SessionService:
                     )
                     if event_task in done:
                         event = event_task.result()
+                        _capture(event)
                         yield event
                         if event.type == "run_finished":
                             await task
@@ -194,13 +211,48 @@ class SessionService:
                         await asyncio.gather(event_task, return_exceptions=True)
                         await task
                         while not queue.empty():
-                            yield queue.get_nowait()
+                            queued = queue.get_nowait()
+                            _capture(queued)
+                            yield queued
                         break
             except BaseException:
                 if not task.done():
                     task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 raise
+        # stop_reason 为 None 的正常收尾才定名；取消/出错回合不烧调用
+        if is_first_turn and stop_reason not in ("cancelled", "error"):
+            self._schedule_session_title(session, text)
+
+    def _schedule_session_title(
+        self, session: Session, question: str
+    ) -> asyncio.Task[None]:
+        """后台一次性定名：LLM 成功用其结果，失败退回截断标题。
+
+        标题只有这一次落盘；期间用户手动改过名（已非"未命名"）则放弃。
+        返回创建的任务以便同步路径等待（CLI 进程会立即退出）。
+        """
+
+        async def _work() -> None:
+            answer = self._last_assistant_text(session)
+            title = ""
+            if answer.strip():
+                try:
+                    raw = await self._agent.generate_session_title(question, answer)
+                except Exception as exc:
+                    logger.info("会话标题生成失败，退回截断标题: %s", type(exc).__name__)
+                else:
+                    title = " ".join(raw.split())[:_SESSION_TITLE_MAX_LENGTH]
+            title = title or self.title_from_query(question)
+            if not title or session.session_title.strip() != _DEFAULT_SESSION_TITLE:
+                return
+            session.session_title = title
+            await asyncio.to_thread(self._session_manager.save_checkpoint, session=session)
+
+        task = asyncio.create_task(_work(), name=f"wiki-title:{session.key}")
+        self._title_tasks.add(task)
+        task.add_done_callback(self._title_tasks.discard)
+        return task
 
     def _get_loaded_session(self, session_id: str) -> Session:
         if not (self._session_manager.sessions_dir / f"{session_id}.jsonl").is_file():
@@ -209,18 +261,6 @@ class SessionService:
             return self._session_manager.get_or_create(session_id)
         except (OSError, ValueError) as exc:
             raise SessionNotFoundError(f"无法加载会话: {session_id}") from exc
-
-    def _ensure_session_title(self, session: Session, query: str) -> None:
-        """首条提问后生成实用标题，自定义标题保持不变。"""
-        if session.session_title.strip() != _DEFAULT_SESSION_TITLE:
-            return
-        if any(message.role == "user" for message in session.history):
-            return
-        title = self.title_from_query(query)
-        if title:
-            session.session_title = title
-            if not self._session_manager.save_checkpoint(session):
-                raise ServiceError(f"无法保存会话标题: {session.key}")
 
     @staticmethod
     def title_from_query(query: str, max_length: int = _SESSION_TITLE_MAX_LENGTH) -> str:
