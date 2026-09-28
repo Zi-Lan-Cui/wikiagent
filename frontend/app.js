@@ -18,7 +18,6 @@ const sessionList = $("session-list");
 const messages = $("messages");
 const input = $("message-input");
 const sendButton = $("send-button");
-const status = $("connection-status");
 const wikiFiles = $("wiki-files");
 const queueCount = $("queue-count");
 const issueCenter = $("issue-center");
@@ -54,9 +53,8 @@ const wikiHistoryBack = $("wiki-history-back");
 const wikiHistoryForward = $("wiki-history-forward");
 
 function setStatus(text) {
-  status.textContent = text;
-  // 聊天头部在维护/待处理页是隐藏的——同一句话必须也落在当前页可见处，
-  // 否则长动作（整理结构分析要几分钟）期间界面像卡死
+  // 状态只落在页内状态条（右上角全局指示已移除：聊天页的反馈在气泡与
+  // 错误消息里，维护/待处理页在 center-status）
   centerStatus.textContent = text;
   centerStatus.classList.remove("error");
 }
