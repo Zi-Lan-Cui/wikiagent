@@ -168,7 +168,48 @@ function renderMarkdown(source, basePath = "", pageTitle = "") {
     codeLanguage = "";
   };
 
-  for (const line of lines) {
+  const splitRow = (row) => row.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  const renderTable = (header, bodyRows) => {
+    const head = splitRow(header).map((c) => `<th>${inline(c)}</th>`).join("");
+    const body = bodyRows
+      .map((row) => `<tr>${splitRow(row).map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`)
+      .join("");
+    return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+
+    // GFM 表格：| 行 + 分隔行起头，连续 | 行入表体
+    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length
+        && /^[\s|:-]+$/.test(lines[i + 1]) && lines[i + 1].includes("-") && lines[i + 1].includes("|")) {
+      flushParagraph(); flushList(); flushOrderedList();
+      const body = [];
+      let j = i + 2;
+      while (j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) {
+        body.push(lines[j]);
+        j += 1;
+      }
+      html.push(renderTable(line, body));
+      i = j - 1;
+      continue;
+    }
+
+    // 缩进代码块（模型高频用法）：4 空格/Tab 起始、与上文空行或块边界相接
+    if (/^(?: {4}|\t)\S/.test(line) && !paragraph.length && !listItems.length && !orderedItems.length) {
+      const collected = [];
+      let j = i;
+      while (j < lines.length && (/^(?: {4}|\t)/.test(lines[j])
+          || (!lines[j].trim() && j + 1 < lines.length && /^(?: {4}|\t)\S/.test(lines[j + 1])))) {
+        if (lines[j].trim()) collected.push(lines[j].replace(/^(?: {4}|\t)/, ""));
+        else collected.push("");
+        j += 1;
+      }
+      html.push(`<pre><code>${escapeHtml(collected.join("\n"))}</code></pre>`);
+      i = j - 1;
+      continue;
+    }
+
     const fence = line.match(/^\s*```\s*([\w+-]*)\s*$/);
     if (fence) {
       if (inCode) flushCode();
