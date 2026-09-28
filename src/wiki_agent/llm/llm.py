@@ -257,13 +257,14 @@ class LLMClient:
         max_tokens: int | None = None,
         temperature: float = 0.5,
         on_delta: Callable[[str], None] | Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], None] | Callable[[str], Awaitable[None]] | None = None,
         extra_body: dict | None = None,
     ) -> LLMResponse:
         """在全局请求预算内执行异步流式调用。"""
         estimated_tokens = self._estimate_request_tokens(messages, tools, max_tokens)
         async with self.request_limiter.async_slot(estimated_tokens):
             return await self._async_stream(
-                messages, tools, max_tokens, temperature, on_delta, extra_body
+                messages, tools, max_tokens, temperature, on_delta, on_reasoning, extra_body
             )
 
     async def _async_stream(
@@ -273,12 +274,15 @@ class LLMClient:
         max_tokens: int | None = None,
         temperature: float = 0.5,
         on_delta: Callable[[str], None] | Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], None] | Callable[[str], Awaitable[None]] | None = None,
         extra_body: dict | None = None,
     ) -> LLMResponse:
         """基于回调的流式调用。
 
-        流式过程中每收到一段文本即调用 ``on_delta(delta)``，
-        返回组装好的 ``LLMResponse``（content + tool_calls + usage）。
+        流式过程中每收到一段文本即调用 ``on_delta(delta)``；reasoning 模型
+        的思考段在 ``delta.reasoning_content`` 分片到达，同样每段调用
+        ``on_reasoning(chunk)``——不接它就整段丢弃，回答前界面只能干等。
+        返回组装好的 ``LLMResponse``（content + reasoning + tool_calls + usage）。
 
         on_delta 支持同步/异步两种回调（返回值 awaitable 则 await）——
         订阅方（agent 的 on_stream_delta hook）是 async 的，
@@ -299,6 +303,7 @@ class LLMClient:
         """
         tool_calls_buffer: dict[int, dict[str, str]] = {}
         content_buffer = ""
+        reasoning_buffer = ""
         tool_calls_list: list[ToolCall] = []
         finish_reason_str = None
         usage_info: dict[str, int] = {}
@@ -337,6 +342,14 @@ class LLMClient:
 
                 if finish_reason:
                     finish_reason_str = finish_reason
+
+                reasoning_chunk = getattr(delta, "reasoning_content", None)
+                if reasoning_chunk:
+                    reasoning_buffer += reasoning_chunk
+                    if on_reasoning:
+                        result = on_reasoning(reasoning_chunk)
+                        if inspect.isawaitable(result):
+                            await result
 
                 if delta.content:
                     content_buffer += delta.content
@@ -383,6 +396,7 @@ class LLMClient:
         return LLMResponse(
             finish_reason=finish_reason_str or "",
             content=content_buffer,
+            reasoning_content=reasoning_buffer,
             tool_calls=tool_calls_list,
             usage=usage_info,
         )
