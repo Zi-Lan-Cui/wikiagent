@@ -52,6 +52,31 @@ const wikiSummary = $("wiki-summary");
 const wikiHistoryBack = $("wiki-history-back");
 const wikiHistoryForward = $("wiki-history-forward");
 
+// 贴底跟随：流式输出时自动滚到底，但用户上滑翻阅就停止打断，
+// 出现"回到底部"按钮；滚回底部或发新消息恢复跟随
+const chatPanel = document.querySelector(".chat-panel");
+let stickToBottom = true;
+function isNearBottom() {
+  return messages.scrollHeight - messages.scrollTop - messages.clientHeight < 60;
+}
+function scrollToBottom(force = false) {
+  if (!force && !stickToBottom) return;
+  stickToBottom = true;
+  messages.scrollTop = messages.scrollHeight;
+  jumpToBottom.hidden = true;
+}
+const jumpToBottom = document.createElement("button");
+jumpToBottom.type = "button";
+jumpToBottom.className = "jump-to-bottom";
+jumpToBottom.textContent = "回到底部 ↓";
+jumpToBottom.hidden = true;
+jumpToBottom.addEventListener("click", () => scrollToBottom(true));
+chatPanel.appendChild(jumpToBottom);
+messages.addEventListener("scroll", () => {
+  stickToBottom = isNearBottom();
+  jumpToBottom.hidden = stickToBottom;
+});
+
 function setStatus(text) {
   // 状态只落在页内状态条（右上角全局指示已移除：聊天页的反馈在气泡与
   // 错误消息里，维护/待处理页在 center-status）
@@ -77,7 +102,7 @@ function addMessage(role, text = "") {
   node.className = `message ${role}`;
   node.textContent = text;
   messages.appendChild(node);
-  messages.scrollTop = messages.scrollHeight;
+  scrollToBottom(true);
   return node;
 }
 
