@@ -572,10 +572,31 @@ async function refreshSessions() {
   renderSessions();
 }
 
+// 首轮结束后后台 LLM 定名要晚几秒；标题仍是占位形态（未命名/截断带…）
+// 时补查三次，拿到定名或次数用尽即停
+function refreshTitleSoon(id) {
+  let tries = 0;
+  const timer = window.setInterval(async () => {
+    tries += 1;
+    try {
+      await refreshSessions();
+    } catch {
+      /* 下一轮再试 */
+    }
+    const session = state.sessions.find((item) => item.id === id);
+    const done = !session || tries >= 3 || (session.title !== "未命名" && !session.title.endsWith("…"));
+    if (done) {
+      window.clearInterval(timer);
+      if (session && id === state.activeSession) $("session-title").textContent = session.title;
+    }
+  }, 3500);
+}
+
 async function refreshWikiFiles() {
   const response = await fetch("/api/wiki/files");
   if (!response.ok) throw new Error("无法读取 Wiki 文件列表");
   const files = await response.json();
+  $("wiki-count").textContent = String(files.length);
   wikiFiles.replaceChildren();
   if (!files.length) {
     const empty = document.createElement("div");
@@ -1467,14 +1488,16 @@ async function sendMessage(text) {
       const blocks = buffer.split(/\r?\n\r?\n/);
       buffer = blocks.pop() || "";
       for (const block of blocks) handleEventBlock(block);
-      messages.scrollTop = messages.scrollHeight;
+      scrollToBottom();
     }
     if (buffer.trim()) handleEventBlock(buffer);
     if (renderTimer) { window.clearTimeout(renderTimer); renderTimer = null; }
     view.body.innerHTML = renderMarkdown(answerText);
     view.settleThink();
+    scrollToBottom();
     setStatus("就绪");
     await refreshSessions();
+    refreshTitleSoon(state.activeSession);
     await refreshWikiFiles();
     await refreshIssues();
   } catch (error) {
