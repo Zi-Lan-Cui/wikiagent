@@ -11,6 +11,22 @@ class ToolCall(BaseModel):
     arguments: dict
 
 
+class ThinkingSegment(BaseModel):
+    """UI 思考折叠块的分段——随消息持久化，不回发给 LLM。
+
+    kind=think 时取 text（模型思考段或工具回合旁的过程旁白）；
+    kind=tool 时取 name/arguments/ms/error，历史重放与实时折叠块
+    渲染同一套行结构。
+    """
+
+    kind: Literal["think", "tool"]
+    text: str = ""
+    name: str = ""
+    arguments: dict = Field(default_factory=dict)
+    ms: int = 0
+    error: bool = False
+
+
 class MessageMeta(BaseModel):
     """消息元数据——系统侧信息，不进 LLM 内容。
 
@@ -34,6 +50,9 @@ class Message(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
     tool_call_id: str = ""
     tool_name: str = ""  # tool 消息携带工具名，供 governor 按工具豁免截断
+    thinking: list[ThinkingSegment] = Field(default_factory=list)
+    # 思考折叠块的有序分段（思考文字+工具动作行）——持久化给 UI；
+    # openai_schema/text_schema 都不含它，不回发给 LLM、不参与 token 估计
     metadata: MessageMeta = Field(default_factory=MessageMeta)
 
     @property

@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from wiki_agent.conversation import Session
 from wiki_agent.events import AgentEvent
+from wiki_agent.log import get_logger
+
+logger = get_logger("SESSION")
 
 if TYPE_CHECKING:
     from wiki_agent.agent import ReActAgent
@@ -48,6 +51,8 @@ class SessionMessage:
 
     role: str
     content: str
+    # 思考折叠块的有序分段（think 文字段 + tool 动作段，聚合工具回合）
+    thinking: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,11 +110,22 @@ class SessionService:
         """返回用户可见的聊天历史，工具/系统轮次不在此列。"""
         self._validate_session_id(session_id)
         session = self._get_loaded_session(session_id)
-        return [
-            SessionMessage(role=message.role, content=message.content)
-            for message in session.history
-            if message.role == "user" or (message.role == "assistant" and message.content.strip())
-        ]
+        # 一次提问的 ReAct 循环会产生多条 assistant 消息（工具回合的
+        # content 常为空）；thinking 分段按回合顺序聚合，挂到下一个可见回答上
+        out: list[SessionMessage] = []
+        pending: list[dict] = []
+        for message in session.history:
+            if message.role == "user":
+                out.append(SessionMessage(role="user", content=message.content))
+                pending = []
+            elif message.role == "assistant":
+                pending.extend(seg.model_dump(exclude_defaults=True) for seg in message.thinking)
+                if message.content.strip():
+                    out.append(
+                        SessionMessage(role="assistant", content=message.content, thinking=pending)
+                    )
+                    pending = []
+        return out
 
     async def send_message(self, session_id: str, text: str) -> MessageResult:
         """跑完一个用户回合，返回稳定的结果快照。"""

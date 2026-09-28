@@ -398,7 +398,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/sessions/{session_id}/messages")
-    async def get_session_messages(session_id: str) -> list[dict[str, str]]:
+    async def get_session_messages(session_id: str) -> list[dict]:
         try:
             return [asdict(message) for message in session_service.get_session_messages(session_id)]
         except SessionNotFoundError as exc:

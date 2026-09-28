@@ -1,5 +1,7 @@
+from pathlib import Path
+
 from wiki_agent.application.session import SessionService
-from wiki_agent.conversation import Message, Session
+from wiki_agent.conversation import Message, Session, SessionManager, ThinkingSegment, ToolCall
 
 
 def test_title_from_query_normalizes_and_truncates() -> None:
@@ -20,3 +22,39 @@ def test_session_info_counts_only_visible_chat_messages() -> None:
     info = SessionService._to_info(session)
 
     assert info.message_count == 2
+
+
+def test_get_session_messages_aggregates_thinking_segments(tmp_path: Path) -> None:
+    """工具回合与最终回合的 thinking 分段按顺序聚合到可见回答上。"""
+    manager = SessionManager(tmp_path)
+    session = Session(key="session_think")
+    session.history = [
+        Message(role="user", content="问题"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[ToolCall(id="t1", name="Grep", arguments={"pattern": "x"})],
+            thinking=[
+                ThinkingSegment(kind="think", text="先查一下"),
+                ThinkingSegment(kind="tool", name="Grep", arguments={"pattern": "x"}, ms=420),
+            ],
+        ),
+        Message(role="tool", tool_call_id="t1", tool_name="Grep", content="结果"),
+        Message(
+            role="assistant",
+            content="回答",
+            thinking=[ThinkingSegment(kind="think", text="确认答案")],
+        ),
+    ]
+    assert manager.save_checkpoint(session)
+
+    service = SessionService(agent=None, session_manager=manager, event_publisher=None)
+    messages = service.get_session_messages("session_think")
+
+    assert [message.role for message in messages] == ["user", "assistant"]
+    segments = messages[1].thinking
+    assert [seg["kind"] for seg in segments] == ["think", "tool", "think"]
+    assert segments[1]["name"] == "Grep"
+    assert segments[1]["ms"] == 420
+    assert "text" not in segments[1]  # exclude_defaults：tool 段不带空文字字段
+

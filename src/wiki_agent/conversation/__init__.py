@@ -4,6 +4,7 @@ from wiki_agent.conversation.models import (
     LLMResponse,
     Message,
     MessageMeta,
+    ThinkingSegment,
     ToolCall,
     find_first_legal_idx,
 )
@@ -15,6 +16,7 @@ __all__ = [
     "MessageMeta",
     "Session",
     "SessionManager",
+    "ThinkingSegment",
     "ToolCall",
     "find_first_legal_idx",
 ]
