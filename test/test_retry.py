@@ -475,7 +475,7 @@ class _RetryOnceLLM:
     def __init__(self):
         self.calls = 0
 
-    async def async_stream(self, messages, *, tools, max_tokens, on_delta):
+    async def async_stream(self, messages, *, tools, max_tokens, on_delta, on_reasoning=None):
         self.calls += 1
         if self.calls == 1:
             raise RetryableError("t")

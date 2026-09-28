@@ -267,6 +267,16 @@ class ReActRunner:
                     run_ctx, f"_(网络抖动——重试中 {attempt}/{total - 1})_"
                 )
 
+        # reasoning 分片实时转发给折叠块；每回合首个分片补发 started
+        reasoning_started = False
+
+        async def on_reasoning(chunk: str) -> None:
+            nonlocal reasoning_started
+            if not reasoning_started:
+                reasoning_started = True
+                await self._agent.hooks.on_reasoning_start(run_ctx)
+            await self._agent.hooks.on_reasoning_delta(run_ctx, chunk)
+
         async with span("llm_call", model=self._agent.llm.model_id, stream=True) as s:
             response = await retry_llm_call(
                 lambda: self._agent.llm.async_stream(
@@ -274,6 +284,7 @@ class ReActRunner:
                     tools=self._agent.tool_registry.get_all_schema_openai(),
                     max_tokens=self._agent.agent_config.max_tokens,
                     on_delta=lambda delta: self._agent.hooks.on_stream_delta(run_ctx, delta),
+                    on_reasoning=on_reasoning,
                 ),
                 retry_config=self._agent.retry_config,
                 on_retry=on_retry,
@@ -287,6 +298,9 @@ class ReActRunner:
             if response.finish_reason == "length":
                 s.set_attr("truncated", True)
                 s.set_attr("reasoning_len", len(response.reasoning_content or ""))
+
+        if reasoning_started:
+            await self._agent.hooks.on_reasoning_end(run_ctx)
 
         has_text = bool(response.content and response.content.strip())
         messages.append(
