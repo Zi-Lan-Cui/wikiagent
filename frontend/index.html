@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=27" />
+    <link rel="stylesheet" href="/style.css?v=32" />
   </head>
   <body>
     <div class="app-shell">
@@ -13,9 +13,10 @@
           <h1>wiki-agent</h1>
           <button id="new-session" class="primary-button" type="button">＋ 新对话</button>
         </div>
+        <p class="sidebar-heading">对话</p>
         <div id="session-list" class="session-list" aria-label="历史会话"></div>
         <details class="sidebar-section">
-          <summary><span>当前 Wiki 文件</span><span class="summary-action">浏览 <b class="section-chevron">›</b></span></summary>
+          <summary><span>Wiki 文件</span><span class="summary-action"><b id="wiki-count" class="section-count">0</b><b class="section-chevron">›</b></span></summary>
           <p class="wiki-managed-note">Wiki 由同步生成并用 Git 管理：手工修改会在下一次同步时被清除。</p>
           <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
         </details>
