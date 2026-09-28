@@ -1169,10 +1169,16 @@ async function selectSession(id) {
       messages.appendChild(empty);
     }
     for (const message of history) {
-      const node = addMessage(message.role, message.content || "");
       if (message.role === "assistant") {
-        node.innerHTML = renderMarkdown(message.content || "");
-        node.classList.add("markdown");
+        const { row, bubble } = assistantShell();
+        bubble.innerHTML = renderMarkdown(message.content || "");
+        bubble.classList.add("markdown");
+        if (message.thinking && message.thinking.length) {
+          bubble.prepend(thinkingBlock(message.thinking));
+        }
+        messages.appendChild(row);
+      } else {
+        addMessage(message.role, message.content || "");
       }
     }
   } catch (error) {
@@ -1275,15 +1281,57 @@ function toolAction(name, args) {
   }
 }
 
-function createAssistantMessage() {
-  const node = addMessage("assistant");
-  node.classList.add("agent-turn");
+function formatMs(ms) {
+  return ms < 1000 ? `${Math.max(1, Math.round(ms))}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+// 历史重放：持久化的 thinking 分段还原成与实时同款的折叠块
+// （think 文字段与 tool 动作行按记录顺序穿插）
+function thinkingBlock(segments) {
+  const details = document.createElement("details");
+  details.className = "agent-think";
+  const summary = document.createElement("summary");
+  summary.innerHTML = '<span class="think-chev">▸</span><span class="think-label">思考过程</span>';
+  const flow = document.createElement("div");
+  flow.className = "think-flow";
+  for (const seg of segments) {
+    if (seg.kind === "tool") {
+      const row = document.createElement("div");
+      row.className = "think-step";
+      row.textContent = `${toolAction(seg.name, seg.arguments)} · ${formatMs(seg.ms)}${seg.error ? " · 失败" : ""}`;
+      flow.appendChild(row);
+    } else if (seg.text) {
+      const body = document.createElement("div");
+      body.className = "think-seg";
+      body.textContent = seg.text;
+      flow.appendChild(body);
+    }
+  }
+  details.append(summary, flow);
+  return details;
+}
+
+// 行壳：头像在气泡外（左侧），气泡本体仍是 .message.assistant
+function assistantShell() {
+  const row = document.createElement("div");
+  row.className = "message-row assistant-row";
   const avatarHost = document.createElement("span");
   avatarHost.innerHTML = AGENT_AVATAR;
-  node.appendChild(avatarHost.firstElementChild);
+  row.appendChild(avatarHost.firstElementChild);
+  const bubble = document.createElement("div");
+  bubble.className = "message assistant";
+  row.appendChild(bubble);
+  return { row, bubble };
+}
+
+function createAssistantMessage() {
+  const { row, bubble } = assistantShell();
+  messages.appendChild(row);
+  scrollToBottom();
+  const node = row;
   const content = document.createElement("div");
   content.className = "agent-content";
-  node.appendChild(content);
+  bubble.appendChild(content);
 
   const view = {
     node,
@@ -1379,6 +1427,16 @@ async function sendMessage(text) {
       } else if (event.type === "tool_started") {
         const t = view.ensureThink();
         t.currentSeg = null; // 工具之后的思考属于下一段
+        // 工具回合前流出的正文是过程旁白——留在主气泡会和最终回答
+        // 拼成畸形 markdown；收进折叠块当作思考段，主区留给最终回答
+        if (answerText.trim()) {
+          const aside = document.createElement("div");
+          aside.className = "think-seg";
+          aside.textContent = answerText.trim();
+          t.flow.appendChild(aside);
+          answerText = "";
+          view.body.innerHTML = "";
+        }
         const row = document.createElement("div");
         row.className = "think-step";
         row.dataset.base = toolAction(data.tool_name || "工具", data.arguments);
@@ -1391,8 +1449,7 @@ async function sendMessage(text) {
         const row = view.steps.get(String(data.tool_call_id || ""));
         if (row) {
           const ms = Date.now() - Number(row.dataset.startedAt || Date.now());
-          const dur = ms < 1000 ? `${Math.max(1, Math.round(ms))}ms` : `${(ms / 1000).toFixed(1)}s`;
-          row.textContent = `${row.dataset.base} · ${dur}${event.type === "tool_error" ? " · 失败" : ""}`;
+          row.textContent = `${row.dataset.base} · ${formatMs(ms)}${event.type === "tool_error" ? " · 失败" : ""}`;
         }
       } else if (data.delta && event.type !== "reasoning_delta") {
         answerText += data.delta;

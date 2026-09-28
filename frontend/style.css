@@ -300,7 +300,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .maintain-card.pending { border-color: #d8a35a; box-shadow: 0 0 0 1px #f0c987 inset; }
 
 /* agent 回答气泡：头像 + 思考/步骤折叠块 */
-.message.agent-turn { display: flex; align-items: flex-start; gap: 10px; }
+.message-row.assistant-row { display: flex; align-items: flex-start; gap: 10px; }
+.message-row.assistant-row .message.assistant { flex: 0 1 auto; min-width: 0; }
 .msg-avatar { flex: 0 0 22px; width: 22px; height: 22px; margin-top: 16px; border-radius: 50%; box-shadow: 0 2px 6px rgb(232 117 75 / 35%); }
 .agent-content { min-width: 0; flex: 1; }
 .agent-think { margin: 0 0 10px; border: 1px solid #e6ebf2; border-radius: 10px; background: #f8fafc; font-size: 12px; overflow: hidden; }

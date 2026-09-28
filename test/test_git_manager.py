@@ -11,7 +11,7 @@ from wiki_agent.versioning import WikiGitManager
 def test_tool_tasks_are_cancelled_and_joined():
     """Agent 取消时，显式创建的并发工具 Task 不留在后台。"""
     from wiki_agent.agent.react import ReActRunner
-    from wiki_agent.conversation import ToolCall
+    from wiki_agent.conversation import Message, ToolCall
     from wiki_agent.events import AgentHook, RunContext
 
     started = asyncio.Event()
@@ -37,7 +37,10 @@ def test_tool_tasks_are_cancelled_and_joined():
     tc = ToolCall(id="t1", name="slow", arguments={})
 
     async def scenario():
-        task = asyncio.create_task(runner._execute_tools([tc], RunContext(session_key="s")))
+        assistant = Message(role="assistant", tool_calls=[tc])
+        task = asyncio.create_task(
+            runner._execute_tools([tc], RunContext(session_key="s"), assistant)
+        )
         await started.wait()
         task.cancel()
         try:

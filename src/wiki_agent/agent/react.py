@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -12,7 +13,7 @@ from wiki_agent.agent.commands import create_command_router
 from wiki_agent.config import AgentConfig as AgentCfg
 from wiki_agent.config import CompileConfig, RetryConfig
 from wiki_agent.context import Consolidator, ContextBuilder, ContextGovernor
-from wiki_agent.conversation import Message, Session, SessionManager
+from wiki_agent.conversation import Message, Session, SessionManager, ThinkingSegment
 from wiki_agent.errors import RetryableError
 from wiki_agent.events import AgentHook, CompositeHook, RunContext
 from wiki_agent.issues import IssueService
@@ -26,6 +27,22 @@ if TYPE_CHECKING:
     from wiki_agent.jobs.service import JobService
 
 logger = get_logger("REACT_RUNNER")
+
+
+def _elapsed_ms(started: float) -> int:
+    """started（time.monotonic 时刻）到现在的毫秒数，至少 1。"""
+    return max(1, round((time.monotonic() - started) * 1000))
+
+
+def _turn_thinking(response) -> list[ThinkingSegment]:
+    """assistant 消息的初始 thinking：本回合思考段；工具回合把
+    content 当作过程旁白也收进来（最终回合的 content 是正文，不进折叠块）。"""
+    segments: list[ThinkingSegment] = []
+    if response.reasoning_content:
+        segments.append(ThinkingSegment(kind="think", text=response.reasoning_content))
+    if response.tool_calls and response.content and response.content.strip():
+        segments.append(ThinkingSegment(kind="think", text=response.content.strip()))
+    return segments
 
 
 class ReActRunner:
@@ -78,12 +95,15 @@ class ReActRunner:
         self,
         tool_calls: list,
         run_ctx: RunContext,
+        assistant: Message,
     ) -> list[Message]:
         """并发执行工具调用。
 
         Args:
             tool_calls: LLM 返回的工具调用列表（含 name/id/arguments）。
             run_ctx: 回合上下文——工具事件与 tools_used 记录对象。
+            assistant: 发起这批调用的 assistant 消息——每次调用的耗时与
+                成败作为 tool 段记入其 thinking，供历史重放折叠块。
 
         Returns:
             tool role 消息列表（每条对应一次工具调用，失败时
@@ -99,6 +119,7 @@ class ReActRunner:
             )
 
         async def _run_one(tc):
+            started = time.monotonic()
             async with span("tool_call", tool=tc.name, tool_call_id=tc.id) as s:
                 try:
                     result = await self._agent.tool_registry.execute(tc.name, params=tc.arguments)
@@ -110,7 +131,7 @@ class ReActRunner:
                     )
                     run_ctx.tools_used.append(tc.name)
                     s.set_attr("result_len", len(str(result)))
-                    return tc, result, None
+                    return tc, result, None, _elapsed_ms(started)
                 except Exception as exc:
                     await self._agent.hooks.on_tool_error(
                         context=run_ctx,
@@ -118,7 +139,7 @@ class ReActRunner:
                         tool_call_id=tc.id,
                         error=exc,
                     )
-                    return tc, f"工具执行错误: {exc}", exc
+                    return tc, f"工具执行错误: {exc}", exc, _elapsed_ms(started)
 
         tasks = [
             asyncio.create_task(_run_one(tc), name=f"wiki-tool:{tc.name}:{tc.id}")
@@ -139,7 +160,16 @@ class ReActRunner:
             self._active_tasks.difference_update(tasks)
 
         tool_msgs: list[Message] = []
-        for tc, result, _exc in results:
+        for tc, result, exc, ms in results:
+            assistant.thinking.append(
+                ThinkingSegment(
+                    kind="tool",
+                    name=tc.name,
+                    arguments=tc.arguments,
+                    ms=ms,
+                    error=exc is not None,
+                )
+            )
             tool_msgs.append(
                 Message(
                     role="tool",
@@ -201,13 +231,13 @@ class ReActRunner:
                 response.usage["total"],
             )
 
-        messages.append(
-            Message(
-                role="assistant",
-                content=response.content,
-                tool_calls=response.tool_calls,
-            )
+        assistant = Message(
+            role="assistant",
+            content=response.content,
+            tool_calls=response.tool_calls,
+            thinking=_turn_thinking(response),
         )
+        messages.append(assistant)
 
         if not response.tool_calls:
             if response.content:
@@ -221,7 +251,7 @@ class ReActRunner:
                 print("\n_(回答被 token 上限截断——调大 AGENT_MAX_TOKENS 或让我继续)_")
             return False
 
-        tool_msgs = await self._execute_tools(response.tool_calls, run_ctx)
+        tool_msgs = await self._execute_tools(response.tool_calls, run_ctx, assistant)
         messages.extend(tool_msgs)
 
         if response.content:
@@ -303,13 +333,13 @@ class ReActRunner:
             await self._agent.hooks.on_reasoning_end(run_ctx)
 
         has_text = bool(response.content and response.content.strip())
-        messages.append(
-            Message(
-                role="assistant",
-                content=response.content,
-                tool_calls=response.tool_calls,
-            )
+        assistant = Message(
+            role="assistant",
+            content=response.content,
+            tool_calls=response.tool_calls,
+            thinking=_turn_thinking(response),
         )
+        messages.append(assistant)
 
         if response.usage:
             session.update_token_cost(
@@ -319,7 +349,7 @@ class ReActRunner:
             )
 
         if response.tool_calls:
-            tool_msgs = await self._execute_tools(response.tool_calls, run_ctx)
+            tool_msgs = await self._execute_tools(response.tool_calls, run_ctx, assistant)
             messages.extend(tool_msgs)
             return True
         else:
