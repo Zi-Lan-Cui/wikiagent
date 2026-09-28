@@ -1196,12 +1196,27 @@ function renderLiveMarkdown(source) {
   return renderMarkdown(src);
 }
 
+// 把工具调用说人话：动作 + 它到底在找什么/读什么
+function toolAction(name, args) {
+  const a = args || {};
+  const hint = ["pattern", "query", "keyword", "path", "dir", "file"]
+    .map((k) => a[k]).find((v) => typeof v === "string" && v)
+    || Object.values(a).find((v) => typeof v === "string" && v) || "";
+  const short = hint.length > 36 ? `${hint.slice(0, 36)}…` : hint;
+  switch (name) {
+    case "Grep": return `查找内容「${short}」`;
+    case "ReadFile": return `读取 ${short}`;
+    case "ListDir": return `浏览目录 ${short || "wiki"}`;
+    default: return `调用 ${name}${short ? `：${short}` : ""}`;
+  }
+}
+
 function createAssistantMessage() {
   const node = addMessage("assistant");
   node.classList.add("agent-turn");
   const avatarHost = document.createElement("span");
   avatarHost.innerHTML = AGENT_AVATAR;
-  node.appendChild(avatarHost.firstChild);
+  node.appendChild(avatarHost.firstElementChild);
   const content = document.createElement("div");
   content.className = "agent-content";
   node.appendChild(content);
@@ -1224,13 +1239,12 @@ function createAssistantMessage() {
     details.open = true;
     const summary = document.createElement("summary");
     summary.innerHTML = '<span class="think-chev">▸</span><span class="think-label">正在思考</span><span class="think-dots"><i></i><i></i><i></i></span>';
-    const reasoning = document.createElement("div");
-    reasoning.className = "agent-reasoning";
-    const steps = document.createElement("div");
-    steps.className = "agent-steps";
-    details.append(summary, reasoning, steps);
+    // 单一时序列表：思考段与工具行按实际发生顺序穿插（想→查→再想）
+    const flow = document.createElement("div");
+    flow.className = "think-flow";
+    details.append(summary, flow);
     view.content.prepend(details);
-    view.think = { details, summary, reasoning, steps };
+    view.think = { details, summary, flow, currentSeg: null };
     return view.think;
   };
   view.settleThink = () => {
@@ -1284,26 +1298,37 @@ async function sendMessage(text) {
       // may put fields at the top level, so accept both shapes.
       const data = event.data || event;
       if (event.type === "reasoning_started") {
-        view.ensureThink();
-        view.think.summary.classList.add("running");
+        const t = view.ensureThink();
+        t.summary.classList.add("running");
+        t.currentSeg = document.createElement("div");
+        t.currentSeg.className = "think-seg";
+        t.flow.appendChild(t.currentSeg);
       } else if (event.type === "reasoning_delta" && data.delta) {
-        view.ensureThink();
+        const t = view.ensureThink();
+        if (!t.currentSeg) {
+          t.currentSeg = document.createElement("div");
+          t.currentSeg.className = "think-seg";
+          t.flow.appendChild(t.currentSeg);
+        }
         view.thinkText += data.delta;
-        view.think.reasoning.textContent = view.thinkText;
+        t.currentSeg.textContent += data.delta;
       } else if (event.type === "tool_started") {
         const t = view.ensureThink();
-        if (!view.thinkText) t.summary.querySelector(".think-label").textContent = "正在检索";
+        t.currentSeg = null; // 工具之后的思考属于下一段
         const row = document.createElement("div");
-        row.textContent = `⚙ 检索 ${data.tool_name || "工具"} …`;
+        row.className = "think-step";
+        row.dataset.base = toolAction(data.tool_name || "工具", data.arguments);
         row.dataset.startedAt = String(Date.now());
-        t.steps.appendChild(row);
-        view.steps.set(String(data.tool_call_id || `${data.tool_name}:${t.steps.childElementCount}`), row);
-      } else if (event.type === "tool_finished") {
-        const id = String(data.tool_call_id || "");
-        const row = view.steps.get(id);
+        row.textContent = `${row.dataset.base} …`;
+        t.flow.appendChild(row);
+        if (!view.thinkText) t.summary.querySelector(".think-label").textContent = "正在检索";
+        view.steps.set(String(data.tool_call_id || `${data.tool_name}:${t.flow.childElementCount}`), row);
+      } else if (event.type === "tool_finished" || event.type === "tool_error") {
+        const row = view.steps.get(String(data.tool_call_id || ""));
         if (row) {
-          const secs = ((Date.now() - Number(row.dataset.startedAt || Date.now())) / 1000).toFixed(1);
-          row.textContent = row.textContent.replace(" …", ` · ${secs}s`);
+          const ms = Date.now() - Number(row.dataset.startedAt || Date.now());
+          const dur = ms < 1000 ? `${Math.max(1, Math.round(ms))}ms` : `${(ms / 1000).toFixed(1)}s`;
+          row.textContent = `${row.dataset.base} · ${dur}${event.type === "tool_error" ? " · 失败" : ""}`;
         }
       } else if (data.delta && event.type !== "reasoning_delta") {
         answerText += data.delta;
