@@ -267,3 +267,14 @@ def test_registry_cancel_does_not_count_as_circuit_failure():
 
     tool = asyncio.run(run())
     assert tool.calls == 2
+
+
+def test_unknown_params_give_actionable_retryable_error(tmp_path):
+    """模型给 ReadFile 传 offset/limit（它没有的参数）——错误必须点名参数
+    并允许改正，而不是 TypeError 包成的不可修复 internal_error。"""
+    (tmp_path / "concepts").mkdir()
+    (tmp_path / "concepts" / "a.md").write_text("# A\n\n正文\n\n    code = 1\n", encoding="utf-8")
+    result = asyncio.run(_execute(ReadFile(tmp_path), file_path="concepts/a.md", offset="1", limit="20"))
+    assert "未知参数" in result and "offset" in result and "limit" in result
+    assert "file_path" in result  # 接受列表可见
+    assert "retryable: true" in result
