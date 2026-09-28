@@ -75,6 +75,21 @@ class ToolRegistry:
                 retryable=True,
             )
 
+        # 参数预检：模型常把它用惯了的参数（如给 ReadFile 传 offset/limit）
+        # 混进调用，直接 **params 展开会炸成 TypeError、再被包成不可重试的
+        # internal_error——模型从错误里看不出该删什么，只能放弃或瞎试。
+        props = (getattr(tool, "parameters", None) or {}).get("properties")
+        if isinstance(props, dict) and props:
+            unknown = [k for k in params if k not in props]
+            if unknown:
+                emit_event("tool_call_rejected", tool=name, reason="unknown_params")
+                return tool.error_result(
+                    "invalid_argument",
+                    f"未知参数：{', '.join(sorted(unknown))}。{name} 只接受：{', '.join(sorted(props))}。",
+                    next_action=f"去掉未知参数，只按接受列表重新调用 {name}。",
+                    retryable=True,
+                )
+
         last_error: WikiAgentError | None = None
         result = ""
         can_retry = tool._retry_is_allowed(params)
