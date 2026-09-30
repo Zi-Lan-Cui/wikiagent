@@ -8,11 +8,12 @@ hash/text 只在 job 成功后由 record 写入；本模块同时提供 sync 快
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+from wiki_agent.snapshots import digest_file_text
 
 
 def scan_disk(root: str | Path) -> dict[str, str]:
@@ -32,20 +33,6 @@ def scan_disk(root: str | Path) -> dict[str, str]:
         if read is not None:
             out[str(p.resolve())] = read[0]
     return out
-
-
-def digest_file_text(path: str | Path) -> tuple[str, str] | None:
-    """内容指纹唯一配方——read_text(errors=replace) + sha256。
-
-    sync 判变更、consumer 落账必须调用同一函数：两侧各自手写哈希配方
-    存在漂移风险，digest 对不上就无法确认完成。
-    读失败（消失/权限）返回 None。
-    """
-    try:
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-    return hashlib.sha256(text.encode("utf-8")).hexdigest(), text
 
 
 @dataclass

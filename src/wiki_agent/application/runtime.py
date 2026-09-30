@@ -32,6 +32,7 @@ from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.persistence import Database
 from wiki_agent.snapshots import SnapshotStore
+from wiki_agent.sync.baseline import SyncBaseline
 from wiki_agent.sync.source_jobs import SourceJobHandler
 from wiki_agent.sync.state import SyncState
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
@@ -55,6 +56,10 @@ class AppRuntime:
         # wiki 版本面：HEAD=最近已结算状态，sync/retry 逐 job 提交由 consumer 执行
         self.git_manager = WikiGitManager(self.wiki_dir)
         self.snapshots = SnapshotStore(self.workspace)
+        # 同步基线面归 sync 域，按协议注入 jobs 提交口（断包级环）
+        self.baseline = SyncBaseline(
+            state=self.sync_state, issues=self.issue_store, materials_dir=self.materials_dir
+        )
         self.job_service = JobService(
             store=JobStore(database),
             issues=self.issue_store,
@@ -64,8 +69,7 @@ class AppRuntime:
                 sync_state=self.sync_state,
                 source_records_dir=self.source_records_dir,
             ),
-            sync_state=self.sync_state,
-            materials_dir=self.materials_dir,
+            baseline=self.baseline,
             wiki_dir=self.wiki_dir,
         )
         self.event_publisher = EventPublisher()

@@ -153,7 +153,7 @@ def test_delete_settles_archive_unlink_and_commits_wiki(tmp_path: Path):
     src, wiki, records, git, state, service, worker = _env(tmp_path)
     f = src / "gone.md"
     f.write_text("将被删除" * 10, encoding="utf-8")
-    service.sync_state.record(str(f.resolve()), "deadbeef", "将被删除" * 10)
+    state.record(str(f.resolve()), "deadbeef", "将被删除" * 10)
     (wiki / "concepts").mkdir(parents=True)
     (wiki / "concepts" / "p.md").write_text(
         "# P\n\n见 [[sources/gone|已删档案]]。\n", encoding="utf-8"
@@ -178,8 +178,8 @@ def test_delete_settles_archive_unlink_and_commits_wiki(tmp_path: Path):
     assert "已删档案" in (wiki / "concepts" / "p.md").read_text(encoding="utf-8")
     assert "[[sources/gone" not in (wiki / "concepts" / "p.md").read_text(encoding="utf-8")
     assert not archive.exists()
-    assert service.sync_state.get(str(f.resolve())) is None or (
-        service.sync_state.get(str(f.resolve())).hash == ""
+    assert state.get(str(f.resolve())) is None or (
+        state.get(str(f.resolve())).hash == ""
     )
     assert service.submit_sync(src) == []
 

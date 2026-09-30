@@ -54,8 +54,8 @@ from wiki_agent.jobs.wiki_session import (
     debris_dir_for,
 )
 from wiki_agent.log import emit_event, get_logger
-from wiki_agent.snapshots import SnapshotStore
-from wiki_agent.sync.state import SyncState, digest_file_text
+from wiki_agent.snapshots import SnapshotStore, digest_file_text
+from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.pages import CONTENT_DIRS
 from wiki_agent.wiki.quality import scan_source

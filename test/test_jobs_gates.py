@@ -20,7 +20,8 @@ from wiki_agent.jobs import (
     SyncInProgress,
 )
 from wiki_agent.jobs.service import JobService
-from wiki_agent.sync.state import SyncState, digest_file_text
+from wiki_agent.snapshots import digest_file_text
+from wiki_agent.sync.state import SyncState
 
 
 def _service(tmp: Path) -> JobService:
@@ -122,9 +123,10 @@ def test_retry_blocked_by_unrelated_in_flight(tmp_path: Path):
 
 def test_baseline_lag_formula_and_quarantine(tmp_path: Path):
     service = _service(tmp_path)
+    state = service.baseline.state  # 同一账本实例，避免双缓存分叉
     clean = _dirty(tmp_path, service, "clean.md")
     digest, text = digest_file_text(clean)
-    service.sync_state.record(str(clean.resolve()), digest, text)
+    state.record(str(clean.resolve()), digest, text)
     lag = _dirty(tmp_path, service, "lag.md")
     assert service.sync_baseline_lag() == {str(lag.resolve())}
     # 挂 open 失败账 → 隔离区豁免；blocked 同样豁免
