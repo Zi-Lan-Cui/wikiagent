@@ -373,14 +373,6 @@ class JobStore:
             ).fetchone()
         return int(row["total"]) if row is not None else 0
 
-    def has_in_flight_job_by_issue(self, issue_id: str) -> bool:
-        """该 issue 是否有在途挂账 job——"在处理"的唯一真相（jobs join，非镜像状态）。"""
-        with self.database.connect() as db:
-            row = db.execute(
-                f"SELECT 1 FROM jobs WHERE issue_id = ? AND {_IN_FLIGHT_SQL} LIMIT 1",
-                (issue_id,),
-            ).fetchone()
-        return row is not None
 
     def count_in_flight_for_batch(self, batch_id: str) -> int:
         """该提交批还有多少在途任务——快照目录删除判据（最后一个终态才删）。"""

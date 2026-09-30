@@ -22,8 +22,6 @@ def _attention(record: IssueRecord) -> str:
         if record.retry.get("unavailable_reason"):
             return "source_unavailable"
         return "retryable"
-    if record.status == IssueStatus.BLOCKED:
-        return "decision_required"
     return "decision_required"
 
 

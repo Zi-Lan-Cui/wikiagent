@@ -72,7 +72,6 @@ def create_app(
     issue_service = app_runtime.issue_service
     issue_actions = app_runtime.issue_actions
     job_service = app_runtime.job_service
-    job_worker = app_runtime.job_worker
 
     def _in_flight_issue_ids() -> set[str]:
         return job_service.in_flight_issue_ids()
@@ -151,10 +150,6 @@ def create_app(
             setup_event_log(None)
 
     app = FastAPI(title="wiki-agent", version="0.1.0", lifespan=lifespan)
-    app.state.runtime = app_runtime
-    app.state.session = session_service
-    app.state.job_service = job_service
-    app.state.job_worker = job_worker
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
