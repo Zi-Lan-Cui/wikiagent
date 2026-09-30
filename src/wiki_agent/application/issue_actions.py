@@ -98,7 +98,7 @@ class IssueActionExecutor:
             try:
                 resolve_retry_source(record)
             except SourceUnavailableError as exc:
-                self._mark_retry_unavailable(record.id, str(exc))
+                self.runtime.job_service.mark_retry_unavailable(record.id, str(exc))
                 changed += 1
         return changed
 
@@ -138,14 +138,6 @@ class IssueActionExecutor:
                 continue
             candidates.append(record.id)
         return candidates
-
-    def prepare_retry_batch(self, *, exclude_issue_ids: set[str] | None = None) -> list[str]:
-        """为批量入队做最终的来源与动作校验。"""
-        selected: list[str] = []
-        for issue_id in self.retry_batch_candidates(exclude_issue_ids=exclude_issue_ids):
-            self.validate(issue_id, "retry")
-            selected.append(issue_id)
-        return selected
 
     def execute(
         self,
@@ -212,36 +204,15 @@ class IssueActionExecutor:
         raise ValueError(f"尚未实现操作: {action}")
 
     def validate(self, issue_id: str, action: str) -> None:
-        """在建立后台任务前验证操作与重试资源。"""
+        """在建立后台任务前验证操作对当前投影可用。
+
+        retry 的资格判定已收口到提交口（JobService.submit_issue_retry_batch），
+        本方法只服务其余动作——投影里的 retry 条目仍用于界面展示。
+        """
         record = self.store.require(issue_id)
-        unavailable_reason = str(record.retry.get("unavailable_reason") or "")
-        if action == "retry" and unavailable_reason:
-            raise SourceUnavailableError(unavailable_reason)
         allowed = {item.id for item in available_actions(record) if not item.disabled_reason}
         if action not in allowed:
             raise IssueActionConflict(f"当前问题不允许操作: {action}")
-        if action != "retry":
-            return
-        try:
-            resolve_retry_source(record)
-        except SourceUnavailableError as exc:
-            self._mark_retry_unavailable(record.id, str(exc))
-            raise
-
-    def _mark_retry_unavailable(self, issue_id: str, reason: str) -> None:
-        record = self.store.require(issue_id)
-        self.store.update_payloads(
-            issue_id,
-            retry={**record.retry, "unavailable_reason": reason},
-            diagnostics={**record.diagnostics, "detail": reason},
-            event="retry_source_unavailable",
-        )
-        if record.status == IssueStatus.OPEN:
-            self.store.transition(
-                issue_id,
-                IssueStatus.BLOCKED,
-                event="blocked_source_unavailable",
-            )
 
     def _rescan(
         self,

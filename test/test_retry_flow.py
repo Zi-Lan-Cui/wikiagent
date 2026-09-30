@@ -12,7 +12,7 @@ from pathlib import Path
 from helpers import make_issue_store, make_job_service
 
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
+from wiki_agent.issues import IssueActionConflict, IssueDraft, IssueKind, IssueStatus
 from wiki_agent.jobs import JobResult, PipelineBusy
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
@@ -74,6 +74,36 @@ def test_retry_attaches_to_occupant_and_converges(tmp_path: Path):
     assert result.id == occupant.id
     assert service.store.get(occupant.id).issue_id == issue.id
     assert service.store.count_in_flight() == 1
+
+
+def test_submit_port_rejects_ineligible_retry(tmp_path: Path):
+    """资格收口在提交口：终态账与非编译失败账直投也被拒（入口不再自带判定）。"""
+    service = make_job_service(tmp_path)
+    source = tmp_path / "note.md"
+    source.write_text("内容" * 10, encoding="utf-8")
+    issue = _failure_issue(service, source)
+    service.issues.transition(issue.id, IssueStatus.RESOLVED)
+
+    try:
+        service.submit_issue_retry(issue.id)
+        assert False, "终态 issue 不应能重试"
+    except IssueActionConflict:
+        pass
+
+    quality = service.issues.report(
+        IssueDraft(
+            kind=IssueKind.QUALITY_ISSUE,
+            title="质量问题",
+            summary="s",
+            resource={"type": "wiki_page", "path": "concepts/a.md"},
+        )
+    )
+    try:
+        service.submit_issue_retry(quality.id)
+        assert False, "非编译失败账不应能重试"
+    except IssueActionConflict:
+        pass
+    assert service.store.count_in_flight() == 0
 
 
 def test_retry_batch_enqueues_all_without_self_blocking(tmp_path: Path):

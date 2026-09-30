@@ -187,7 +187,7 @@ def create_app(
 
     @app.post("/api/issues/actions/retry-eligible", status_code=202)
     async def retry_eligible_issues() -> dict[str, Any]:
-        issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_in_flight_issue_ids())
+        issue_ids = issue_actions.retry_batch_candidates(exclude_issue_ids=_in_flight_issue_ids())
         jobs = job_service.submit_issue_retry_batch(issue_ids)
         return {"count": len(jobs), "tasks": [_task(job) for job in jobs]}
 
@@ -248,7 +248,7 @@ def create_app(
     @app.post("/api/issues/{issue_id}/actions/{action}", response_model=None)
     async def execute_issue_action(issue_id: str, action: str, request: IssueActionRequest) -> Any:
         if action == "retry":
-            issue_actions.validate(issue_id, action)
+            # 资格判定在提交口（JobService），入口不重复一套
             return JSONResponse(status_code=202, content=submit_retry_job(issue_id))
         if action == "rescan":
             issue_actions.validate(issue_id, action)
