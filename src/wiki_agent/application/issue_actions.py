@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 from wiki_agent.issues import (
     InvalidIssueTransitionError,
+    IssueActionConflict,
     IssueAlreadyClaimedError,
 )
 from wiki_agent.issues.models import (
@@ -187,7 +188,7 @@ class IssueActionExecutor:
         record = self.store.require(issue_id)
         allowed = {item.id for item in available_actions(record) if not item.disabled_reason}
         if action not in allowed:
-            raise ValueError(f"当前问题不允许操作: {action}")
+            raise IssueActionConflict(f"当前问题不允许操作: {action}")
         if action in {"dismiss", "reopen"}:
             return self.service.apply_simple_action(issue_id, action, payload), {}
         if action == "open_resource" or action == "open_log":
@@ -218,7 +219,7 @@ class IssueActionExecutor:
             raise SourceUnavailableError(unavailable_reason)
         allowed = {item.id for item in available_actions(record) if not item.disabled_reason}
         if action not in allowed:
-            raise ValueError(f"当前问题不允许操作: {action}")
+            raise IssueActionConflict(f"当前问题不允许操作: {action}")
         if action != "retry":
             return
         try:

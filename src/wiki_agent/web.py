@@ -9,20 +9,23 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from wiki_agent.application import InvalidInputError, SessionNotFoundError
+from wiki_agent.application import InvalidInputError, ServiceError, SessionNotFoundError
 from wiki_agent.application.runtime import AppRuntime
+from wiki_agent.compiler.restructure import UnitError
 from wiki_agent.issues import (
+    IssueActionConflict,
     IssueAlreadyClaimedError,
     IssueKind,
     IssueNotFoundError,
     IssueStatus,
 )
-from wiki_agent.jobs import PipelineBusy
+from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
+from wiki_agent.jobs.card_view import task_card
 from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import setup_event_log
 from wiki_agent.wiki import WikiPageNotFound
@@ -80,64 +83,21 @@ def create_app(
         issue_id: str, action: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         job = job_service.submit_issue_action(issue_id, action, payload)
-        return _job_task(job)
+        return _task(job)
 
     def submit_retry_job(issue_id: str) -> dict[str, Any]:
         # retry 直投 compile job（三入口同一提交点）；双击被提交点收敛
-        return _job_task(job_service.submit_issue_retry(issue_id))
+        return _task(job_service.submit_issue_retry(issue_id))
 
-    def _job_task(job) -> dict[str, Any]:
-        item = asdict(job)
-        issue_id = job.issue_id  # 挂账关系统一走 issue_id 列
-        item["issue_id"] = issue_id
-        item["action"] = job.mode
-        # sync 快照批标记——wiki commit 尾注同源，"撤销这一批"按它定位
-        item["batch"] = str(job.payload.get("batch") or "")
-        item["current_stage"] = job.stage or ("等待执行" if job.status == "queued" else "")
-        item["stage_code"] = job.stage
-        item["stage_index"] = 0
-        item["stage_total"] = 0
+    def _issue_or_none(issue_id: str):
         try:
-            issue = issue_service.get(issue_id) if issue_id else None
+            return issue_service.get(issue_id)
         except LookupError:
-            issue = None
-        if issue is not None:
-            item["title"] = issue.title
-            item["resource"] = str(
-                issue.resource.get("path") or issue.resource.get("label") or job.resource
-            )
-        else:
-            kind_labels = {
-                "compile": "编译",
-                "delete": "删除",
-                "restructure": "重组",
-                "link": "补链",
-                "issue_action": "问题处理",
-                "maintenance_preview": "整理结构分析",
-            }
-            label = kind_labels.get(job.kind, job.kind)
-            name = Path(job.resource).name if job.resource else ""
-            item["title"] = f"{label} {name}".strip()
-            item["resource"] = job.resource
-        # 维护线 job 的 resource 是内部定位键，卡片用声明内容做标题
-        if job.kind == "restructure":
-            unit = job.payload.get("unit") or {}
-            ins = "+".join(unit.get("in_pages") or []) or job.resource
-            outs = "+".join(str(p.get("slug") or "") for p in unit.get("out") or []) or "（删除）"
-            item["title"] = f"重组 {ins} → {outs}"
-            item["resource"] = ins
-        elif job.kind == "link":
-            item["title"] = f"补链 {job.payload.get('slug') or job.resource}"
-            item["resource"] = str(job.payload.get("slug") or job.resource)
-        elif job.kind == "maintenance_preview":
-            item["title"] = "整理结构分析"
-            # 分析对象就是全库，卡片以 title 为主文案，resource 不再凑字
-            item["resource"] = ""
-        if item["status"] == "succeeded":
-            item["status"] = "completed"
-        if job.status == "succeeded" and issue is not None:
-            item["result"] = asdict(issue)
-        return item
+            return None
+
+    def _task(job):
+        """队列卡片投影——视图规则在 jobs.card_view。"""
+        return task_card(job, _issue_or_none)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -150,6 +110,33 @@ def create_app(
             setup_event_log(None)
 
     app = FastAPI(title="wiki-agent", version="0.1.0", lifespan=lifespan)
+
+    # 异常→HTTP 状态集中映射：端点只写业务，站点级 try/except 全部撤除。
+    # 更具体的类型先注册（Starlette 按 MRO 找最近处理器）。
+    _status_map: list[tuple[type[Exception], int]] = [
+        (IssueNotFoundError, 404),
+        (SessionNotFoundError, 404),
+        (WikiPageNotFound, 404),
+        (InvalidInputError, 400),
+        (UnitError, 400),
+        (IssueAlreadyClaimedError, 409),
+        (IssueActionConflict, 409),
+        (SourceUnavailableError, 409),
+        (PipelineBusy, 409),
+        (SyncBaselineLag, 409),
+        (LookupError, 404),  # 任务不存在等裸键缺失
+        (ValueError, 400),  # 参数非法兜底
+        (ServiceError, 500),  # 存储失败等服务内错误，detail 透出
+    ]
+
+    def _make_handler(code: int):
+        async def handler(_: Request, exc: Exception) -> JSONResponse:
+            detail = str(exc).strip() or ("资源不存在" if code == 404 else type(exc).__name__)
+            return JSONResponse(status_code=code, content={"detail": detail})
+        return handler
+
+    for _exc_type, _code in _status_map:
+        app.add_exception_handler(_exc_type, _make_handler(_code))
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
@@ -171,21 +158,18 @@ def create_app(
         offset: int = 0,
         include_active_tasks: bool = False,
     ) -> list[dict[str, Any]]:
-        try:
-            statuses = {IssueStatus(value) for value in status.split(",") if value}
-            kinds = {IssueKind(value) for value in kind.split(",") if value} or None
-            cards = issue_service.list(
-                statuses=statuses or None,
-                kinds=kinds,
-                limit=limit,
-                offset=offset,
-            )
-            if not include_active_tasks:
-                active_ids = _in_flight_issue_ids()
-                cards = [card for card in cards if card.id not in active_ids]
-            return [asdict(card) for card in cards]
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        statuses = {IssueStatus(value) for value in status.split(",") if value}
+        kinds = {IssueKind(value) for value in kind.split(",") if value} or None
+        cards = issue_service.list(
+            statuses=statuses or None,
+            kinds=kinds,
+            limit=limit,
+            offset=offset,
+        )
+        if not include_active_tasks:
+            active_ids = _in_flight_issue_ids()
+            cards = [card for card in cards if card.id not in active_ids]
+        return [asdict(card) for card in cards]
 
     @app.get("/api/issues/summary")
     async def issue_summary() -> dict[str, int]:
@@ -203,26 +187,15 @@ def create_app(
 
     @app.post("/api/issues/actions/retry-eligible", status_code=202)
     async def retry_eligible_issues() -> dict[str, Any]:
-        try:
-            issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_in_flight_issue_ids())
-            tasks = [submit_retry_job(issue_id) for issue_id in issue_ids]
-            return {"count": len(tasks), "tasks": tasks}
-        except (
-            IssueAlreadyClaimedError,
-            SourceUnavailableError,
-            PipelineBusy,
-            ValueError,
-        ) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_in_flight_issue_ids())
+        tasks = [submit_retry_job(issue_id) for issue_id in issue_ids]
+        return {"count": len(tasks), "tasks": tasks}
 
     @app.post("/api/sync", status_code=202)
     async def trigger_sync() -> dict[str, Any]:
         """快照同步：拍 materials 现状入队一批；上一批未跑完则 409。"""
-        try:
-            jobs = job_service.submit_sync(app_runtime.materials_dir)
-        except PipelineBusy as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"count": len(jobs), "tasks": [_job_task(job) for job in jobs]}
+        jobs = job_service.submit_sync(app_runtime.materials_dir)
+        return {"count": len(jobs), "tasks": [_task(job) for job in jobs]}
 
     @app.get("/api/sync/status")
     async def sync_status() -> dict[str, int]:
@@ -238,132 +211,70 @@ def create_app(
         完成点"查看建议"打开清单。花钱前闸在提交口（写任务在途、基线
         落后或已有分析在途 409），基于动盘的提议没有执行价值。
         """
-        from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
-
-        try:
-            job = job_service.submit_maintenance_preview()
-        except (PipelineBusy, SyncBaselineLag) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"task": _job_task(job)}
+        return {"task": _task(job_service.submit_maintenance_preview())}
 
     @app.post("/api/maintenance/preview/{job_id}/resolve")
     async def maintenance_preview_resolve(job_id: str, request: PreviewResolveRequest) -> dict[str, Any]:
         """处置一次分析结果（dismissed 否决 / submitted 已入队）：建议行撤下。"""
-        try:
-            job = job_service.resolve_maintenance_preview(job_id, by=request.by)
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail="分析任务不存在") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"task": _job_task(job)}
+        return {"task": _task(job_service.resolve_maintenance_preview(job_id, by=request.by))}
 
     @app.post("/api/maintenance", status_code=202)
     async def maintenance_submit(request: MaintenanceSubmitRequest) -> dict[str, Any]:
         """确认后的单元清单整批入队（批尾自动跟波及面补链），整批同 batch。"""
-        from wiki_agent.compiler.restructure import UnitError
-        from wiki_agent.jobs import RestructureInProgress, SyncBaselineLag
-
-        try:
-            jobs = job_service.submit_maintenance(request.units)
-        except UnitError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except (PipelineBusy, RestructureInProgress, SyncBaselineLag) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        jobs = job_service.submit_maintenance(request.units)
         if not jobs:
             raise HTTPException(status_code=400, detail="单元清单为空")
         return {
             "count": len(jobs),
             "batch": str(jobs[0].payload.get("batch") or ""),
-            "tasks": [_job_task(job) for job in jobs],
+            "tasks": [_task(job) for job in jobs],
         }
 
     @app.post("/api/link", status_code=202)
     async def link_submit(request: LinkBatchRequest) -> dict[str, Any]:
         """关联扫入队：指定页（默认全库内容页），一页一 job 一提交。"""
-        from wiki_agent.jobs import SyncBaselineLag
-
-        try:
-            jobs = job_service.submit_link_batch(slugs=request.slugs)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except (PipelineBusy, SyncBaselineLag) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        jobs = job_service.submit_link_batch(slugs=request.slugs)
         batch = str(jobs[0].payload.get("batch") or "") if jobs else ""
-        return {"count": len(jobs), "batch": batch, "tasks": [_job_task(job) for job in jobs]}
+        return {"count": len(jobs), "batch": batch, "tasks": [_task(job) for job in jobs]}
 
     @app.get("/api/issues/{issue_id}")
     async def get_issue(issue_id: str) -> dict[str, Any]:
-        try:
-            return asdict(issue_service.get(issue_id))
-        except IssueNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
+        return asdict(issue_service.get(issue_id))
 
     @app.get("/api/issues/{issue_id}/resource")
     async def get_issue_resource(issue_id: str) -> dict[str, Any]:
-        try:
-            return asdict(browser.get_issue_resource(issue_id))
-        except IssueNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
-        except WikiPageNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return asdict(browser.get_issue_resource(issue_id))
 
     @app.post("/api/issues/{issue_id}/actions/{action}", response_model=None)
     async def execute_issue_action(issue_id: str, action: str, request: IssueActionRequest) -> Any:
-        try:
-            if action == "retry":
-                issue_actions.validate(issue_id, action)
-                return JSONResponse(status_code=202, content=submit_retry_job(issue_id))
-            if action == "rescan":
-                issue_actions.validate(issue_id, action)
-                task = submit_issue_job(issue_id, action, request.payload)
-                return JSONResponse(status_code=202, content=task)
-            return asdict(issue_actions.execute(issue_id, action, request.payload))
-        except IssueNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=f"问题不存在: {issue_id}") from exc
-        except IssueAlreadyClaimedError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except SourceUnavailableError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except PipelineBusy as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if action == "retry":
+            issue_actions.validate(issue_id, action)
+            return JSONResponse(status_code=202, content=submit_retry_job(issue_id))
+        if action == "rescan":
+            issue_actions.validate(issue_id, action)
+            return JSONResponse(status_code=202, content=submit_issue_job(issue_id, action, request.payload))
+        return asdict(issue_actions.execute(issue_id, action, request.payload))
 
     @app.get("/api/issue-tasks/{task_id}")
     async def get_issue_task(task_id: str) -> dict[str, Any]:
-        try:
-            return _job_task(job_service.get(task_id))
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}") from exc
+        return _task(job_service.get(task_id))
 
     @app.get("/api/issue-tasks")
     async def list_issue_tasks(limit: int = 100) -> list[dict[str, Any]]:
-        try:
-            jobs = [job for job in job_service.list(limit=limit) if job.issue_id]
-            return [_job_task(job) for job in jobs]
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        jobs = [job for job in job_service.list(limit=limit) if job.issue_id]
+        return [_task(job) for job in jobs]
 
     @app.get("/api/jobs")
     async def list_jobs(limit: int = 100) -> list[dict[str, Any]]:
-        try:
-            return [_job_task(job) for job in job_service.list(limit=limit)]
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [_task(job) for job in job_service.list(limit=limit)]
 
     @app.get("/api/wiki/pages/{page_path:path}")
     async def get_wiki_page(page_path: str) -> dict[str, Any]:
-        try:
-            return asdict(browser.get_wiki_page(page_path))
-        except WikiPageNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return asdict(browser.get_wiki_page(page_path))
 
     @app.get("/api/wiki/sources/{source_path:path}")
     async def get_wiki_source(source_path: str) -> dict[str, Any]:
-        try:
-            return asdict(browser.get_wiki_source(source_path))
-        except WikiPageNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return asdict(browser.get_wiki_source(source_path))
 
     @app.get("/api/wiki/search")
     async def search_wiki_pages(q: str, limit: int = 30) -> list[dict[str, Any]]:
@@ -373,47 +284,24 @@ def create_app(
 
     @app.post("/api/sessions", status_code=201)
     async def create_session(request: CreateSessionRequest) -> dict[str, Any]:
-        try:
-            return asdict(session_service.create_session(title=request.title))
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return asdict(session_service.create_session(title=request.title))
 
     @app.get("/api/sessions/{session_id}")
     async def get_session(session_id: str) -> dict[str, Any]:
-        try:
-            return asdict(session_service.get_session(session_id))
-        except SessionNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except InvalidInputError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return asdict(session_service.get_session(session_id))
 
     @app.get("/api/sessions/{session_id}/messages")
     async def get_session_messages(session_id: str) -> list[dict]:
-        try:
-            return [asdict(message) for message in session_service.get_session_messages(session_id)]
-        except SessionNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except InvalidInputError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [asdict(message) for message in session_service.get_session_messages(session_id)]
 
     @app.post("/api/sessions/{session_id}/messages")
     async def send_message(session_id: str, request: MessageRequest) -> dict[str, Any]:
-        try:
-            result = await session_service.send_message(session_id, request.text)
-            return asdict(result)
-        except SessionNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except InvalidInputError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        result = await session_service.send_message(session_id, request.text)
+        return asdict(result)
 
     @app.post("/api/sessions/{session_id}/messages/stream")
     async def stream_message(session_id: str, request: MessageRequest) -> StreamingResponse:
-        try:
-            session_service.get_session(session_id)
-        except SessionNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except InvalidInputError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session_service.get_session(session_id)  # 404/400 由集中映射承接
 
         async def events() -> AsyncIterator[str]:
             try:
