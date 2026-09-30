@@ -677,7 +677,7 @@ class ReActAgent(BaseAgent):
 
         if consolidated:
             # 这里不需要锁，因为session之间在while下一定是串行的，后面改成消息队列的话再处理
-            saved = await asyncio.to_thread(self.session_manager.save_checkpoint, session=session)
+            saved = await self.session_manager.asave(session)
             if saved:
                 # 压缩是历史状态整理；一旦 checkpoint 成功，即使本轮
                 # 回答后来取消，也保留它，避免下一轮重复压缩。
@@ -709,8 +709,8 @@ class ReActAgent(BaseAgent):
             initial_message_count=initail_message_count,
         )
 
-        await asyncio.to_thread(session.add_messages, messages[get_skip_count:])
-        await asyncio.to_thread(self.session_manager.save_checkpoint, session=session)
+        session.add_messages(messages[get_skip_count:])  # 纯内存操作，不值一次线程往返
+        await self.session_manager.asave(session)
 
         # on_run_end
         run_ctx.final_content = messages[-1].content if messages else ""
@@ -781,7 +781,7 @@ class ReActAgent(BaseAgent):
                     )
                 # 即使没有新增摘要，也要结束 idle 状态，避免每轮重复检查。
                 session.status = "closed"
-                await asyncio.to_thread(self.session_manager.save_checkpoint, session=session)
+                await self.session_manager.asave(session)
         return changed
 
     async def dream_loop(self, interval: int = 60):

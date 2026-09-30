@@ -132,8 +132,10 @@ def test_legacy_session_summary_is_loaded_and_rewritten_with_new_name():
     session = manager.get_or_create("legacy")
     assert session.last_summary == "旧摘要"
     assert manager.save_checkpoint(session)
-    saved = checkpoint.read_text(encoding="utf-8")
-    assert '"last_summary": "旧摘要"' in saved
+    # 新格式：meta 独立小文件，错拼字段以正名重写
+    saved = json.loads((sessions / "legacy.meta.json").read_text(encoding="utf-8"))
+    assert saved["last_summary"] == "旧摘要"
+    assert "last_summery" not in saved
     assert "last_summery" not in saved
 
 

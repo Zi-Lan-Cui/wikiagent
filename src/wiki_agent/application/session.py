@@ -247,7 +247,7 @@ class SessionService:
             if not title or session.session_title.strip() != _DEFAULT_SESSION_TITLE:
                 return
             session.session_title = title
-            await asyncio.to_thread(self._session_manager.save_checkpoint, session=session)
+            await self._session_manager.asave(session)
 
         task = asyncio.create_task(_work(), name=f"wiki-title:{session.key}")
         self._title_tasks.add(task)
