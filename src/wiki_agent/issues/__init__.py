@@ -3,6 +3,7 @@
 from wiki_agent.issues.models import (
     InvalidIssueTransitionError,
     IssueAction,
+    IssueActionConflict,
     IssueAlreadyClaimedError,
     IssueCard,
     IssueDraft,
@@ -18,6 +19,7 @@ from wiki_agent.issues.store import IssueStore, issue_fingerprint
 __all__ = [
     "InvalidIssueTransitionError",
     "IssueAction",
+    "IssueActionConflict",
     "IssueAlreadyClaimedError",
     "IssueCard",
     "IssueDraft",

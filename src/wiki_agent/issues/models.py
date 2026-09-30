@@ -144,5 +144,9 @@ class InvalidIssueTransitionError(ValueError):
     """Raised when a lifecycle transition violates the state machine."""
 
 
+class IssueActionConflict(RuntimeError):
+    """问题现状不允许该操作（如已解决还要重试）——可等待后复查的冲突。"""
+
+
 class IssueAlreadyClaimedError(RuntimeError):
     """Raised when another worker has already claimed an issue action."""
