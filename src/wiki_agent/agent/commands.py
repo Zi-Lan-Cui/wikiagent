@@ -16,9 +16,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 from uuid import uuid4
 
-from wiki_agent.config import load_config
+from wiki_agent.application.issue_actions import resolve_correction_issue
+from wiki_agent.application.maintenance_flow import gate_text, run_maintain
 from wiki_agent.events import CommandProgress, RunContext
+from wiki_agent.issues import IssueKind, IssueStatus
+from wiki_agent.issues.producers import report_quality_findings
+from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
+from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.versioning import WikiGitManager
+from wiki_agent.wiki import WikiPageNotFound, read_page, search_pages
+from wiki_agent.wiki.quality import (
+    cleanup_exact_duplicates,
+    format_scan_report,
+    scan_wiki,
+)
 
 if TYPE_CHECKING:
     from wiki_agent.agent import ReActAgent
@@ -240,18 +252,8 @@ class CommandRouter:
 
 
 def _wiki_root(ctx: CommandContext) -> Path | None:
-    """从工具注册表拿 wiki 根（ReadFile 的公开 root 属性）。
-
-    Args:
-        ctx: 命令上下文。
-
-    Returns:
-        wiki 根路径；ReadFile 未注册时返回 None。
-    """
-    read_file = ctx.agent.tool_registry.get("ReadFile")
-    if read_file is None:
-        return None
-    return Path(read_file.root)
+    """wiki 根来自装配根注入的 agent.wiki_dir——不再从工具注册表探测。"""
+    return ctx.agent.wiki_dir
 
 
 def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
@@ -265,21 +267,6 @@ def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
     if agent.job_service is None:
         return 0
     return agent.job_service.wiki_write_in_flight()
-
-
-def _maintenance_gate_text(job_service) -> str | None:
-    """/maintain 与 /link 共用的花钱前预检：在途或基线落后返回暂拒文案，None=放行。
-
-    提交口（JobService._raise_if_maintenance_blocked）在事务内还会复查同一
-    判定——这里只是把注定失败的提交挡在 LLM 分析之前，文案以查询派生。
-    """
-    if job_service.wiki_write_in_flight() > 0:
-        return "写 wiki 的任务有在途，等当前批到终态后再执行。"
-    lag = job_service.sync_baseline_lag()
-    if lag:
-        preview = "、".join(sorted(lag)[:3])
-        return f"{len(lag)} 个源未同步（{preview}）。请先 /compile（快照 sync）追平基线。"
-    return None
 
 
 # 内置命令
@@ -305,9 +292,6 @@ class ResolveCommand(Command):
     description = "裁决 QA 纠错条目（accept 确认待修 / reject 驳回 / keep 存疑）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.application.issue_actions import resolve_correction_issue
-        from wiki_agent.issues import IssueKind, IssueStatus
-
         service = ctx.agent.issue_service
         args = ctx.args.strip()
         corrections = service.list(
@@ -359,8 +343,6 @@ class QueueCommand(Command):
     description = "查看问题中心（/queue retry <id> / done <id>）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.issues import IssueStatus
-
         issue_service = ctx.agent.issue_service
         args = ctx.args.strip()
 
@@ -373,12 +355,7 @@ class QueueCommand(Command):
             return CommandResult(text=f"# 问题中心\n\n✅ 已忽略: {item_id}")
 
         if args == "retry-all" or args.startswith("retry "):
-            from wiki_agent.issues import IssueKind
-            from wiki_agent.jobs import PipelineBusy
-            from wiki_agent.jobs.retry_source import SourceUnavailableError
-            from wiki_agent.jobs.service import JobService
-
-            job_service: JobService | None = ctx.agent.job_service
+            job_service = ctx.agent.job_service
             if job_service is None:
                 return CommandResult(
                     text="# source 失败重试\n\n当前进程未接入 Job 队列（仅组装了 job_service 的入口可用）。"
@@ -442,20 +419,12 @@ class ScanCommand(Command):
     description = "扫描 Wiki 质量并自动清理完全重复页面"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.wiki.quality import (
-            cleanup_exact_duplicates,
-            format_scan_report,
-            scan_wiki,
-        )
-
         wiki = _wiki_root(ctx)
         if wiki is None:
             return CommandResult(text="# /scan 失败\n\n无法定位 wiki 目录。")
 
         removed = cleanup_exact_duplicates(wiki)
         issues = scan_wiki(wiki)
-        from wiki_agent.issues.producers import report_quality_findings
-
         report_quality_findings(
             ctx.agent.issue_service,
             issues,
@@ -481,8 +450,6 @@ class CompileCommand(Command):
     description = "编译 source 文件夹（一次快照 sync；首次运行即全量编译）"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.jobs import PipelineBusy
-
         try:
             args = shlex.split(ctx.args.strip())
         except ValueError as exc:
@@ -498,11 +465,12 @@ class CompileCommand(Command):
         if job_service is None:
             return CommandResult(text="# /compile\n\n当前会话未装配任务队列（无执行入口）。")
 
-        target = (
-            Path(args[0]).expanduser().resolve()
-            if args
-            else load_config(project_root=ctx.agent.workspace.resolve().parent).paths.resolved_materials_dir()
-        )
+        if args:
+            target = Path(args[0]).expanduser().resolve()
+        elif ctx.agent.materials_dir is not None:
+            target = ctx.agent.materials_dir
+        else:
+            return CommandResult(text="# /compile\n\n当前进程未装配默认源目录，请显式传入路径。")
         if not target.is_dir():
             return CommandResult(text=f"# /compile\n\n源目录不存在: {target}")
         try:
@@ -555,8 +523,6 @@ class WikiCommand(Command):
     description = "Wiki 页面与版本管理：open / search / history / diff / revert / revert-batch"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        from wiki_agent.versioning import WikiGitManager
-
         wiki = _wiki_root(ctx)
         if wiki is None:
             return CommandResult(text="# /wiki 失败\n\n无法定位 wiki 目录。")
@@ -566,8 +532,6 @@ class WikiCommand(Command):
             if action == "open":
                 if len(args) != 2:
                     return CommandResult(text="# /wiki open\n\n用法: `/wiki open <页面路径>`")
-                from wiki_agent.wiki import WikiPageNotFound, read_page
-
                 try:
                     page = read_page(wiki, args[1])
                 except WikiPageNotFound:
@@ -588,8 +552,6 @@ class WikiCommand(Command):
                     return CommandResult(text="# /wiki search\n\n关键词不能为空。")
                 if not 1 <= limit <= 100:
                     return CommandResult(text="`limit` 必须在 1 到 100 之间。")
-                from wiki_agent.wiki import search_pages
-
                 pages = search_pages(wiki, query, limit=limit)
                 if not pages:
                     return CommandResult(text=f"# Wiki search\n\n没有找到包含 `{query}` 的页面。")
@@ -676,17 +638,11 @@ class MaintainCommand(Command):
     description = "结构重组入队（单元 + 批尾补链）；--dry-run 只预览提议"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        """/maintain 不直接写 wiki——提议在提交侧同步算，确认后入队串行执行。
-
-        前提检查都在花钱之前：队列有在途写任务、或存在未同步（且未挂
-        失败账）的源时直接暂拒，dry-run 同样——基于动盘或落后基线算出的
-        提议没有执行价值。逐条确认走 scripts/restructure_wiki.py，
-        本命令无交互全收。想撤销整批用 ``/wiki revert-batch <batch_id>``。
+        """/maintain 不直接写 wiki——流程（预检→提议→入队）在 application 层的
+        run_maintain，命令只解析参数与格式化。逐条确认走
+        scripts/restructure_wiki.py，本命令无交互全收；整批撤销用
+        ``/wiki revert-batch <batch_id>``。
         """
-        from wiki_agent.application.restructure_service import propose_maintenance
-        from wiki_agent.compiler.restructure import UnitError
-        from wiki_agent.jobs import PipelineBusy, RestructureInProgress, SyncBaselineLag
-
         wiki = _wiki_root(ctx)
         if wiki is None:
             return CommandResult(text="# /maintain 失败\n\n无法定位 wiki 目录。")
@@ -700,16 +656,13 @@ class MaintainCommand(Command):
                 text=f"# /maintain 参数不识别: {bad}\n\n用法: `/maintain [--dry-run]`"
             )
         dry_run = "--dry-run" in tokens
-        blocked = _maintenance_gate_text(job_service)
-        if blocked:
-            return CommandResult(text=f"# /maintain 提交暂拒\n\n{blocked}")
-        try:
-            outcome = await propose_maintenance(ctx.agent.llm, wiki)
-        except Exception as e:
-            return CommandResult(
-                text=f"# /maintain 分析失败\n\n{type(e).__name__}: {str(e)[:200]}"
-            )
-
+        flow = await run_maintain(ctx.agent.llm, wiki, job_service, dry_run=dry_run)
+        if flow.blocked:
+            return CommandResult(text=f"# /maintain 提交暂拒\n\n{flow.blocked}")
+        if flow.error:
+            return CommandResult(text=f"# /maintain 分析失败\n\n{flow.error}")
+        outcome = flow.outcome
+        assert outcome is not None
         lines = ["# /maintain dry-run" if dry_run else "# /maintain", ""]
         lines.append(
             f"提议: {len(outcome.proposed)} 初提 → {len(outcome.confirmed)} 复核保留 → "
@@ -730,18 +683,14 @@ class MaintainCommand(Command):
         if dry_run:
             lines.append("\ndry-run：未入队。")
             return CommandResult(text="\n".join(lines))
-        try:
-            jobs = job_service.submit_maintenance([u.to_dict() for u in outcome.accepted])
-        except UnitError as exc:
-            return CommandResult(text="\n".join(lines) + f"\n\n入队拒绝——单元与盘面不符: {exc}")
-        except (PipelineBusy, RestructureInProgress, SyncBaselineLag) as exc:
-            return CommandResult(text="\n".join(lines) + f"\n\n提交暂拒——{exc}。")
-        if not jobs:
+        if flow.submit_rejected:
+            return CommandResult(text="\n".join(lines) + f"\n\n{flow.submit_rejected}")
+        if not flow.jobs:
             return CommandResult(text="\n".join(lines) + "\n\n没有可入队的单元。")
-        batch = str(jobs[0].payload.get("batch") or "")
-        n_units = sum(1 for j in jobs if j.kind == "restructure")
+        batch = str(flow.jobs[0].payload.get("batch") or "")
+        n_units = sum(1 for j in flow.jobs if j.kind == "restructure")
         lines.append(
-            f"\n已入队: {n_units} 个单元 + {len(jobs) - n_units} 个补链"
+            f"\n已入队: {n_units} 个单元 + {len(flow.jobs) - n_units} 个补链"
             f"（批 {batch}；某单元核对不过只撤该单元；整批回撤: /wiki revert-batch {batch}）"
         )
         return CommandResult(text="\n".join(lines))
@@ -759,8 +708,6 @@ class LinkCommand(Command):
         维护批的批尾 link 只覆盖波及面；"老页该链新页"这类发现型需求由
         这里的全库扫承接。互斥与基线检查与 /maintain 同一套，前置执行。
         """
-        from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
-
         wiki = _wiki_root(ctx)
         if wiki is None:
             return CommandResult(text="# /link 失败\n\n无法定位 wiki 目录。")
@@ -773,7 +720,7 @@ class LinkCommand(Command):
             return CommandResult(
                 text=f"# /link 参数不识别: {flags}\n\n用法: `/link [页slug...]`"
             )
-        blocked = _maintenance_gate_text(job_service)
+        blocked = gate_text(job_service)
         if blocked:
             return CommandResult(text=f"# /link 提交暂拒\n\n{blocked}")
         try:

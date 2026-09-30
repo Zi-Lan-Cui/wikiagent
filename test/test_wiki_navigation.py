@@ -87,7 +87,7 @@ def test_wiki_command_open_and_search(tmp_path: Path):
         key="wiki",
         args="open decorators.md",
         session=Session("test"),
-        agent=SimpleNamespace(tool_registry=Registry()),
+        agent=SimpleNamespace(tool_registry=Registry(), wiki_dir=wiki),
     )
     opened = asyncio.run(WikiCommand().execute(context))
     assert opened.text == "# decorators.md\n\n# Decorators\n\nmetadata"

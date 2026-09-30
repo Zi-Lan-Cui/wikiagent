@@ -81,6 +81,7 @@ def test_scan_command_returns_formatted_report(tmp_path: Path):
 
     class _Agent:
         tool_registry = _Registry()
+        wiki_dir = wiki
         # /scan 收尾把发现写进问题账本——issue_service 是命令层的必备能力
         issue_service = make_issue_service(tmp_path / "workspace")
 
