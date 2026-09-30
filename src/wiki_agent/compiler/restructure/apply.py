@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from wiki_agent.wiki.frontmatter import list_field, set_fields, split_frontmatter
+from wiki_agent.wiki.pages import index_line
 
 from .models import Unit
 from .plan import UnitPlan
@@ -105,12 +106,19 @@ def _index_append(wiki_dir: Path, slug: str) -> None:
     if f"[[{slug}]]" in existing:
         return
     fm, _ = split_frontmatter((wiki_dir / f"{slug}.md").read_text(encoding="utf-8"))
-    line = (
-        f"- [[{slug}]] — [{fm.get('type', '')}] {slug}.md — {fm.get('title', slug.rsplit('/', 1)[-1])}"
+    index.write_text(
+        existing.rstrip()
+        + "\n"
+        + index_line(
+            slug,
+            str(fm.get("type", "")),
+            str(fm.get("title", slug.rsplit("/", 1)[-1])),
+            " ".join(str(fm.get("summary", "")).splitlines()),
+            " ".join(str(fm.get("goal", "")).splitlines()),
+        )
+        + "\n",
+        encoding="utf-8",
     )
-    if fm.get("summary"):
-        line += f" — {fm['summary']}"
-    index.write_text(existing.rstrip() + "\n" + line + "\n", encoding="utf-8")
 
 
 def apply_unit(

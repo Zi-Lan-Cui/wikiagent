@@ -13,6 +13,7 @@ from wiki_agent.errors import IngestStage
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.pages import slug_from_ref
 from wiki_agent.wiki.sections import TOP_LABEL, pick_gist_limit, text_sections
 
 logger = get_logger("STAGES")
@@ -45,7 +46,7 @@ def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
         related = fm.get("related", "")
         gaps = fm.get("gaps", "")
         goal = fm.get("goal", "")
-        slug = path.replace("wiki/", "").replace(".md", "")
+        slug = slug_from_ref(path)
         meta = f"- [[{slug}]] — [{page_type}] {path} — {title}"
         if summary:
             meta += f" — {summary}"
@@ -112,7 +113,7 @@ class Analyzer:
         for path in result.rel_paths:
             content = await self._read_page(path)
             fm = split_frontmatter(content)[0] if content else {}
-            slug = path.replace("wiki/", "").replace(".md", "")
+            slug = slug_from_ref(path)
             parsed.append((path, fm, text_sections(content, slug) if content else []))
         outlines = render_candidates(parsed)
 

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.wiki.frontmatter import list_field, split_frontmatter
 from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR
 from wiki_agent.wiki.sections import Section, page_sections
@@ -32,12 +33,8 @@ class UnitPlan:
 
 
 def _existing_slugs(wiki_dir: Path) -> set[str]:
-    return {
-        f"{p.parent.name}/{p.stem}"
-        for d in PAGE_TYPE_BY_DIR
-        for p in (wiki_dir / d).rglob("*.md")
-        if p.parent == wiki_dir / d
-    }
+    # 名册唯一来源 content_pages（含嵌套层级）——此前本地实现只认一层目录
+    return set(all_content_slugs(wiki_dir))
 
 
 def _frontmatter_for(wiki_dir: Path, page: OutPage) -> dict:

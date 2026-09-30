@@ -24,6 +24,7 @@ from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestStage
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.wiki.pages import slug_from_ref
 
 logger = get_logger("STAGES")
 
@@ -150,7 +151,7 @@ class CuratorPlanner(Planner):
         valid_slugs = load_valid_slugs(self._wiki_dir)
         for t in plan.page_targets:
             if t.disposition == Disposition.NEW:
-                valid_slugs.add(t.wiki_path.replace(".md", ""))
+                valid_slugs.add(slug_from_ref(t.wiki_path))
         if valid_slugs:
             filter_plan_refs(plan.page_targets, valid_slugs)
 

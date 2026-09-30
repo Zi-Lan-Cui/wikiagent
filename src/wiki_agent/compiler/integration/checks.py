@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 from wiki_agent.compiler.integration.parse import extract_analyze_parts, strip_fence
-from wiki_agent.wiki.pages import CONTENT_DIRS, TYPE_DIR
+from wiki_agent.wiki.pages import CONTENT_DIRS, TYPE_DIR, slug_from_ref
 
 _VALID_RELATIONS = {"duplicate", "extends", "related", "contradicts", "unrelated"}
 # "重要" 是 LLM 的自然语言高频词（实测违规全是它）——
@@ -47,10 +47,10 @@ def check_analyze_json(
     # from/to 合法集合由候选归一化而来——校验逻辑的内部构造，调用方只给原始候选
     valid_refs: set[str] | None = None
     if candidates:
-        valid_refs = {c.replace("wiki/", "").replace(".md", "") for c in candidates}
+        valid_refs = {slug_from_ref(c) for c in candidates}
         valid_refs.add("current-doc")
         if extra_refs:
-            valid_refs |= {r.replace("wiki/", "").replace(".md", "").strip() for r in extra_refs}
+            valid_refs |= {slug_from_ref(r) for r in extra_refs}
 
     _, json_part = extract_analyze_parts(content)
     if not json_part:
@@ -111,7 +111,7 @@ def check_analyze_json(
         if valid_refs:
             for field in ("from", "to"):
                 raw_v = str(r.get(field, "")).strip()
-                norm_v = raw_v.replace("wiki/", "").replace(".md", "")
+                norm_v = slug_from_ref(raw_v)
                 if norm_v not in valid_refs:
                     return False, (
                         f"relationships[{i}].{field} 引用不存在: {raw_v!r}。"
@@ -175,7 +175,7 @@ def check_plan_json(
             return False, f"page_targets[{i}].wiki_path 不能为空。"
         # 路由校验——页面只允许落在内容目录；目录外的页面在 scan_wiki
         # 里完全隐形（实测模型造过 languages/、tools/ 这类目录）
-        first_seg = path.replace("wiki/", "").split("/", 1)[0]
+        first_seg = slug_from_ref(path).split("/", 1)[0]
         if first_seg not in CONTENT_DIRS:
             return False, (
                 f"page_targets[{i}].wiki_path 目录非法: {path!r}。"

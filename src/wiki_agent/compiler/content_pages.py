@@ -15,7 +15,10 @@ def all_content_slugs(wiki_dir: str | Path) -> list[str]:
         d = wiki / sub
         if not d.is_dir():
             continue
-        slugs.extend(f"{sub}/{p.stem}" for p in sorted(d.rglob("*.md")))
+        # relative_to 保层级：嵌套页 concepts/a/b.md 的 slug 是 concepts/a/b
+        slugs.extend(
+            str(p.relative_to(wiki).with_suffix("")) for p in sorted(d.rglob("*.md"))
+        )
     return slugs
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from wiki_agent.wiki.pages import slug_from_ref
+
 
 def extract_slugs_from_index(index_content: str) -> set[str]:
     """从 wiki/index.md 提取所有已有页面 slug。
@@ -22,7 +24,7 @@ def extract_slugs_from_index(index_content: str) -> set[str]:
         slug = m.group(1).strip()
         # 只收集 entities/、concepts/、topics/ 下的 slug，不含 .md
         if re.match(r"^(entities|concepts|topics)/", slug):
-            slugs.add(slug.replace(".md", ""))
+            slugs.add(slug_from_ref(slug))
     return slugs
 
 
