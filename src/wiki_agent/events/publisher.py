@@ -10,6 +10,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from wiki_agent.events.hooks import AgentHook, CommandProgress, RunContext
+from wiki_agent.log import get_logger
+
+logger = get_logger("EVENT_PUB")
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +44,7 @@ class EventPublisher(AgentHook):
             raise ValueError("queue_size 必须至少为 1")
         self._queue_size = queue_size
         self._subscribers: dict[str, set[asyncio.Queue[AgentEvent]]] = {}
+        self._dropped: dict[str, int] = {}
         self._lock = asyncio.Lock()
 
     async def publish(
@@ -57,7 +61,15 @@ class EventPublisher(AgentHook):
         async with self._lock:
             queues = tuple(self._subscribers.get(context.run_id, ()))
         for queue in queues:
-            await queue.put(event)
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                # 慢消费者（卡住的 SSE）不得背压 agent 回合本体——丢事件
+                # 并计数；回合与落库不受影响，订阅方以断开重连兜底。
+                n = self._dropped.get(context.run_id, 0) + 1
+                self._dropped[context.run_id] = n
+                if n == 1 or n % 50 == 0:
+                    logger.warning("run %s 事件队列满，已丢弃 %d 条（消费过慢）", context.run_id, n)
         return event
 
     @asynccontextmanager
@@ -75,6 +87,7 @@ class EventPublisher(AgentHook):
                     subscribers.discard(queue)
                     if not subscribers:
                         self._subscribers.pop(run_id, None)
+                    self._dropped.pop(run_id, None)
 
     async def _emit(self, context: RunContext, event_type: str, **data: Any) -> None:
         await self.publish(context, event_type, data)
@@ -101,7 +114,11 @@ class EventPublisher(AgentHook):
         self, context: RunContext, command: str, task_id: str, result: Any
     ) -> None:
         await self._emit(
-            context, "command_finished", command=command, task_id=task_id, result=str(result)
+            context,
+            "command_finished",
+            command=command,
+            task_id=task_id,
+            result=str(result)[:2000],
         )
 
     async def on_command_error(
@@ -136,7 +153,7 @@ class EventPublisher(AgentHook):
             "tool_finished",
             tool_name=tool_name,
             tool_call_id=tool_call_id,
-            result=str(result),
+            result=str(result)[:2000],
         )
 
     async def on_tool_error(
