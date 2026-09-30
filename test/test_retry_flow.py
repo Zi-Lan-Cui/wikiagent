@@ -45,7 +45,7 @@ def test_issue_retry_creates_job(tmp_path: Path):
     assert job.payload["digest"] == digest_file_text(source)[0]
     # "在途"由 jobs join 表达——issue 保持 open，无镜像状态
     assert service.issues.get(issue.id).status == IssueStatus.OPEN
-    assert service.store.has_in_flight_job_by_issue(issue.id)
+    assert service.store.in_flight_job_by_issue(issue.id) is not None
 
 
 def test_double_retry_click_single_job(tmp_path: Path):
@@ -185,7 +185,7 @@ def test_final_result_persists_bounded_facts_only(tmp_path: Path):
     from wiki_agent.jobs import JobResult, Kind
 
     service = make_job_service(tmp_path)
-    job = service.submit(kind=Kind.COMPILE, resource="/doc.md", mode="sync")
+    service.submit(kind=Kind.COMPILE, resource="/doc.md", mode="sync")
     claimed = service.claim_next(kinds={Kind.COMPILE})
     assert claimed is not None
     done = service.complete_with_outcome(

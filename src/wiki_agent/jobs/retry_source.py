@@ -33,10 +33,10 @@ def resolve_retry_source(issue: IssueRecord) -> Path:
     """
     raw_path = str(issue.context.get("source_path") or "").strip()
     if raw_path:
+        # source_path 由提交口写 resolve() 后的绝对路径；相对形态不再兜底
+        # （按 cwd 解析会随启动方式漂移，命中即错账）
         candidate = Path(raw_path)
-        if not candidate.is_absolute():
-            candidate = (Path.cwd() / candidate).resolve()
-        if candidate.is_file():
+        if candidate.is_absolute() and candidate.is_file():
             return candidate
     label = str(issue.resource.get("path") or "").strip() or raw_path or "未知来源"
     raise SourceUnavailableError(f"原始来源已不存在，请重新提供后再编译: {Path(label).name}")
