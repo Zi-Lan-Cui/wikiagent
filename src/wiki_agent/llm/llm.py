@@ -146,7 +146,7 @@ class LLMClient:
             组装好的 LLMResponse。
 
         Raises:
-            翻译后的三分类异常（RetryableError/HandleableError/FatalError）。
+            翻译后的异常分类（RetryableError/FatalError）。
         """
         try:
             response = self.client.chat.completions.create(
@@ -508,47 +508,3 @@ class LLMClient:
             content=content_buffer,
             tool_calls=tool_calls_list,
         )
-
-
-if __name__ == "__main__":
-    from pathlib import Path
-
-    from wiki_agent.config import load_config
-
-    root = Path(__file__).parent.parent.parent.parent
-    client = LLMClient(load_config(project_root=root).llm)
-
-    messages = [Message(role="user", content="hello")]
-    response = client.invoke(messages)
-    print(response.content)
-    print(response.finish_reason)
-
-    # import time
-
-    # # 先测单次平均耗时
-    # print("=" * 50)
-    # h = [Message(role="user", content="hello")]
-    # t = time.time()
-    # client.invoke(h)
-    # avg = time.time() - t
-    # print(f"单次请求耗时: {avg:.2f}s")
-    # print(f"估算 9 条同步: {avg*9:.1f}s")
-
-    # async def call_one(query):
-    #     h = ChatHistory(messages=Message(role="user", content=query))
-    #     return await client.async_invoke(h)
-
-    # async def test(count):
-    #     tasks = [asyncio.create_task(call_one(f"一句话介绍第{i}种语言")) for i in range(count)]
-    #     start = time.time()
-    #     await asyncio.gather(*tasks)
-    #     return time.time() - start
-
-    # print("\n" + "=" * 50)
-    # print("异步并发测试:")
-    # for n in [3, 6, 9]:
-    #     elapsed = asyncio.run(test(n))
-    #     print(f"  {n} 条并发 → {elapsed:.2f}s (≈同步 {elapsed/n:.2f}s/条)")
-
-    # print(f"\n结论: 3 条 {asyncio.run(test(3)):.1f}s, 9 条 {asyncio.run(test(9)):.1f}s")
-    # print(f"请求量 3x, 耗时不随请求数线性增长")

@@ -114,17 +114,8 @@ class EventPublisher(AgentHook):
     async def on_command_cancelled(self, context: RunContext, command: str, task_id: str) -> None:
         await self._emit(context, "command_cancelled", command=command, task_id=task_id)
 
-    async def on_iteration_start(self, context: RunContext) -> None:
-        await self._emit(context, "iteration_started")
-
-    async def on_iteration_end(self, context: RunContext) -> None:
-        await self._emit(context, "iteration_finished")
-
     async def on_stream_delta(self, context: RunContext, delta: str) -> None:
         await self._emit(context, "text_delta", delta=delta)
-
-    async def on_stream_end(self, context: RunContext) -> None:
-        await self._emit(context, "text_finished")
 
     async def on_tool_call_start(
         self, context: RunContext, tool_name: str, tool_call_id: str, arguments: dict[str, Any]
