@@ -136,9 +136,11 @@ async def connect_mcp_servers(
 
             tools = await session.list_tools()
 
+            registered: list[str] = []
             for tool in tools.tools:
                 wrappered_tool = MCPToolWrapper(session, name, tool)
                 tool_registry.register(wrappered_tool)
+                registered.append(wrappered_tool.name)
 
             if cfg.need_resources:
                 # Resources 支持未实现，只探测记录、不注册
@@ -157,7 +159,7 @@ async def connect_mcp_servers(
                     len(prompts.prompts),
                 )
 
-            return name, session, server_stack
+            return name, session, server_stack, registered
 
         except BaseException:
             # 连接阶段失败——当场清理全部 context。泄漏给 GC 的
@@ -181,8 +183,9 @@ async def connect_mcp_servers(
         async def own_connection():
             stack: AsyncExitStack | None = None
             session = None
+            registered: list[str] = []
             try:
-                _, session, stack = await open_single_server(name, cfg)
+                _, session, stack, registered = await open_single_server(name, cfg)
                 if not ready.done():
                     ready.set_result(stack is not None)
                 if stack is None:
@@ -234,6 +237,10 @@ async def connect_mcp_servers(
                         # AsyncExitStack 关闭 ClientSession 在先、sse_client 在后，
                         # sse_reader 后台任务可能往已关闭的流写入，触发 BrokenResourceError，属于无害关闭噪音
                         pass
+                # 连接生命周期结束（假死或正常关闭）即摘除该 server 的
+                # 工具——留下的只会让模型对着死连接撞熔断
+                for tool_name in registered:
+                    tool_registry.unregister(tool_name)
 
         owner = asyncio.create_task(own_connection(), name=f"mcp:{name}")
         connection = MCPConnection(owner, close_requested, dead)
