@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal
 
 from wiki_agent.errors import (
-    HandleableError,
     RetryableError,
     WikiAgentError,
 )
@@ -123,12 +122,6 @@ class BaseTool(ABC):
                 retryable=True,
                 next_action="稍后重试；如果问题持续，请换用其他工具或告知用户。",
             )
-        if isinstance(error, HandleableError):
-            return self.error_result(
-                "recoverable_error",
-                str(error) or "工具执行需要修复",
-                next_action="根据错误信息修正参数后再调用；如果仍失败，请停止重复调用。",
-            )
         return self.error_result(
             "tool_error",
             str(error) or "工具未能完成请求",
@@ -144,18 +137,3 @@ class BaseTool(ABC):
         """
         raise NotImplementedError
 
-    @classmethod
-    def openai_schema(cls):
-        """构造 OpenAI 工具 schema。
-
-        Returns:
-            注册/调用用 schema 字典（name/description/parameters）。
-        """
-        return {
-            "type": "function",
-            "function": {
-                "name": cls.name,
-                "description": cls.description,
-                "parameters": cls.parameters,
-            },
-        }

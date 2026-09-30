@@ -144,42 +144,6 @@ class Message(BaseModel):
             ]
         return result
 
-    @classmethod
-    def create_from_openai(cls, data: dict) -> "Message":
-        """从 OpenAI 格式响应构造 Message。
-
-        Args:
-            data: OpenAI 格式消息字典（role/content/tool_calls/...）。
-
-        Returns:
-            转换后的 Message；多模态 content 数组会被还原为纯文本。
-        """
-        tool_calls = []
-        for tool_call in data.get("tool_calls", []):
-            args = tool_call["function"]["arguments"]
-            if isinstance(args, str):
-                args = json.loads(args)
-            tool_calls.append(
-                ToolCall(
-                    id=tool_call["id"],
-                    name=tool_call["function"]["name"],
-                    arguments=args,
-                )
-            )
-
-        content = data.get("content", "")
-        # 还原纯文本（如果 LLM 返回了多模态 content 数组）
-        if isinstance(content, list):
-            parts = [p["text"] for p in content if p.get("type") == "text"]
-            content = "\n".join(parts) if parts else ""
-
-        return Message(
-            role=data["role"],
-            content=content,
-            tool_calls=tool_calls,
-            tool_call_id=data.get("tool_call_id", ""),
-        )
-
 
 class LLMResponse(BaseModel):
     role: str = "assistant"
