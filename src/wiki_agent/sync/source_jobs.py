@@ -129,7 +129,7 @@ class SourceJobHandler:
         离开必收敛回 HEAD；分发内只管 write.commit() / write.abort_export()。
         """
         with self._session.open(job) as write:
-            progress("load")
+            progress("读取资料")
             if job.kind == Kind.DELETE:
                 return self._handle_delete(job, write)
             if job.kind != Kind.COMPILE:
@@ -237,7 +237,7 @@ class SourceJobHandler:
         # 业务身份回到原路径：prompt、档案页、失败 detail 都不能出现快照目录
         summary.files[0].path = path
 
-        progress("ingest")
+        progress("编译成页")
         try:
             outcome = await self._pipeline.ingest_one(summary.files[0])
         except IngestError as exc:
