@@ -5,15 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
-from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.sections import page_sections
 
 from . import prompts
-from .models import Unit
+from .models import Unit, UnitError
 from .propose import read_wiki_const
 
 logger = get_logger("RESTRUCTURE")
@@ -41,27 +41,32 @@ async def recheck_units(
             ))
         return entries
     for unit in units:
-        response = await async_invoke_with_retry(
-            llm,
-            [
-                Message(role="system", content=prompts.RECHECK_SYSTEM),
-                Message(
-                    role="user",
-                    content=prompts.recheck_user(
-                        unit,
-                        prompts.section_outline(section_entries(unit.in_pages + unit.out_slugs)),
-                        read_wiki_const(wiki_dir, "schema.md"),
+        try:
+            response = await invoke_checked(
+                llm,
+                action="复核",
+                error=UnitError,
+                messages=[
+                    Message(role="system", content=prompts.RECHECK_SYSTEM),
+                    Message(
+                        role="user",
+                        content=prompts.recheck_user(
+                            unit,
+                            prompts.section_outline(
+                                section_entries(unit.in_pages + unit.out_slugs)
+                            ),
+                            read_wiki_const(wiki_dir, "schema.md"),
+                        ),
                     ),
-                ),
-            ],
-            # 复核开思考：思考段计入 max_tokens，1024 会被吃光致输出为空
-            max_tokens=4096,
-            check=prompts.check_recheck_json,
-            max_attempts=2,
-            response_format=JSON_MODE,
-        )
-        if not response.check_ok:
-            rejected.append((unit, f"复核校验失败: {response.check_reason}"))
+                ],
+                # 复核开思考：思考段计入 max_tokens，1024 会被吃光致输出为空
+                max_tokens=4096,
+                check=prompts.check_recheck_json,
+                max_attempts=2,
+                response_format=JSON_MODE,
+            )
+        except UnitError as exc:
+            rejected.append((unit, str(exc)))
             continue
         data = prompts.json_of(response.content)
         if data["keep"]:
