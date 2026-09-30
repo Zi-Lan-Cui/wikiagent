@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from wiki_agent.jobs.errors import DuplicateInFlightJob
-from wiki_agent.jobs.models import Job
+from wiki_agent.jobs.models import Detail, Job
 from wiki_agent.persistence import Database
 
 # "在途"的唯一定义：queued + running。所有查询与唯一索引共用这一片段。
@@ -78,13 +78,19 @@ class JobStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     idempotency_key TEXT UNIQUE,
-                    issue_id TEXT
+                    issue_id TEXT,
+                    result_json TEXT NOT NULL DEFAULT '{}'
                 );
                 """
             )
             # schema v2：老库补列（幂等，OperationalError=duplicate column）
             try:
                 db.execute("ALTER TABLE jobs ADD COLUMN issue_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+            # schema v4：handler 结果明细随终态落库（分析类 job 的产出处）
+            try:
+                db.execute("ALTER TABLE jobs ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'")
             except sqlite3.OperationalError:
                 pass
             # schema v3：手动重试模型——排程列作废，老库的 next_run_at 删除
@@ -203,12 +209,14 @@ class JobStore:
         status: str,
         stage: str | None = None,
         error: str | None = None,
+        result: Detail | None = None,
         _conn: sqlite3.Connection | None = None,
     ) -> bool:
         """终态 CAS：仅当行仍是 running 时写入，返回是否命中。
 
         先到者翻转终态后，迟到写（被取代的 handler、崩溃重放的旧持有者）
         必不命中——终态与 outcome 联动只发生一次。
+        result 随终态一并落库（handler 申报的执行结果明细）。
         """
         sets = ["status = ?"]
         values: list[object] = [status]
@@ -218,6 +226,9 @@ class JobStore:
         if error is not None:
             sets.append("error = ?")
             values.append(error)
+        if result is not None:
+            sets.append("result_json = ?")
+            values.append(json.dumps(result, ensure_ascii=False))
         sets.append("updated_at = ?")
         values.extend([_now(), job_id])
         with self._tx(_conn) as db:
@@ -228,6 +239,15 @@ class JobStore:
                 ).rowcount
                 > 0
             )
+
+    def set_result(self, job_id: str, result: Detail) -> Job:
+        """覆盖终态行的结果明细——建议丢弃这类事后标记用，不动状态。"""
+        with self._tx(None) as db:
+            db.execute(
+                "UPDATE jobs SET result_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(result, ensure_ascii=False), _now(), job_id),
+            )
+            return self.get(job_id, _conn=db)
 
     def attach_issue(
         self, job_id: str, issue_id: str, *, _conn: sqlite3.Connection | None = None
@@ -424,4 +444,5 @@ class JobStore:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             issue_id=str(row["issue_id"] or ""),
+            result=json.loads(row["result_json"] or "{}"),
         )

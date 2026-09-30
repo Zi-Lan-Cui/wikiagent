@@ -11,6 +11,7 @@ const state = {
   activeIssue: null,
   issueTasks: [],
   centerView: "issues",
+  previewTask: null,  // 建议对话框的来源分析任务；入队成功后据此记处置
 };
 
 const $ = (id) => document.getElementById(id);
@@ -37,7 +38,6 @@ const linkScanButton = $("link-scan");
 const maintainDialog = $("maintain-dialog");
 const maintainSummary = $("maintain-summary");
 const maintainUnits = $("maintain-units");
-const maintainDropped = $("maintain-dropped");
 const maintainSubmitButton = $("maintain-submit");
 const syncState = $("sync-state");
 const centerStatus = $("center-status");
@@ -415,7 +415,7 @@ async function loadWikiEntry(entry) {
   wikiBasic.replaceChildren();
   wikiSummary.textContent = "";
   wikiContent.innerHTML = "<p class=wiki-loading>正在加载页面……</p>";
-  setStatus("正在打开 Wiki 页面……");
+  setStatus("正在打开页面……");
   try {
     const url = kind === "issue-resource"
       ? `/api/issues/${encodeURIComponent(entry.issueId)}/resource`
@@ -861,21 +861,84 @@ function upsertIssueTask(task) {
   else state.issueTasks.unshift(task);
 }
 
+// 在途任务出现新进展时清掉状态条旧提示——进度已由任务行本身承载
+let lastTasksSignature = "";
+
 function renderIssueTasks() {
   issueTaskList.replaceChildren();
-  const active = state.issueTasks.filter((task) => ["queued", "running"].includes(task.status));
+  // 显示顺序=执行顺序：running 最前，其余按提交先后（created_at 升序）
+  const rank = { running: 0, queued: 1 };
+  const active = state.issueTasks
+    .filter((task) => ["queued", "running"].includes(task.status))
+    .sort(
+      (a, b) =>
+        (rank[a.status] ?? 2) - (rank[b.status] ?? 2) ||
+        String(a.created_at).localeCompare(String(b.created_at)),
+    );
+  const signature = active.map((task) => `${task.id}:${task.status}:${task.current_stage}`).join("|");
+  if (lastTasksSignature && signature !== lastTasksSignature) setStatus("");
+  lastTasksSignature = signature;
   issueTaskCount.textContent = `${active.length} 个活动任务`;
   organizeRunning.textContent = String(active.length);
   organizeRunning.classList.toggle("has-errors", active.length > 0);
   issueTaskCount.classList.toggle("active", active.length > 0);
-  if (!active.length) {
+  // 整理结构分析的任务态：在途禁用三个动作（基线动了提议就没意义），
+  // 出终态后最近一次结果留在列表底部供回看
+  const previews = state.issueTasks.filter((task) => task.kind === "maintenance_preview");
+  const previewActive = previews.some((task) => ["queued", "running"].includes(task.status));
+  // 未处置的终态分析 ≤1 条由服务端提交口保证（新发起自动作废上一轮），
+  // 这里读现状即可，不需要"哪条算最新"的判断
+  const previewDone = previews.find(
+    (task) =>
+      ["completed", "failed"].includes(task.status) &&
+      !((task.result || {}).preview || {}).resolved_by,
+  );
+  maintainPreviewButton.textContent = previewActive ? "正在分析…" : "检查并给出整理建议";
+  setBusy(maintainPreviewButton, previewActive);
+  for (const partner of [syncButton, linkScanButton]) {
+    if (previewActive) {
+      partner.disabled = true;
+      partner.title = "整理结构分析进行中";
+    } else if (!partner.classList.contains("busy")) {
+      partner.disabled = false;
+      partner.title = "";
+    }
+  }
+  if (!active.length && !previewDone) {
     const empty = document.createElement("p");
     empty.className = "issue-task-empty";
     empty.textContent = "当前没有后台任务。";
     issueTaskList.appendChild(empty);
     return;
   }
+  // 重组批尾的波及面补链（一页一任务）折叠成一行：N 条建议不该被
+  // 几十张补链卡淹没；展开信息在行内文案里（剩余/共/当前）
+  const tailGroups = new Map();
+  const visible = [];
   for (const task of active) {
+    if (task.kind === "link" && task.action === "tail" && task.batch) {
+      let group = tailGroups.get(task.batch);
+      if (!group) {
+        group = { batch: task.batch, inFlight: [] };
+        tailGroups.set(task.batch, group);
+        visible.push({ tailGroup: group });
+      }
+      group.inFlight.push(task);
+      continue;
+    }
+    visible.push(task);
+  }
+  for (const group of tailGroups.values()) {
+    group.total = state.issueTasks.filter(
+      (item) => item.kind === "link" && item.action === "tail" && item.batch === group.batch,
+    ).length;
+  }
+  for (const item of visible) {
+    if (item.tailGroup) {
+      issueTaskList.appendChild(tailGroupRow(item.tailGroup));
+      continue;
+    }
+    const task = item;
     const row = document.createElement("article");
     row.className = `issue-task task-${task.status}`;
     const marker = document.createElement("span");
@@ -884,14 +947,17 @@ function renderIssueTasks() {
     const main = document.createElement("div");
     main.className = "issue-task-main";
     const title = document.createElement("strong");
-    title.textContent = task.resource || task.title || "未命名资源";
+    // 主文案用人话标题（重组 A+B → C / 补链 xxx / 编译 文件名）；
+    // 原始 resource 只作悬停信息
+    title.textContent = task.title || task.resource || "未命名任务";
+    row.title = task.resource || "";
     const stage = document.createElement("span");
     const stagePosition = task.stage_index > 0
       ? ` ${task.stage_index}/${task.stage_total}`
       : "";
     stage.textContent = ["queued", "running"].includes(task.status)
-      ? `当前阶段${stagePosition} · ${task.current_stage || "等待更新"}`
-      : task.current_stage || "等待更新";
+      ? `当前阶段${stagePosition} · ${task.current_stage || "排队中"}`
+      : task.current_stage || "排队中";
     main.append(title, stage);
     if (["queued", "running"].includes(task.status)) {
       const progress = document.createElement("div");
@@ -904,9 +970,12 @@ function renderIssueTasks() {
     }
     const context = document.createElement("div");
     context.className = "issue-task-context";
-    const action = document.createElement("span");
-    action.textContent = taskActionLabels[task.action] || task.action;
-    context.appendChild(action);
+    const actionLabel = taskActionLabels[task.action];
+    if (actionLabel) {
+      const action = document.createElement("span");
+      action.textContent = actionLabel;
+      context.appendChild(action);
+    }
     if (task.source_stage) {
       const original = document.createElement("span");
       original.textContent = `原失败阶段：${task.source_stage}`;
@@ -925,6 +994,7 @@ function renderIssueTasks() {
     }
     issueTaskList.appendChild(row);
   }
+  if (previewDone) issueTaskList.appendChild(previewResultRow(previewDone));
 }
 
 async function refreshIssueTasks() {
@@ -956,8 +1026,8 @@ async function refreshIssues() {
     syncButton.disabled = (sync.in_flight || 0) > 0;
     syncButton.title = syncButton.disabled
       ? "上一次快照还在执行，等队列排空"
-      : `待同步变更 ${pending} 个：拍快照并入队编译`;
-    syncState.textContent = pending > 0 ? `${pending} 个源未同步` : "基线已追平";
+      : `待同步变更 ${pending} 个，点击后重新编译成 Wiki`;
+    syncState.textContent = pending > 0 ? `${pending} 个源未同步` : "已同步";
     syncState.classList.toggle("warn", pending > 0);
   }
   state.issues = await response.json();
@@ -975,7 +1045,7 @@ async function refreshIssues() {
 
 async function syncNow() {
   setBusy(syncButton, true);
-  setStatus("正在拍快照并入队编译……");
+  setStatus("正在同步笔记……");
   try {
     const response = await fetch("/api/sync", { method: "POST" });
     const payload = await response.json().catch(() => ({}));
@@ -995,7 +1065,7 @@ async function retryEligibleIssues() {
   if (!count) return;
   if (!window.confirm(`将 ${count} 个来源有效的失败项加入串行重试队列，是否继续？`)) return;
   retryEligibleButton.disabled = true;
-  setStatus("正在创建批量重试任务……");
+  setStatus("正在提交重试……");
   const response = await fetch("/api/issues/actions/retry-eligible", { method: "POST" });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || "无法创建批量重试任务");
@@ -1007,30 +1077,94 @@ async function retryEligibleIssues() {
 }
 
 async function openMaintenancePreview() {
-  const partners = [syncButton, linkScanButton];
+  // 提交入队即返回；按钮忙态与结果由任务队列驱动（renderIssueTasks）
   setBusy(maintainPreviewButton, true);
-  partners.forEach((b) => { b.disabled = true; b.title = "整理结构分析进行中"; });
-  setStatus("正在通读全库找结构问题（合并、拆分、清理），需要几分钟，请稍候……");
   try {
     const response = await fetch("/api/maintenance/preview", { method: "POST" });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || "维护分析失败");
-    state.maintainUnits = payload.effective || [];
-    renderMaintainDialog(payload);
-    if (payload.healthy || !state.maintainUnits.length) {
-      setStatus(payload.healthy ? "结构健康，无需整理" : "有提议但全部在复核或消解阶段被放弃");
-      return;
-    }
-    maintainDialog.showModal();
-    setStatus(`${state.maintainUnits.length} 个可执行整理单元待确认`);
+    if (!response.ok) throw new Error(payload.detail || "无法发起整理结构分析");
+    upsertIssueTask(payload.task);
+    setStatus("整理结构分析已开始");
   } catch (error) {
-    setStatusError(error.message || "整理分析失败");
-    throw error;
+    setStatusError(error.message || "整理分析发起失败");
   } finally {
+    await refreshIssueTasks().catch(() => {});
     setBusy(maintainPreviewButton, false);
-    partners.forEach((b) => { b.title = ""; b.disabled = false; });
-    await refreshIssues().catch(() => {});
   }
+}
+
+// 处置一次分析结果：dismissed=否决（结果行上的唯一出口），
+// submitted=建议已勾选入队（防止同一批建议二次入队）。两者都让行消失
+async function resolveMaintenancePreview(task, by) {
+  const response = await fetch(`/api/maintenance/preview/${task.id}/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ by }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || "无法处置分析结果");
+  upsertIssueTask(payload.task);
+  await refreshIssueTasks().catch(() => {});
+}
+
+// 最近一次分析任务的终态展示（成功给入口、健康给结论、失败给原因）。
+// 与普通任务行同构：marker + main + 操作 + 状态徽章，顺序不能乱
+function previewResultRow(task) {
+  const row = document.createElement("article");
+  row.className = `issue-task task-${task.status}`;
+  const marker = document.createElement("span");
+  marker.className = "issue-task-marker";
+  marker.setAttribute("aria-hidden", "true");
+  const main = document.createElement("div");
+  main.className = "issue-task-main";
+  const title = document.createElement("strong");
+  title.textContent = "整理结构分析";
+  const detail = document.createElement("span");
+  const preview = (task.result || {}).preview || {};
+  let button = null;
+  if (task.status === "failed") {
+    detail.textContent = `失败：${task.error || "分析未完成"}`;
+    row.title = task.error || "";
+  } else {
+    detail.textContent = preview.healthy
+      ? "结构健康"
+      : `${(preview.effective || []).length} 条整理建议`;
+    if (!preview.healthy && (preview.effective || []).length) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost-button";
+      button.textContent = "查看建议";
+      button.addEventListener("click", () => {
+        state.previewTask = task;  // 入队成功后按它把建议标记为已处置
+        state.maintainUnits = preview.effective || [];
+        renderMaintainDialog(preview);
+        maintainDialog.showModal();
+      });
+    }
+  }
+  main.append(title, detail);
+  const badge = document.createElement("span");
+  badge.className = `issue-task-status task-${task.status}`;
+  badge.textContent = taskStatusLabels[task.status] || task.status;
+  row.append(marker, main);
+  if (button) row.appendChild(button);
+  if (task.status === "completed" && !preview.healthy && (preview.effective || []).length) {
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "ghost-button danger";
+    dismiss.textContent = "丢弃";
+    dismiss.addEventListener("click", async () => {
+      try {
+        await resolveMaintenancePreview(task, "dismissed");
+        setStatus("建议已丢弃");
+      } catch (error) {
+        setStatusError(error.message || "丢弃失败");
+      }
+    });
+    row.appendChild(dismiss);
+  }
+  row.appendChild(badge);
+  return row;
 }
 
 function renderMaintainDialog(payload) {
@@ -1052,19 +1186,13 @@ function renderMaintainDialog(payload) {
     row.append(box, title, reason);
     maintainUnits.appendChild(row);
   });
-  maintainDropped.innerHTML = "";
-  for (const item of [...(payload.rejected || []), ...(payload.dropped || [])]) {
-    const line = document.createElement("p");
-    line.textContent = `放弃 ${(item.in_pages || []).join(" + ")} — ${item.reason || ""}`;
-    maintainDropped.appendChild(line);
-  }
   updateMaintainSubmit();
 }
 
 function updateMaintainSubmit() {
   const checked = maintainUnits.querySelectorAll("input:checked").length;
   maintainSubmitButton.disabled = checked === 0;
-  maintainSubmitButton.textContent = `勾选入队执行（${checked}）`;
+  maintainSubmitButton.textContent = `入队执行（${checked}）`;
 }
 
 async function submitMaintenance() {
@@ -1083,15 +1211,20 @@ async function submitMaintenance() {
     throw new Error(payload.detail || "维护入队失败");
   }
   maintainDialog.close();
+  // 建议的来源分析记为已处置：结果行撤下，杜绝同一批建议二次入队
+  if (state.previewTask) {
+    await resolveMaintenancePreview(state.previewTask, "submitted").catch(() => {});
+    state.previewTask = null;
+  }
   for (const task of payload.tasks || []) upsertIssueTask(task);
   renderIssueTasks();
   showTaskProgress();
-  setStatus(`已入队 ${payload.count} 个任务（单元+批尾补链，同批可整批回撤）`);
+  setStatus(`已入队 ${payload.count} 个任务，整批可回撤`);
   await Promise.all([refreshIssues(), refreshIssueTasks()]);
 }
 
 async function linkScan() {
-  if (!window.confirm("全库内容页逐页补链入队？一页一个任务、一页一笔提交。")) return;
+  if (!window.confirm("对全库发起补链？按页提交，可逐页回退。")) return;
   setBusy(linkScanButton, true);
   try {
     const response = await fetch("/api/link", {
@@ -1533,8 +1666,45 @@ $("message-form").addEventListener("submit", (event) => {
   }
 })();
 
+// 批尾补链折叠行——与普通任务行同构（marker + main + 徽章），
+// 组内一页一任务的事实不变，只是展示收敛为一行
+function tailGroupRow(group) {
+  const running = group.inFlight.find((task) => task.status === "running");
+  const rowStatus = running ? "running" : "queued";
+  const row = document.createElement("article");
+  row.className = `issue-task task-${rowStatus}`;
+  const marker = document.createElement("span");
+  marker.className = "issue-task-marker";
+  marker.setAttribute("aria-hidden", "true");
+  const main = document.createElement("div");
+  main.className = "issue-task-main";
+  const title = document.createElement("strong");
+  title.textContent = "补链波及面（重组批尾）";
+  const stage = document.createElement("span");
+  stage.textContent = `剩余 ${group.inFlight.length}/${group.total} 页 · ${running ? `正在补链 ${running.resource}` : "等待执行"}`;
+  main.append(title, stage);
+  const progress = document.createElement("div");
+  progress.className = "issue-task-progress";
+  const fill = document.createElement("span");
+  const ratio = group.total ? (group.total - group.inFlight.length) / group.total : 0;
+  fill.style.width = `${Math.max(3, Math.min(100, ratio * 100))}%`;
+  progress.appendChild(fill);
+  main.appendChild(progress);
+  const badge = document.createElement("span");
+  badge.className = `issue-task-status task-${rowStatus}`;
+  badge.textContent = running ? "进行中" : "等待中";
+  row.append(marker, main, badge);
+  return row;
+}
+
+// 有排队/进行中的任务才轮询——队列空着就不该持续打 /api/jobs
+// （进入页面本身有一次刷新，终态结果行渲染不依赖轮询）
 window.setInterval(() => {
+  if (state.view !== "issues" && state.view !== "organize") return;
+  if (!state.issueTasks.some((task) => ["queued", "running"].includes(task.status))) return;
   if (state.view === "issues") {
     Promise.all([refreshIssues(), refreshIssueTasks()]).catch(() => {});
+  } else {
+    refreshIssueTasks().catch(() => {});
   }
 }, 1500);

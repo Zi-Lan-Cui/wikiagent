@@ -94,6 +94,16 @@ class WikiOpsHandler:
         """声明认领的 kind——restructure 与 link 的执行体都在本类。"""
         worker.register(Kind.RESTRUCTURE, self.handle_restructure)
         worker.register(Kind.LINK, self.handle_link)
+        worker.register(Kind.MAINTENANCE_PREVIEW, self.handle_preview)
+
+    # 整理结构分析——只读提议，结果随 job 落库供事后查看
+
+    async def handle_preview(self, job: Job, progress) -> JobResult:
+        """跑一遍提议流程并把建议清单写进任务结果；不碰任何文件。"""
+        from wiki_agent.application.restructure_service import preview_payload, propose_maintenance
+
+        outcome = await propose_maintenance(self._llm, self._wiki_dir, progress=progress)
+        return JobResult(status="succeeded", detail={"preview": preview_payload(outcome)})
 
     # restructure——一个单元一个任务一笔提交
 
@@ -108,7 +118,7 @@ class WikiOpsHandler:
         except (TypeError, ValueError) as exc:
             return JobResult(status="failed", detail={"error": f"单元声明损坏: {exc}"[:500]})
         with self._session.open(job) as write:
-            progress("verify")
+            progress("页面核对")
             try:
                 plan = await prepare_unit(self._wiki_dir, unit, self._llm)
             except UnitMismatchError as exc:
@@ -127,7 +137,7 @@ class WikiOpsHandler:
                 emit_event("restructure_reverted", job_id=job.id, reason="route", detail=str(exc))
                 return JobResult(status="failed", detail={"error": f"章节分配失败: {exc}"[:500]})
 
-            progress("rewrite")
+            progress("逐页成文")
             contents: dict[str, str] = {}
             failures: list[str] = []
             for page in unit.out:
@@ -167,10 +177,10 @@ class WikiOpsHandler:
                 emit_event("restructure_reverted", job_id=job.id, reason="rewrite", detail="; ".join(failures)[:300])
                 return JobResult(status="failed", detail={"error": "; ".join(failures)[:500]})
 
-            progress("apply")
+            progress("写入落盘")
             apply_unit(self._wiki_dir, unit, plan, contents)
 
-            progress("scan")
+            progress("质量扫描")
             errors = [issue for issue in scan_wiki(self._wiki_dir) if issue.level == "error"]
             if errors:
                 write.abort_export()
@@ -179,7 +189,7 @@ class WikiOpsHandler:
                 logger.error("  扫描闸门不过，单元撤销: %s", reason)
                 return JobResult(status="failed", detail={"error": f"扫描闸门不过: {reason}"[:500]})
 
-            progress("commit")
+            progress("提交版本")
             if unit.out:
                 subject = commit_subject(
                     Subject.RESTRUCTURE,
@@ -210,7 +220,7 @@ class WikiOpsHandler:
                 return JobResult(
                     status="succeeded", detail={"settlement": Settlement.UNIT_MISSING}
                 )
-            progress("plan")
+            progress("核对出链")
             try:
                 replacements = await plan_link_fixes(self._llm, self._wiki_dir, slug)
             except Exception as exc:

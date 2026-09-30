@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -46,6 +46,10 @@ class MaintenanceSubmitRequest(BaseModel):
 
 class LinkBatchRequest(BaseModel):
     slugs: list[str] | None = None
+
+
+class PreviewResolveRequest(BaseModel):
+    by: Literal["dismissed", "submitted"]
 
 
 def create_app(
@@ -104,7 +108,17 @@ def create_app(
                 issue.resource.get("path") or issue.resource.get("label") or job.resource
             )
         else:
-            item["title"] = f"{job.kind} {Path(job.resource).name}"
+            kind_labels = {
+                "compile": "编译",
+                "delete": "删除",
+                "restructure": "重组",
+                "link": "补链",
+                "issue_action": "问题处理",
+                "maintenance_preview": "整理结构分析",
+            }
+            label = kind_labels.get(job.kind, job.kind)
+            name = Path(job.resource).name if job.resource else ""
+            item["title"] = f"{label} {name}".strip()
             item["resource"] = job.resource
         # 维护线 job 的 resource 是内部定位键，卡片用声明内容做标题
         if job.kind == "restructure":
@@ -116,6 +130,10 @@ def create_app(
         elif job.kind == "link":
             item["title"] = f"补链 {job.payload.get('slug') or job.resource}"
             item["resource"] = str(job.payload.get("slug") or job.resource)
+        elif job.kind == "maintenance_preview":
+            item["title"] = "整理结构分析"
+            # 分析对象就是全库，卡片以 title 为主文案，resource 不再凑字
+            item["resource"] = ""
         if item["status"] == "succeeded":
             item["status"] = "completed"
         if job.status == "succeeded" and issue is not None:
@@ -217,55 +235,32 @@ def create_app(
 
     # 维护线：结构重组预览/提交、关联扫提交——执行走同一队列与泵
 
-    def _maintenance_busy_detail() -> str | None:
-        """预览与提交共用的花钱前检查：在途或基线落后返回文案，None=放行。"""
-        in_flight = job_service.wiki_write_in_flight()
-        if in_flight:
-            return f"写 wiki 的任务在途（{in_flight} 个）：等当前批到达终态后再提交"
-        lag = job_service.sync_baseline_lag()
-        if lag:
-            preview = "、".join(sorted(lag)[:3])
-            return f"{len(lag)} 个源未同步（{preview}）：请先同步，基线追平后再提交"
-        return None
-
-    def _unit_wire(unit: Any) -> dict[str, Any]:
-        return {
-            "in_pages": list(unit.in_pages),
-            "out": [
-                {"slug": p.slug, "intent": p.intent, "take": len(p.take), "polish": p.polish}
-                for p in unit.out
-            ],
-            "reason": unit.reason,
-        }
-
-    @app.post("/api/maintenance/preview")
+    @app.post("/api/maintenance/preview", status_code=202)
     async def maintenance_preview() -> dict[str, Any]:
-        """结构维护预览：提议→复核→消解，只返回清单不入队。
+        """整理结构分析入队：提议→复核→消解，结果进任务清单。
 
-        LLM 分析需要一到几分钟；闸在分析之前（与提交口同一判定），
-        在途或基线落后 409——基于动盘或落后基线的提议没有执行价值。
+        分析要一到几分钟，不吊住请求——入队后在"进行中的任务"看阶段，
+        完成点"查看建议"打开清单。花钱前闸在提交口（写任务在途、基线
+        落后或已有分析在途 409），基于动盘的提议没有执行价值。
         """
-        from wiki_agent.application.restructure_service import propose_maintenance
+        from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
 
-        blocked = _maintenance_busy_detail()
-        if blocked:
-            raise HTTPException(status_code=409, detail=blocked)
         try:
-            outcome = await propose_maintenance(app_runtime.agent.llm, app_runtime.wiki_dir)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=502, detail=f"维护分析失败: {type(exc).__name__}: {str(exc)[:300]}"
-            ) from exc
-        return {
-            "healthy": outcome.healthy,
-            "proposed": len(outcome.proposed),
-            "confirmed": len(outcome.confirmed),
-            "effective": [_unit_wire(u) for u in outcome.effective],
-            "rejected": [
-                {"in_pages": u.in_pages, "reason": r} for u, r in outcome.rejected
-            ],
-            "dropped": [{"in_pages": u.in_pages, "reason": r} for u, r in outcome.dropped],
-        }
+            job = job_service.submit_maintenance_preview()
+        except (PipelineBusy, SyncBaselineLag) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"task": _job_task(job)}
+
+    @app.post("/api/maintenance/preview/{job_id}/resolve")
+    async def maintenance_preview_resolve(job_id: str, request: PreviewResolveRequest) -> dict[str, Any]:
+        """处置一次分析结果（dismissed 否决 / submitted 已入队）：建议行撤下。"""
+        try:
+            job = job_service.resolve_maintenance_preview(job_id, by=request.by)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail="分析任务不存在") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"task": _job_task(job)}
 
     @app.post("/api/maintenance", status_code=202)
     async def maintenance_submit(request: MaintenanceSubmitRequest) -> dict[str, Any]:

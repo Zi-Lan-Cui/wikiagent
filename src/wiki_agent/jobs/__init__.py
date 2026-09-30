@@ -6,6 +6,7 @@
 
 from wiki_agent.jobs.errors import (
     DuplicateInFlightJob,
+    MaintenancePreviewInProgress,
     PipelineBusy,
     RestructureInProgress,
     SyncBaselineLag,
@@ -22,6 +23,7 @@ __all__ = [
     "JobStore",
     "Kind",
     "PipelineBusy",
+    "MaintenancePreviewInProgress",
     "RestructureInProgress",
     "Settlement",
     "SyncBaselineLag",

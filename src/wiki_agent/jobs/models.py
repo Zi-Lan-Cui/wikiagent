@@ -15,6 +15,7 @@ class Kind(StrEnum):
     RESTRUCTURE = "restructure"  # 重组单元：结构手术 + 触及页的逐页成文
     LINK = "link"  # 单页出链维护（只改链接，不重写内容）
     ISSUE_ACTION = "issue_action"  # issue 动作（rescan 等）
+    MAINTENANCE_PREVIEW = "maintenance_preview"  # 整理结构分析：提议→复核→消解，不写 wiki
 
 
 # 写 wiki 的任务家族——提交互斥、sync_status 徽章与 /wiki revert 的门共用
@@ -65,6 +66,9 @@ class Job:
     updated_at: str
     # 挂账的 issue；成功与失败都按它联动问题账本；"" = 与 issue 无关的纯执行 job
     issue_id: str = ""
+    # handler 申报的执行结果明细（JobResult.detail）随终态落库——
+    # 分析类 job 的产出（如整理建议清单）从这里给 UI 事后回看
+    result: Detail = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

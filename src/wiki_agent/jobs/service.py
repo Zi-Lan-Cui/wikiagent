@@ -23,6 +23,7 @@ Job 是唯一执行事实来源：全部提交入口在这里；终态写入只�
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from uuid import uuid4
@@ -445,6 +446,70 @@ class JobService:
                     )
                 )
         return jobs
+
+    def submit_maintenance_preview(self) -> Job:
+        """整理结构分析入队（提议→复核→消解）：只产建议清单，不写 wiki。
+
+        花钱前的闸与维护提交口同一判定：有写在途或基线落后即拒——
+        基于动盘的提议没有执行价值。resource/幂等键固定，双击与重复
+        发起收敛为同一在途分析。
+        """
+        with self.store.transaction(immediate=True) as conn:
+            busy = self._in_flight_wiki_write_counts(_conn=conn)
+            if busy:
+                raise self._pipeline_busy(busy)
+            self._raise_if_baseline_lagging()
+            self._supersede_settled_previews(conn)
+            return self.store.enqueue(
+                kind=Kind.MAINTENANCE_PREVIEW,
+                resource="maintenance:preview",
+                mode="manual",
+                payload={},
+                idempotency_key="maintenance:preview",
+                _conn=conn,
+            )
+
+    @staticmethod
+    def _supersede_settled_previews(conn: sqlite3.Connection) -> None:
+        """新分析发起即作废上一轮结果——不变量：未处置的终态分析行 ≤ 1。
+
+        重跑分析等于宣告旧建议不再待办；处置记录仍随各行持久，
+        界面读侧因此不需要任何"哪条算最新"的判断。
+        """
+        rows = conn.execute(
+            "SELECT id, result_json FROM jobs"
+            " WHERE kind = ? AND status IN ('succeeded', 'failed')",
+            (Kind.MAINTENANCE_PREVIEW,),
+        ).fetchall()
+        for row in rows:
+            result: dict[str, object] = json.loads(row["result_json"] or "{}")
+            raw = result.get("preview")
+            preview: dict[str, object] = dict(raw) if isinstance(raw, dict) else {}
+            if "resolved_by" in preview:
+                continue
+            preview["resolved_by"] = "superseded"
+            result["preview"] = preview
+            conn.execute(
+                "UPDATE jobs SET result_json = ? WHERE id = ?",
+                (json.dumps(result, ensure_ascii=False), row["id"]),
+            )
+
+    def resolve_maintenance_preview(self, job_id: str, *, by: str) -> Job:
+        """为一次分析结果记终态处置（dismissed 否决 / submitted 已入队执行）。
+
+        处置过的建议行从队列消失——入队后重复打开会导致同一批建议
+        二次入队；任务行保留做履历，处置方式记录在案。新一轮分析
+        产出新结果，不受旧处置影响。非分析类任务拒绝。
+        """
+        if by not in ("dismissed", "submitted"):
+            raise ValueError(f"未知的处置方式: {by}")
+        job = self.store.get(job_id)
+        if job.kind != Kind.MAINTENANCE_PREVIEW:
+            raise ValueError(f"只能处置整理结构分析结果: {job.kind}")
+        raw = job.result.get("preview")
+        preview: dict[str, object] = dict(raw) if isinstance(raw, dict) else {}
+        preview["resolved_by"] = by
+        return self.store.set_result(job_id, {**job.result, "preview": preview})
 
     def _raise_if_maintenance_blocked(self, _conn: sqlite3.Connection | None = None) -> None:
         """维护类提交的共用闸：自撞专门异常优先，其余在途统一 PipelineBusy。"""

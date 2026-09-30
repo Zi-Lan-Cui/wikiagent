@@ -25,6 +25,35 @@ from wiki_agent.log import get_logger
 logger = get_logger("MAINTENANCE")
 
 ConfirmCallback = Callable[[list[Unit]], Awaitable[list[Unit]]]
+ProgressCallback = Callable[[str], None]
+
+
+def preview_payload(outcome: MaintenanceOutcome) -> dict[str, Any]:
+    """分析结果的传输形态——job result 落库与建议对话框共用的同一结构。"""
+    return {
+        "healthy": outcome.healthy,
+        "proposed": len(outcome.proposed),
+        "confirmed": len(outcome.confirmed),
+        "effective": [
+            {
+                "in_pages": list(u.in_pages),
+                "out": [
+                    {"slug": p.slug, "intent": p.intent, "take": len(p.take), "polish": p.polish}
+                    for p in u.out
+                ],
+                "reason": u.reason,
+            }
+            for u in outcome.effective
+        ],
+        "rejected": [
+            {"in_pages": list(u.in_pages), "out": list(u.out_slugs), "reason": r}
+            for u, r in outcome.rejected
+        ],
+        "dropped": [
+            {"in_pages": list(u.in_pages), "out": list(u.out_slugs), "reason": r}
+            for u, r in outcome.dropped
+        ],
+    }
 
 
 @dataclass
@@ -44,11 +73,18 @@ async def propose_maintenance(
     wiki_dir: str | Path,
     *,
     confirm: ConfirmCallback | None = None,
+    progress: ProgressCallback | None = None,
 ) -> MaintenanceOutcome:
-    """跑一遍提议流程。返回结构化结果；调用方据此渲染并提交入队。"""
+    """跑一遍提议流程。返回结构化结果；调用方据此渲染并提交入队。
+
+    progress 报告三阶段（初步建议/二次复核/冲突消解）——job 化执行时
+    写进任务行，队列卡片按它显示分析进展。
+    """
     wiki_dir = Path(wiki_dir)
     out = MaintenanceOutcome()
 
+    if progress:
+        progress("初步建议")
     out.proposed = await propose_units(llm, wiki_dir)
     logger.info("初步建议: %d 个单元", len(out.proposed))
     if not out.proposed:
@@ -56,6 +92,8 @@ async def propose_maintenance(
         logger.info("无建议——结构健康。")
         return out
 
+    if progress:
+        progress("二次复核")
     out.confirmed, out.rejected = await recheck_units(llm, wiki_dir, out.proposed)
     for unit, reason in out.rejected:
         logger.info("二次确认放弃 %s — %s", unit.in_pages, reason[:100])
@@ -64,6 +102,8 @@ async def propose_maintenance(
         logger.info("二次确认全部放弃——结构健康。")
         return out
 
+    if progress:
+        progress("冲突消解")
     clean, dropped = resolve_unit_conflicts(out.confirmed, set(all_content_slugs(wiki_dir)))
     out.dropped = dropped
     for unit, reason in dropped:
