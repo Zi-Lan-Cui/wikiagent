@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
 from wiki_agent.conversation import Message
-from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.wiki.sections import Section
 
 from . import prompts
@@ -57,9 +57,11 @@ async def route_unit(
     assignment = dict(fixed)
 
     if flexible_pages and remaining:
-        response = await async_invoke_with_retry(
+        response = await invoke_checked(
             llm,
-            [
+            action="路由",
+            error=RouteError,
+            messages=[
                 Message(role="system", content=prompts.ROUTE_SYSTEM),
                 Message(role="user", content=prompts.route_user(
                     unit, remaining,
@@ -73,8 +75,6 @@ async def route_unit(
             max_attempts=2,
             response_format=JSON_MODE,
         )
-        if not response.check_ok:
-            raise RouteError(f"路由校验失败: {response.check_reason}")
         allowed = {p.slug for p in flexible_pages}
         for item in prompts.json_of(response.content)["assign"]:
             sid, to = str(item["section"]), str(item["to"])
