@@ -14,7 +14,11 @@ async def drain_queue(service: JobService, worker: JobWorker) -> int:
 
     run_once 返回 None 表示在途行都不是本进程注册的 kind（例如常驻 web
     进程正领着的活），停下等待对方，不是异常。
+
+    前提是调用方已持执行锁——进泵先回收无主 running（上次进程崩溃或
+    Ctrl-C 留下的），它们属于本队列，不回收就永远泵不动。
     """
+    service.recover_stale()
     while service.count_in_flight() > 0:
         if await worker.run_once() is None:
             break

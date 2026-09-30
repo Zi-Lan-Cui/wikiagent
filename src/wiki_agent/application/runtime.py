@@ -1,7 +1,7 @@
 """Application runtime: the single composition root for a Wiki Agent process.
 
 统一执行模型的装配点：Job 队列 + Worker（唯一的执行后台循环）在这里组装。
-崩溃自愈不靠常驻调度器：JobService 构造即 recover_stale，sync 互斥闸保证
+崩溃自愈不靠常驻调度器：执行锁到手后 recover_stale 回收无主 running，sync 互斥闸保证
 队列排空前不开新快照。宿主进程 start() 即拥有执行能力——jobs 表是唯一
 队列，谁领取都收敛。
 """
@@ -167,6 +167,7 @@ class AppRuntime:
             return
         acquire_execution_lock(self.workspace)
         self._exec_lock_held = True
+        self.job_service.recover_stale()  # 持锁后才允许回收无主 running
         if self.config.mcp.servers:
             from wiki_agent.tools.mcp_adaptor import connect_mcp_servers
 

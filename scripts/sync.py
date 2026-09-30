@@ -32,6 +32,7 @@ async def main(source_dir: str | None = None) -> None:
     # 本进程充当 worker 泵：执行锁保证与 web/批脚本不同时写 wiki
     acquire_execution_lock(runtime.workspace)
     try:
+        service.recover_stale()  # 持锁后回收上次残留的 running
         try:
             jobs = service.submit_sync(target)
         except PipelineBusy as exc:

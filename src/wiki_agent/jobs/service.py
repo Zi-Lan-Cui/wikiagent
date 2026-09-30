@@ -46,6 +46,15 @@ from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_s
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
 from wiki_agent.sync.state import SyncState, scan_disk
 
+# detail 里的正文级键：只为 outcomes 同事务消费（写完成账、issue 记账、
+# 档案页落盘）在进程内传递，不是账本——jobs 行只存小型有界事实，
+# 否则 state.db 随每轮 sync 无界膨胀、list() 反复反序列化大 blob
+_NON_PERSISTED_RESULT_KEYS = ("text", "source_page", "archive_ops", "raw")
+
+
+def _persistable_result(detail: dict) -> dict:
+    return {k: v for k, v in detail.items() if k not in _NON_PERSISTED_RESULT_KEYS}
+
 
 class JobService:
     """一切可执行工作的提交口与生命周期入口。"""
@@ -72,9 +81,19 @@ class JobService:
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         # 维护类任务（restructure/link）的基线判定要对比磁盘源材料与账本
         self.materials_dir = Path(materials_dir) if materials_dir is not None else None
-        self.recovered_jobs = self.store.recover_stale()
+        self.recovered_jobs = 0
         # 崩溃/中断遗留的无主快照目录在构造期清扫（保留名单=非终态任务引用的批）
         self.snapshots.sweep_orphans(self.store.in_flight_batch_ids())
+
+    def recover_stale(self) -> int:
+        """把超时残留的 running 行回队——只允许执行锁持有者调用。
+
+        不在构造期自动跑：构造 service 不代表拿到了执行锁，第二进程
+        构造期回队会与活进程正在执行的 job 双写 wiki（CAS 只保证终态
+        一写，不保证写入者唯一）。装配根与脚本在持锁后显式调用。
+        """
+        self.recovered_jobs = self.store.recover_stale()
+        return self.recovered_jobs
 
     # 提交
 
@@ -547,6 +566,7 @@ class JobService:
                     if result.status == "failed"
                     else None
                 ),
+                result=_persistable_result(result.detail),
                 _conn=conn,
             )
             if not won:
