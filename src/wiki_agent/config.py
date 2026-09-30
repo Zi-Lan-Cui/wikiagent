@@ -83,7 +83,6 @@ class AgentConfig(BaseSettings):
     max_loop: int = 20
     consolidate_ratio: float = 0.5
     trigger_ratio: float = 0.8
-    dream_interval: int = 3_000
     session_idle_minutes: int = 15
     session_tail_messages: int = 6
     dream_poll_interval: int = 60
@@ -113,7 +112,6 @@ class AgentConfig(BaseSettings):
             min(
                 self.max_messages_length,
                 self.max_loop,
-                self.dream_interval,
                 self.session_idle_minutes,
                 self.session_tail_messages,
                 self.dream_poll_interval,

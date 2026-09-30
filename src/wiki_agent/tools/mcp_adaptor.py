@@ -395,7 +395,7 @@ class MCPToolWrapper(BaseTool):
         self.server_name = server_name
         self.session = session
         self.tool_def = tool_def
-        self.raw_schema = tool_def.inputSchema or {"type": "object", "properities": {}}
+        self.raw_schema = tool_def.inputSchema or {"type": "object", "properties": {}}
         self.timeout_seconds = tool_timeout
         self.original_name = tool_def.name
 

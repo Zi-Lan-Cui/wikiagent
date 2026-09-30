@@ -27,36 +27,31 @@ def _footer(elapsed: float, total_tokens: int, win: int, cap: int) -> Panel:
 async def _interactive_loop(runtime: AppRuntime, session_key: str) -> None:
     agent = runtime.agent
     console.print(Panel(f"模型: {agent.llm.model_id}\n会话: {session_key}", title="Wiki Agent"))
-    dream_task = asyncio.create_task(agent.dream_loop(interval=agent.agent_config.dream_interval))
-    try:
-        while True:
-            try:
-                user_input = console.input("[bold green]你[/] [bold cyan]▶[/] ").strip()
-            except (EOFError, KeyboardInterrupt):
-                break
-            if not user_input:
-                continue
-            if user_input.lower() in {"/q", "/quit", "/exit"}:
-                break
-            started = time.monotonic()
-            try:
-                await runtime.session.send_message(session_id=session_key, text=user_input)
-            except RetryableError as exc:
-                console.print(f"[red]调用失败（网络/限流）: {exc}[/]")
-            except Exception as exc:
-                console.print(f"[red]本轮出错: {type(exc).__name__}: {exc}[/]")
-            session = agent.session_manager.get_or_create(session_key)
-            console.print(
-                _footer(
-                    time.monotonic() - started,
-                    session.token_cost.get("total", 0),
-                    session.current_window_tokens,
-                    agent.agent_config.context_windows,
-                )
+    while True:
+        try:
+            user_input = console.input("[bold green]你[/] [bold cyan]▶[/] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not user_input:
+            continue
+        if user_input.lower() in {"/q", "/quit", "/exit"}:
+            break
+        started = time.monotonic()
+        try:
+            await runtime.session.send_message(session_id=session_key, text=user_input)
+        except RetryableError as exc:
+            console.print(f"[red]调用失败（网络/限流）: {exc}[/]")
+        except Exception as exc:
+            console.print(f"[red]本轮出错: {type(exc).__name__}: {exc}[/]")
+        session = agent.session_manager.get_or_create(session_key)
+        console.print(
+            _footer(
+                time.monotonic() - started,
+                session.token_cost.get("total", 0),
+                session.current_window_tokens,
+                agent.agent_config.context_windows,
             )
-    finally:
-        dream_task.cancel()
-        await asyncio.gather(dream_task, return_exceptions=True)
+        )
 
 
 async def _run(runtime: AppRuntime, session_key: str) -> None:
