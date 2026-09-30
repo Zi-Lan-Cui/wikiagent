@@ -21,6 +21,11 @@ class ToolRegistry:
         self._tools = {}
         self._breakers: dict[str, CircuitBreaker] = {}
 
+    def unregister(self, name: str) -> None:
+        """摘除工具——MCP 断连清理：假死的工具不该留在 schema 清单里
+        让模型反复调用撞熔断。未注册的名字静默忽略。"""
+        self._tools.pop(name, None)
+
     def register(self, tool: BaseTool) -> None:
         """注册工具（同名覆盖）。
 
