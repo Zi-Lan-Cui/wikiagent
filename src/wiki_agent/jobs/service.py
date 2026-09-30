@@ -608,7 +608,7 @@ class JobService:
             won = self.store.try_finalize(
                 job.id,
                 status=result.status,
-                stage={"succeeded": "completed", "cancelled": "cancelled"}.get(result.status),
+                stage={"succeeded": "done", "cancelled": "cancelled"}.get(result.status),
                 error=(
                     str(result.detail.get("error") or "")[:500]
                     if result.status == "failed"

@@ -216,7 +216,7 @@ def test_restructure_merge_end_to_end(tmp_path: Path, monkeypatch):
     pump(1)  # 单元 job
     unit_row = service.get(jobs[0].id)
     assert unit_row.status == "succeeded", unit_row.error
-    assert unit_row.stage == "completed"
+    assert unit_row.stage == "done"
     merged = (wiki / "concepts/a.md").read_text(encoding="utf-8")
     assert "乙主题" in merged and not (wiki / "concepts/b.md").exists()
     # 溯源并集：合并页 sources 含全部 in 页的来源文件（真实执行轮抓出的缺陷）

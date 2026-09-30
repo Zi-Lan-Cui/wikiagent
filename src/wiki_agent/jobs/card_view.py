@@ -25,6 +25,9 @@ _KIND_LABELS = {
     "maintenance_preview": "整理结构分析",
 }
 
+# 终态 stage 领域值 → 界面词；jobs 行只存领域值，转换只在这张表发生
+_TERMINAL_STAGE_LABELS = {"done": "已完成", "cancelled": "已取消"}
+
 
 def task_card(job: Job, issue_lookup: Callable[[str], Any]) -> dict[str, Any]:
     """把一个 Job 行投影为队列卡片。
@@ -42,10 +45,11 @@ def task_card(job: Job, issue_lookup: Callable[[str], Any]) -> dict[str, Any]:
     item["action"] = job.mode
     # sync 快照批标记——wiki commit 尾注同源，"撤销这一批"按它定位
     item["batch"] = str(job.payload.get("batch") or "")
-    item["current_stage"] = job.stage or ("等待执行" if job.status == "queued" else "")
-    item["stage_code"] = job.stage
-    item["stage_index"] = 0
-    item["stage_total"] = 0
+    item["current_stage"] = (
+        _TERMINAL_STAGE_LABELS.get(job.stage)
+        or job.stage
+        or ("等待执行" if job.status == "queued" else "")
+    )
     issue = issue_lookup(job.issue_id) if job.issue_id else None
     if issue is not None:
         item["title"] = issue.title
