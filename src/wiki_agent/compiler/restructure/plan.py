@@ -11,7 +11,7 @@ from typing import Any
 
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.wiki.frontmatter import list_field, split_frontmatter
-from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR
+from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR, path_for
 from wiki_agent.wiki.sections import Section, page_sections
 
 from .models import OutPage, Unit, UnitMismatchError
@@ -38,7 +38,7 @@ def _existing_slugs(wiki_dir: Path) -> set[str]:
 
 
 def _frontmatter_for(wiki_dir: Path, page: OutPage) -> dict:
-    path = wiki_dir / f"{page.slug}.md"
+    path = path_for(wiki_dir, page.slug)
     if path.is_file():
         fm, _ = split_frontmatter(path.read_text(encoding="utf-8"))
         return fm
@@ -85,7 +85,7 @@ async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> UnitPlan:
 
     sections: list[Section] = []
     for slug in unit.in_pages:
-        sections.extend(page_sections(wiki_dir / f"{slug}.md", slug))
+        sections.extend(page_sections(path_for(wiki_dir, slug), slug))
     plan = UnitPlan(unit=unit, sections=sections)
     plan.assignment, plan.fixed = await route_unit(llm, unit, sections)
     plan.drafts = _draft(unit, sections, plan.assignment)
@@ -94,12 +94,12 @@ async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> UnitPlan:
     # 否则被消费页的源文件从溯源链消失（真实执行轮抓出的缺陷）
     unit_sources: list[str] = []
     for slug in unit.in_pages:
-        fm, _ = split_frontmatter((wiki_dir / f"{slug}.md").read_text(encoding="utf-8"))
+        fm, _ = split_frontmatter(path_for(wiki_dir, slug).read_text(encoding="utf-8"))
         for s in list_field(fm.get("sources")):
             if s not in unit_sources:
                 unit_sources.append(s)
     for page in unit.out:
-        path = wiki_dir / f"{page.slug}.md"
+        path = path_for(wiki_dir, page.slug)
         plan.old_content[page.slug] = (
             path.read_text(encoding="utf-8") if path.is_file() else ""
         )

@@ -20,6 +20,7 @@ from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestStage
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.pages import path_for
 
 LINK_PLAN_SYSTEM = (
     "你是 wiki 出链维护者。给定一页正文与可链接页面名册，指出正文里哪里该加、该改、该去 wikilink："
@@ -56,7 +57,7 @@ def _check_plan_json(content: str) -> tuple[bool, str]:
 async def plan_link_fixes(llm: Any, wiki_dir: str | Path, slug: str) -> list[dict[str, str]]:
     """返回替换清单（可为空=无可补）；清单生成失败抛 IngestError。"""
     wiki_dir = Path(wiki_dir)
-    path = wiki_dir / f"{slug}.md"
+    path = path_for(wiki_dir, slug)
     if not path.is_file():
         return []
     _, body = split_frontmatter(path.read_text(encoding="utf-8"))

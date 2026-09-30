@@ -10,6 +10,7 @@ from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.pages import path_for
 from wiki_agent.wiki.sections import page_sections
 
 from . import prompts
@@ -30,7 +31,7 @@ async def recheck_units(
     def section_entries(slugs: list[str]) -> list[tuple[str, str, list[str]]]:
         entries = []
         for slug in dict.fromkeys(slugs):
-            path = wiki_dir / f"{slug}.md"
+            path = path_for(wiki_dir, slug)
             if not path.is_file():
                 continue
             fm, _ = split_frontmatter(path.read_text(encoding="utf-8"))
