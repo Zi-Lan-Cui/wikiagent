@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
-from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.llm.retry import async_invoke_with_retry
+from wiki_agent.errors import IngestStage
 from wiki_agent.log import get_logger
 
 from . import prompts
@@ -40,9 +40,13 @@ async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
     slugs = all_content_slugs(wiki_dir)
     if not slugs:
         return []
-    response = await async_invoke_with_retry(
+    response = await invoke_checked(
         llm,
-        [
+        stage=IngestStage.PLAN,
+        action="重组粗提",
+        source="restructure_propose",
+        retry_policy="manual",
+        messages=[
             Message(role="system", content=prompts.PROPOSE_SYSTEM),
             Message(
                 role="user",
@@ -58,16 +62,6 @@ async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
         max_attempts=2,
         response_format=JSON_MODE,
     )
-    if not response.check_ok:
-        raise IngestError(
-            IngestStage.PLAN,
-            f"重组粗提校验失败: {response.check_reason}",
-            source="restructure_propose",
-            raw=response.content,
-            error_code="output_validation",
-            error_class="transient",
-            retry_policy="manual",
-        )
     known = set(slugs)
     units: list[Unit] = []
     for raw in prompts.json_of(response.content)["units"]:

@@ -7,6 +7,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import normalize_wiki_path
 from wiki_agent.compiler.models import (
@@ -19,7 +20,6 @@ from wiki_agent.compiler.models import (
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.llm import LLMClient
-from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.normalize import extract_related, fix_wikilinks, normalize_page
@@ -94,9 +94,12 @@ class Executor:
         else:
             system_prompt = self._prompts.update_system()
             user_prompt = self._prompts.update_user(target, existing, extract)
-        response = await async_invoke_with_retry(
+        response = await invoke_checked(
             self._llm,
-            [
+            stage=IngestStage.EXECUTE,
+            action="页面生成",
+            source=target.wiki_path,
+            messages=[
                 Message(role="system", content=system_prompt),
                 Message(role="user", content=user_prompt),
             ],
@@ -105,16 +108,6 @@ class Executor:
             extra_body=NO_THINKING,
             max_attempts=_PAGE_GEN_RETRIES,
         )
-        if not response.check_ok:
-            raise IngestError(
-                IngestStage.EXECUTE,
-                f"页面生成校验失败（重试后仍失败）: {response.check_reason}",
-                source=target.wiki_path,
-                raw=response.content,
-                error_code="output_validation",
-                error_class="transient",
-                retry_policy="auto_retry",
-            )
         return response.content
 
     async def execute(
