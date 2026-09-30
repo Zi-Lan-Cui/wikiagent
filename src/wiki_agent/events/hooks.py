@@ -45,9 +45,6 @@ class RunContext:
     tools_used: list[str] = field(default_factory=list)
     """Distinct tool names called during the turn."""
 
-    usage: dict[str, int] = field(default_factory=dict)
-    """Cumulative token usage for the turn."""
-
     stop_reason: str | None = None
     """Reason the turn ended."""
 
@@ -86,29 +83,14 @@ class AgentHook:
     ``on_run_start``         ``RUN_STARTED``
     ``on_run_end``           ``RUN_FINISHED``
     ``on_run_error``         ``RUN_ERROR``
-    ``on_iteration_start``   ``STEP_STARTED``
-    ``on_iteration_end``     ``STEP_FINISHED``
     ``on_stream_delta``      ``TEXT_MESSAGE_CONTENT``
-    ``on_stream_end``        ``TEXT_MESSAGE_END``
     ``on_tool_call_start``   ``TOOL_CALL_START / TOOL_CALL_ARGS``
     ``on_tool_result``       ``TOOL_CALL_RESULT``
     ``on_tool_error``        ``TOOL_CALL_RESULT`` (error case)
     ``on_reasoning_start``   ``THINKING_START``
     ``on_reasoning_end``     ``THINKING_END``
-    ``finalize_content``      post‑processor (no event)
     ======================= =================================
     """
-
-    __slots__ = ("_reraise",)
-
-    def __init__(self, *, reraise: bool = False) -> None:
-        """Initialize the hook.
-
-        Args:
-            reraise: when True, exceptions from this hook propagate
-                to the agent loop instead of being logged and swallowed.
-        """
-        self._reraise = reraise
 
     # Run scope
 
@@ -184,22 +166,6 @@ class AgentHook:
     ) -> None:
         """命令被取消。"""
 
-    # Iteration scope
-
-    async def on_iteration_start(self, context: RunContext) -> None:
-        """Called at the top of each agent loop iteration.
-
-        Args:
-            context: 回合级上下文。
-        """
-
-    async def on_iteration_end(self, context: RunContext) -> None:
-        """Called at the bottom of each agent loop iteration.
-
-        Args:
-            context: 回合级上下文。
-        """
-
     # Stream scope
 
     async def on_stream_delta(self, context: RunContext, delta: str) -> None:
@@ -208,13 +174,6 @@ class AgentHook:
         Args:
             context: 回合级上下文。
             delta: 本次增量文本块。
-        """
-
-    async def on_stream_end(self, context: RunContext) -> None:
-        """Called when the full streaming response has been assembled.
-
-        Args:
-            context: 回合级上下文。
         """
 
     # Tool scope
@@ -291,30 +250,11 @@ class AgentHook:
             context: 回合级上下文。
         """
 
-    # Post‑processing
-
-    def finalize_content(self, content: str | None) -> str | None:
-        """Transform the final response text before it is returned.
-
-        Unlike the other methods this is synchronous — it runs as a
-        pipeline, not a callback.
-
-        Args:
-            content: 原始回复文本（可能为 None）。
-
-        Returns:
-            转换后的文本（可原样返回）。
-        """
-        return content
-
-
 class CompositeHook(AgentHook):
     """Fan‑out hook that delegates to an ordered list of child hooks.
 
     Each async method iterates over the children, catching and logging
-    exceptions per‑child (unless that child has ``_reraise=True``).
-    ``finalize_content`` is a pipeline — each child's output feeds the
-    next, and exceptions **do** propagate there on purpose.
+    exceptions per‑child.
     """
 
     __slots__ = ("_hooks",)
@@ -340,9 +280,6 @@ class CompositeHook(AgentHook):
         name = method.__name__
         for h in self._hooks:
             fn = getattr(h, name)
-            if h._reraise:
-                await fn(*args, **kwargs)
-                continue
             try:
                 await fn(*args, **kwargs)
             except Exception:
@@ -377,21 +314,10 @@ class CompositeHook(AgentHook):
     async def on_command_cancelled(self, c: RunContext, command: str, task_id: str) -> None:
         await self._fanout(AgentHook.on_command_cancelled, c, command, task_id)
 
-    # iteration
-
-    async def on_iteration_start(self, c: RunContext) -> None:
-        await self._fanout(AgentHook.on_iteration_start, c)
-
-    async def on_iteration_end(self, c: RunContext) -> None:
-        await self._fanout(AgentHook.on_iteration_end, c)
-
     # stream
 
     async def on_stream_delta(self, c: RunContext, delta: str) -> None:
         await self._fanout(AgentHook.on_stream_delta, c, delta)
-
-    async def on_stream_end(self, c: RunContext) -> None:
-        await self._fanout(AgentHook.on_stream_end, c)
 
     # tools
 
@@ -422,10 +348,3 @@ class CompositeHook(AgentHook):
 
     async def on_reasoning_end(self, c: RunContext) -> None:
         await self._fanout(AgentHook.on_reasoning_end, c)
-
-    # pipeline (no isolation)
-
-    def finalize_content(self, content: str | None) -> str | None:
-        for h in self._hooks:
-            content = h.finalize_content(content)
-        return content
