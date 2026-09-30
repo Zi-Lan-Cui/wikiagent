@@ -29,12 +29,14 @@ def slug_from_path(wiki_dir: str | Path, path: str | Path) -> str:
 
 
 def slug_from_ref(ref: str) -> str:
-    """页面引用（"wiki/concepts/a.md"、"/a.md"、"concepts/a"）→ slug。
+    """页面引用（"wiki/concepts/a.md"、"/a.md"、"concepts/a"、"[[concepts/a]]"）→ slug。
 
     只剥首尾固定前后缀（removesuffix），不做全局 replace——路径中间
     出现 ".md/" 段时不会被错切。
     """
     cleaned = ref.strip()
+    if cleaned.startswith("[["):
+        cleaned = cleaned.removeprefix("[[").removesuffix("]]").strip()
     for prefix in ("wiki/", "/"):
         if cleaned.startswith(prefix):
             cleaned = cleaned[len(prefix) :]

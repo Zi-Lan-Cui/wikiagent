@@ -17,7 +17,13 @@ from pathlib import Path
 
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
-from wiki_agent.wiki.pages import CONTENT_DIRS, TYPE_DIR
+from wiki_agent.wiki.pages import (
+    CONTENT_DIRS,
+    TYPE_DIR,
+    path_for,
+    slug_from_path,
+    slug_from_ref,
+)
 from wiki_agent.wiki.rules import (
     WIKILINK_RE,
     body_without_title,
@@ -139,7 +145,7 @@ def _semantic_frontmatter_issues(
                 if not isinstance(item, str) or not item.strip():
                     issues.append(Issue("error", path, "related 数组元素必须是非空字符串"))
                     continue
-                slug = item.strip().replace("[[", "").replace("]]", "").replace(".md", "")
+                slug = slug_from_ref(item)
                 slugs.append(slug)
             if len(slugs) != len(set(slugs)):
                 issues.append(Issue("warning", path, "related 存在重复 slug"))
@@ -277,7 +283,7 @@ def scan_source(
                 content,
                 path=rel,
                 valid_slugs={
-                    str(p.relative_to(wiki)).removesuffix(".md")
+                    slug_from_path(wiki, p)
                     for sub in CONTENT_DIRS
                     for p in (wiki / sub).rglob("*.md")
                     if (wiki / sub).is_dir()
@@ -307,7 +313,7 @@ def check_dead_links(content: str, *, path: str, valid_slugs: set[str]) -> list[
     body = extract_body(content)
     text = "\n".join(iter_text_outside_code(body))
     for m in WIKILINK_RE.finditer(text):
-        slug = m.group(1).strip().replace(".md", "")
+        slug = slug_from_ref(m.group(1))
         if slug not in valid_slugs:
             issues.append(
                 Issue(
@@ -339,7 +345,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
         d = wiki / sub
         if d.is_dir():
             pages.extend(sorted(d.rglob("*.md")))
-    valid_slugs = {str(page.relative_to(wiki)).replace(".md", "") for page in pages}
+    valid_slugs = {slug_from_path(wiki, page) for page in pages}
 
     # 第一遍: 收集 slug + 质量检测 + related 完整性 + 矛盾标注
     for page in pages:
@@ -385,25 +391,25 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
             content = page.read_text(encoding="utf-8")
         except OSError:
             continue
-        current_slug = rel.removesuffix(".md")
+        current_slug = slug_from_path(wiki, page)
         body = "\n".join(iter_text_outside_code(extract_body(content)))
         linked: set[str] = set()
         for match in WIKILINK_RE.finditer(body):
-            linked.add(match.group(1).strip().replace(".md", ""))
+            linked.add(slug_from_ref(match.group(1)))
 
         # related 是 frontmatter 中的结构化关系，也应计入入链；解析失败
         # 已由语义校验报告，这里只提取其中形如 [[slug]] 的值。
         fm, _ = split_frontmatter(content)
         raw_related = str(fm.get("related", ""))
         for match in WIKILINK_RE.finditer(raw_related):
-            linked.add(match.group(1).strip().replace(".md", ""))
+            linked.add(slug_from_ref(match.group(1)))
         for target in linked & valid_slugs:
             if target != current_slug:
                 incoming[target].add(current_slug)
 
     for page in pages:
         rel = str(page.relative_to(wiki))
-        slug = rel.removesuffix(".md")
+        slug = slug_from_path(wiki, page)
         if not incoming[slug]:
             all_issues.append(
                 Issue(
@@ -444,8 +450,9 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
         )
 
     # 3b. 幽灵条目——index 有、磁盘无（search 会返回不存在的页面）
-    for slug in re.findall(r"\[\[([^\]]+)\]\]", index_content):
-        if not (wiki / f"{slug}.md").exists():
+    for ref in re.findall(r"\[\[([^\]]+)\]\]", index_content):
+        slug = slug_from_ref(ref)
+        if not path_for(wiki, slug).exists():
             all_issues.append(Issue("error", "index.md", f"幽灵条目: [[{slug}]] 指向不存在的页面"))
 
     # 3c. 非标准内容目录——LLM 路由违规产物（实测 languages/ tools/）。
@@ -525,9 +532,9 @@ def cleanup_exact_duplicates(wiki_dir: str | Path) -> list[tuple[str, str]]:
             continue
         paths.sort(key=lambda p: (priority.get(p.relative_to(wiki).parts[0], 99), str(p)))
         keep = paths[0]
-        keep_slug = str(keep.relative_to(wiki)).replace(".md", "")
+        keep_slug = slug_from_path(wiki, keep)
         for duplicate in paths[1:]:
-            duplicate_slug = str(duplicate.relative_to(wiki)).replace(".md", "")
+            duplicate_slug = slug_from_path(wiki, duplicate)
             duplicate.unlink()
             replacements[duplicate_slug] = keep_slug
             removed.append((keep_slug, duplicate_slug))
