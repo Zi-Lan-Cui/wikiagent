@@ -14,11 +14,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.compiler.models import JSON_MODE, NO_THINKING
 from wiki_agent.conversation import Message
-from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.llm.retry import async_invoke_with_retry
+from wiki_agent.errors import IngestStage
 from wiki_agent.wiki.frontmatter import split_frontmatter
 
 LINK_PLAN_SYSTEM = (
@@ -60,9 +60,13 @@ async def plan_link_fixes(llm: Any, wiki_dir: str | Path, slug: str) -> list[dic
     if not path.is_file():
         return []
     _, body = split_frontmatter(path.read_text(encoding="utf-8"))
-    response = await async_invoke_with_retry(
+    response = await invoke_checked(
         llm,
-        [
+        stage=IngestStage.PLAN,
+        action="link 清单",
+        source=f"link:{slug}",
+        retry_policy="manual",
+        messages=[
             Message(role="system", content=LINK_PLAN_SYSTEM),
             Message(role="user", content=_plan_user(slug, body, all_content_slugs(wiki_dir))),
         ],
@@ -72,16 +76,6 @@ async def plan_link_fixes(llm: Any, wiki_dir: str | Path, slug: str) -> list[dic
         max_attempts=2,
         response_format=JSON_MODE,
     )
-    if not response.check_ok:
-        raise IngestError(
-            IngestStage.PLAN,
-            f"link 清单校验失败: {response.check_reason}",
-            source=f"link:{slug}",
-            raw=response.content,
-            error_code="output_validation",
-            error_class="transient",
-            retry_policy="manual",
-        )
     data = json.loads(response.content)
     fixes = data.get("fixes")
     return [

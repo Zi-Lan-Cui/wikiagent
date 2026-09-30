@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.integration.checks import (
     VALID_DISPOSITIONS,
     check_plan_json,
@@ -20,9 +21,8 @@ from wiki_agent.compiler.models import (
     PageTarget,
 )
 from wiki_agent.conversation import Message
-from wiki_agent.errors import IngestError, IngestStage
+from wiki_agent.errors import IngestStage
 from wiki_agent.llm.llm import LLMClient
-from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
 
 logger = get_logger("STAGES")
@@ -65,9 +65,12 @@ class Planner:
         def check_plan(content: str) -> tuple[bool, str]:
             return check_plan_json(content, allowed_dispositions=allowed)
 
-        response = await async_invoke_with_retry(
+        response = await invoke_checked(
             self._llm,
-            [
+            stage=IngestStage.PLAN,
+            action="plan",
+            source=extract.source_identity,
+            messages=[
                 Message(role="system", content=system_prompt),
                 Message(role="user", content=user_prompt),
             ],
@@ -78,16 +81,6 @@ class Planner:
             response_format=JSON_MODE,
         )
         raw = response.content
-        if not response.check_ok:
-            raise IngestError(
-                IngestStage.PLAN,
-                f"plan 输出校验失败: {response.check_reason}",
-                source=extract.source_identity,
-                raw=raw,
-                error_code="output_validation",
-                error_class="transient",
-                retry_policy="auto_retry",
-            )
         plan = parse_plan(raw)
         plan.raw = raw
         return plan

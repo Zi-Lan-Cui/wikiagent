@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.integration.checks import check_paths_json
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import parse_search_result
 from wiki_agent.compiler.models import JSON_MODE, NO_THINKING, ExtractResult, SearchResult
 from wiki_agent.conversation import Message
-from wiki_agent.errors import IngestError, IngestStage
+from wiki_agent.errors import IngestStage
 from wiki_agent.llm.llm import LLMClient
-from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.pages import CONTENT_DIRS
 
@@ -76,9 +76,13 @@ class Searcher:
         Raises:
             IngestError: 校验穷尽后仍失败（不许静默降级 0 候选）。
         """
-        response = await async_invoke_with_retry(
+        # 校验穷尽由 invoke_checked 显式 raise，不许静默降级成"0 候选"
+        response = await invoke_checked(
             self._llm,
-            [
+            stage=IngestStage.SEARCH,
+            action="search",
+            source=extract.source_identity,
+            messages=[
                 Message(role="system", content=self._prompts.search_system()),
                 Message(role="user", content=self._prompts.search_user(extract, index_content)),
             ],
@@ -88,17 +92,6 @@ class Searcher:
             max_attempts=2,
             response_format=JSON_MODE,
         )
-        # 校验穷尽后仍失败 → 显式 raise，不许静默降级成"0 候选"。
-        if not response.check_ok:
-            raise IngestError(
-                IngestStage.SEARCH,
-                f"search 输出校验失败（重试后仍失败）: {response.check_reason}",
-                source=extract.source_identity,
-                raw=response.content,
-                error_code="output_validation",
-                error_class="transient",
-                retry_policy="auto_retry",
-            )
         paths = parse_search_result(response.content)
         paths, invalid_paths = _filter_search_paths(paths, self._wiki_dir)
         if invalid_paths:

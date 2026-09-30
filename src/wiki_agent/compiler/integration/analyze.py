@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.integration.checks import check_analyze_json
 from wiki_agent.compiler.integration.parse import parse_analysis
 from wiki_agent.compiler.models import NO_THINKING, AnalysisResult, ExtractResult, SearchResult
 from wiki_agent.conversation import Message
-from wiki_agent.errors import IngestError, IngestStage
+from wiki_agent.errors import IngestStage
 from wiki_agent.llm.llm import LLMClient
-from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.sections import TOP_LABEL, pick_gist_limit, text_sections
@@ -116,9 +116,13 @@ class Analyzer:
             parsed.append((path, fm, text_sections(content, slug) if content else []))
         outlines = render_candidates(parsed)
 
-        response = await async_invoke_with_retry(
+        # 校验穷尽由 invoke_checked 显式报告（空响应由 retry 层处理）
+        response = await invoke_checked(
             self._llm,
-            [
+            stage=IngestStage.ANALYZE,
+            action="analyze",
+            source=extract.source_identity,
+            messages=[
                 Message(role="system", content=self._prompts.analyze_system()),
                 Message(
                     role="user",
@@ -139,19 +143,7 @@ class Analyzer:
             extra_body=NO_THINKING,
             max_attempts=2,
         )
-        raw = response.content
-        # 空响应/校验不过由 retry 层处理——这里只做穷尽后的显式报告。
-        if not response.check_ok:
-            raise IngestError(
-                IngestStage.ANALYZE,
-                f"analyze 输出校验失败（重试后仍失败）: {response.check_reason}",
-                source=extract.source_identity,
-                raw=raw,
-                error_code="output_validation",
-                error_class="transient",
-                retry_policy="auto_retry",
-            )
-        analysis = parse_analysis(raw, extract.source_identity)
+        analysis = parse_analysis(response.content, extract.source_identity)
         logger.info(
             "  analysis: %d entities, %d concepts, %d relationships, 自由分析 %d chars",
             len(analysis.entities),
