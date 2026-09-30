@@ -16,8 +16,9 @@ from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 from wiki_agent.jobs import JobResult
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
+from wiki_agent.snapshots import digest_file_text
 from wiki_agent.sync.source_jobs import SourceJobHandler
-from wiki_agent.sync.state import SyncState, digest_file_text
+from wiki_agent.sync.state import SyncState
 
 
 def _failure_issue(service: JobService, source: Path):

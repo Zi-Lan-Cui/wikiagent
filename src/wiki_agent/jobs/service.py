@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Protocol
 from uuid import uuid4
 
 from wiki_agent.issues import IssueKind, IssueStatus, IssueStore
@@ -44,7 +45,6 @@ from wiki_agent.jobs import (
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
-from wiki_agent.sync.state import SyncState, scan_disk
 
 # detail 里的正文级键：只为 outcomes 同事务消费（写完成账、issue 记账、
 # 档案页落盘）在进程内传递，不是账本——jobs 行只存小型有界事实，
@@ -54,6 +54,21 @@ _NON_PERSISTED_RESULT_KEYS = ("text", "source_page", "archive_ops", "raw")
 
 def _persistable_result(detail: dict) -> dict:
     return {k: v for k, v in detail.items() if k not in _NON_PERSISTED_RESULT_KEYS}
+
+
+class Baseline(Protocol):
+    """jobs 提交口依赖的同步基线协议——实现住 sync 域（SyncBaseline）。
+
+    方法体里不 import sync：装配根注入，jobs↔sync 的包级方向保持单向。
+    """
+
+    def lagging_sources(self) -> set[str]: ...
+
+    def inspect(
+        self, source_dir: str | Path
+    ) -> tuple[dict[str, str], list[tuple[str, str]], list[str]]: ...
+
+    def recorded_hashes(self) -> set[str]: ...
 
 
 class JobService:
@@ -66,8 +81,7 @@ class JobService:
         issues: IssueStore,
         snapshots: SnapshotStore,
         outcomes: JobOutcomeHandler,
-        sync_state: SyncState | None = None,
-        materials_dir: str | Path | None = None,
+        baseline: Baseline | None = None,
         wiki_dir: str | Path | None = None,
     ):
         # 依赖全部由组合根注入；存储的唯一端口是 store——本类不认识 Database。
@@ -75,12 +89,10 @@ class JobService:
         self.issues = issues
         self.snapshots = snapshots
         self.outcomes = outcomes
-        # sync 快照对比需要完成账本
-        self.sync_state = sync_state
+        # 同步基线面（落后判定/快照差集）由装配根注入；离线装配可为 None
+        self.baseline = baseline
         # 维护提交口要按盘面校验单元与计算批尾 link 波及面
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
-        # 维护类任务（restructure/link）的基线判定要对比磁盘源材料与账本
-        self.materials_dir = Path(materials_dir) if materials_dir is not None else None
         self.recovered_jobs = 0
         # 崩溃/中断遗留的无主快照目录在构造期清扫（保留名单=非终态任务引用的批）
         self.snapshots.sweep_orphans(self.store.in_flight_batch_ids())
@@ -119,26 +131,10 @@ class JobService:
         return JobService._pipeline_busy(busy)
 
     def sync_baseline_lag(self) -> set[str]:
-        """基线落后集合 = 脏源 − 隔离区。
-
-        脏判定与 sync_status 同源（scan_disk 对比完成账）；隔离区是挂着
-        open/blocked 编译失败账的源——这些源已被打账隔离、页面与账本
-        一致，不该再卡批操作。materials_dir 或 sync_state 未注入
-        （离线装配）时返回空集，闸不适用。
-        """
-        if self.materials_dir is None or self.sync_state is None:
+        """基线落后集合（判定在 sync 域 SyncBaseline）；离线装配时闸不适用。"""
+        if self.baseline is None:
             return set()
-        disk = scan_disk(self.materials_dir)
-        dirty, _removed = self.sync_state.diff(disk)
-        quarantined = {
-            str(record.context.get("source_path") or "")
-            for record in self.issues.list(
-                statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
-                kinds={IssueKind.INGESTION_FAILURE},
-                limit=1000,
-            )
-        }
-        return {str(Path(path).resolve()) for path, _digest in dirty} - quarantined
+        return self.baseline.lagging_sources()
 
     def _raise_if_baseline_lagging(self) -> None:
         lagging = self.sync_baseline_lag()
@@ -251,10 +247,9 @@ class JobService:
 
     def sync_status(self, source_dir: str | Path) -> dict[str, int]:
         """只读快照预演：dirty/removed 计数与在途闸状态——不提交任何东西。"""
-        if self.sync_state is None:
-            raise RuntimeError("sync_status 需要 sync_state")
-        disk = scan_disk(source_dir)
-        dirty, removed = self.sync_state.diff(disk)
+        if self.baseline is None:
+            raise RuntimeError("sync_status 需要注入同步基线面")
+        _disk, dirty, removed = self.baseline.inspect(source_dir)
         return {
             "dirty": len(dirty),
             "removed": len(removed),
@@ -279,11 +274,10 @@ class JobService:
         输入的窗口。入队失败或被互斥拒绝时删除刚复制的目录；崩溃遗留由
         JobService 构造期清扫。
         """
-        if self.sync_state is None:
-            raise RuntimeError("submit_sync 需要 sync_state")
+        if self.baseline is None:
+            raise RuntimeError("submit_sync 需要注入同步基线面")
         root = Path(source_dir).resolve()
-        disk = scan_disk(root)
-        dirty, removed = self.sync_state.diff(disk)
+        disk, dirty, removed = self.baseline.inspect(root)
         if not dirty and not removed:
             # 无任务时也要检查：孤儿失败记录的判定只依赖磁盘与完成账本
             with self.store.transaction(immediate=True) as conn:
@@ -348,8 +342,8 @@ class JobService:
         """关闭"对象已不存在"的活动失败记录：source 既不在磁盘也不在完成账里，
         它不会再出现在任何任务里。按事实关闭并记录事件，不靠人工逐条清理。
         """
-        assert self.sync_state is not None
-        hashed = {p for p in self.sync_state.all_paths() if self.sync_state.get(p).hash}
+        assert self.baseline is not None
+        hashed = self.baseline.recorded_hashes()
         closed = 0
         for record in self.issues.list(
             statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},

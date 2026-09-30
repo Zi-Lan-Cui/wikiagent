@@ -16,14 +16,29 @@ payload.batch/digest 就是本批清单。
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from wiki_agent.log import get_logger
-from wiki_agent.sync.state import digest_file_text
 
 logger = get_logger("SNAPSHOTS")
+
+# 内容指纹唯一配方（快照与完成账共用）
+def digest_file_text(path: str | Path) -> tuple[str, str] | None:
+    """内容指纹唯一配方——read_text(errors=replace) + sha256。
+
+    sync 判变更、consumer 落账必须调用同一函数：两侧各自手写哈希配方
+    存在漂移风险，digest 对不上就无法确认完成。
+    读失败（消失/权限）返回 None。
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest(), text
+
 
 # 快照根目录名——workspace 下的内部布局，不是配置项
 SNAPSHOTS_DIRNAME = "snapshots"

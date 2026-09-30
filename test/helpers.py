@@ -11,6 +11,7 @@ from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.jobs.service import JobService
 from wiki_agent.persistence import Database
 from wiki_agent.snapshots import SnapshotStore
+from wiki_agent.sync.baseline import SyncBaseline
 from wiki_agent.sync.state import SyncState
 
 
@@ -48,7 +49,13 @@ def make_job_service(
             sync_state=sync_state,
             source_records_dir=source_records_dir,
         ),
-        sync_state=sync_state,
-        materials_dir=materials_dir,
+        # sync_state 给了就接基线面；materials_dir 仅 lagging 判定用，缺省占位
+        baseline=(
+            SyncBaseline(
+                state=sync_state, issues=issues, materials_dir=materials_dir or workspace
+            )
+            if sync_state is not None
+            else None
+        ),
         wiki_dir=wiki_dir,
     )

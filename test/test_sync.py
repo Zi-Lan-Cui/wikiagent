@@ -9,7 +9,8 @@ from helpers import make_job_service
 
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
 from wiki_agent.jobs import JobResult, SyncInProgress
-from wiki_agent.sync.state import SyncState, digest_file_text
+from wiki_agent.snapshots import digest_file_text
+from wiki_agent.sync.state import SyncState
 
 
 def _svc(tmp: Path):
@@ -18,7 +19,7 @@ def _svc(tmp: Path):
     wiki = tmp / "wiki"
     wiki.mkdir(exist_ok=True)
     state = SyncState(tmp / "watch" / "state.json")
-    return src, make_job_service(tmp, sync_state=state)
+    return src, make_job_service(tmp, sync_state=state), state
 
 
 def _write(src: Path, name: str, content: str) -> Path:
@@ -30,18 +31,18 @@ def _write(src: Path, name: str, content: str) -> Path:
 
 def test_submit_sync_snapshot_diff(tmp_path: Path):
     """新文件/改过的入 compile、账上消失的入 delete、账实相符的不动。"""
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     clean = _write(src, "clean.md", "稳定内容" * 10)
     gone = _write(src, "gone.md", "将被删除" * 10)
     digest_clean, text_clean = digest_file_text(clean)
     digest_gone, text_gone = digest_file_text(gone)
-    service.sync_state.record(str(clean.resolve()), digest_clean, text_clean)
-    service.sync_state.record(str(gone.resolve()), digest_gone, text_gone)
+    state.record(str(clean.resolve()), digest_clean, text_clean)
+    state.record(str(gone.resolve()), digest_gone, text_gone)
 
     _write(src, "new.md", "全新文件" * 10)
     changed = _write(src, "changed.md", "旧版本内容" * 10)
     digest_old, text_old = digest_file_text(changed)
-    service.sync_state.record(str(changed.resolve()), digest_old, text_old)
+    state.record(str(changed.resolve()), digest_old, text_old)
     _write(src, "changed.md", "新版本内容" * 10)
     gone.unlink()
 
@@ -55,15 +56,15 @@ def test_submit_sync_snapshot_diff(tmp_path: Path):
 
 def test_submit_sync_excludes_roster_entries(tmp_path: Path):
     """名册式空条目（hash=""）不算 removed：从未入账，无账可清。"""
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     ghost = src / "ghost.md"
-    service.sync_state.set(str(ghost.resolve()), service.sync_state.get(str(ghost.resolve())))
+    state.set(str(ghost.resolve()), state.get(str(ghost.resolve())))
     assert service.submit_sync(src) == []
 
 
 def test_submit_sync_serial_mutex(tmp_path: Path):
     """互斥串行：compile/delete 有在途即拒绝；issue_action 不挡 sync。"""
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     _write(src, "a.md", "内容" * 10)
     jobs = service.submit_sync(src)
     assert len(jobs) == 1
@@ -93,7 +94,7 @@ def test_submit_sync_serial_mutex(tmp_path: Path):
 
 def test_failure_keeps_dirty_resync_is_retry(tmp_path: Path):
     """失败不写账 → 内容保持脏 → 再次 sync 就是重试（无任何排程）。"""
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     f = _write(src, "fail.md", "会失败的内容" * 10)
     digest = digest_file_text(f)[0]
 
@@ -102,7 +103,7 @@ def test_failure_keeps_dirty_resync_is_retry(tmp_path: Path):
     claimed = service.claim_next(kinds={"compile"})
     assert claimed is not None
     service.complete_with_outcome(claimed, JobResult(status="failed", detail={"error": "boom"}))
-    assert service.sync_state.get(str(f.resolve())).hash == ""
+    assert state.get(str(f.resolve())).hash == ""
 
     # 失败行已终态（队列空闲）→ 再次 sync：同内容重新入队——这就是重试
     resync = service.submit_sync(src)
@@ -111,7 +112,7 @@ def test_failure_keeps_dirty_resync_is_retry(tmp_path: Path):
 
 def test_success_records_and_links_issue(tmp_path: Path):
     """成功：记实际读到的 digest、挂账 issue RESOLVED；再 sync 干净出空批。"""
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     f = _write(src, "note.md", "内容" * 10)
     digest, text = digest_file_text(f)
     issue = service.issues.report(
@@ -136,7 +137,7 @@ def test_success_records_and_links_issue(tmp_path: Path):
             detail={"settlement": "ingested", "digest": digest, "text": text},
         ),
     )
-    assert service.sync_state.get(str(f.resolve())).hash == digest
+    assert state.get(str(f.resolve())).hash == digest
     resolved = service.issues.get(issue.id)
     assert resolved.status == IssueStatus.RESOLVED
     # resolution 只留可追溯小字段——text/档案页全文不进问题账本
@@ -146,10 +147,10 @@ def test_success_records_and_links_issue(tmp_path: Path):
 
 def test_delete_resolves_linked_failure_record(tmp_path: Path):
     """删除任务与 compile 同一挂账规则：成功删除关闭该来源的全部活动失败记录。"""
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     f = _write(src, "gone.md", "将被删除" * 10)
     digest, text = digest_file_text(f)
-    service.sync_state.record(str(f.resolve()), digest, text)
+    state.record(str(f.resolve()), digest, text)
     issue = service.issues.report(
         IssueDraft(
             kind=IssueKind.INGESTION_FAILURE,
@@ -171,12 +172,12 @@ def test_delete_resolves_linked_failure_record(tmp_path: Path):
     record = service.issues.get(issue.id)
     assert record.status == IssueStatus.RESOLVED
     assert record.resolution["cause"] == "source_deleted"
-    assert service.sync_state.get(str(f.resolve())).hash == "", "完成账条目随之移除"
+    assert state.get(str(f.resolve())).hash == "", "完成账条目随之移除"
 
 
 def test_orphan_failure_closed_at_submit(tmp_path: Path):
     """点击前就消失、又从未入账的失败记录：提交时按事实关闭，不再等人工逐条清理。"""
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     ghost_abs = str((src / "ghost.md").resolve())
     issue = service.issues.report(
         IssueDraft(
@@ -196,7 +197,7 @@ def test_orphan_failure_closed_at_submit(tmp_path: Path):
 
 def test_succeeded_without_settlement_records_ledger_but_not_issue(tmp_path: Path):
     """完成账与问题账互不影响：无 settlement 的成功照样落完成账，但不动问题账本。"""
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     f = _write(src, "note.md", "内容" * 10)
     digest, text = digest_file_text(f)
     issue = service.issues.report(
@@ -214,12 +215,12 @@ def test_succeeded_without_settlement_records_ledger_but_not_issue(tmp_path: Pat
     service.complete_with_outcome(
         claimed, JobResult(status="succeeded", detail={"digest": digest, "text": text})
     )
-    assert service.sync_state.get(str(f.resolve())).hash == digest, "完成账照常"
+    assert state.get(str(f.resolve())).hash == digest, "完成账照常"
     assert service.issues.get(issue.id).status == IssueStatus.OPEN, "未申报类别不动账本"
 
 
 def test_sync_status_readonly(tmp_path: Path):
-    src, service = _svc(tmp_path)
+    src, service, state = _svc(tmp_path)
     _write(src, "x.md", "内容" * 10)
     st = service.sync_status(src)
     assert st == {"dirty": 1, "removed": 0, "in_flight": 0}
