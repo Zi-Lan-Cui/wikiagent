@@ -29,6 +29,7 @@ from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.errors import IngestError, IngestStage, WikiAgentError
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.log import get_logger, span
+from wiki_agent.wiki.pages import index_line, slug_from_ref
 
 T = TypeVar("T")
 
@@ -328,10 +329,10 @@ class CompilePipeline:
         index_path = self._wiki_dir / "index.md"
         existing = index_path.read_text(encoding="utf-8")
         # pages_written 带 .md 后缀（normalize 后），与 slug 比对前先归一
-        written_slugs = {p.replace(".md", "") for p in pages_written}
+        written_slugs = {slug_from_ref(p) for p in pages_written}
         fresh: list[str] = []
         for pt in plan.page_targets:
-            slug = pt.wiki_path.replace("wiki/", "").replace(".md", "")
+            slug = slug_from_ref(pt.wiki_path)
             if f"[[{slug}]]" in existing or slug not in written_slugs:
                 continue
             from wiki_agent.wiki.frontmatter import parse_frontmatter
@@ -345,11 +346,7 @@ class CompilePipeline:
             # search/analyze 看，正文仍不进入 index，避免索引膨胀。
             summary = " ".join(str(summary).splitlines())
             goal = " ".join(str(goal).splitlines())
-            fresh.append(
-                f"- [[{slug}]] — [{page_type}] {pt.wiki_path} — {title}"
-                f"{' — ' + summary if summary else ''}"
-                f"{' — goal: ' + goal if goal else ''}"
-            )
+            fresh.append(index_line(slug, str(page_type), str(title), summary, goal))
         if fresh:
             index_path.write_text(
                 existing.rstrip() + "\n" + "\n".join(fresh) + "\n",

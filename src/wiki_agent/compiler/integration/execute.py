@@ -23,6 +23,7 @@ from wiki_agent.llm.llm import LLMClient
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.normalize import extract_related, fix_wikilinks, normalize_page
+from wiki_agent.wiki.pages import slug_from_ref
 from wiki_agent.wiki.rules import check_page_output
 
 logger = get_logger("STAGES")
@@ -135,7 +136,7 @@ class Executor:
         valid_slugs = load_valid_slugs(self._wiki_dir)
         for t in plan.page_targets:
             if t.disposition == Disposition.NEW:
-                valid_slugs.add(t.wiki_path.replace(".md", ""))
+                valid_slugs.add(slug_from_ref(t.wiki_path))
 
         failed_paths: set[str] = set()
         failed_details: list[dict[str, str]] = []
@@ -184,7 +185,7 @@ class Executor:
         if failed_paths:
             actual_slugs = load_valid_slugs(self._wiki_dir)
             actual_slugs.update(
-                t.wiki_path.replace(".md", "")
+                slug_from_ref(t.wiki_path)
                 for t in plan.page_targets
                 if (self._wiki_dir / normalize_wiki_path(t.wiki_path)).exists()
             )

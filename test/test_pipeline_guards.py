@@ -315,4 +315,4 @@ def test_index_entry_contains_goal(tmp_path):
     pipeline._append_index(plan, ["concepts/asyncio.md"])
     index = (wiki / "index.md").read_text(encoding="utf-8")
     assert "事件循环与协程" in index
-    assert "goal: 解释异步调度模型和使用边界" in index
+    assert "使命: 解释异步调度模型和使用边界" in index  # index 行格式唯一构造器 pages.index_line
