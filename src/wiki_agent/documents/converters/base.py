@@ -22,7 +22,6 @@ class ConvertedFile:
     ext: str
     path: str
     size_bytes: int = 0
-    content_hash: str | None = None
     create_time: str = ""
     modality: str = "text"
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -44,7 +43,6 @@ class ConvertedFile:
             ext=raw_file.ext,
             path=str(raw_file.path),
             size_bytes=len(content),
-            content_hash=raw_file.content_hash,
             create_time=raw_file.create_time,
         )
 

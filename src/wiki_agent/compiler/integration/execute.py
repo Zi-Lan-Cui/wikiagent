@@ -7,9 +7,8 @@ import json
 from datetime import date
 from pathlib import Path
 
-from wiki_agent.compiler.integration.common import extract_slugs_from_index, load_valid_slugs
+from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import normalize_wiki_path
-from wiki_agent.compiler.integration.plan import filter_plan_refs
 from wiki_agent.compiler.models import (
     NO_THINKING,
     Disposition,
@@ -32,7 +31,6 @@ _UPDATE_TOKENS = 8_000
 # 页面生成总尝试次数（retry 层语义: 总尝试，原 1 = 零重试）
 _PAGE_GEN_RETRIES = 2
 
-__all__ = ["Executor", "extract_slugs_from_index", "filter_plan_refs"]
 
 
 class Executor:

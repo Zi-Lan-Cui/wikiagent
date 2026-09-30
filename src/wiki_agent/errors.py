@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from enum import StrEnum
 
 from wiki_agent.log import get_logger
@@ -19,20 +18,6 @@ class RetryableError(WikiAgentError):
     def __init__(self, message: str = "", *, cause: Exception | None = None):
         super().__init__(message)
         self.cause = cause
-
-
-class HandleableError(WikiAgentError):
-    """带 handler 的可修复错误——修好再试一次。"""
-
-    def __init__(self, message: str = "", *, handler: Callable[[], Awaitable] | None = None):
-        super().__init__(message)
-        self._handler = handler
-
-    async def handle(self):
-        """执行修复。"""
-        if self._handler is None:
-            return None
-        return await self._handler()
 
 
 class FatalError(WikiAgentError):
@@ -79,9 +64,6 @@ class IngestError(WikiAgentError):
             if isinstance(cause, RetryableError):
                 error_class = error_class or "transient"
                 retry_policy = retry_policy or "auto_retry"
-            elif isinstance(cause, HandleableError):
-                error_class = error_class or "recoverable"
-                retry_policy = retry_policy or "retry_once"
             elif isinstance(cause, FatalError):
                 error_class = error_class or "permanent"
                 retry_policy = retry_policy or "manual"

@@ -1,4 +1,3 @@
-import hashlib
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -26,7 +25,6 @@ class RawFileProperties(BaseModel):
     content: str = ""
     size_bytes: int = 0
     encoding: str | None = None
-    content_hash: str | None = None  # sha256 用于去重追踪
     create_time: str = ""  # ISO 格式
 
 
@@ -235,10 +233,6 @@ class DataLoader:
                 emit_event("file_skipped", file=file.name, reason="empty", size_bytes=size)
                 return None
 
-        content_hash = None
-        if size > 0:
-            content_hash = self._hash_file(file)
-
         return RawFileProperties(
             name=file.name,
             ext=ext.lstrip("."),
@@ -247,7 +241,6 @@ class DataLoader:
             content=content,
             size_bytes=size,
             encoding=encoding,
-            content_hash=content_hash,
             create_time=datetime.fromtimestamp(stat.st_mtime).isoformat(),
         )
 
@@ -302,39 +295,3 @@ class DataLoader:
             pass
         return False
 
-    def _hash_file(self, file: Path) -> str | None:
-        """计算文件 SHA256——去重追踪。
-
-        Args:
-            file: 文件路径。
-
-        Returns:
-            SHA256 摘要；读取失败返回 None。
-        """
-        try:
-            sha = hashlib.sha256()
-            with open(file, "rb") as fh:
-                sha.update(fh.read(65536))
-            return sha.hexdigest()
-        except OSError:
-            return None
-
-
-if __name__ == "__main__":
-    import sys
-
-    loader = DataLoader()
-    target = sys.argv[1] if len(sys.argv) > 1 else "."
-
-    summary = loader.load_dir(target)
-
-    print(f"\n扫描: {target}")
-    print(
-        f"发现: {summary.total_found}  加载: {summary.loaded_count}  跳过: {summary.skipped_count}"
-    )
-    print(f"模态: {summary.by_modality}")
-
-    print("\n── 文本文件预览 ──")
-    for f in summary.iter_text():
-        preview = f.content[:60].replace("\n", "\\n") if f.content else "(空)"
-        print(f"  [{f.ext}] {f.name}  ({f.size_bytes}B)  {preview}...")

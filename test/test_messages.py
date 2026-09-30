@@ -268,83 +268,6 @@ class TestTextSchema:
         assert "f2" in text
 
 
-# Message — create_from_openai (逆序列化)
-
-
-class TestCreateFromOpenAI:
-    def test_roundtrip_user_message(self):
-        original = Message(role="user", content="hello world")
-        serialized = original.openai_schema
-        restored = Message.create_from_openai(serialized)
-        assert restored.role == "user"
-        assert restored.content == "hello world"
-        assert restored.tool_calls == []
-        assert restored.images == []
-
-    def test_roundtrip_assistant_with_tool_call(self):
-        original = Message(
-            role="assistant",
-            content="调用工具",
-            tool_calls=[ToolCall(id="t99", name="calc", arguments={"x": 1})],
-        )
-        restored = Message.create_from_openai(original.openai_schema)
-        assert restored.role == "assistant"
-        assert restored.content == "调用工具"
-        assert len(restored.tool_calls) == 1
-        assert restored.tool_calls[0].id == "t99"
-        assert restored.tool_calls[0].name == "calc"
-        assert restored.tool_calls[0].arguments == {"x": 1}
-
-    def test_roundtrip_tool_message(self):
-        original = Message(role="tool", content="result 42", tool_call_id="abc")
-        restored = Message.create_from_openai(original.openai_schema)
-        assert restored.role == "tool"
-        assert restored.content == "result 42"
-        assert restored.tool_call_id == "abc"
-
-    def test_roundtrip_system_message(self):
-        original = Message(role="system", content="system prompt")
-        restored = Message.create_from_openai(original.openai_schema)
-        assert restored.role == "system"
-        assert restored.content == "system prompt"
-
-    def test_multimodal_content_reduced_to_text(self):
-        """多模态 content 数组还原为纯文本（图片信息丢失，按设计）。"""
-        data = {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "第一段"},
-                {"type": "image_url", "image_url": {"url": "data:..."}},
-                {"type": "text", "text": "第二段"},
-            ],
-        }
-        msg = Message.create_from_openai(data)
-        assert msg.content == "第一段\n第二段"
-        assert msg.images == []
-
-    def test_no_tool_calls_field(self):
-        msg = Message.create_from_openai({"role": "assistant", "content": "ok"})
-        assert msg.tool_calls == []
-
-    def test_missing_content_defaults_to_empty(self):
-        msg = Message.create_from_openai({"role": "user"})
-        assert msg.content == ""
-
-    def test_multiple_tool_calls_roundtrip(self):
-        original = Message(
-            role="assistant",
-            content="",
-            tool_calls=[
-                ToolCall(id="1", name="a", arguments={"k": "v"}),
-                ToolCall(id="2", name="b", arguments={}),
-            ],
-        )
-        restored = Message.create_from_openai(original.openai_schema)
-        assert len(restored.tool_calls) == 2
-        assert restored.tool_calls[0].name == "a"
-        assert restored.tool_calls[1].name == "b"
-
-
 # LLMResponse
 
 
@@ -420,23 +343,3 @@ class TestFullConversationSchema:
         assert tool_schema["role"] == "tool"
         assert tool_schema["tool_call_id"] == "tc1"
         assert tool_schema["content"] == "一只猫坐在窗台上"
-
-    def test_roundtrip_full_cycle(self):
-        """从原始 Message → openai_schema → create_from_openai → openai_schema。"""
-        turn = [
-            Message(role="system", content="sys"),
-            Message(role="user", content="question"),
-            Message(
-                role="assistant",
-                content="answer",
-                tool_calls=[ToolCall(id="t", name="fn", arguments={"a": 1})],
-            ),
-            Message(role="tool", content="result", tool_call_id="t"),
-        ]
-
-        for original in turn:
-            restored = Message.create_from_openai(original.openai_schema)
-            assert restored.role == original.role
-            assert restored.content == original.content
-            assert len(restored.tool_calls) == len(original.tool_calls)
-            assert restored.tool_call_id == original.tool_call_id
