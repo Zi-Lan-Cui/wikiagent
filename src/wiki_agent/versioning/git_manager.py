@@ -42,11 +42,8 @@ class WikiGitManager:
         In that case a nested repository keeps private knowledge history
         independent from the application source repository.
         """
-        discovered = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=self.wiki_dir,
-            capture_output=True,
-            text=True,
+        discovered = self._git(
+            "rev-parse", "--show-toplevel", check=False, cwd=self.wiki_dir
         )
         if discovered.returncode == 0:
             repo_root = Path(discovered.stdout.strip()).resolve()
@@ -59,77 +56,53 @@ class WikiGitManager:
             scope = self.wiki_dir.relative_to(repo_root)
         except ValueError:
             return False
-        tracked = subprocess.run(
-            ["git", "ls-files", "--", str(scope)],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
+        tracked = self._git("ls-files", "--", str(scope), check=False, cwd=repo_root)
         if tracked.returncode == 0 and tracked.stdout.strip():
             return True
-        ignored = subprocess.run(
-            ["git", "check-ignore", "-q", "--", str(scope)],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
+        ignored = self._git("check-ignore", "-q", "--", str(scope), check=False, cwd=repo_root)
         return ignored.returncode != 0
 
     def _initialize_wiki_repository(self) -> Path:
-        initialized = subprocess.run(
-            ["git", "init", "-q"],
-            cwd=self.wiki_dir,
-            capture_output=True,
-            text=True,
-        )
-        if initialized.returncode:
-            raise GitManagerError((initialized.stderr or initialized.stdout).strip())
+        self._git("init", "-q", cwd=self.wiki_dir)
         self._ensure_git_identity()
-        for args in (
-            ("add", "--all", "--", "."),
-            ("commit", "--allow-empty", "-qm", "wiki: initialize repository"),
-        ):
-            result = subprocess.run(
-                ["git", *args],
-                cwd=self.wiki_dir,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode:
-                raise GitManagerError((result.stderr or result.stdout).strip())
+        self._git("add", "--all", "--", ".", cwd=self.wiki_dir)
+        self._git("commit", "--allow-empty", "-qm", "wiki: initialize repository", cwd=self.wiki_dir)
         emit_event("wiki_repository_initialized", wiki_dir=str(self.wiki_dir))
         return self.wiki_dir
 
     def _ensure_git_identity(self) -> None:
         defaults = {"user.name": "wiki-agent", "user.email": "wiki-agent@localhost"}
         for key, value in defaults.items():
-            existing = subprocess.run(
-                ["git", "config", "--get", key],
-                cwd=self.wiki_dir,
-                capture_output=True,
-                text=True,
-            )
+            existing = self._git("config", "--get", key, check=False, cwd=self.wiki_dir)
             if existing.returncode == 0 and existing.stdout.strip():
                 continue
-            configured = subprocess.run(
-                ["git", "config", key, value],
-                cwd=self.wiki_dir,
-                capture_output=True,
-                text=True,
-            )
-            if configured.returncode:
-                raise GitManagerError((configured.stderr or configured.stdout).strip())
+            self._git("config", key, value, cwd=self.wiki_dir)
 
     # Git 基础
 
-    def _git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-        # core.quotePath=false：diff/show 输出原始 UTF-8 路径，中文页面不被八进制转义污染
-        result = subprocess.run(
-            ["git", "-c", "core.quotePath=false", *args],
-            cwd=self.repo_root,
-            capture_output=True,
-            text=True,
-        )
+    def _git(
+        self,
+        *args: str,
+        check: bool = True,
+        cwd: Path | None = None,
+        timeout: float = 60,
+    ) -> subprocess.CompletedProcess[str]:
+        """全部 git 子进程的唯一内核：带 timeout，异常归类 GitManagerError。
+
+        index.lock 竞争、钩子挂死等场景下无限等待会卡停调用方（worker
+        泵在事件循环里）；超时按失败抛出，行为与 returncode 非零一致。
+        """
+        try:
+            # core.quotePath=false：diff/show 输出原始 UTF-8 路径，中文页面不被八进制转义污染
+            result = subprocess.run(
+                ["git", "-c", "core.quotePath=false", *args],
+                cwd=cwd or self.repo_root,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitManagerError(f"git {args[0] if args else ''} 超时（{timeout:g}s）") from exc
         if check and result.returncode:
             raise GitManagerError((result.stderr or result.stdout).strip())
         return result
