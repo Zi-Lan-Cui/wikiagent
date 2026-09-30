@@ -1,5 +1,5 @@
 """手动重试通道验收——issue retry 挂账建 job、双击唯一、占位收敛、
-失败不误标账、崩溃自愈（recover_stale 于服务构造期）。
+失败不误标账、崩溃自愈（recover_stale 由持锁执行者显式调用）。
 
 直接运行:  .venv/bin/python test/test_retry_flow.py
 """
@@ -157,8 +157,12 @@ def test_legacy_processing_rows_migrated_to_open(tmp_path: Path):
     assert row is None
 
 
-def test_recover_stale_on_service_reinit(tmp_path: Path):
-    """崩溃自愈：卡死的 running 行在下一个进程构造期回队（无常驻调度器）。"""
+def test_recover_stale_is_explicit_post_lock(tmp_path: Path):
+    """崩溃自愈：卡死的 running 行由下一个执行者**持锁后显式**回队。
+
+    构造 service 不再自动回收——构造不代表持有执行锁，未持锁就回队
+    会与活进程双写 wiki（CAS 保证终态一写，不保证写入者唯一）。
+    """
     service = make_job_service(tmp_path)
     job = service.submit(kind="compile", resource="/stale", mode="sync")
     claimed = service.claim_next(kinds={"compile"})
@@ -167,9 +171,36 @@ def test_recover_stale_on_service_reinit(tmp_path: Path):
     with service.store.database.transaction(immediate=True) as conn:
         conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (stale_time, job.id))
 
-    revived = make_job_service(tmp_path)  # 构造期 recover_stale
-    assert revived.recovered_jobs == 1
+    revived = make_job_service(tmp_path)
+    assert revived.recovered_jobs == 0  # 构造期不再回收
+    assert revived.store.get(job.id).status == "running"
+    assert revived.recover_stale() == 1  # 持锁后的显式调用才回收
     assert revived.store.get(job.id).status == "queued"
+
+
+def test_final_result_persists_bounded_facts_only(tmp_path: Path):
+    """终态落账只留有界事实：正文级 detail 键供 outcomes 进程内消费，
+    不进 jobs 行——否则 state.db 随每轮 sync 无界膨胀、list() 反复反序列化大 blob。
+    """
+    from wiki_agent.jobs import JobResult, Kind
+
+    service = make_job_service(tmp_path)
+    job = service.submit(kind=Kind.COMPILE, resource="/doc.md", mode="sync")
+    claimed = service.claim_next(kinds={Kind.COMPILE})
+    assert claimed is not None
+    done = service.complete_with_outcome(
+        claimed,
+        JobResult(
+            status="succeeded",
+            detail={
+                "settlement": "ingested",
+                "digest": "abc123",
+                "text": "页面全文" * 500,
+                "source_page": {"slug": "sources/doc", "content": "档案全文" * 500},
+            },
+        ),
+    )
+    assert done.result == {"settlement": "ingested", "digest": "abc123"}
 
 
 if __name__ == "__main__":
@@ -187,3 +218,4 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(tests) - failed}/{len(tests)} 通过")
     raise SystemExit(1 if failed else 0)
+
