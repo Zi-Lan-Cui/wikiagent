@@ -14,8 +14,7 @@ import sys
 from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
-from wiki_agent.issues import IssueAlreadyClaimedError
-from wiki_agent.jobs import DuplicateInFlightJob, PipelineBusy
+from wiki_agent.jobs import PipelineBusy
 from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import configure_logging, get_logger
 
@@ -37,17 +36,13 @@ async def main(selected: str | None = None) -> None:
             return
 
         outcomes: dict[str, str] = {}
-        for issue_id in issue_ids:
-            try:
-                job = service.submit_issue_retry(issue_id)
-            except (IssueAlreadyClaimedError, DuplicateInFlightJob):
-                outcomes[issue_id] = "skipped（已有在途任务）"
-            except SourceUnavailableError as exc:
-                outcomes[issue_id] = f"unavailable — {exc}"
-            except PipelineBusy as exc:
-                outcomes[issue_id] = f"skipped（流水线在途）— {exc}"
-            else:
-                logger.info("%s: 已排队 %s", issue_id, job.id)
+        try:
+            jobs = service.submit_issue_retry_batch(issue_ids)
+        except (PipelineBusy, SourceUnavailableError) as exc:
+            logger.error("本批未提交（整批原子拒绝）：%s", exc)
+            return
+        for job in jobs:
+            logger.info("%s: 已排队 %s", job.issue_id or job.resource, job.id)
 
         # 本脚本驱动队列，直到领不到本进程注册类型的任务为止
         worker = runtime.job_worker
@@ -64,7 +59,7 @@ async def main(selected: str | None = None) -> None:
 
         for issue_id in issue_ids:
             status = outcomes.get(issue_id, "unknown")
-            log = logger.info if status in ("succeeded", "skipped（已有在途任务）") else logger.error
+            log = logger.info if status == "succeeded" else logger.error
             log("%s: %s", issue_id, status)
     finally:
         release_execution_lock(runtime.workspace)

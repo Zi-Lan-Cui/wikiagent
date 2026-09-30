@@ -13,7 +13,7 @@ from helpers import make_issue_store, make_job_service
 
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
-from wiki_agent.jobs import JobResult
+from wiki_agent.jobs import JobResult, PipelineBusy
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.snapshots import digest_file_text
@@ -73,6 +73,53 @@ def test_retry_attaches_to_occupant_and_converges(tmp_path: Path):
     result = service.submit_issue_retry(issue.id)
     assert result.id == occupant.id
     assert service.store.get(occupant.id).issue_id == issue.id
+    assert service.store.count_in_flight() == 1
+
+
+def test_retry_batch_enqueues_all_without_self_blocking(tmp_path: Path):
+    """批量入队不被本批自产行挡：两个候选两行在途——逐单提交时第二发撞第一发的闸。"""
+    service = make_job_service(tmp_path)
+    issue_ids = []
+    for name in ("a.md", "b.md"):
+        source = tmp_path / name
+        source.write_text(f"重试输入 {name}" * 10, encoding="utf-8")
+        issue_ids.append(_failure_issue(service, source).id)
+
+    jobs = service.submit_issue_retry_batch(issue_ids)
+    assert len(jobs) == 2 and len({j.id for j in jobs}) == 2
+    assert all(j.kind == "compile" and j.mode == "issue_retry" for j in jobs)
+    assert service.store.count_in_flight() == 2
+
+
+def test_retry_batch_gate_rejects_whole_batch_atomically(tmp_path: Path):
+    """批外在途写：整批 PipelineBusy 拒绝，结束后没有半批新行、issue 无一挂账。"""
+    service = make_job_service(tmp_path)
+    service.submit(kind="compile", resource=str((tmp_path / "other.md").resolve()), mode="sync")
+    issue_ids = []
+    for name in ("a.md", "b.md"):
+        source = tmp_path / name
+        source.write_text(f"内容 {name}" * 10, encoding="utf-8")
+        issue_ids.append(_failure_issue(service, source).id)
+
+    try:
+        service.submit_issue_retry_batch(issue_ids)
+        assert False, "有批外在途写时整批应拒"
+    except PipelineBusy:
+        pass
+    assert service.store.count_in_flight() == 1
+    for issue_id in issue_ids:
+        assert service.store.in_flight_job_by_issue(issue_id) is None
+
+
+def test_retry_batch_converges_duplicate_issue(tmp_path: Path):
+    """批内同一 issue 出现两次：第二发收敛到第一发刚入队的行，不叠行。"""
+    service = make_job_service(tmp_path)
+    source = tmp_path / "note.md"
+    source.write_text("重试内容" * 10, encoding="utf-8")
+    issue_id = _failure_issue(service, source).id
+
+    jobs = service.submit_issue_retry_batch([issue_id, issue_id])
+    assert jobs[0].id == jobs[1].id
     assert service.store.count_in_flight() == 1
 
 

@@ -32,7 +32,6 @@ from uuid import uuid4
 from wiki_agent.issues import IssueKind, IssueStatus, IssueStore
 from wiki_agent.jobs import (
     WIKI_WRITE_KINDS,
-    DuplicateInFlightJob,
     Job,
     JobResult,
     JobStore,
@@ -167,69 +166,76 @@ class JobService:
         )
 
     def submit_issue_retry(self, issue_id: str) -> Job:
-        """重试请求 → compile Job：点击时捕获快照输入。
+        """重试请求 → compile Job：单发即一批——收敛语义见批量口。"""
+        return self.submit_issue_retry_batch([issue_id])[0]
 
-        执行唯一性依次经三层检查收敛：先查该 issue 是否已有在途挂账 job
-        （有则直接返回）；再按幂等键命中在途行返回既有；撞唯一在途索引
-        （他人占位同一资源）返回占位者、其无账则补挂。retry 资格
-        （状态、来源可读）由各入口的 validate 判定，这里只管执行唯一性。
-        与 submit_sync 同一规则：digest 来自点击时复制的快照件，
-        点击后文件再变，本次重试处理的仍是当时保存的这份副本。issue 终态由
-        compile job 的 outcome 落，提交本身不改变 issue 状态。
+    def submit_issue_retry_batch(self, issue_ids: list[str]) -> list[Job]:
+        """批量重试：一个事务内收敛、过闸、整批入队。
 
-        流水线互斥闸排在收敛之后：该 issue 已有在途挂账、或同一资源已被
-        在途任务占用时照常收敛返回，只有两个收敛通道都空且写 wiki 任务
-        在途时才 PipelineBusy 暂拒——双击 retry 的幂等语义不因加闸而破。
+        执行唯一性对每行依次收敛：该 issue 已有在途挂账则返回既有行；
+        同一资源被在途行占用（含本批前序行）则收敛到占位者、其无挂账补挂。
+        两个收敛通道都空、且**批外**有写 wiki 任务在途才 PipelineBusy——
+        闸的读数冻结在事务开始，IMMEDIATE 写锁保证批内没有别的提交能插行，
+        本批自产行不挡本批后续行。逐个提交必然半批失败：第一行入队后会被
+        第二行的闸计为在途。
+
+        与 submit_sync 同一快照语义：digest 来自点击时复制的副本，点击后
+        文件再变，本次重试处理的仍是这份；批内某行输入不可读或撞闸则整批
+        回滚，jobs 行与快照目录同消——调用方看到的失败都是"什么都没发生"。
+        retry 资格（状态、来源可读）由各入口的 validate 判定，这里只管执行
+        唯一性；issue 终态由 compile job 的 outcome 落，提交不改 issue 状态。
         """
-        issue = self.issues.require(issue_id)
-        source = resolve_retry_source(issue)
-        resource = str(Path(source).resolve())
-        busy = self._in_flight_wiki_write_counts()
-        if busy and self.store.in_flight_job_by_issue(issue_id) is None:
-            if self.store.in_flight_by_resource(resource) is None:
-                raise self._pipeline_busy(busy)
-        batch = f"retry_{uuid4().hex}"
-        try:
-            digest = self.snapshots.capture(batch, Path(resource).parent, [resource])[resource]
-        except SnapshotError as exc:
-            raise SourceUnavailableError(f"重试输入不可读: {exc}") from exc
+        jobs: list[Job] = []
+        fresh_batches: list[str] = []
         try:
             with self.store.transaction(immediate=True) as conn:
-                existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
-                if existing is not None:
-                    return existing
-                if self.store.in_flight_by_resource(resource, _conn=conn) is None:
-                    # 事务内复查：早退之后队列可能已被别的提交点亮
-                    busy = self._in_flight_wiki_write_counts(_conn=conn)
-                    if busy:
-                        raise self._pipeline_busy(busy)
-                try:
-                    return self.store.enqueue(
-                        kind=Kind.COMPILE,
-                        resource=resource,
-                        mode="issue_retry",
-                        payload={
-                            "deleted": False,
-                            "digest": digest,
-                            "batch": batch,
-                            "rel_path": Path(resource).name,
-                        },
-                        idempotency_key=f"issue-retry:{issue_id}",
-                        issue_id=issue_id,
-                        _conn=conn,
-                    )
-                except DuplicateInFlightJob:
+                external_busy = self._in_flight_wiki_write_counts(_conn=conn)
+                for issue_id in issue_ids:
+                    issue = self.issues.require(issue_id)
+                    resource = str(Path(resolve_retry_source(issue)).resolve())
+                    existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
+                    if existing is not None:
+                        jobs.append(existing)
+                        continue
                     occupant = self.store.in_flight_by_resource(resource, _conn=conn)
-                    if occupant is None:  # 撞唯一索引必有占位者——防御性外抛
-                        raise
-                    if not occupant.issue_id:
-                        occupant = self.store.attach_issue(occupant.id, issue_id, _conn=conn)
-                    return occupant
-        finally:
-            # 只有"新入队的这一行"用到了本次捕获；收敛到既有行的分支不留无主目录
-            current = self.store.in_flight_job_by_issue(issue_id)
-            if current is None or current.payload.get("batch") != batch:
+                    if occupant is not None:
+                        if not occupant.issue_id:
+                            occupant = self.store.attach_issue(
+                                occupant.id, issue_id, _conn=conn
+                            )
+                        jobs.append(occupant)
+                        continue
+                    if external_busy:
+                        raise self._pipeline_busy(external_busy)
+                    batch = f"retry_{uuid4().hex}"
+                    try:
+                        digest = self.snapshots.capture(
+                            batch, Path(resource).parent, [resource]
+                        )[resource]
+                    except SnapshotError as exc:
+                        raise SourceUnavailableError(f"重试输入不可读: {exc}") from exc
+                    fresh_batches.append(batch)
+                    jobs.append(
+                        self.store.enqueue(
+                            kind=Kind.COMPILE,
+                            resource=resource,
+                            mode="issue_retry",
+                            payload={
+                                "deleted": False,
+                                "digest": digest,
+                                "batch": batch,
+                                "rel_path": Path(resource).name,
+                            },
+                            idempotency_key=f"issue-retry:{issue_id}",
+                            issue_id=issue_id,
+                            _conn=conn,
+                        )
+                    )
+        except BaseException:
+            for batch in fresh_batches:
                 self.snapshots.drop_batch(batch)
+            raise
+        return jobs
 
     def submit_issue_action(
         self, issue_id: str, action: str, payload: dict[str, object] | None = None
