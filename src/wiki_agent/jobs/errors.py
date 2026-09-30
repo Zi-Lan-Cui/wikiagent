@@ -45,6 +45,13 @@ class RestructureInProgress(PipelineBusy):
         super().__init__("重组批次未空闲：等当前批全部到终态后再提交")
 
 
+class MaintenancePreviewInProgress(PipelineBusy):
+    """一次整理结构分析还在途——分析结果基于盘面快照，两份并行分析没有意义。"""
+
+    def __init__(self) -> None:
+        super().__init__("整理结构分析进行中：等当前分析完成后再发起")
+
+
 class SyncBaselineLag(RuntimeError):
     """同步基线落后：存在未同步（且未挂失败账）的源，提交被暂拒。
 

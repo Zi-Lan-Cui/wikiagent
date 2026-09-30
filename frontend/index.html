@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=32" />
+    <link rel="stylesheet" href="/style.css?v=42" />
   </head>
   <body>
     <div class="app-shell">
@@ -17,7 +17,7 @@
         <div id="session-list" class="session-list" aria-label="历史会话"></div>
         <details class="sidebar-section">
           <summary><span>Wiki 文件</span><span class="summary-action"><b id="wiki-count" class="section-count">0</b><b class="section-chevron">›</b></span></summary>
-          <p class="wiki-managed-note">Wiki 由同步生成并用 Git 管理：手工修改会在下一次同步时被清除。</p>
+          <p class="wiki-managed-note">Wiki 由同步生成并纳入 Git 管理，手工修改会在下次同步时被覆盖。</p>
           <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
         </details>
         <button id="organize-open" class="sidebar-destination" type="button">
@@ -39,7 +39,7 @@
         </header>
 
         <section id="messages" class="messages" aria-live="polite">
-          <div class="empty-state">创建或选择一个会话，然后开始提问。</div>
+          <div class="empty-state">创建或选择会话后开始提问。</div>
         </section>
 
         <section id="wiki-viewer" class="wiki-viewer" hidden aria-live="polite">
@@ -76,28 +76,25 @@
             <div class="maintain-cards">
               <section class="maintain-card">
                 <header><h3>同步笔记</h3><span id="sync-state" class="maintain-state"></span></header>
-                <p>查看笔记文件夹里新增和改动的内容，重新编译成 Wiki 页面。整理结构和补链之前，需要先同步到这里。</p>
+                <p>将笔记文件夹的变更重新编译成 Wiki 页面。整理结构与补链以同步后的盘面为准。</p>
                 <button id="sync-now" class="primary-button" type="button">
-                  同步 <span id="sync-badge">0</span>
+                  立即同步 <span id="sync-badge">0</span>
                 </button>
               </section>
               <section class="maintain-card">
                 <header><h3>整理结构</h3></header>
-                <p>通读整个 Wiki，把重复的页面合并、杂烩页面拆开、空页删掉；每条建议先给你过目再执行。分析需要几分钟。</p>
-                <button id="maintain-preview" class="primary-button" type="button">检查并给出整理建议</button>
+                <p>通读全库，合并重复、拆分杂烩、删除空页；建议经确认后入队执行，波及页面的链接自动随批核对修正。分析需数分钟。</p>
+                <button id="maintain-preview" class="primary-button" type="button">分析库结构</button>
               </section>
               <section class="maintain-card">
                 <header><h3>补全链接</h3></header>
-                <p>全库逐页检查，把互相相关却没连起来的页面补上链接，失效的链接修好。每页一个小改动，可单独回退。</p>
-                <button id="link-scan" class="primary-button" type="button">全库补链一次</button>
+                <p>全库出链体检：补相关却缺失的链接，修失效链接，按页提交可单独回退。整理结构已自带波及修正，此项为低频体检。</p>
+                <button id="link-scan" class="primary-button" type="button">补全缺失链接</button>
               </section>
             </div>
             <section class="issue-task-queue" aria-labelledby="issue-task-heading">
               <header>
-                <div>
-                  <h3 id="issue-task-heading">进行中的任务</h3>
-                  <p>同一时间只做一个改动，按提交顺序排队执行。</p>
-                </div>
+                <div><h3 id="issue-task-heading">任务队列</h3></div>
                 <span id="issue-task-count" class="issue-task-count">0 个活动任务</span>
               </header>
               <div id="issue-task-list" class="issue-task-list" aria-live="polite"></div>
@@ -149,13 +146,12 @@
         <p id="maintain-summary" class="maintain-summary"></p>
       </header>
       <div id="maintain-units" class="maintain-units" aria-label="可执行单元"></div>
-      <div id="maintain-dropped" class="maintain-dropped" aria-label="被放弃的提议"></div>
       <footer>
-        <button id="maintain-cancel" class="ghost-button" type="button">取消</button>
-        <button id="maintain-submit" class="primary-button" type="button" disabled>勾选入队执行</button>
+        <button id="maintain-cancel" class="ghost-button" type="button">返回</button>
+        <button id="maintain-submit" class="primary-button" type="button" disabled>入队执行</button>
       </footer>
     </dialog>
 
-    <script src="/app.js?v=43" defer></script>
+    <script src="/app.js?v=60" defer></script>
   </body>
 </html>
