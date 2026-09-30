@@ -13,7 +13,7 @@ from wiki_agent.errors import IngestStage
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
-from wiki_agent.wiki.pages import slug_from_ref
+from wiki_agent.wiki.pages import index_line, slug_from_ref
 from wiki_agent.wiki.sections import TOP_LABEL, pick_gist_limit, text_sections
 
 logger = get_logger("STAGES")
@@ -47,11 +47,8 @@ def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
         gaps = fm.get("gaps", "")
         goal = fm.get("goal", "")
         slug = slug_from_ref(path)
-        meta = f"- [[{slug}]] — [{page_type}] {path} — {title}"
-        if summary:
-            meta += f" — {summary}"
-        if goal:
-            meta += f" — 使命: {goal}"
+        # 行首三列与 index 行同格式——格式变更只需改 pages.index_line
+        meta = index_line(slug, page_type, title, summary, goal)
         if gaps:
             meta += f" — 缺口声明: {gaps}"
         if sources:
