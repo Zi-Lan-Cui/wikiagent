@@ -13,6 +13,7 @@ from wiki_agent.conversation import Message
 from wiki_agent.llm.retry import async_invoke_with_retry
 
 from . import prompts
+from .models import RewriteError
 
 
 async def rewrite_unit_page(
@@ -36,6 +37,10 @@ async def rewrite_unit_page(
         extra_body=NO_THINKING,
         max_attempts=2,
     )
+    if not response.check_ok:
+        # 重试耗尽的残缺输出不再静默放行——交由调用方计入单元失败，
+        # 现场（哪个页、缺什么）可见，而非事后靠骨架兜底掩盖
+        raise RewriteError(f"成文校验失败: {response.check_reason}")
     body = response.content.strip()
     if body.startswith("```"):
         # 容错：剥掉围栏（与 integration/parse 同规则，但这里只有一处）
