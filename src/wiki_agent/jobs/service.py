@@ -29,7 +29,13 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
-from wiki_agent.issues import IssueKind, IssueStatus, IssueStore
+from wiki_agent.issues import (
+    IssueActionConflict,
+    IssueKind,
+    IssueRecord,
+    IssueStatus,
+    IssueStore,
+)
 from wiki_agent.jobs import (
     WIKI_WRITE_KINDS,
     Job,
@@ -165,34 +171,66 @@ class JobService:
             _conn=_conn,
         )
 
+    @staticmethod
+    def _raise_if_retry_ineligible(issue: IssueRecord) -> None:
+        """重试资格在提交口收口：各入口不得自带这套判定。
+
+        可重试=编译失败账且未到终态；来源可读性由 resolve_retry_source
+        在批内逐行判（不可读抛 SourceUnavailableError）。标记 unavailable
+        入账仍归应用层——提交口只拒绝，不改账。
+        """
+        if issue.kind != IssueKind.INGESTION_FAILURE:
+            raise IssueActionConflict(f"不是编译失败账，不能重试: {issue.kind}")
+        if issue.status in {IssueStatus.RESOLVED, IssueStatus.DISMISSED}:
+            raise IssueActionConflict("问题已终态——先重新打开再重试")
+
     def submit_issue_retry(self, issue_id: str) -> Job:
-        """重试请求 → compile Job：单发即一批——收敛语义见批量口。"""
+        """重试请求 → compile Job：单发即一批——资格、收敛、闸的语义见批量口。"""
         return self.submit_issue_retry_batch([issue_id])[0]
 
     def submit_issue_retry_batch(self, issue_ids: list[str]) -> list[Job]:
-        """批量重试：一个事务内收敛、过闸、整批入队。
+        """批量重试：资格与输入捕获在事务前，收敛与入队在单事务内。
 
-        执行唯一性对每行依次收敛：该 issue 已有在途挂账则返回既有行；
-        同一资源被在途行占用（含本批前序行）则收敛到占位者、其无挂账补挂。
-        两个收敛通道都空、且**批外**有写 wiki 任务在途才 PipelineBusy——
-        闸的读数冻结在事务开始，IMMEDIATE 写锁保证批内没有别的提交能插行，
+        资格在提交口收口（各入口不得自带这套判定）：编译失败账、未终态、
+        来源可读；不可读当场标记 unavailable 入账（入账在事务外——批事务
+        持写锁时嵌套写会自锁）。执行唯一性逐行收敛：该 issue 已有在途挂账
+        返回既有行；同一资源被在途行占用（含本批前序行）收敛到占位者、其
+        无挂账补挂。两个收敛通道都空且**批外**有写 wiki 在途才 PipelineBusy
+        ——闸读数冻结在事务开始，IMMEDIATE 锁保证批内没有别的提交插行，
         本批自产行不挡本批后续行。逐个提交必然半批失败：第一行入队后会被
         第二行的闸计为在途。
 
-        与 submit_sync 同一快照语义：digest 来自点击时复制的副本，点击后
-        文件再变，本次重试处理的仍是这份；批内某行输入不可读或撞闸则整批
-        回滚，jobs 行与快照目录同消——调用方看到的失败都是"什么都没发生"。
-        retry 资格（状态、来源可读）由各入口的 validate 判定，这里只管执行
-        唯一性；issue 终态由 compile job 的 outcome 落，提交不改 issue 状态。
+        与 submit_sync 同一快照语义：digest 来自点击时复制的副本。任一行
+        资格不过、输入不可读或撞闸则整批回滚，jobs 行与快照目录同消——
+        调用方看到的失败都是"什么都没发生"；收敛到既有行的捕获不留无主
+        目录。issue 终态由 compile job 的 outcome 落，提交不改 issue 状态。
         """
-        jobs: list[Job] = []
+        prepared: list[tuple[str, str, str, str]] = []
         fresh_batches: list[str] = []
         try:
+            for issue_id in issue_ids:
+                issue = self.issues.require(issue_id)
+                self._raise_if_retry_ineligible(issue)
+                unavailable = str(issue.retry.get("unavailable_reason") or "")
+                if unavailable:
+                    raise SourceUnavailableError(unavailable)
+                try:
+                    resource = str(Path(resolve_retry_source(issue)).resolve())
+                    batch = f"retry_{uuid4().hex}"
+                    fresh_batches.append(batch)
+                    digest = self.snapshots.capture(
+                        batch, Path(resource).parent, [resource]
+                    )[resource]
+                except (SourceUnavailableError, SnapshotError) as exc:
+                    reason = str(exc)
+                    self.mark_retry_unavailable(issue_id, reason)
+                    raise SourceUnavailableError(reason) from exc
+                prepared.append((issue_id, resource, batch, digest))
+            jobs: list[Job] = []
+            used: set[str] = set()
             with self.store.transaction(immediate=True) as conn:
                 external_busy = self._in_flight_wiki_write_counts(_conn=conn)
-                for issue_id in issue_ids:
-                    issue = self.issues.require(issue_id)
-                    resource = str(Path(resolve_retry_source(issue)).resolve())
+                for issue_id, resource, batch, digest in prepared:
                     existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
                     if existing is not None:
                         jobs.append(existing)
@@ -207,14 +245,7 @@ class JobService:
                         continue
                     if external_busy:
                         raise self._pipeline_busy(external_busy)
-                    batch = f"retry_{uuid4().hex}"
-                    try:
-                        digest = self.snapshots.capture(
-                            batch, Path(resource).parent, [resource]
-                        )[resource]
-                    except SnapshotError as exc:
-                        raise SourceUnavailableError(f"重试输入不可读: {exc}") from exc
-                    fresh_batches.append(batch)
+                    used.add(batch)
                     jobs.append(
                         self.store.enqueue(
                             kind=Kind.COMPILE,
@@ -235,7 +266,24 @@ class JobService:
             for batch in fresh_batches:
                 self.snapshots.drop_batch(batch)
             raise
+        for batch in fresh_batches:
+            if batch not in used:
+                self.snapshots.drop_batch(batch)
         return jobs
+
+    def mark_retry_unavailable(self, issue_id: str, reason: str) -> None:
+        """输入源不可读的问题侧入账：标记 retry 不可用，OPEN 转 BLOCKED。"""
+        record = self.issues.require(issue_id)
+        self.issues.update_payloads(
+            issue_id,
+            retry={**record.retry, "unavailable_reason": reason},
+            diagnostics={**record.diagnostics, "detail": reason},
+            event="retry_source_unavailable",
+        )
+        if record.status == IssueStatus.OPEN:
+            self.issues.transition(
+                issue_id, IssueStatus.BLOCKED, event="blocked_source_unavailable"
+            )
 
     def submit_issue_action(
         self, issue_id: str, action: str, payload: dict[str, object] | None = None

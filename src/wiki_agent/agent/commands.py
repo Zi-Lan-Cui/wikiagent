@@ -19,7 +19,7 @@ from uuid import uuid4
 from wiki_agent.application.issue_actions import resolve_correction_issue
 from wiki_agent.application.maintenance_flow import gate_text, run_maintain
 from wiki_agent.events import CommandProgress, RunContext
-from wiki_agent.issues import IssueKind, IssueStatus
+from wiki_agent.issues import IssueActionConflict, IssueKind, IssueStatus
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
 from wiki_agent.jobs.retry_source import SourceUnavailableError
@@ -364,7 +364,8 @@ class QueueCommand(Command):
                 ids = [
                     card.id
                     for card in issue_service.list(
-                        statuses={IssueStatus.OPEN}, kinds={IssueKind.INGESTION_FAILURE}
+                        statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
+                        kinds={IssueKind.INGESTION_FAILURE},
                     )
                 ]
                 if not ids:
@@ -385,6 +386,8 @@ class QueueCommand(Command):
                     lines.append(f"- `{issue_id}`: 输入不可用 — {exc}")
                 except PipelineBusy as exc:
                     lines.append(f"- `{issue_id}`: 流水线在途，暂拒 — {exc}")
+                except IssueActionConflict as exc:
+                    lines.append(f"- `{issue_id}`: 不能重试 — {exc}")
                 except ValueError as exc:
                     lines.append(f"- `{issue_id}`: 不能重试 — {exc}")
                 else:
