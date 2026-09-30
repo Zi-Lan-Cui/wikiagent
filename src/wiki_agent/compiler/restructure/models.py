@@ -102,5 +102,9 @@ class UnitMismatchError(UnitError):
         self.missing = list(missing or [])
 
 
+class RewriteError(UnitError):
+    """逐页成文阶段失败（含重试耗尽后校验仍不过）。"""
+
+
 class RouteError(UnitError):
     """运行时章节分配不守恒（漏配/重配/空 out/非法目标）——整单元失败。"""

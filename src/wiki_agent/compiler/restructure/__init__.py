@@ -10,6 +10,7 @@ from wiki_agent.wiki.sections import Section, page_sections
 from .apply import apply_unit, pages_linking_to
 from .models import (
     OutPage,
+    RewriteError,
     RouteError,
     Take,
     Unit,
@@ -24,6 +25,7 @@ from .rewrite import rewrite_unit_page
 
 __all__ = [
     "OutPage",
+    "RewriteError",
     "RouteError",
     "Section",
     "Take",
