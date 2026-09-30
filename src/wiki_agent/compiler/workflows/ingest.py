@@ -7,9 +7,10 @@ execute → index。阶段失败抛出时带阶段信息，流水线不决定失
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeVar
 
 from wiki_agent.compiler.extraction import Extractor
 from wiki_agent.compiler.integration import compile_integrator
@@ -28,6 +29,8 @@ from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.errors import IngestError, IngestStage, WikiAgentError
 from wiki_agent.llm.llm import LLMClient
 from wiki_agent.log import get_logger, span
+
+T = TypeVar("T")
 
 logger = get_logger("COMPILE_PIPELINE")
 
@@ -155,17 +158,7 @@ class CompilePipeline:
         outcome = IngestOutcome(source=raw_file.name)
 
         # 1. Convert
-        self._notify_progress(IngestStage.CONVERT)
-        try:
-            cf = await self._converter.convert(raw_file)
-        except IngestError:
-            raise
-        except WikiAgentError as e:
-            raise IngestError(IngestStage.CONVERT, str(e), source=raw_file.name, cause=e) from e
-        except Exception as e:
-            raise IngestError(
-                IngestStage.CONVERT, f"未分类: {e}", source=raw_file.name, cause=e
-            ) from e
+        cf = await self._stage(IngestStage.CONVERT, raw_file.name, self._converter.convert, raw_file)
         outcome.converted_chars = len(cf.content)
         logger.info("  [%s] → %d chars, %d 图片", cf.ext, len(cf.content), cf.content.count("!["))
 
@@ -186,24 +179,16 @@ class CompilePipeline:
             ck_list = [_FallbackChunk(content=cf.content)]
 
         # 3. Extract
-        self._notify_progress(IngestStage.EXTRACT)
         sd = SourceDocument(
             name=cf.name,
             ext=cf.ext,
             path=str(cf.path),
             chunks=[_to_source_chunk(ck, len(ck_list), cf.name) for ck in ck_list],
         )
-        try:
-            outcome.extract = await self._extractor.extract(sd)
-            logger.info("  摘要: %d chars", len(outcome.extract.document_summary))
-        except IngestError:
-            raise
-        except WikiAgentError as e:
-            raise IngestError(IngestStage.EXTRACT, str(e), source=raw_file.name, cause=e) from e
-        except Exception as e:
-            raise IngestError(
-                IngestStage.EXTRACT, f"未分类: {e}", source=raw_file.name, cause=e
-            ) from e
+        outcome.extract = await self._stage(
+            IngestStage.EXTRACT, raw_file.name, self._extractor.extract, sd
+        )
+        logger.info("  摘要: %d chars", len(outcome.extract.document_summary))
 
         # 非空 source 的空摘要属于抽取失败；低信息但有事实的摘要仍可
         # 继续到 plan，由 planner 决定是否 no-op。
@@ -226,41 +211,26 @@ class CompilePipeline:
         # 契约: ingest_one 只抛 IngestError——search/analyze/plan 的
         # 未预期异常（retry 的 RuntimeError、代码 bug）在此包装，
         # 边界只需一个 except 就能完整收集。IngestError 原样透传（保 stage）。
-        self._notify_progress(IngestStage.SEARCH)
-        try:
-            search_result = await self._integrator.search(outcome.extract, index_content)
-        except IngestError:
-            raise
-        except Exception as e:
-            raise IngestError(
-                IngestStage.SEARCH, f"未分类: {e}", source=raw_file.name, cause=e
-            ) from e
+        search_result = await self._stage(
+            IngestStage.SEARCH, raw_file.name, self._integrator.search,
+            outcome.extract, index_content,
+        )
         logger.info("  search: %d 个候选", len(search_result.rel_paths))
         outcome.search = search_result
-        self._notify_progress(IngestStage.ANALYZE)
-        try:
-            outcome.analysis = await self._integrator.analyze(outcome.extract, search_result)
-        except IngestError:
-            raise
-        except Exception as e:
-            raise IngestError(
-                IngestStage.ANALYZE, f"未分类: {e}", source=raw_file.name, cause=e
-            ) from e
-        self._notify_progress(IngestStage.PLAN)
-        try:
-            outcome.plan = await self._integrator.plan(
-                outcome.extract,
-                outcome.analysis,
-                schema=schema,
-                purpose=purpose,
-                index_content=index_content,
-            )
-        except IngestError:
-            raise
-        except Exception as e:
-            raise IngestError(
-                IngestStage.PLAN, f"未分类: {e}", source=raw_file.name, cause=e
-            ) from e
+        outcome.analysis = await self._stage(
+            IngestStage.ANALYZE, raw_file.name, self._integrator.analyze,
+            outcome.extract, search_result,
+        )
+        outcome.plan = await self._stage(
+            IngestStage.PLAN,
+            raw_file.name,
+            self._integrator.plan,
+            outcome.extract,
+            outcome.analysis,
+            schema=schema,
+            purpose=purpose,
+            index_content=index_content,
+        )
 
         # 5. Execute + index 更新（execute 失败隔离在页级，这里失败是批级问题）
         n = len(outcome.plan.page_targets)
@@ -268,11 +238,13 @@ class CompilePipeline:
             outcome.noop = True
             logger.info("  plan: 无页面操作")
             return outcome
-        self._notify_progress(IngestStage.EXECUTE)
         try:
+            executed = await self._stage(
+                IngestStage.EXECUTE, raw_file.name, self._integrator.execute,
+                outcome.plan, outcome.extract,
+            )
             outcome.pages_written = [
-                t.wiki_path
-                for t in await self._integrator.execute(outcome.plan, outcome.extract)
+                t.wiki_path for t in executed
                 if (self._wiki_dir / _normalize(t.wiki_path)).exists()
             ]
         except IngestError:
@@ -288,17 +260,30 @@ class CompilePipeline:
             if written:
                 self._append_index(outcome.plan, written)
             raise
-        except WikiAgentError as e:
-            raise IngestError(IngestStage.EXECUTE, str(e), source=raw_file.name, cause=e) from e
-        except Exception as e:
-            raise IngestError(
-                IngestStage.EXECUTE, f"未分类: {e}", source=raw_file.name, cause=e
-            ) from e
 
         self._append_index(outcome.plan, outcome.pages_written)
         return outcome
 
     # 内部
+
+    async def _stage(
+        self, stage: IngestStage, source: str, fn: Callable[..., Awaitable[T]], *args, **kwargs
+    ) -> T:
+        """阶段调用收口：报告进度并统一异常分类。
+
+        契约：ingest_one 只抛 IngestError——IngestError 原样透传（保
+        stage），WikiAgentError 转译，其余包装未分类；各阶段不再各写
+        三分支 try/except。
+        """
+        self._notify_progress(stage)
+        try:
+            return await fn(*args, **kwargs)
+        except IngestError:
+            raise
+        except WikiAgentError as e:
+            raise IngestError(stage, str(e), source=source, cause=e) from e
+        except Exception as e:
+            raise IngestError(stage, f"未分类: {e}", source=source, cause=e) from e
 
     def _notify_progress(self, stage: IngestStage) -> None:
         callback = getattr(self, "_on_progress", None)
