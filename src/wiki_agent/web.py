@@ -188,8 +188,8 @@ def create_app(
     @app.post("/api/issues/actions/retry-eligible", status_code=202)
     async def retry_eligible_issues() -> dict[str, Any]:
         issue_ids = issue_actions.prepare_retry_batch(exclude_issue_ids=_in_flight_issue_ids())
-        tasks = [submit_retry_job(issue_id) for issue_id in issue_ids]
-        return {"count": len(tasks), "tasks": tasks}
+        jobs = job_service.submit_issue_retry_batch(issue_ids)
+        return {"count": len(jobs), "tasks": [_task(job) for job in jobs]}
 
     @app.post("/api/sync", status_code=202)
     async def trigger_sync() -> dict[str, Any]:

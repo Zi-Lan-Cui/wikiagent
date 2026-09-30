@@ -248,23 +248,26 @@ def test_web_retry_returns_compile_task_and_converges(tmp_path: Path):
 
 
 def test_bulk_retry_enqueues_available_manual_sources(tmp_path: Path):
+    """两个可重试候选整批入队——逐单提交时第二发会被第一发的在途行挡成 409。"""
     runtime = _Runtime(tmp_path)
-    source = tmp_path / "notes" / "available.md"
-    source.parent.mkdir()
-    source.write_text("# available", encoding="utf-8")
+    source_dir = tmp_path / "notes"
+    source_dir.mkdir()
     expired = (datetime.now() - timedelta(hours=1)).isoformat()
-    runtime.issue_service.report(
-        IssueDraft(
-            kind=IssueKind.INGESTION_FAILURE,
-            status=IssueStatus.BLOCKED,
-            title="available.md 处理失败",
-            summary="临时失败",
-            origin={"mode": "compile"},
-            resource={"type": "input_file", "path": source.name},
-            retry={"policy": "manual", "expires_at": expired},
-            context={"source_path": str(source)},
+    for name in ("available.md", "second.md"):
+        source = source_dir / name
+        source.write_text(f"# {name}", encoding="utf-8")
+        runtime.issue_service.report(
+            IssueDraft(
+                kind=IssueKind.INGESTION_FAILURE,
+                status=IssueStatus.BLOCKED,
+                title=f"{name} 处理失败",
+                summary="临时失败",
+                origin={"mode": "compile"},
+                resource={"type": "input_file", "path": source.name},
+                retry={"policy": "manual", "expires_at": expired},
+                context={"source_path": str(source)},
+            )
         )
-    )
     app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
 
     async def run():
@@ -273,8 +276,9 @@ def test_bulk_retry_enqueues_available_manual_sources(tmp_path: Path):
         ) as client:
             response = await client.post("/api/issues/actions/retry-eligible")
             assert response.status_code == 202
-            assert response.json()["count"] == 1
-            assert response.json()["tasks"][0]["status"] == "queued"
+            body = response.json()
+            assert body["count"] == 2
+            assert {task["status"] for task in body["tasks"]} == {"queued"}
 
     asyncio.run(run())
 
