@@ -14,25 +14,25 @@ from .models import Unit, UnitError
 def validate_unit(unit: Unit, existing: set[str]) -> str:
     """单源自洽检查，返回空串=通过，否则为丢弃理由。"""
     if not unit.in_pages:
-        return "in_pages 为空——维护不引入新知识，原料必须来自现有页"
+        return "没有输入页面——整理不引入新知识，原料必须来自现有页"
     if len(set(unit.in_pages)) != len(unit.in_pages):
-        return "in_pages 有重复"
+        return "输入页面有重复"
     missing = [s for s in unit.in_pages if s not in existing]
     if missing:
-        return f"输入页不存在: {missing}"
+        return f"输入页面不存在: {missing}"
     out_slugs = unit.out_slugs
     if len(set(out_slugs)) != len(out_slugs):
-        return "out 有重复 slug"
+        return "输出页面有重名"
     if out_slugs and not any(p.intent or p.take for p in unit.out):
-        return "out 页既无 intent 也无 take——路由与装配没有依据"
+        return "输出页面既没有写作意图也没有材料来源"
     for p in unit.out:
         if p.slug.split("/", 1)[0] not in PAGE_TYPE_BY_DIR:
-            return f"out slug 目录非法: {p.slug}——只能是 concepts/entities/topics"
+            return f"输出页面目录不合法: {p.slug}——只能是 concepts/entities/topics"
         if p.slug not in existing and p.slug in unit.in_pages:
-            return f"out {p.slug} 在 in 中却不存在于盘面"
+            return f"输出页面 {p.slug} 被当作改写对象，但当前并不存在"
         for t in p.take:
             if t.from_slug not in unit.in_pages:
-                return f"take 来源 {t.from_slug} 不在本单元 in 中"
+                return f"材料来源 {t.from_slug} 不在这条建议的输入页面里"
     return ""
 
 
@@ -52,11 +52,15 @@ def resolve_unit_conflicts(
         touched = set(unit.in_pages) | set(unit.out_slugs)
         clash = [s for s in sorted(touched) if s in claimed]
         if clash:
-            dropped.append((unit, f"与第 {min(claimed[s] for s in clash)} 个单元争用页面: {clash}"))
+            dropped.append(
+                (unit, f"页面 {clash} 已属第 {min(claimed[s] for s in clash)} 条建议——一页同时只归一条")
+            )
             continue
         overwritten = [s for s in unit.out_slugs if s in existing and s not in set(unit.in_pages)]
         if overwritten:
-            dropped.append((unit, f"输出页未被本单元消费却同名: {overwritten}——改写须进 in"))
+            dropped.append(
+                (unit, f"输出页面与现有页 {overwritten} 同名，但该页不在输入里——改写它须先列为输入")
+            )
             continue
         for s in touched:
             claimed[s] = len(clean)

@@ -257,7 +257,7 @@ class IssueActionExecutor:
         """
         before = self.store.require(issue_id)
         if progress is not None:
-            progress("scan")
+            progress("复扫问题")
         findings = scan_wiki(self.runtime.wiki_dir)
         if progress is not None:
             progress("同步质量问题")
