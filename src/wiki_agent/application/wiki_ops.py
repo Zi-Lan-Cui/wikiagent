@@ -39,7 +39,7 @@ from wiki_agent.jobs.wiki_session import (
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import render_frontmatter, set_fields, split_frontmatter
 from wiki_agent.wiki.normalize import normalize_page
-from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR
+from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR, path_for
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
@@ -212,7 +212,7 @@ class WikiOpsHandler:
     async def handle_link(self, job: Job, progress) -> JobResult:
         """维护一页的出链：LLM 出替换清单，代码校验后应用；无可补即空操作。"""
         slug = str(job.payload.get("slug") or "")
-        page = self._wiki_dir / f"{slug}.md"
+        page = path_for(self._wiki_dir, slug)
         with self._session.open(job) as write:
             if not slug or not page.is_file():
                 # 排队期间被重组掉——link 是当前状态的函数，页不在即了结

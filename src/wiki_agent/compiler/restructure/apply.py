@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 from wiki_agent.wiki.frontmatter import list_field, set_fields, split_frontmatter
-from wiki_agent.wiki.pages import index_line
+from wiki_agent.wiki.pages import index_line, path_for, slug_from_path
 
 from .models import Unit
 from .plan import UnitPlan
@@ -81,7 +81,7 @@ def pages_linking_to(wiki_dir: str | Path, slugs: list[str]) -> list[str]:
     for path in sorted(wiki_dir.rglob("*.md")):
         if path.name == "index.md":
             continue
-        slug = f"{path.parent.name}/{path.stem}"
+        slug = slug_from_path(wiki_dir, path)
         if slug in set(slugs):
             continue
         content = path.read_text(encoding="utf-8")
@@ -105,7 +105,7 @@ def _index_append(wiki_dir: Path, slug: str) -> None:
     existing = index.read_text(encoding="utf-8") if index.is_file() else ""
     if f"[[{slug}]]" in existing:
         return
-    fm, _ = split_frontmatter((wiki_dir / f"{slug}.md").read_text(encoding="utf-8"))
+    fm, _ = split_frontmatter(path_for(wiki_dir, slug).read_text(encoding="utf-8"))
     index.write_text(
         existing.rstrip()
         + "\n"
@@ -132,10 +132,10 @@ def apply_unit(
     wiki_dir = Path(wiki_dir)
     for page in unit.out:
         text = contents.get(page.slug) or plan.drafts.get(page.slug) or ""
-        (wiki_dir / f"{page.slug}.md").parent.mkdir(parents=True, exist_ok=True)
-        (wiki_dir / f"{page.slug}.md").write_text(text.rstrip() + "\n", encoding="utf-8")
+        path_for(wiki_dir, page.slug).parent.mkdir(parents=True, exist_ok=True)
+        path_for(wiki_dir, page.slug).write_text(text.rstrip() + "\n", encoding="utf-8")
     for slug in unit.vanished:
-        (wiki_dir / f"{slug}.md").unlink(missing_ok=True)
+        path_for(wiki_dir, slug).unlink(missing_ok=True)
     if unit.vanished:
         rewrite_links_for_vanished(wiki_dir, unit.vanished)
     for slug in unit.vanished:
