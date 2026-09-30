@@ -5,7 +5,7 @@
 import asyncio
 import json
 import os  # 用于将tmp替换原始文件
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -17,6 +17,8 @@ from wiki_agent.utils import (
 )
 
 logger = get_logger("SESSION")
+
+_FREE = asyncio.Lock()  # 未持锁会话判定用的共享哨兵
 
 
 class Session:
@@ -40,6 +42,8 @@ class Session:
 
         # 内容信息
         self.history: list[Message] = []
+        # 已落盘消息条数——checkpoint 增量写指针（history 只追加，压缩移游标）
+        self._persisted_count = 0
 
     def add_message(self, message: Message):
         self.history.append(message)
@@ -98,8 +102,9 @@ class SessionManager:
         if sessions_dir is None:
             raise OSError(f"无法创建会话目录: {self.workspace / 'sessions'}")
         self.sessions_dir: Path = sessions_dir
-        self._cached_session = {}
+        self._cached_session: dict[str, Session] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._cache_limit = 128
 
     @asynccontextmanager
     async def session_lock(self, session_key: str):
@@ -120,6 +125,19 @@ class SessionManager:
         if session is None:
             session = Session(key=session_key)
 
+        # 长驻进程防单调增长：超上限按插入序逐出最早的未持锁会话
+        while len(self._cached_session) >= self._cache_limit:
+            evict = next(
+                (
+                    k
+                    for k in self._cached_session
+                    if k != session_key and not self._session_locks.get(k, _FREE).locked()
+                ),
+                None,
+            )
+            if evict is None:
+                break
+            self._cached_session.pop(evict, None)
         self._cached_session[session_key] = session
         return session
 
@@ -184,6 +202,12 @@ class SessionManager:
             return None
         else:
             meta_data, history = self._prase_checkpoint(file_path)
+            meta_path = self.sessions_dir / f"{session_key}.meta.json"
+            if meta_path.is_file():
+                try:
+                    meta_data = json.loads(meta_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    logger.warning("meta 文件损坏，回退 jsonl 内嵌头: %s", session_key)
 
             # 分解文件，读取metadata，和content，重新组织session
             validate_meta_data = self._validate_meta_data(meta_data)
@@ -199,90 +223,73 @@ class SessionManager:
                 session.last_memory_archived = validate_meta_data.get("last_memory_archived", 0)
                 session.token_cost = validate_meta_data["token_cost"]
                 session.current_window_tokens = validate_meta_data["current_window_tokens"]
+                session._persisted_count = len(history)
                 return session
         return None
 
-    def save_checkpoint(self, session: Session, fsync: bool = False):
-        """
-        将会话持久化到磁盘（临时文件 + 原子替换）。
+    async def asave(self, session: Session, *, fsync: bool = False) -> bool:
+        """save_checkpoint 的 async 门面：线程池落盘，调用点不再各自 to_thread。"""
+        return await asyncio.to_thread(self.save_checkpoint, session, fsync)
 
-        fsync 为 True 时立即刷入磁盘（较慢）；False（默认）只写
-        操作系统页缓存——关机自动落盘，但掉电可能丢失。
+    def save_checkpoint(self, session: Session, fsync: bool = False):
+        """持久化会话：meta 原子小文件替换，消息增量追加。
+
+        history 只追加（压缩移动游标不删行），每次只写上次落盘后的新增
+        行——回合写盘成本与会话总长无关。崩溃留下的半行由读取侧跳过，
+        重新载入按现存行数对齐 _persisted_count，自愈。
+
+        fsync 为 True 时立即刷盘（较慢）；False 只写页缓存。
 
         Args:
             session: 要保存的会话。
-            fsync: 是否强制 fsync 刷盘。
+            fsync: 是否强制刷盘。
 
         Returns:
-            True 表示保存成功；False 表示失败（sessions 目录不可用
-            或写入异常），调用方需自行处理。
+            True 保存成功；False 目录不可用或写失败，调用方自行处理。
         """
-
-        key = session.key
         session_dir = ensure_dir(self.sessions_dir)
-        if session_dir is not None:
-            file_path = session_dir / f"{key}.jsonl"
-            # 先创建临时文件，再写入
-            tmp_file_path = file_path.with_suffix(".tmp")
-            try:
-                with open(tmp_file_path, "w", encoding="utf-8") as f:
-                    metadata_line = {
-                        "_type": "metadata",
-                        "key": session.key,
-                        "created_at": session.created_at,
-                        "updated_at": session.updated_at,
-                        "session_title": session.session_title,
-                        "last_consolidated": session.last_consolidated,
-                        "last_summary": session.last_summary,
-                        "last_memory_archived": session.last_memory_archived,
-                        "status": session.status,
-                        "token_cost": session.token_cost,
-                        "current_window_tokens": session.current_window_tokens,
-                    }
-                    f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
-
-                    for message in session.history:
-                        # message还原成字典格式再写入,加\n换行
+        if session_dir is None:
+            return False
+        key = session.key
+        file_path = session_dir / f"{key}.jsonl"
+        metadata_line = {
+            "key": session.key,
+            "created_at": session.created_at,
+            "updated_at": session.updated_at,
+            "session_title": session.session_title,
+            "last_consolidated": session.last_consolidated,
+            "last_summary": session.last_summary,
+            "last_memory_archived": session.last_memory_archived,
+            "status": session.status,
+            "token_cost": session.token_cost,
+            "current_window_tokens": session.current_window_tokens,
+        }
+        try:
+            new_messages = session.history[session._persisted_count:]
+            if new_messages or not file_path.exists():
+                with open(file_path, "a", encoding="utf-8") as f:
+                    for message in new_messages:
                         f.write(message.model_dump_json() + "\n")
-
-                    # 立即同步到磁盘
                     if fsync:
                         f.flush()
                         os.fsync(f.fileno())
-
-                os.replace(tmp_file_path, file_path)
-
-                # 目录本质上是特殊的文件，目录交换的改变也会先被缓存，必须对目录也强制刷新
-
+            # meta 最后写：它描述的 updated_at 不能跑在消息内容前面
+            tmp_meta = file_path.with_suffix(".meta.tmp")
+            with open(tmp_meta, "w", encoding="utf-8") as f:
+                f.write(json.dumps(metadata_line, ensure_ascii=False))
                 if fsync:
-                    with suppress(PermissionError):
-                        # 注意目录是.parent
-                        fd = os.open(str(file_path.parent), os.O_RDONLY)
-                        try:
-                            os.fsync(fd)
-                        finally:
-                            os.close(fd)
-            except BaseException as e:
-                # 删除临时文件，missing_ok表示允许文件不存在
-                tmp_file_path.unlink(missing_ok=True)
-                # 不用 logger.exception——全栈回溯刷到终端是噪音
-                # （会话保存在此失败是预期可恢复路径：返回 False，
-                # 调用方知道没落盘）。异常对象本身已带足够诊断信息。
-                logger.error(
-                    "会话保存失败 [%s]: %s: %s", session.key, type(e).__name__, str(e)[:200]
-                )
-                return False
-        else:
-            # sessions 路径被文件占位——正常运行时不会发生（初始化即建目录），
-            # 防御性返回 False，不崩（UnboundLocalError 事故）
-            logger.error("sessions 目录不可用: %s", self.sessions_dir)
+                    f.flush()
+                    os.fsync(f.fileno())
+            os.replace(tmp_meta, session_dir / f"{key}.meta.json")
+            if fsync:
+                # 目录本质是特殊文件，新条目可见性需目录也刷新
+                with open(session_dir) as dir_fd:
+                    os.fsync(dir_fd.fileno())
+            session._persisted_count = len(session.history)
+            return True
+        except OSError as exc:
+            logger.warning("会话 %s checkpoint 保存失败: %s", key, exc)
             return False
-
-        # 刷新缓存的session，如果没缓存，这行会将其加入到缓存
-        self._cached_session[key] = session
-
-        # 检查并返回文件是否保存成功
-        return True
 
     def list_session_keys(self) -> list[str]:
         """列出磁盘上所有 session key，按修改时间倒序。
