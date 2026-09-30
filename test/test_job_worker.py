@@ -24,7 +24,7 @@ def test_worker_claims_updates_stage_and_completes(tmp_path):
 
     result = service.store.get(job.id)
     assert result.status == "succeeded"
-    assert result.stage == "completed"
+    assert result.stage == "done"
     assert stages == ["note.md"]
 
 

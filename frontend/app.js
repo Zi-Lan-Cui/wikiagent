@@ -952,19 +952,16 @@ function renderIssueTasks() {
     title.textContent = task.title || task.resource || "未命名任务";
     row.title = task.resource || "";
     const stage = document.createElement("span");
-    const stagePosition = task.stage_index > 0
-      ? ` ${task.stage_index}/${task.stage_total}`
-      : "";
     stage.textContent = ["queued", "running"].includes(task.status)
-      ? `当前阶段${stagePosition} · ${task.current_stage || "排队中"}`
+      ? `当前阶段 · ${task.current_stage || "排队中"}`
       : task.current_stage || "排队中";
     main.append(title, stage);
     if (["queued", "running"].includes(task.status)) {
+      // 阶段占比无数据源——在途条只做"进行中"的静态提示，呼吸动画在 css
       const progress = document.createElement("div");
       progress.className = "issue-task-progress";
       const fill = document.createElement("span");
-      const ratio = task.stage_total > 0 ? task.stage_index / task.stage_total : 0;
-      fill.style.width = `${Math.max(3, Math.min(100, ratio * 100))}%`;
+      fill.style.width = "3%";
       progress.appendChild(fill);
       main.appendChild(progress);
     }

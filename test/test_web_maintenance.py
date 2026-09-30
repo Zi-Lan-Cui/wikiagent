@@ -219,7 +219,7 @@ def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
         assert claimed is not None and claimed.id == job.id
         runtime.job_service.mark_stage(job.id, "二次复核")
         done = runtime.job_service.complete_with_outcome(claimed, result)
-        assert done.stage == "completed"
+        assert done.stage == "done"
         assert done.result["preview"]["effective"][0]["reason"] == "整体清理"
         assert done.result["preview"]["healthy"] is False
 
