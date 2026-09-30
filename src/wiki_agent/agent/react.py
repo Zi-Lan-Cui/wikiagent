@@ -415,6 +415,7 @@ class ReActAgent(BaseAgent):
         issue_service: IssueService,
         session_manager: SessionManager | None = None,
         wiki_dir: str | Path | None = None,
+        materials_dir: str | Path | None = None,
         hooks: list[AgentHook] | None = None,
         agent_config=None,
         compile_config: CompileConfig | None = None,
@@ -427,6 +428,9 @@ class ReActAgent(BaseAgent):
         # 自装配存储。
         self.job_service = job_service
         self.llm = llm
+        # 装配根直给的路径身份——命令层不再从工具注册表探测 wiki 根
+        self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
+        self.materials_dir = Path(materials_dir) if materials_dir is not None else None
         # vlm 供编译类命令使用（CompilePipeline 需要）
         self.vlm = vlm
         self.agent_config = agent_config or AgentCfg()

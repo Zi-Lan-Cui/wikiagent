@@ -88,6 +88,7 @@ class AppRuntime:
             issue_service=self.issue_service,
             session_manager=self.session_manager,
             wiki_dir=self.wiki_dir,
+            materials_dir=self.materials_dir,
             agent_config=config.agent,
             compile_config=config.compile,
             retry_config=config.retry,

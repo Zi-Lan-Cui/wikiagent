@@ -100,6 +100,7 @@ def test_wiki_revert_refused_while_job_in_flight(tmp_path: Path):
         tool_registry = _Registry()
         job_service = service
         workspace = ws
+        wiki_dir = wiki
 
     ctx = CommandContext(
         raw="/wiki revert deadbeef",
