@@ -18,17 +18,21 @@ from wiki_agent.application import InvalidInputError, ServiceError, SessionNotFo
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.compiler.restructure import UnitError
 from wiki_agent.issues import (
+    InvalidIssueTransitionError,
     IssueActionConflict,
     IssueAlreadyClaimedError,
     IssueKind,
     IssueNotFoundError,
     IssueStatus,
 )
-from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
+from wiki_agent.jobs import DuplicateInFlightJob, PipelineBusy, SyncBaselineLag
 from wiki_agent.jobs.card_view import task_card
 from wiki_agent.jobs.retry_source import SourceUnavailableError
-from wiki_agent.log import setup_event_log
+from wiki_agent.log import get_logger, setup_event_log
+from wiki_agent.snapshots import SnapshotError
 from wiki_agent.wiki import WikiPageNotFound
+
+logger = get_logger("WEB")
 
 
 class CreateSessionRequest(BaseModel):
@@ -121,9 +125,12 @@ def create_app(
         (UnitError, 400),
         (IssueAlreadyClaimedError, 409),
         (IssueActionConflict, 409),
+        (InvalidIssueTransitionError, 409),  # 双击裁决的并发冲突与同类同码
+        (DuplicateInFlightJob, 409),  # 唯一在途索引冲突——现状即有在途任务
         (SourceUnavailableError, 409),
         (PipelineBusy, 409),
         (SyncBaselineLag, 409),
+        (SnapshotError, 500),  # 隔离区存储故障不是业务失败，detail 透出
         (LookupError, 404),  # 任务不存在等裸键缺失
         (ValueError, 400),  # 参数非法兜底
         (ServiceError, 500),  # 存储失败等服务内错误，detail 透出
@@ -132,6 +139,9 @@ def create_app(
     def _make_handler(code: int):
         async def handler(_: Request, exc: Exception) -> JSONResponse:
             detail = str(exc).strip() or ("资源不存在" if code == 404 else type(exc).__name__)
+            if code >= 500:
+                # 5xx 必须留服务端痕迹——detail 只回客户端，进程内不能再无痕
+                logger.error("HTTP %d: %s", code, detail, exc_info=exc)
             return JSONResponse(status_code=code, content={"detail": detail})
         return handler
 
@@ -308,7 +318,10 @@ def create_app(
                 async for event in session_service.stream_message(session_id, request.text):
                     payload = json.dumps(asdict(event), ensure_ascii=False)
                     yield f"event: {event.type}\ndata: {payload}\n\n"
-            except (SessionNotFoundError, InvalidInputError) as exc:
+            except Exception as exc:
+                # 流内任何异常都转 error 事件收尾——直接掐流会让前端把
+                # reader done 当正常结局，半截答案照常渲染
+                logger.error("回合流中断: %s", exc, exc_info=exc)
                 payload = json.dumps({"error": str(exc)}, ensure_ascii=False)
                 yield f"event: error\ndata: {payload}\n\n"
 

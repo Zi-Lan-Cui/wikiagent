@@ -21,7 +21,7 @@ from wiki_agent.application.maintenance_flow import gate_text, run_maintain
 from wiki_agent.events import CommandProgress, RunContext
 from wiki_agent.issues import IssueActionConflict, IssueKind, IssueStatus
 from wiki_agent.issues.producers import report_quality_findings
-from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
+from wiki_agent.jobs import Kind, PipelineBusy, SyncBaselineLag
 from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.versioning import WikiGitManager
@@ -691,7 +691,7 @@ class MaintainCommand(Command):
         if not flow.jobs:
             return CommandResult(text="\n".join(lines) + "\n\n没有可入队的单元。")
         batch = str(flow.jobs[0].payload.get("batch") or "")
-        n_units = sum(1 for j in flow.jobs if j.kind == "restructure")
+        n_units = sum(1 for j in flow.jobs if j.kind == Kind.RESTRUCTURE)
         lines.append(
             f"\n已入队: {n_units} 个单元 + {len(flow.jobs) - n_units} 个补链"
             f"（批 {batch}；某单元核对不过只撤该单元；整批回撤: /wiki revert-batch {batch}）"
