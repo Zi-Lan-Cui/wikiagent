@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
+from wiki_agent.errors import ERROR_SUMMARY_LIMIT, summarize_error
 from wiki_agent.issues import (
     IssueActionConflict,
     IssueKind,
@@ -610,7 +611,7 @@ class JobService:
                 status=result.status,
                 stage={"succeeded": "done", "cancelled": "cancelled"}.get(result.status),
                 error=(
-                    str(result.detail.get("error") or "")[:500]
+                    summarize_error(result.detail.get("error"), ERROR_SUMMARY_LIMIT)
                     if result.status == "failed"
                     else None
                 ),

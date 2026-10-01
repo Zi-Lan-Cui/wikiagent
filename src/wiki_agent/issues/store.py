@@ -11,6 +11,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from wiki_agent.errors import ERROR_SUMMARY_LIMIT, summarize_error
 from wiki_agent.issues.models import (
     ALLOWED_STATUS_TRANSITIONS,
     InvalidIssueTransitionError,
@@ -287,7 +288,13 @@ class IssueStore:
         merged: JsonObject = dict(prev.retry) if prev is not None else {}
         raw = merged.get("attempts")
         attempts = raw + 1 if isinstance(raw, int) else 1
-        merged.update({"policy": "manual", "attempts": attempts, "last_error": error[:500]})
+        merged.update(
+            {
+                "policy": "manual",
+                "attempts": attempts,
+                "last_error": summarize_error(error, ERROR_SUMMARY_LIMIT),
+            }
+        )
         return merged
 
     def report_failure(

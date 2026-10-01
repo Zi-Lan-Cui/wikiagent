@@ -7,6 +7,12 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
 
+from wiki_agent.errors import (
+    ERROR_DETAIL_LIMIT,
+    ERROR_SUMMARY_LIMIT,
+    ERROR_TRACE_LIMIT,
+    summarize_error,
+)
 from wiki_agent.issues.models import (
     IssueDraft,
     IssueKind,
@@ -96,15 +102,17 @@ def report_run_failure(
             kind=IssueKind.RUN_FAILURE,
             severity=IssueSeverity.ERROR,
             title=title,
-            summary=f"{type(error).__name__}: {error}"[:1000],
+            summary=summarize_error(f"{type(error).__name__}: {error}", ERROR_SUMMARY_LIMIT),
             origin=origin,
             resource=resource or {},
             diagnostics={
                 "error_code": "run_failure",
                 "error_class": type(error).__name__,
-                "detail": str(error)[:1000],
+                "detail": summarize_error(error, ERROR_DETAIL_LIMIT),
             },
-            evidence=[{"key": f"{type(error).__name__}:{str(error)[:200]}"}],
+            evidence=[
+                {"key": f"{type(error).__name__}:{summarize_error(error, ERROR_TRACE_LIMIT)}"}
+            ],
         )
     )
     return card.id
