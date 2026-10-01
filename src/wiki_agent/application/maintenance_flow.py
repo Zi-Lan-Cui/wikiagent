@@ -15,7 +15,7 @@ from wiki_agent.application.restructure_service import (
     propose_maintenance,
 )
 from wiki_agent.compiler.restructure import UnitError
-from wiki_agent.jobs import Job, PipelineBusy, RestructureInProgress, SyncBaselineLag
+from wiki_agent.jobs import Job, PipelineBusy, SyncBaselineLag
 
 
 def gate_text(job_service: Any) -> str | None:
@@ -65,6 +65,7 @@ async def run_maintain(
         flow.jobs = job_service.submit_maintenance([u.to_dict() for u in outcome.accepted])
     except UnitError as exc:
         flow.submit_rejected = f"入队拒绝——单元与盘面不符: {exc}"
-    except (PipelineBusy, RestructureInProgress, SyncBaselineLag) as exc:
+    except (PipelineBusy, SyncBaselineLag) as exc:
+        # RestructureInProgress/SyncInProgress 是 PipelineBusy 子类，不必点名
         flow.submit_rejected = f"提交暂拒——{exc}。"
     return flow
