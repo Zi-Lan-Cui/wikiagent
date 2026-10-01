@@ -316,3 +316,13 @@ def write_source_page(source_records_dir: Path, page: SourcePage) -> Path:
     target = source_records_dir / f"{page.slug}.md"
     target.write_text(page.content, encoding="utf-8")
     return target
+
+
+class ExtractionSourcePageWriter:
+    """jobs.SourcePageWriter 协议实现：把源档案页落盘的唯一入口。
+
+    结构满足协议（方法签名一致），无需 import jobs；由装配根注入结算层。
+    """
+
+    def write(self, records_dir: Path, slug: str, content: str) -> None:
+        write_source_page(records_dir, SourcePage(slug=slug, content=content))

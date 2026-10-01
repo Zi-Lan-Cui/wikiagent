@@ -22,10 +22,8 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
-from wiki_agent.compiler.extraction import write_source_page
-from wiki_agent.compiler.models import SourcePage
 from wiki_agent.errors import (
     ERROR_DETAIL_LIMIT,
     ERROR_SUMMARY_LIMIT,
@@ -77,6 +75,15 @@ ISSUE_RULES: dict[Settlement, IssueEffect] = {
 }
 
 
+class SourcePageWriter(Protocol):
+    """compile 成功把源档案页落盘的端口——实现包 compiler.extraction。
+
+    jobs 结算层不认识 SourcePage/writer 内部；装配根注入（断 jobs→compiler 边）。
+    """
+
+    def write(self, records_dir: Path, slug: str, content: str) -> None: ...
+
+
 class JobOutcomeHandler:
     """所有 Job 终态副作用规则的单一入口。"""
 
@@ -86,10 +93,12 @@ class JobOutcomeHandler:
         *,
         sync_state: SyncState | None = None,
         source_records_dir: str | Path | None = None,
+        source_writer: SourcePageWriter | None = None,
     ):
         self._issues = issue_store
         self._sync_state = sync_state
         self._records_dir = Path(source_records_dir) if source_records_dir is not None else None
+        self._source_writer = source_writer
 
     # 唯一入口：终态事务内调用
 
@@ -219,12 +228,11 @@ class JobOutcomeHandler:
 
         def settle_compile() -> None:
             if isinstance(page, dict) and page.get("slug") and page.get("content"):
-                if self._records_dir is None:
-                    logger.warning("缺 source_records_dir，档案页未落盘: %s", job.resource)
+                if self._records_dir is None or self._source_writer is None:
+                    logger.warning("缺 source_records_dir/source_writer，档案页未落盘: %s", job.resource)
                 else:
-                    write_source_page(
-                        self._records_dir,
-                        SourcePage(slug=str(page["slug"]), content=str(page["content"])),
+                    self._source_writer.write(
+                        self._records_dir, str(page["slug"]), str(page["content"])
                     )
             state.record(job.resource, digest, text)
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
@@ -77,6 +78,35 @@ class Baseline(Protocol):
     def recorded_hashes(self) -> set[str]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class MaintenancePlan:
+    """维护提交的入队素材——校验后的单元声明（已序列化）+ 批尾补链目标。
+
+    units 顺序即入队顺序；link_slugs 为波及面补链页。校验与波及面计算
+    属业务（MaintenancePlanner 实现），事务/幂等/互斥属提交口。
+    """
+
+    units: list[dict]
+    link_slugs: list[str]
+
+
+class MaintenancePlanner(Protocol):
+    """维护批的领域规划面——实现住 application/compiler，按协议注入提交口。
+
+    校验单元声明、算批尾补链波及面要读 wiki 盘面与 restructure 声明模型，
+    是业务知识；jobs 提交口只保留事务、幂等键与互斥。方法体不 import
+    compiler/application，装配根注入（与 Baseline 同构，断 jobs→compiler 边）。
+    """
+
+    def plan_maintenance(self, units: list[dict], wiki_dir: Path) -> MaintenancePlan:
+        """消解规则对当前盘面重跑一遍，违例抛领域异常拒绝（UnitError 等）。"""
+        ...
+
+    def resolve_link_targets(self, slugs: list[str] | None, wiki_dir: Path) -> list[str]:
+        """发现型补链目标：None=全库内容页；给定 slug 不在名册抛 ValueError。"""
+        ...
+
+
 class JobService:
     """一切可执行工作的提交口与生命周期入口。"""
 
@@ -88,6 +118,7 @@ class JobService:
         snapshots: SnapshotStore,
         outcomes: JobOutcomeHandler,
         baseline: Baseline | None = None,
+        maintenance: MaintenancePlanner | None = None,
         wiki_dir: str | Path | None = None,
     ):
         # 依赖全部由组合根注入；存储的唯一端口是 store——本类不认识 Database。
@@ -97,6 +128,8 @@ class JobService:
         self.outcomes = outcomes
         # 同步基线面（落后判定/快照差集）由装配根注入；离线装配可为 None
         self.baseline = baseline
+        # 维护批规划面（单元校验+波及面）由装配根注入；离线/纯 sync 装配可为 None
+        self.maintenance = maintenance
         # 维护提交口要按盘面校验单元与计算批尾 link 波及面
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         self.recovered_jobs = 0
@@ -422,50 +455,36 @@ class JobService:
     def submit_maintenance(self, units: list[dict]) -> list[Job]:
         """已确认的单元清单整批入队：一单元一 job，批尾自动跟波及面补链。
 
-        单元声明在此完成最终校验（消解规则对当前盘面重跑一遍，违例即
-        UnitError 拒绝——提交口不接受绕过消解的清单）；一个事务内先入队
-        全部单元再入队 link 任务（范围 = 全部产出页 ∪ 消失页的入链页，
-        提交时盘面静止故集合确定）。互斥与基线检查：重组自撞报
+        单元声明经 MaintenancePlanner 完成最终校验（消解规则对当前盘面
+        重跑一遍，违例抛领域异常拒绝——提交口不接受绕过消解的清单）与
+        批尾波及面计算；一个事务内先入队全部单元再入队 link 任务（提交时
+        盘面静止故集合确定）。互斥与基线检查：重组自撞报
         RestructureInProgress，其他写在途报 PipelineBusy，未同步源报
         SyncBaselineLag。payload 只带声明——章节归属由执行时路由计算。
         """
-        from wiki_agent.compiler.content_pages import all_content_slugs
-        from wiki_agent.compiler.restructure import (
-            Unit,
-            UnitError,
-            assert_units_valid,
-            pages_linking_to,
-        )
-
         if self.wiki_dir is None:
             raise RuntimeError("submit_maintenance 需要 wiki_dir")
-        try:
-            parsed = [Unit.from_dict(raw) for raw in units]
-        except (TypeError, ValueError) as exc:
-            raise UnitError(f"单元声明损坏: {exc}") from exc
-        assert_units_valid(parsed, set(all_content_slugs(self.wiki_dir)))
-        if not parsed:
+        if self.maintenance is None:
+            raise RuntimeError("submit_maintenance 需要注入维护规划面")
+        plan = self.maintenance.plan_maintenance(units, self.wiki_dir)
+        if not plan.units:
             return []
         batch = f"restructure_{uuid4().hex}"
         jobs: list[Job] = []
         with self.store.transaction(immediate=True) as conn:
             self._raise_if_maintenance_blocked(conn)
-            for index, unit in enumerate(parsed):
+            for index, unit in enumerate(plan.units):
                 jobs.append(
                     self.store.enqueue(
                         kind=Kind.RESTRUCTURE,
                         resource=f"restructure:{batch}:{index}",
                         mode="manual",
-                        payload={"unit": unit.to_dict(), "batch": batch, "index": index},
+                        payload={"unit": unit, "batch": batch, "index": index},
                         idempotency_key=f"restructure:{batch}:{index}",
                         _conn=conn,
                     )
                 )
-            vanished = sorted({s for unit in parsed for s in unit.vanished})
-            link_targets = sorted(
-                {p for unit in parsed for p in unit.out_slugs} | set(pages_linking_to(self.wiki_dir, vanished))
-            )
-            for slug in link_targets:
+            for slug in plan.link_slugs:
                 jobs.append(
                     self.store.enqueue(
                         kind=Kind.LINK,
@@ -481,21 +500,14 @@ class JobService:
     def submit_link_batch(self, slugs: list[str] | None = None) -> list[Job]:
         """发现型补链：指定页（默认全库内容页）逐页入队，一页一 job 一提交。
 
-        slug 按名册白名单校验（不存在即 ValueError，不产生注定空转的行）；
-        互斥与基线检查同维护批。
+        slug 按名册白名单校验经 MaintenancePlanner（不存在即 ValueError，
+        不产生注定空转的行）；互斥与基线检查同维护批。
         """
-        from wiki_agent.compiler.content_pages import all_content_slugs
-
         if self.wiki_dir is None:
             raise RuntimeError("submit_link_batch 需要 wiki_dir")
-        roster = all_content_slugs(self.wiki_dir)
-        if slugs is None:
-            targets = list(roster)
-        else:
-            unknown = [s for s in dict.fromkeys(slugs) if s not in set(roster)]
-            if unknown:
-                raise ValueError(f"不是可维护的 wiki 页: {unknown}")
-            targets = list(dict.fromkeys(slugs))
+        if self.maintenance is None:
+            raise RuntimeError("submit_link_batch 需要注入维护规划面")
+        targets = self.maintenance.resolve_link_targets(slugs, self.wiki_dir)
         if not targets:
             return []
         batch = f"link_{uuid4().hex}"

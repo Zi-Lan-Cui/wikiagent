@@ -5,6 +5,8 @@
 
 from pathlib import Path
 
+from wiki_agent.application.maintenance_flow import MaintenancePlannerImpl
+from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.jobs import JobStore
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
@@ -48,6 +50,7 @@ def make_job_service(
             issues,
             sync_state=sync_state,
             source_records_dir=source_records_dir,
+            source_writer=ExtractionSourcePageWriter(),
         ),
         # sync_state 给了就接基线面；materials_dir 仅 lagging 判定用，缺省占位
         baseline=(
@@ -57,5 +60,7 @@ def make_job_service(
             if sync_state is not None
             else None
         ),
+        # 维护规划面始终注入——提交口不再自带 compiler 校验
+        maintenance=MaintenancePlannerImpl(),
         wiki_dir=wiki_dir,
     )
