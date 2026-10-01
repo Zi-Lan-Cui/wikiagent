@@ -14,6 +14,8 @@ from types import TracebackType
 from typing import Any
 
 from wiki_agent.agent import ReActAgent
+from wiki_agent.agent.commands import create_command_router
+from wiki_agent.application.commands import create_application_commands
 from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.application.maintenance_flow import MaintenancePlannerImpl
 from wiki_agent.application.session import SessionService
@@ -84,6 +86,11 @@ class AppRuntime:
         self.tool_registry.register(ListDir(self.wiki_dir))
         self.tool_registry.register(Grep(self.wiki_dir))
         self.session_manager = SessionManager(workspace=self.workspace)
+        # 命令 router 在组合根装配：agent 原生命令 + 应用驱动命令
+        # （maintain/link/resolve）。命令层不反向 import application，环因此断开。
+        command_router = create_command_router()
+        for cmd in create_application_commands():
+            command_router.register(cmd)
         self.agent = ReActAgent(
             name="wiki-qa",
             llm=create_llm(config.llm, config.retry),
@@ -98,6 +105,7 @@ class AppRuntime:
             compile_config=config.compile,
             retry_config=config.retry,
             job_service=self.job_service,
+            commands=command_router,
             hooks=[self.event_publisher, self.issue_reporter, *(hooks or [])],
         )
         # 面向用户的应用服务：会话用例与 wiki 读模型。issue 读由适配器

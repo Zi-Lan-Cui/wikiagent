@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from wiki_agent.agent.base import BaseAgent
-from wiki_agent.agent.commands import create_command_router
+from wiki_agent.agent.commands import CommandRouter, create_command_router
 from wiki_agent.config import AgentConfig as AgentCfg
 from wiki_agent.config import CompileConfig, RetryConfig
 from wiki_agent.context import Consolidator, ContextBuilder, ContextGovernor
@@ -421,6 +421,7 @@ class ReActAgent(BaseAgent):
         compile_config: CompileConfig | None = None,
         retry_config: RetryConfig | None = None,
         job_service: JobService | None = None,
+        commands: CommandRouter | None = None,
     ):
         super().__init__(name=name, workspace=workspace)
         # 能力全部由装配根注入：job_service 可缺席（QA-only 会话无执行入口），
@@ -459,7 +460,8 @@ class ReActAgent(BaseAgent):
             consolidate_ratio=self.agent_config.consolidate_ratio,
             trigger_ratio=self.agent_config.trigger_ratio,
         )
-        self.commands = create_command_router()
+        # 命令 router 由组合根注入（原生命令 + 应用驱动命令）；缺席回退原生
+        self.commands = commands or create_command_router()
         self.dreamer = Dreamer(workspace=workspace, memory_store=self.memory_store)
         self._dream_task: asyncio.Task | None = None
         # 配置单一来源——直接读 agent_config（frozen 契约），
