@@ -9,6 +9,7 @@ LLM 参与的两段（路由、成文、link 清单）用 monkeypatch 假件，�
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from helpers import make_job_service
@@ -44,7 +45,13 @@ _TYPE = {"concepts": "concept", "entities": "entity", "topics": "topic"}
 
 
 class _LLM:
-    """只满足 async_invoke 一个面的假客户端，返回固定 JSON。"""
+    """只满足 async_invoke 一个面的假客户端，返回固定 JSON。
+
+    自带 retry_config（提交口不再兜底默认）——退避 0，校验失败的用例
+    重试也不拖慢测试。
+    """
+
+    retry_config = SimpleNamespace(llm_max_attempts=2, llm_base_delay_seconds=0.0)
 
     def __init__(self, payload: dict) -> None:
         self.payload = payload

@@ -223,14 +223,18 @@ async def async_invoke_with_retry(
         RuntimeError: 所有尝试都是异常（无任何响应可返回）时；
         FatalError/CancelledError 不经耗尽包装、原样直抛。
     """
-    # 生产 LLMClient 在工厂中注入 RootConfig.retry。保留这个回退，使只
-    # 实现 async_invoke 的轻量测试替身和第三方适配器仍可复用重试包装器。
-    retry_config = getattr(client, "retry_config", RetryConfig())
-    # 用新局部名承接（而非回写声明为 int|None / float|None 的形参）——形参
-    # 声明类型对 pyright 是粘性的，回写后读取仍是 Optional；新名被推断为具体
-    # 数值，range/减法/_sleep_backoff 才不误判 None。语义与运行时无变化。
-    attempts = max_attempts if max_attempts is not None else retry_config.llm_max_attempts
-    delay = base_delay if base_delay is not None else retry_config.llm_base_delay_seconds
+    # 重试预算来源：显式实参优先，缺省读 client.retry_config（生产 LLMClient
+    # 在工厂注入 RootConfig.retry）。不再兜底默认 RetryConfig——调用方要么显式
+    # 传 max_attempts/base_delay，要么自带 retry_config，二者必居其一。
+    # 局部名承接形参（而非回写声明为 int|None 的形参）：形参声明类型对 pyright
+    # 是粘性的，回写后读取仍是 Optional，新名被推断为具体数值才不误判 None。
+    if max_attempts is None or base_delay is None:
+        retry_config = client.retry_config
+        attempts = max_attempts if max_attempts is not None else retry_config.llm_max_attempts
+        delay = base_delay if base_delay is not None else retry_config.llm_base_delay_seconds
+    else:
+        attempts = max_attempts
+        delay = base_delay
     msgs = list(messages)
     # 闭包格子：classify 记录每次"拿到响应"的尝试，供耗尽时决定
     # 返回最后的校验失败响应 vs 抛 RuntimeError（契约见 docstring）。
