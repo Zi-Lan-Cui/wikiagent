@@ -132,6 +132,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
     """
 
     async def execute(batch_dir: Path) -> int:
+        from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
         from wiki_agent.compiler.workflows.ingest import CompilePipeline
         from wiki_agent.issues import IssueStore
         from wiki_agent.jobs import JobStore
@@ -162,6 +163,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
                     issue_store,
                     sync_state=state,
                     source_records_dir=source_records_dir,
+                    source_writer=ExtractionSourcePageWriter(),
                 ),
             )
             from wiki_agent.llm.factory import create_llm, create_vlm

@@ -3,6 +3,10 @@
 原先整段流程长在 agent/commands 的 MaintainCommand 里（agent 包反向
 import application，靠函数级导入遮环）；命令层只应解析参数与格式化
 结果。本模块收编流程，返回结构化结果，文案归命令。
+
+另实现 jobs.MaintenancePlanner 协议：单元校验与批尾波及面计算要读
+wiki 盘面与 restructure 声明模型（compiler），属业务知识，不该住在
+通用提交口。装配根把本实现注入 JobService，jobs 不再 import compiler。
 """
 
 from __future__ import annotations
@@ -14,8 +18,15 @@ from wiki_agent.application.restructure_service import (
     MaintenanceOutcome,
     propose_maintenance,
 )
-from wiki_agent.compiler.restructure import UnitError
+from wiki_agent.compiler.content_pages import all_content_slugs
+from wiki_agent.compiler.restructure import (
+    Unit,
+    UnitError,
+    assert_units_valid,
+    pages_linking_to,
+)
 from wiki_agent.jobs import Job, PipelineBusy, SyncBaselineLag
+from wiki_agent.jobs.service import MaintenancePlan
 
 
 def gate_text(job_service: Any) -> str | None:
@@ -69,3 +80,39 @@ async def run_maintain(
         # RestructureInProgress/SyncInProgress 是 PipelineBusy 子类，不必点名
         flow.submit_rejected = f"提交暂拒——{exc}。"
     return flow
+
+
+class MaintenancePlannerImpl:
+    """实现 jobs.MaintenancePlanner——维护批的领域校验与波及面规划。"""
+
+    def plan_maintenance(self, units: list[dict], wiki_dir: Path) -> MaintenancePlan:
+        """消解规则对当前盘面重跑一遍：解析→校验→算批尾补链目标。
+
+        损坏声明与违例单元都抛 UnitError（提交口拒绝绕过消解的清单）；
+        波及面 = 全部产出页 ∪ 消失页的入链页（盘面静止时集合确定）。
+        """
+        try:
+            parsed = [Unit.from_dict(raw) for raw in units]
+        except (TypeError, ValueError) as exc:
+            raise UnitError(f"单元声明损坏: {exc}") from exc
+        assert_units_valid(parsed, set(all_content_slugs(wiki_dir)))
+        if not parsed:
+            return MaintenancePlan(units=[], link_slugs=[])
+        vanished = sorted({s for unit in parsed for s in unit.vanished})
+        link_slugs = sorted(
+            {p for unit in parsed for p in unit.out_slugs}
+            | set(pages_linking_to(wiki_dir, vanished))
+        )
+        return MaintenancePlan(
+            units=[unit.to_dict() for unit in parsed], link_slugs=link_slugs
+        )
+
+    def resolve_link_targets(self, slugs: list[str] | None, wiki_dir: Path) -> list[str]:
+        """发现型补链目标：None=全库内容页；给定 slug 不在名册抛 ValueError。"""
+        roster = all_content_slugs(wiki_dir)
+        if slugs is None:
+            return list(roster)
+        unknown = [s for s in dict.fromkeys(slugs) if s not in set(roster)]
+        if unknown:
+            raise ValueError(f"不是可维护的 wiki 页: {unknown}")
+        return list(dict.fromkeys(slugs))

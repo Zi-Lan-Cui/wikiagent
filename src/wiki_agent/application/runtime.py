@@ -15,9 +15,11 @@ from typing import Any
 
 from wiki_agent.agent import ReActAgent
 from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
+from wiki_agent.application.maintenance_flow import MaintenancePlannerImpl
 from wiki_agent.application.session import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
 from wiki_agent.application.wiki_ops import WikiOpsHandler
+from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, default_project_root, load_config
 from wiki_agent.conversation import SessionManager
@@ -68,8 +70,11 @@ class AppRuntime:
                 self.issue_store,
                 sync_state=self.sync_state,
                 source_records_dir=self.source_records_dir,
+                source_writer=ExtractionSourcePageWriter(),
             ),
             baseline=self.baseline,
+            # 维护规划面注入提交口（compiler 校验/波及面知识不住 jobs，断 jobs→compiler 边）
+            maintenance=MaintenancePlannerImpl(),
             wiki_dir=self.wiki_dir,
         )
         self.event_publisher = EventPublisher()
