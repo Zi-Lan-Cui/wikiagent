@@ -115,3 +115,16 @@ def translate_generic_error(exc: Exception, context: str = "") -> WikiAgentError
     if isinstance(exc, (OSError, TimeoutError, ConnectionError, asyncio.TimeoutError)):
         return RetryableError(f"{prefix}{type(exc).__name__}: {exc}", cause=exc)
     return FatalError(f"{prefix}未知异常 {type(exc).__name__}: {exc}", cause=exc)
+
+
+# 错误文本进有界字段的唯一口径：jobs.error/issue.summary/last_error 是
+# 账本级，detail 是现场级，日志与 evidence 键是摘要级。
+ERROR_SUMMARY_LIMIT = 500
+ERROR_DETAIL_LIMIT = 1000
+ERROR_TRACE_LIMIT = 200
+
+
+def summarize_error(text: object, limit: int) -> str:
+    """错误文本折成单行并截到 limit——账本小列的唯一写入口径。"""
+    collapsed = " ".join(str(text).split())
+    return collapsed[:limit]

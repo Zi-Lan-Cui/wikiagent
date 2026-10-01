@@ -26,6 +26,12 @@ from typing import TYPE_CHECKING, Literal
 
 from wiki_agent.compiler.extraction import write_source_page
 from wiki_agent.compiler.models import SourcePage
+from wiki_agent.errors import (
+    ERROR_DETAIL_LIMIT,
+    ERROR_SUMMARY_LIMIT,
+    ERROR_TRACE_LIMIT,
+    summarize_error,
+)
 from wiki_agent.issues import (
     InvalidIssueTransitionError,
     IssueAlreadyClaimedError,
@@ -254,7 +260,7 @@ class JobOutcomeHandler:
             "job %s ingest_error [%s] %s",
             job.id,
             detail.get("stage"),
-            str(detail.get("error"))[:200],
+            summarize_error(detail.get("error"), ERROR_TRACE_LIMIT),
         )
         if job.issue_id and issue.id != job.issue_id:
             # 重试 job 撞上了他人合并出的不同指纹——理论上不该发生，留观测
@@ -267,11 +273,11 @@ class JobOutcomeHandler:
     def _draft(self, job: Job, detail: dict) -> IssueDraft:
         source = str(detail.get("source") or Path(job.resource).name)
         diagnostics = dict(detail.get("diagnostics") or {})
-        diagnostics.setdefault("detail", str(detail.get("error") or "")[:1000])
+        diagnostics.setdefault("detail", summarize_error(detail.get("error"), ERROR_DETAIL_LIMIT))
         return IssueDraft(
             kind=IssueKind.INGESTION_FAILURE,
             title=f"{source or '来源文件'}处理失败",
-            summary=str(detail.get("error") or "")[:500],
+            summary=summarize_error(detail.get("error"), ERROR_SUMMARY_LIMIT),
             origin={
                 "mode": str(detail.get("mode") or job.mode),
                 "reported_by": f"job:{job.kind}",
