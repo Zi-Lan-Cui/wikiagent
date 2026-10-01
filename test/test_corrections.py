@@ -7,7 +7,8 @@ from pathlib import Path
 
 from helpers import make_issue_service
 
-from wiki_agent.agent.commands import CommandContext, ResolveCommand
+from wiki_agent.agent.commands import CommandContext
+from wiki_agent.application.commands import ResolveCommand
 from wiki_agent.conversation import Session
 from wiki_agent.issues import IssueKind, IssueStatus
 from wiki_agent.issues.producers import report_correction
