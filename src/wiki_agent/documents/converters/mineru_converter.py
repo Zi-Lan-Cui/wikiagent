@@ -15,9 +15,6 @@ import re
 import tempfile
 from pathlib import Path
 
-from mineru.cli.common import do_parse as _mineru_do_parse
-from mineru.cli.common import read_fn as _mineru_read_fn
-
 from wiki_agent.conversation import Message
 from wiki_agent.documents.converters.base import BaseConverter, ConvertedFile
 from wiki_agent.documents.loader import RawFileProperties
@@ -164,11 +161,15 @@ class MinerUConverter(BaseConverter):
         Returns:
             转换后的 Markdown。
         """
-        pdf_bytes = _mineru_read_fn(file_path)
+        # 第三方库延迟到这里才 import：documents 包的任何 import 都不该
+        # 顺带拉起 mineru 全家（模块级 import 曾让冷启动多付 1.5s）
+        from mineru.cli.common import do_parse, read_fn
+
+        pdf_bytes = read_fn(file_path)
         file_name = os.path.basename(file_path)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            _mineru_do_parse(
+            do_parse(
                 output_dir=tmpdir,
                 pdf_file_names=[file_name],
                 pdf_bytes_list=[pdf_bytes],

@@ -36,34 +36,6 @@ class LoadSummary(BaseModel):
     total_found: int = 0
     by_modality: dict[str, int] = Field(default_factory=dict)
 
-    @property
-    def loaded_count(self) -> int:
-        """返回已加载文件数。
-
-        Returns:
-            files 列表长度。
-        """
-        return len(self.files)
-
-    @property
-    def skipped_count(self) -> int:
-        """返回被跳过文件数。
-
-        Returns:
-            skipped 列表长度。
-        """
-        return len(self.skipped)
-
-    def iter_text(self):
-        """迭代纯文本文件。
-
-        Yields:
-            modality == TEXT 的文件属性对象。
-        """
-        for f in self.files:
-            if f.modality == FileModality.TEXT:
-                yield f
-
 
 class DataLoader:
     """文件发现 → 属性提取 → 文本内容读取。
@@ -129,54 +101,6 @@ class DataLoader:
         """
         base = Path(base_path)
         paths = [base / Path(f) for f in files]
-        return self._load_from_paths(paths)
-
-    # 递归扫描默认排除的目录——历史运行档案/版本控制/虚拟环境。
-    # 外部 source 根可能包含旧版 .logs，仍需防御性排除。
-    _EXCLUDED_DIRS = {
-        ".git",
-        ".venv",
-        ".logs",
-        ".watch",
-        "__pycache__",
-        ".pytest_cache",
-        "node_modules",
-    }
-
-    def load_dir(
-        self,
-        directory: str | Path,
-        *,
-        recursive: bool = False,
-    ) -> LoadSummary:
-        """扫描目录下所有可识别文件（排除 _EXCLUDED_DIRS）。
-
-        recursive 默认 False——"加载指定目录"就是字面意义，只扫
-        这一层。树扫描显式 opt-in（实测事故: 默认递归把源目录里的
-        旧 wiki 构建 first_wiki/ 和工具配置 .llm-wiki/ 全部吃进去，
-        6 行配置 JSON 被 LLM extract 编造出整条物理页幻觉链）。
-
-        Args:
-            directory: 扫描目录。
-            recursive: 是否递归扫描子目录（默认 False）。
-
-        Returns:
-            汇总（含已加载 & 跳过）。
-        """
-        dir_path = Path(directory)
-        if not dir_path.is_dir():
-            logger.warning(f"{dir_path} 不是目录，跳过")
-            return LoadSummary()
-
-        if recursive:
-            paths = [
-                p
-                for p in dir_path.rglob("*")
-                if p.is_file() and not any(part in self._EXCLUDED_DIRS for part in p.parts)
-            ]
-        else:
-            paths = [p for p in dir_path.glob("*") if p.is_file()]
-        logger.info(f"在 {dir_path} 中发现 {len(paths)} 个文件")
         return self._load_from_paths(paths)
 
     def _load_from_paths(self, paths: list[Path]) -> LoadSummary:
