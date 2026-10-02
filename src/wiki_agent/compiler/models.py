@@ -106,7 +106,7 @@ class ExtractResult:
     source_identity: str
     document_summary: str = ""
     source_page: SourcePage | None = None
-    """档案页构造结果（compile/sync 模式才有），写入责任在结算方。"""
+    """档案页构造结果（compile/sync 模式才有），由调用方在终态写入。"""
 
 
 # 集成阶段输出
@@ -122,12 +122,11 @@ class PageTarget:
     """引用建议: [{"slug": "entities/xxx", "reason": "对比参照"}, ...]。从 reason 中剥离，方便后续过滤和 retry。"""
 
     page_type: str = ""
-    """new 页面的 type（concept/entity/topic）——plan 决策的单一权威。
+    """new 页面的 type（concept/entity/topic），以 plan 决策为准。
 
-    路由目录与 type 由 plan 同一次决策产出，generate 阶段不再自行判断：
-    否则两个独立 LLM 判断各走各的（实测: plan 路由 entities/、
-    generate 写 type=concept，质量闸门 type/目录不一致拦截）。
-    update 目标留空（沿用已有页面 type）。"""
+    路由目录与 type 由 plan 一次决定，generate 阶段不再自行判断，避免两个
+    LLM 各写各的导致 type 与目录不一致。update 目标留空（沿用已有 type）。
+    """
 
 
 @dataclass
@@ -164,7 +163,7 @@ class AnalysisResult:
     """自由分析主体——LLM 的完整推理文本（plan 决策的主要依据）。"""
 
     raw_analysis: str = ""
-    """LLM 原始输出（含 JSON 尾巴，保留用于调试）。"""
+    """LLM 原始输出（末尾可能有多余文本，保留用于调试）。"""
 
     entities: list[dict] = field(default_factory=list)
     """命名实体: [{"name": "functools.partial", "type": "函数", "description": "...", "importance": "核心"}]。"""
