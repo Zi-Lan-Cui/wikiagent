@@ -1,8 +1,6 @@
-"""任务队列卡片视图——jobs 行的展示投影，web/CLI 共用。
+"""任务队列卡片的展示投影，供 web 与 CLI 共用。
 
-web.py 只做 HTTP 映射；卡片标题拼接、kind 人话词表、终态文案转换
-属于任务域的视图规则，收在这里。issue 关联经注入的 lookup 解析，
-本模块不认识 IssueService。
+含 kind 与终态 stage 到界面文案的映射；issue 关联通过注入的 lookup 解析。
 """
 
 from __future__ import annotations
@@ -17,8 +15,7 @@ from wiki_agent.jobs.models import Kind
 if TYPE_CHECKING:
     from wiki_agent.jobs.models import Job
 
-# kind 的界面词表——实现黑话不上界面。Job.kind 是 str，字典按 value 取词，
-# 键保持字符串常量；判定分支（下方 ==）统一引用 Kind，命名事实来源单一。
+# kind 到界面显示名的映射；Job.kind 是 str，判定处用 Kind 常量。
 _KIND_LABELS: dict[str, str] = {
     "compile": "编译",
     "delete": "删除",
@@ -28,7 +25,7 @@ _KIND_LABELS: dict[str, str] = {
     "maintenance_preview": "整理结构分析",
 }
 
-# 终态 stage 领域值 → 界面词；jobs 行只存领域值，转换只在这张表发生
+# 终态 stage 值到界面文案的映射
 _TERMINAL_STAGE_LABELS = {"done": "已完成", "cancelled": "已取消"}
 
 
@@ -37,16 +34,16 @@ def task_card(job: Job, issue_lookup: Callable[[str], Any]) -> dict[str, Any]:
 
     Args:
         job: 持久化任务行。
-        issue_lookup: 按 issue_id 取挂账记录（IssueRecord 或其投影）；
+        issue_lookup: 按 issue_id 取关联记录（IssueRecord 或其投影），
             不存在返回 None。
 
     Returns:
         卡片字典（title/resource/stage/status/result 等展示字段）。
     """
     item = asdict(job)
-    item["issue_id"] = job.issue_id  # 挂账关系统一走 issue_id 列
+    item["issue_id"] = job.issue_id
     item["action"] = job.mode
-    # sync 快照批标记——wiki commit 尾注同源，"撤销这一批"按它定位
+    # batch 用于快照批分组与按批撤销定位
     item["batch"] = str(job.payload.get("batch") or "")
     item["current_stage"] = (
         _TERMINAL_STAGE_LABELS.get(job.stage)
@@ -64,7 +61,7 @@ def task_card(job: Job, issue_lookup: Callable[[str], Any]) -> dict[str, Any]:
         name = Path(job.resource).name if job.resource else ""
         item["title"] = f"{label} {name}".strip()
         item["resource"] = job.resource
-    # 维护线 job 的 resource 是内部定位键，卡片用声明内容做标题
+    # restructure/link/preview 的 resource 是内部键，标题与 resource 改用声明内容
     if job.kind == Kind.RESTRUCTURE:
         raw_unit = job.payload.get("unit")
         unit: dict[str, Any] = raw_unit if isinstance(raw_unit, dict) else {}
@@ -80,7 +77,6 @@ def task_card(job: Job, issue_lookup: Callable[[str], Any]) -> dict[str, Any]:
         item["resource"] = str(job.payload.get("slug") or job.resource)
     elif job.kind == Kind.MAINTENANCE_PREVIEW:
         item["title"] = "整理结构分析"
-        # 分析对象就是全库，卡片以 title 为主文案，resource 不再凑字
         item["resource"] = ""
     if item["status"] == "succeeded":
         item["status"] = "completed"

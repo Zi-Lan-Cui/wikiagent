@@ -1,9 +1,8 @@
-"""单一持久化 worker：jobs 引擎的认领循环。
+"""持久化 worker：jobs 引擎的认领循环。
 
-Worker 是唯一的终态写入者：claim（按注册 kinds）→
-handler 返回 JobResult → complete_with_outcome 单事务落终态。
-handler 只表达业务结局；bug 抛异常由这里归日志 + 事件——不进问题账本，
-代码错误不是用户的待办。
+claim（按注册 kinds）→ handler 返回 JobResult → complete_with_outcome 单事务
+落终态。handler 只表达业务结局；handler 抛出的异常在此归日志 + 事件，不记
+issue（代码错误不是用户待处理项）。
 """
 
 from __future__ import annotations
@@ -46,13 +45,13 @@ class JobWorker:
         return set(self._handlers)
 
     async def run_once(self) -> Job | None:
-        # kinds 过滤 = 多进程共库的分工边界：只领本进程注册了 handler 的类型
+        # kinds 过滤使多进程共库时各进程只领自己注册了 handler 的类型
         job = self.service.claim_next(kinds=self.registered_kinds)
         if job is None:
             return None
         handler = self._handlers.get(job.kind)
         if handler is None:
-            # kinds 过滤下理论不可达（外部显式 claim 的兜底），不重试
+            # kinds 过滤下通常到不了这里；保留作显式 claim 的后备
             self.service.complete_with_outcome(
                 job,
                 JobResult(
@@ -68,10 +67,10 @@ class JobWorker:
         try:
             result = await handler(job, progress)
         except asyncio.CancelledError:
-            # 进程取消：终态单事务落库（无联动），再继续传播退出
+            # 进程取消：先置 cancelled 终态，再继续传播
             self.service.cancel_terminal(job)
             raise
-        except Exception as exc:  # noqa: BLE001 - handler bug 不是用户的待办：日志+事件承接
+        except Exception as exc:  # noqa: BLE001 - handler 异常按代码错误处理：记日志与事件
             logger.exception("job %s handler 崩溃: %s", job.id, f"{type(exc).__name__}: {exc}")
             emit_event(
                 "job_handler_crash",
@@ -85,7 +84,7 @@ class JobWorker:
                 detail={"error": f"{type(exc).__name__}: {str(exc)[:400]}"},
             )
         if not isinstance(result, JobResult):
-            # 契约违约同样是代码 bug：记日志、发事件，不写问题账本
+            # 返回值不符合契约同样按代码错误处理：记日志、发事件，不记 issue
             logger.error("job %s handler 返回了 %s，应为 JobResult", job.id, type(result).__name__)
             emit_event("job_handler_contract_violation", job_id=job.id, kind=job.kind)
             result = JobResult(
