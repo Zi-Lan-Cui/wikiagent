@@ -1,10 +1,10 @@
-"""质检模块——全库体检 + 报告（审计路径）。
+"""质检模块：全库体检与报告。
 
-- 页面级: 定稿兜底检查、死链检查
-- 全库级: 编译结束后的整体扫描与报告格式化
+- 页面级：定稿检查、死链检查
+- 全库级：编译结束后的整体扫描与报告格式化
 
-判定与生成时闸门共用同一份定义（检测原子在 rules）——
-同一现象，生成时 retry 修正、落盘后 scan 报告，一份判定两种语境。
+判定与生成时的检查共用同一份定义（检测原子在 rules）：同一现象，生成时
+重试修正、落盘后扫描报告。
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def check_page_quality(
     path: str,
     valid_slugs: set[str] | None = None,
 ) -> list[Issue]:
-    """单页质量检测——判定与生成闸门（check_page_output）完全同源。
+    """单页质量检测：与生成时的检查（check_page_output）同源。
 
     Args:
         content: 页面内容
@@ -179,7 +179,7 @@ def check_page_quality(
     if not content or not content.strip():
         return [Issue("error", path, "内容为空")]
 
-    # 判定唯一来源: 生成闸门。落盘后不过 = 页面损伤（error 报告）。
+    # 判定与生成检查同源；落盘后不合格记 error。
     ok, reason = check_page_output(content)
     if not ok:
         issues.append(Issue("error", path, reason))
@@ -193,7 +193,7 @@ def check_page_quality(
         )
     )
 
-    # 闸门是二元判定，不查长度——体检独有的 warning 观察在此补充
+    # 检查是二元判定、不看长度；体检额外的 warning 观察在此补充
     if len(body_without_title(content)) < _MIN_BODY_CHARS:
         issues.append(
             Issue(
@@ -383,7 +383,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
                 )
             )
 
-    # 孤岛检测：index 是导航入口，不算语义入链。
+    # 孤立页检测：index 是导航入口，不计入入链
     incoming: dict[str, set[str]] = {slug: set() for slug in valid_slugs}
     for page in pages:
         rel = str(page.relative_to(wiki))
@@ -428,15 +428,15 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
             continue
         all_issues.extend(check_dead_links(content, path=rel, valid_slugs=valid_slugs))
 
-    # 第三遍: 根目录垃圾文件 + index 幽灵条目
+    # 第三遍: 根目录多余 .md + index 指向不存在的页
     index_path = wiki / "index.md"
     try:
         index_content = index_path.read_text(encoding="utf-8")
     except OSError:
         index_content = ""
 
-    # 3a. 根目录 .md——内容页面应全在 CONTENT_DIRS 下，根目录的 .md
-    #     只有 index/purpose/schema 等系统文件（垃圾页审计：wiki/.md）
+    # 3a. 根目录 .md——内容页应全在 CONTENT_DIRS 下，根目录只允许
+    #     index/purpose/schema 等系统文件
     system_files = {"index.md", "purpose.md", "schema.md"}
     for f in sorted(wiki.glob("*.md")):
         if f.name in system_files:
@@ -449,14 +449,13 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
             )
         )
 
-    # 3b. 幽灵条目——index 有、磁盘无（search 会返回不存在的页面）
+    # 3b. index 有、磁盘无的条目（search 会返回不存在的页面）
     for ref in re.findall(r"\[\[([^\]]+)\]\]", index_content):
         slug = slug_from_ref(ref)
         if not path_for(wiki, slug).exists():
             all_issues.append(Issue("error", "index.md", f"幽灵条目: [[{slug}]] 指向不存在的页面"))
 
-    # 3c. 非标准内容目录——LLM 路由违规产物（实测 languages/ tools/）。
-    #     三个内容目录之外的 .md 子目录在扫描与 search 中完全隐形。
+    # 3c. 非标准内容目录——三个内容目录之外的 .md 子目录不会被扫描与 search 覆盖。
     known_dirs = set(CONTENT_DIRS)
     for sub in sorted(wiki.iterdir()):
         if sub.is_dir() and sub.name not in known_dirs:

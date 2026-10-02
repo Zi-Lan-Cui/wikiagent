@@ -1,8 +1,7 @@
-"""Wiki 页面检测原子与闸门——"什么算好页面"（无 LLM，底层）。
+"""Wiki 页面检测原子与检查回调：定义合格页面的标准（无 LLM，底层）。
 
-fence 状态机 / 正文提取原子 + 页面 check 回调。
-页面闸门判定只在本模块一份定义——集成层生成时的执行闸门与 wiki
-落盘后的 scan 体检复用同一判定，同一现象两种语境。
+含 fence 状态机、正文提取原子与页面 check 回调。页面检查只在本模块定义一份，
+集成层生成时的检查与落盘后的 scan 体检复用同一判定。
 """
 
 from __future__ import annotations
@@ -162,11 +161,10 @@ def check_page_body(content: str) -> tuple[bool, str]:
 
 
 def check_page_output(content: str) -> tuple[bool, str]:
-    """页面输出总闸门——frontmatter 必填 + 正文存在 + 格式，任一不过即重试。
+    """页面输出总检查：frontmatter 必填 + 正文存在 + 格式，任一不过即重试。
 
-    组合顺序: frontmatter 先查（结构性问题，错误消息更基础），
-    正文存在次之，wikilink/fence 最后（正文格式）。三个 check
-    独立保持可复用，组合只在这一处（页面生成的唯一 check 入口）。
+    组合顺序：先 frontmatter（结构性），再正文存在，最后 wikilink/fence
+    （正文格式）。三个 check 各自可复用，此处组合成页面生成的统一检查入口。
 
     Args:
         content: LLM 生成的页面内容。
@@ -219,7 +217,7 @@ def _check_wikilink_has_text(content: str) -> tuple[bool, str]:
         (是否通过, 可执行的错误消息)。
     """
     # 切掉 frontmatter——里面的 related/tags 不是 wikilink。
-    # 无 frontmatter 时退化为全文（本 check 单独调用也要能工作）
+    # 无 frontmatter 时取全文（本 check 也需可单独调用）
     body = extract_body(content) or content
 
     bare_links: list[str] = []

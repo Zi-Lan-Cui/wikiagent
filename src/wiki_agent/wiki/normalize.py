@@ -1,8 +1,7 @@
-"""页面规范化——LLM 草稿与最终落盘之间的全部加工（写路径）。
+"""页面规范化：LLM 草稿到最终落盘之间的加工（写路径）。
 
-主线: 修 LLM 输出 → 盖系统权威字段 → 质检闸门兜底。
-**顺序是领域知识**——由编排入口一次完成，调用方不应自己组装。
-质检与全库体检属审计路径（quality 模块），本模块只负责"把页面做成最终形态"。
+顺序：修 LLM 输出 → 写系统权威字段 → 质检。由编排入口一次完成，调用方不自行组装。
+质检与全库体检属审计路径（quality 模块），本模块只负责把页面做成最终形态。
 """
 
 from __future__ import annotations
@@ -268,7 +267,7 @@ def inject_metadata(
     sources.discard("")
     updates["sources"] = sorted(sources)
     if page_type:
-        # plan 决策的单一权威——generate 写的 type 只是占位（空串=沿用已有）
+        # type 以 plan 决策为准；generate 写的值仅作占位（空串=沿用已有）
         updates["type"] = page_type
     return set_fields(content, updates)
 
