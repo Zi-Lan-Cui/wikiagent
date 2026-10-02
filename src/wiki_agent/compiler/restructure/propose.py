@@ -1,4 +1,4 @@
-"""粗提：全库大纲 → 重组单元清单（LLM）。"""
+"""提议：全库大纲 → 重组单元清单（LLM）。"""
 
 from __future__ import annotations
 
@@ -27,9 +27,10 @@ def read_wiki_const(wiki_dir: Path, name: str) -> str:
 
 
 async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
-    """跑一遍全库结构分析，产出通过形状与 slug 校验的单元清单。
+    """全库结构分析一次，产出通过形状与 slug 校验的单元清单。
 
-    开思考：真实模型在 NO_THINKING 下对明显重合的页面簇也提空单元。
+    本阶段不关闭 thinking：NO_THINKING 下模型对明显重合的页面簇
+    也倾向提空单元。
 
     Raises:
         IngestError: 输出校验重试后仍失败。

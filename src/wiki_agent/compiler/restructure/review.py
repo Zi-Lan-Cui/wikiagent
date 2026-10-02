@@ -1,4 +1,4 @@
-"""二次确认：逐单元判"这个重组此刻成不成立"（LLM，一组一次）。"""
+"""二次确认：逐单元判断重组此刻是否仍然成立（LLM）。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ logger = get_logger("RESTRUCTURE")
 async def recheck_units(
     llm: Any, wiki_dir: str | Path, units: list[Unit]
 ) -> tuple[list[Unit], list[tuple[Unit, str]]]:
-    """返回 (成立单元, [(放弃单元, 理由)])。判定失败按放弃处理——存疑不动结构。"""
+    """返回 (成立的单元, [(放弃的单元, 理由)])；判定失败按放弃处理，存疑不动结构。"""
     wiki_dir = Path(wiki_dir)
     confirmed: list[Unit] = []
     rejected: list[tuple[Unit, str]] = []
@@ -60,7 +60,8 @@ async def recheck_units(
                         ),
                     ),
                 ],
-                # 复核开思考：思考段计入 max_tokens，1024 会被吃光致输出为空
+                # 复核保留 thinking：思考段计入 max_tokens，
+                # 预算过小会被思考占满导致输出为空
                 max_tokens=4096,
                 check=prompts.check_recheck_json,
                 max_attempts=2,

@@ -1,6 +1,6 @@
-"""单元核对与装配（执行时）：verify → 章节化 → 路由 → 草稿。
+"""单元核对与装配（执行时）：verify → 章节切分 → 路由 → 草稿。
 
-prepare_unit 一切失败都发生在写盘之前——抛错即单元 failed，工作区无改动。
+prepare_unit 的全部失败都发生在写盘之前：抛错即单元失败，工作区无改动。
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ class UnitPlan:
     unit: Unit
     sections: list[Section]
     assignment: dict[str, str] = field(default_factory=dict)
-    fixed: dict[str, str] = field(default_factory=dict)  # take 直给的归属（审计）
-    drafts: dict[str, str] = field(default_factory=dict)  # out slug → 毛坯全文
+    fixed: dict[str, str] = field(default_factory=dict)  # take 直接指定的归属（审计用）
+    drafts: dict[str, str] = field(default_factory=dict)  # out slug → 装配草稿全文
     old_content: dict[str, str] = field(default_factory=dict)
     old_meta: dict[str, dict] = field(default_factory=dict)
     sibling_titles: dict[str, list[str]] = field(default_factory=dict)
@@ -33,7 +33,7 @@ class UnitPlan:
 
 
 def _existing_slugs(wiki_dir: Path) -> set[str]:
-    # 名册唯一来源 content_pages（含嵌套层级）——此前本地实现只认一层目录
+    # 页面列表统一由 content_pages 提供（含嵌套层级），不在本模块重复实现
     return set(all_content_slugs(wiki_dir))
 
 
@@ -54,7 +54,7 @@ def _frontmatter_for(wiki_dir: Path, page: OutPage) -> dict:
 
 
 def _draft(unit: Unit, sections: list[Section], assignment: dict[str, str]) -> dict[str, str]:
-    """按归属把章节正文装配成每个 out 页的毛坯（保持输入页顺序）。"""
+    """按归属把章节正文装配成每个 out 页的草稿，保持输入页顺序。"""
     drafts: dict[str, str] = {}
     for page in unit.out:
         chunks: list[str] = []
@@ -68,11 +68,11 @@ def _draft(unit: Unit, sections: list[Section], assignment: dict[str, str]) -> d
 
 
 async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> UnitPlan:
-    """核对声明、切分章节、计算分配、装配毛坯。全程只读。
+    """核对声明、切分章节、计算分配、装配草稿。全程只读。
 
     Raises:
-        UnitMismatchError: in 页缺失——排队期间世界变了。
-        RouteError: 分配不守恒。
+        UnitMismatchError: in 页缺失或声明与当前 wiki 状态不符（排队期间页面有变化）。
+        RouteError: 章节分配校验失败（漏配/重配等）。
     """
     wiki_dir = Path(wiki_dir)
     existing = _existing_slugs(wiki_dir)
@@ -90,8 +90,8 @@ async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> UnitPlan:
     plan.assignment, plan.fixed = await route_unit(llm, unit, sections)
     plan.drafts = _draft(unit, sections, plan.assignment)
     plan.final_slugs = (existing - set(unit.vanished)) | set(unit.out_slugs)
-    # 溯源并集：合并/改名后 out 页的来源 = 全部 in 页 sources 的并集，
-    # 否则被消费页的源文件从溯源链消失（真实执行轮抓出的缺陷）
+    # 溯源并集：out 页的 sources = 全部 in 页 sources 的并集，
+    # 否则被消费页的源文件会从溯源链消失
     unit_sources: list[str] = []
     for slug in unit.in_pages:
         fm, _ = split_frontmatter(path_for(wiki_dir, slug).read_text(encoding="utf-8"))

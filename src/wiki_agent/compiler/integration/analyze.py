@@ -1,4 +1,4 @@
-"""Analyze 阶段——文档与候选页的两段式关系分析（模式间零差异）。"""
+"""Analyze 阶段：文档与候选页的两段式关系分析，各模式共用。"""
 
 from __future__ import annotations
 
@@ -20,18 +20,17 @@ logger = get_logger("STAGES")
 
 _ANALYZE_TOKENS = 6_000
 
-# 候选页节摘要预算：与路由大纲同形状、独立阈值——候选是 5~8 页的
-# 节数合计，12 节上限意味着多候选时自动落到短档。
+# 候选页节摘要预算：与路由大纲共用 pick_gist_limit，独立阈值；
+# 节数合计超过上限时自动用短档，控制提示规模。
 ANALYZE_GIST_CHARS = 160
 ANALYZE_GIST_SHORT_CHARS = 40
 ANALYZE_MAX_GIST_SECTIONS = 12
 
 
 def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
-    """候选页大纲行——frontmatter 概览 + 按节摘要（节数合计定档）。
+    """候选页大纲行：frontmatter 概览 + 按节摘要。
 
-    parsed 项为 (path, frontmatter, sections)。节摘要与路由大纲共用
-    wiki.sections 的提取逻辑；候选多时整体落短档，控制提示规模。
+    parsed 项为 (path, frontmatter, sections)；摘要长短档按节数合计选定。
     """
     total_secs = sum(len(secs) for _, _, secs in parsed)
     gist_limit = pick_gist_limit(
@@ -47,7 +46,7 @@ def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
         gaps = fm.get("gaps", "")
         goal = fm.get("goal", "")
         slug = slug_from_ref(path)
-        # 行首三列与 index 行同格式——格式变更只需改 pages.index_line
+        # 行首与 index 行同格式，格式调整只改 pages.index_line
         meta = index_line(slug, page_type, title, summary, goal)
         if gaps:
             meta += f" — 缺口声明: {gaps}"
@@ -65,7 +64,7 @@ def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
 
 
 class Analyzer:
-    """analyze 阶段: 文档与候选页的两段式关系分析。模式间零差异。"""
+    """analyze 阶段：文档与候选页的两段式关系分析。"""
 
     def __init__(self, llm: LLMClient, wiki_dir: str | Path, prompts):
         self._llm = llm
@@ -91,7 +90,7 @@ class Analyzer:
         extract: ExtractResult,
         result: SearchResult,
     ) -> AnalysisResult:
-        """关系分析——新文档与 search 候选页面的两段式分析。
+        """新文档与 search 候选页面的两段式关系分析。
 
         Args:
             extract: 源文档抽取结果。
@@ -101,11 +100,11 @@ class Analyzer:
             分析结果（实体/概念/关系 + 自由分析文本）。
 
         Raises:
-            IngestError: 校验穷尽后仍失败。
+            IngestError: 重试后校验仍失败。
         """
-        # 空候选也走完整分析——候选页面只影响 relationship 段，不影响
-        # 文档内部知识结构的自由分析（entities/concepts/呼应/对比）。
-        # 早退会让 plan 失去决策依据，且使首跑结果依赖文件顺序。
+        # 空候选也走完整分析：候选只影响 relationship 段，不影响
+        # entities/concepts 等文档内部结构的自由分析；
+        # 提前返回会让 plan 缺分析文本，结果还依赖文件顺序
         parsed: list[tuple[str, dict, list]] = []
         for path in result.rel_paths:
             content = await self._read_page(path)
@@ -114,7 +113,6 @@ class Analyzer:
             parsed.append((path, fm, text_sections(content, slug) if content else []))
         outlines = render_candidates(parsed)
 
-        # 校验穷尽由 invoke_checked 显式报告（空响应由 retry 层处理）
         response = await invoke_checked(
             self._llm,
             stage=IngestStage.ANALYZE,
@@ -134,8 +132,8 @@ class Analyzer:
             check=lambda content: check_analyze_json(
                 content,
                 candidates=result.rel_paths,
-                # 当前文档真实 slug 并入合法集——LLM 用真实路径自称
-                # 比固定标识 current-doc 自然（实测高频违规点）
+                # 当前文档真实 slug 并入合法引用集：LLM 更常用真实路径
+                # 自称，而不是固定标识 current-doc
                 extra_refs={extract.source_identity},
             ),
             extra_body=NO_THINKING,

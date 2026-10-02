@@ -1,10 +1,9 @@
 """出链维护（link）：LLM 出替换清单，代码校验后逐条应用。
 
-link 只做连通性：不重写内容、不动正文文字本身。每个替换项是对页面
-原文的一次字面替换（find → replace），校验不过的项逐条跳过并给理由：
-find 非唯一、目标 slug 不在名册、自链、缺 | 显示文字。空清单=无可补，
-空操作不写盘。清单生成失败（LLM 输出校验穷尽）抛 IngestError，
-与 compile 各阶段同一约定。
+link 只处理连通性，不改写正文。每个替换项是对页面原文的一次字面替换
+（find → replace），校验不过的项逐条跳过并附理由：find 非唯一、目标
+slug 不在内容页列表、自链、缺 | 显示文字。空清单表示无可补链，不写盘。
+清单生成失败（重试后校验仍不过）抛 IngestError，与 compile 各阶段一致。
 """
 
 from __future__ import annotations
@@ -114,8 +113,8 @@ def apply_link_fixes(
             skipped.append({**fix, "why": "目标 slug 不在名册"})
             continue
         if any(not m.group(2) for m in matches):
-            # 质量规则要求 [[slug|显示文字]]；整页会因规范化不过撤销，
-            # 在条目级跳过，坏一条不连坐同页其余修改
+            # 质量规则要求 [[slug|显示文字]]；条目级跳过，
+            # 避免一条不合规导致整页修改被规范化检查撤销
             skipped.append({**fix, "why": "链接缺 | 显示文字"})
             continue
         working = working.replace(find, replace, 1)

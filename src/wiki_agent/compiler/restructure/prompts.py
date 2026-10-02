@@ -1,7 +1,7 @@
-"""维护流水线的 LLM 提示词：粗提、复核、路由、成文。
+"""维护流水线的 LLM 提示词：提议、复核、路由、成文。
 
-契约都收在 JSON 输出上，校验函数与各 prompt 同处一文件；解析与重试由
-调用方（async_invoke_with_retry）负责。
+输出契约统一为 JSON，校验函数与各 prompt 同处一文件；
+解析与重试由调用方负责。
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from .models import Unit
 def section_outline(entries: list[tuple[str, str, list[str]]]) -> str:
     """复核用的章节骨架行：slug — title — 章节: 标题1；标题2…
 
-    章节是"两页是否同一事物的复述""这页是否杂烩"最强的信号，但只配
-    出现在复核——那里输入只覆盖单元涉及页；粗提看全库，逐页挂章节
-    会把可处理的库规模压掉一大截。
+    章节是判断"两页是否复述同一事物""页面是否内容驳杂"的主要信号，
+    只随复核输入：复核只看单元涉及页，提议阶段看全库，逐页附章节
+    会大幅压缩可处理的库规模。
     """
     lines = []
     for slug, title, headings in entries:
@@ -47,8 +47,8 @@ def propose_user(index_content: str, schema: str = "", purpose: str = "") -> str
         parts.append(f"## 知识库使命\n{purpose}")
     if schema:
         parts.append(f"## 组织规范\n{schema}")
-    # index 行本身携带 title/summary/goal——不再附单独的页面大纲节（同
-    # 源字段的复读只会稀释注意力并压低全库规模上限）
+    # index 行已携带 title/summary/goal，不再附页面大纲节：
+    # 重复字段会稀释注意力，也压低可处理的库规模
     parts += [f"## 目录\n{index_content}", "给出重组单元（可为空）。"]
     return "\n\n".join(parts)
 
@@ -110,8 +110,8 @@ ROUTE_SYSTEM = (
 )
 
 
-# 路由大纲的摘要预算：常规档每节两段开头共 160 字符；节数超过 20 的
-# 大单元退化为短档（首句 40），控制提示规模与注意力稀释。
+# 路由大纲摘要预算：常规档每节 160 字符（两段开头）；
+# 节数超过 20 用短档（首句 40 字符），控制提示规模。
 ROUTE_GIST_CHARS = 160
 ROUTE_GIST_SHORT_CHARS = 40
 ROUTE_OUTLINE_MAX_GIST_SECTIONS = 20
@@ -157,10 +157,9 @@ REWRITE_SYSTEM = (
 
 
 def check_rewrite_page(content: str) -> tuple[bool, str]:
-    """成文输出形状校验——进重试层，把字段丢失与 fence 不闭合在请求内修一次。
-
-    质量规则（wiki.rules）要求 frontmatter 必填字段与代码块闭合；此处用
-    同口径预检，避免整单元因模型一次手滑就失败。
+    """成文输出形状预检，口径与 wiki.rules 质量检查一致：
+    frontmatter 必填字段齐全、代码块闭合。校验失败进重试层，
+    避免一次形状错误导致整个单元失败。
     """
     body = content.strip()
     if not body.startswith("---"):

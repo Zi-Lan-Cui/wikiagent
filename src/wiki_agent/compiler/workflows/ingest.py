@@ -1,8 +1,8 @@
-"""单文件编译流水线——批量编译与 sync 执行共用的领域入口。
+"""单文件编译流水线：批量编译与 sync 执行共用的入口。
 
 一个源文件 → convert → chunk → extract → search → analyze → plan →
-execute → index。阶段失败抛出时带阶段信息，流水线不决定失败策略，
-只报告失败发生在哪一段；调用方拿到结果自行统计与存档。
+execute → index。流水线不决定失败策略：阶段异常携带阶段信息，
+统计与存档由调用方完成。
 """
 
 from __future__ import annotations
@@ -163,8 +163,8 @@ class CompilePipeline:
         outcome.converted_chars = len(cf.content)
         logger.info("  [%s] → %d chars, %d 图片", cf.ext, len(cf.content), cf.content.count("!["))
 
-        # 转换为空不是“没有 chunk”，而是 source 没有进入编译链。
-        # 必须在 LLM 前失败，禁止空内容走全文兜底后产生标题驱动的页面。
+        # 转换为空时 source 未进入编译链：必须在调用 LLM 前失败，
+        # 不能让空内容经全文替补成 chunk 后产生标题驱动的页面
         if not cf.content.strip():
             raise IngestError(
                 IngestStage.CONVERT,
@@ -173,7 +173,7 @@ class CompilePipeline:
                 error_code="empty_converted_content",
             )
 
-        # 2. Chunk（空 chunk 用全文兜底——单 chunk 模拟对象）
+        # 2. Chunk（chunk 列表为空时以全文作为唯一 chunk）
         ck_list = self._chunker.chunk(cf)
         if not ck_list:
             logger.warning("  Chunk 为空，用全文兜底")
@@ -191,8 +191,8 @@ class CompilePipeline:
         )
         logger.info("  摘要: %d chars", len(outcome.extract.document_summary))
 
-        # 非空 source 的空摘要属于抽取失败；低信息但有事实的摘要仍可
-        # 继续到 plan，由 planner 决定是否 no-op。
+        # 非空 source 得到空摘要属于抽取失败；低信息但有事实的摘要
+        # 仍可进入 plan，由 plan 决定是否无操作
         if not outcome.extract.document_summary.strip():
             raise IngestError(
                 IngestStage.EXTRACT,
@@ -202,16 +202,14 @@ class CompilePipeline:
             )
 
         # 4. Search → Analyze → Plan（analyze/plan 内部已 raise IngestError）
-        # 首跑/被删时显式初始化——存在性保证在入口做一次，
-        # 后续环节读到的要么是真实 index 要么是刚建的空 index。
+        # index 存在性只在入口保证一次，后续环节读到的总是真实或新建的空 index
         self._ensure_index()
         index_content = (self._wiki_dir / "index.md").read_text(encoding="utf-8")
         schema = self._read_optional("schema.md")
         purpose = self._read_optional("purpose.md")
 
-        # 契约: ingest_one 只抛 IngestError——search/analyze/plan 的
-        # 未预期异常（retry 的 RuntimeError、代码 bug）在此包装，
-        # 边界只需一个 except 就能完整收集。IngestError 原样透传（保 stage）。
+        # 契约: ingest_one 只抛 IngestError。search/analyze/plan 的未预期
+        # 异常经 _stage 包装，IngestError 原样透传（保留 stage）
         search_result = await self._stage(
             IngestStage.SEARCH, raw_file.name, self._integrator.search,
             outcome.extract, index_content,
@@ -249,10 +247,8 @@ class CompilePipeline:
                 if (self._wiki_dir / _normalize(t.wiki_path)).exists()
             ]
         except IngestError:
-            # execute 部分成功：失败 source 的存活页面仍要进 index。
-            # 若跳过，磁盘有 index 无的页面（幽灵页）对 search/analyze
-            # 不可见，后续编译无法命中——历史缺陷：部分失败的 source
-            # 全部页面漏索引，重试补页也修不回（index 只追加不重建）。
+            # execute 部分成功时，已落盘页面仍要进 index：否则磁盘有页、
+            # index 无条目，后续编译无法命中，重试也修不回（index 只追加不重建）
             written = [
                 t.wiki_path
                 for t in outcome.plan.page_targets
@@ -265,16 +261,13 @@ class CompilePipeline:
         self._append_index(outcome.plan, outcome.pages_written)
         return outcome
 
-    # 内部
-
     async def _stage(
         self, stage: IngestStage, source: str, fn: Callable[..., Awaitable[T]], *args, **kwargs
     ) -> T:
-        """阶段调用收口：报告进度并统一异常分类。
+        """阶段调用包装：报告进度并统一异常分类。
 
-        契约：ingest_one 只抛 IngestError——IngestError 原样透传（保
-        stage），WikiAgentError 转译，其余包装未分类；各阶段不再各写
-        三分支 try/except。
+        IngestError 原样透传（保留 stage），WikiAgentError 转译为
+        IngestError，其余包装为未分类；调用方只需处理一种异常。
         """
         self._notify_progress(stage)
         try:
@@ -292,11 +285,9 @@ class CompilePipeline:
             callback(stage.value)
 
     def _ensure_index(self) -> None:
-        """index 存在性保证——首跑/被删时创建空文件。
+        """index 存在性保证：缺失（新库首跑/被删）时创建空文件。
 
-        显式初始化优于读时吞异常: index 缺失是合法状态（新库），
-        读路径保持严格（FileNotFoundError 该炸就炸），
-        创建职责在入口这一步完成。
+        显式初始化而非读时吞异常：读路径保持严格，创建只在本步骤发生。
         """
         index_path = self._wiki_dir / "index.md"
         if not index_path.exists():
@@ -318,9 +309,9 @@ class CompilePipeline:
             return ""
 
     def _append_index(self, plan: IntegrationPlan, pages_written: list[str]) -> None:
-        """新页面进 index——跳过生成失败的（幽灵页面防线）。
+        """新页面进 index：只登记实际落盘的页面。
 
-        index 已由 _ensure_index 保证存在——这里读失败是 bug，不吞。
+        index 已由 _ensure_index 保证存在，这里读失败即 bug，不吞。
 
         Args:
             plan: 集成计划（取 target 的 slug/标题）。
@@ -355,11 +346,8 @@ class CompilePipeline:
             logger.info("  index: +%d 条目", len(fresh))
 
 
-# 工具
-
-
 class _FallbackChunk:
-    """chunk 全空时的兜底——单 chunk = 全文。"""
+    """chunk 列表为空时的替补：单 chunk 装全文。"""
 
     def __init__(self, content: str):
         self.content = content
@@ -367,11 +355,10 @@ class _FallbackChunk:
 
 
 def _to_source_chunk(ck, total: int, source_name: str) -> SourceChunk:
-    """ingestion chunk → compiler 模型——标题路径从 chunker metadata 取。
+    """ingestion chunk → compiler 模型：标题路径取自 chunker metadata。
 
-    heading 的唯一权威在 chunker（切分时已知 chunk 归属哪个 section），
-    消费端不重新解析——源头记录、下游取用，解析猜错的问题不存在。
-    source_name 由调用方传入：chunk 级摘要 prompt 需要出处标注。
+    chunk 的 heading 归属在切分时确定、由 metadata 携带，消费端不
+    重新解析。source_name 由调用方传入，用于 chunk 级摘要的出处标注。
 
     Args:
         ck: ingestion chunk 对象。

@@ -1,7 +1,8 @@
 """逐页成文：以分配装配的草稿为材料，LLM 重写成连贯页面。
 
-不整页无中生有——prompt 约束只用给定材料；输出形状（frontmatter 必填字段、
-fence 闭合）进 check 重试层，调用方（handler）负责 normalize、骨架兜底与写盘。
+prompt 约束模型只使用给定材料，不引入新事实；输出形状（frontmatter
+必填字段、fence 闭合）由 check 重试层校验，normalize、骨架补全与写盘
+由调用方（handler）负责。
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ async def rewrite_unit_page(
     siblings: list[str],
 ) -> str:
     """返回重写后的页面全文（frontmatter 以旧版/草稿为基线，由调用方 normalize）。"""
-    # 重试耗尽的残缺输出不再静默放行——抛 RewriteError 交由调用方计入单元
-    # 失败，现场（哪个页、缺什么）可见，而非事后靠骨架兜底掩盖
+    # 重试后仍不过即抛 RewriteError 计入单元失败，保留现场（哪个页、
+    # 缺什么），不让残缺输出静默落盘
     response = await invoke_checked(
         llm,
         action="成文",
@@ -43,7 +44,7 @@ async def rewrite_unit_page(
     )
     body = response.content.strip()
     if body.startswith("```"):
-        # 容错：剥掉围栏（与 integration/parse 同规则，但这里只有一处）
+        # 容错：剥掉围栏，规则与 integration/parse 一致
         lines = body.splitlines()
         body = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
     return body

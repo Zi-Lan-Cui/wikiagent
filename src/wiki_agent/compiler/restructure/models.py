@@ -1,8 +1,8 @@
 """维护单元的声明模型：in 页集合 → out 页清单。
 
-单元是提议、确认、入队、执行、撤销的同一粒度；payload 只带声明
+提议、确认、入队、执行、撤销都以 Unit 为粒度；payload 只带声明
 （章节归属在运行时计算，全文与分配表不进 payload）。合并/拆分/新建/
-改写/删除都是它的形状特例：out 单页=合并吸收，in 单页多 out=拆分，
+改写/删除按单元形状区分：out 单页=合并，in 单页多 out=拆分，
 in==out=改写，out 空=删除。
 """
 
@@ -26,7 +26,7 @@ class OutPage:
     slug: str
     intent: str = ""
     take: list[Take] = field(default_factory=list)
-    polish: bool = True  # False=按 take 装配即成品，不过 LLM 成文
+    polish: bool = True  # False=take 装配结果即终稿，不过 LLM 成文
 
     @staticmethod
     def from_dict(raw: dict) -> OutPage:
@@ -82,10 +82,9 @@ class Unit:
             reason=str(raw.get("reason") or ""),
         )
 
-    # 供核对与执行的派生集合
     @property
     def vanished(self) -> list[str]:
-        """被消费且不再产出的页——链接与 index 的机械收尾对象。"""
+        """被消费且不再产出的页，其链接与 index 条目需要清理。"""
         out = set(self.out_slugs)
         return [s for s in self.in_pages if s not in out]
 
@@ -95,7 +94,7 @@ class UnitError(ValueError):
 
 
 class UnitMismatchError(UnitError):
-    """声明落不上当前盘面：in 页缺失或 out 冲突——排队期间世界变了。"""
+    """声明与当前 wiki 状态不符：in 页缺失或 out 冲突（排队期间页面已有变化）。"""
 
     def __init__(self, missing: list[str] | None = None, detail: str = "") -> None:
         super().__init__(detail or f"单元落不上当前盘面: {missing}")
@@ -103,8 +102,8 @@ class UnitMismatchError(UnitError):
 
 
 class RewriteError(UnitError):
-    """逐页成文阶段失败（含重试耗尽后校验仍不过）。"""
+    """逐页成文阶段失败（含重试后校验仍不过）。"""
 
 
 class RouteError(UnitError):
-    """运行时章节分配不守恒（漏配/重配/空 out/非法目标）——整单元失败。"""
+    """运行时章节分配校验失败（漏配/重配/空 out/非法目标），整个单元失败。"""

@@ -1,4 +1,4 @@
-"""Search 阶段——L1 索引初筛（LLM 从 index 选候选页面，模式间零差异）。"""
+"""Search 阶段：LLM 从 index 初筛候选页面，各模式共用同一逻辑。"""
 
 from __future__ import annotations
 
@@ -26,11 +26,11 @@ def _filter_search_paths(
     paths: list[str],
     wiki_dir: str | Path,
 ) -> tuple[list[str], list[str]]:
-    """过滤 Search 候选中的非法目录、路径穿越和幽灵页面。
+    """过滤 Search 候选中的非法目录、路径穿越和指向不存在文件的页面。
 
-    这是 LLM 输出解析后的运行时后处理：格式合法不代表候选可供
-    Analyzer 读取。无效候选被丢弃并保留在调用方日志中；合法候选为空
-    仍是正常的“没有相关已有页面”，不升级为阶段失败。
+    LLM 输出解析后的运行时检查：路径格式合法不代表文件存在、可供
+    下游读取。无效候选丢弃并记入日志；合法候选为空只是说明没有相关
+    已有页面，不算阶段失败。
     """
     root = Path(wiki_dir).resolve()
     valid: list[str] = []
@@ -56,7 +56,7 @@ def _filter_search_paths(
 
 
 class Searcher:
-    """search 阶段: LLM 从 index 选候选页面。模式间零差异。"""
+    """search 阶段：LLM 从 index 选候选页面。"""
 
     def __init__(self, llm: LLMClient, wiki_dir: str | Path, prompts):
         self._llm = llm
@@ -64,7 +64,7 @@ class Searcher:
         self._prompts = prompts
 
     async def search(self, extract: ExtractResult, index_content: str) -> SearchResult:
-        """执行 search——LLM 从 index 选出候选页面。
+        """LLM 从 index 选出候选页面。
 
         Args:
             extract: 源文档抽取结果。
@@ -74,9 +74,8 @@ class Searcher:
             候选页面列表的 SearchResult。
 
         Raises:
-            IngestError: 校验穷尽后仍失败（不许静默降级 0 候选）。
+            IngestError: 重试后校验仍失败；不静默返回 0 候选。
         """
-        # 校验穷尽由 invoke_checked 显式 raise，不许静默降级成"0 候选"
         response = await invoke_checked(
             self._llm,
             stage=IngestStage.SEARCH,

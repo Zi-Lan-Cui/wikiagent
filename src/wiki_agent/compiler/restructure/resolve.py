@@ -1,7 +1,8 @@
 """冲突消解（提交侧，纯代码）：保证一页只进一个单元。
 
-规则按序检查，违例单元整体丢弃并给理由——结构决定权在人，代码不仲裁
-谁让步。执行前会再跑一次同规则（盘面可能已被上一批改变时的防御）。
+规则按序检查，违例单元整体丢弃并附理由；代码不做部分合并或拆分，
+结构取舍由提议者决定。执行前会按同一规则再检查一次，
+防止 wiki 状态已被先前的批次改变。
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from .models import Unit, UnitError
 
 
 def validate_unit(unit: Unit, existing: set[str]) -> str:
-    """单源自洽检查，返回空串=通过，否则为丢弃理由。"""
+    """单元声明合法性检查。返回空串=通过，否则为丢弃理由。"""
     if not unit.in_pages:
         return "没有输入页面——整理不引入新知识，原料必须来自现有页"
     if len(set(unit.in_pages)) != len(unit.in_pages):
@@ -39,8 +40,8 @@ def validate_unit(unit: Unit, existing: set[str]) -> str:
 def resolve_unit_conflicts(
     units: list[Unit], existing: set[str]
 ) -> tuple[list[Unit], list[tuple[Unit, str]]]:
-    """单元间互斥：任何 slug（in 或 out）在一批里只属于一个单元；
-    out 撞未被本批消费的现存页即冲突（不许悄悄覆盖别人的页）。"""
+    """单元间互斥：一批内任何 slug（in 或 out）只属于一个单元；
+    out 页与未被本批消费的现存页同名即冲突，不允许覆盖。"""
     clean: list[Unit] = []
     dropped: list[tuple[Unit, str]] = []
     claimed: dict[str, int] = {}  # slug → 单元序号
@@ -69,8 +70,8 @@ def resolve_unit_conflicts(
 
 
 def assert_units_valid(units: list[Unit], existing: set[str]) -> None:
-    """提交/执行前的硬校验：任何违例直接抛 UnitError（消解阶段已过滤，
-    走到这里仍违例说明调用方绕过了消解——不静默放行）。"""
+    """提交/执行前校验：任何违例直接抛 UnitError。消解阶段本应过滤，
+    此处仍违例说明调用方绕过了消解，不静默放行。"""
     clean, dropped = resolve_unit_conflicts(units, existing)
     if dropped:
         raise UnitError("; ".join(f"{u.in_pages}: {r}" for u, r in dropped))

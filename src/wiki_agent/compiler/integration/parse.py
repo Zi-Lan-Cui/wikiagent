@@ -1,8 +1,7 @@
-"""集成层解析——把 LLM 原始输出变成模型对象。
+"""集成层解析：把 LLM 原始输出转成模型对象。
 
-与 checks 分工：checks 定义合格输出的标准，本模块把校验过的输出
-变成对象。解析信任校验结果——到达这里的原始内容已通过 check，
-再解析失败是程序 bug，抛出异常。
+与 checks 分工：checks 定义合格标准，本模块把校验过的输出转成对象。
+解析信任校验结果——到这里的内容已过 check，再解析失败是程序 bug，抛异常。
 """
 
 from __future__ import annotations
@@ -23,12 +22,10 @@ logger = get_logger("PARSE")
 
 
 def _try_repair_trailing_braces(cleaned: str) -> str | None:
-    """确定性修复: 仅缺尾部闭合括号时补全。
+    """确定性修复：仅在缺尾部闭合括号时补全。
 
-    深嵌套 JSON（page_targets 数组套 references 数组）模型
-    写完就停（finish=stop 非 token 截断），但少写一个尾部 }——重试
-    两次仍犯同样错，烧 token 无收益。这里保守修复: 只尝试补
-    ]} 组合，补完能 loads 才返回修复版，否则 None（不掩盖真截断）。
+    深嵌套 JSON 下模型常少写尾部 }，重试无法纠正这类错误。只尝试
+    ]} 组合，补完能 loads 才返回修复版，不掩盖真正的截断。
 
     Args:
         cleaned: 剥除 fence 后的 JSON 文本。
@@ -49,15 +46,11 @@ def _try_repair_trailing_braces(cleaned: str) -> str | None:
 
 
 def strip_fence(content: str) -> str:
-    """剥 LLM 输出的格式噪声——校验与解析共享的格式规约。
+    """剥除 LLM 输出的格式噪声，check 与 parse 共享的格式规约。
 
-    fence 是格式化噪声不是内容错误：check 层和 parse 层必须用
-    同一份剥除逻辑，否则出现"check 剥了能过、parse 没剥就炸"
-    （实测）。
-
-    尾部缺闭合括号是同类格式化噪声——模型深嵌套 JSON
-    少写一个 }。repair 也在此层: check 用修复版判定、parse 用
-    修复版解析，两端自动一致。
+    fence 包裹与尾部缺闭合括号都是格式噪声。check 层和 parse 层必须
+    用同一份剥除逻辑，否则会出现 check 通过、parse 失败的不一致；
+    括号补全也在本层完成，两端自动一致。
 
     Args:
         content: LLM 原始输出。
@@ -70,7 +63,6 @@ def strip_fence(content: str) -> str:
     cleaned = re.sub(r"\n?```\s*$", "", cleaned)
     cleaned = cleaned.strip()
 
-    # 仅当 loads 失败且补尾部 ]} 能修复时才补（确定性，不掩盖真截断）
     import json as _json
 
     try:
@@ -86,8 +78,8 @@ def strip_fence(content: str) -> str:
 def parse_search_result(raw: str) -> list[str]:
     """解析 search 阶段 LLM 返回的 JSON 数组。
 
-    路径规范化兜底: LLM 可能输出 wiki/ 前缀、缺 .md 后缀，
-    统一 normalize 后再去重——避免 analyze 拼出 wiki/wiki/ 双路径。
+    统一 normalize 路径再去重：LLM 可能输出 wiki/ 前缀、缺 .md 后缀，
+    不处理会让下游拼出 wiki/wiki/ 双路径。
 
     Args:
         raw: LLM 原始输出。
@@ -100,8 +92,8 @@ def parse_search_result(raw: str) -> list[str]:
         data = json.loads(raw)
     except json.JSONDecodeError:
         return []
-    # 新契约 {"paths": [...]}；兼容顶层数组（老 run 的 raw 证据、
-    # 静默忽略 response_format 的端点）——解析宽进，prompt 严请。
+    # 契约是 {"paths": [...]}，顶层数组一并接受：兼容忽略
+    # response_format 的端点
     if isinstance(data, dict):
         data = data.get("paths", [])
     if not isinstance(data, list):
@@ -163,8 +155,7 @@ def parse_analysis(raw: str, source_identity: str) -> AnalysisResult:
 def parse_plan(raw: str) -> IntegrationPlan:
     """解析 plan JSON 输出 → IntegrationPlan。
 
-    fence 容错由 check_plan_json 的 strip_fence 完成，到达这里的内容
-    已通过校验；再解析失败是程序 bug，抛出异常而不是静默处理。
+    输入应已通过 check_plan_json；再解析失败是程序 bug，抛异常不静默处理。
 
     Args:
         raw: LLM 原始输出。
@@ -179,7 +170,7 @@ def parse_plan(raw: str) -> IntegrationPlan:
         try:
             disposition = Disposition(t.get("disposition", "new"))
         except ValueError:
-            # check_plan_json 已拦住非法 disposition（retry 后仍非法才到这）
+            # check 已拦截非法值，走到这里说明 retry 后模型仍输出非法
             logger.warning("非法 disposition %r，跳过该 target", t.get("disposition"))
             continue
         targets.append(
@@ -196,13 +187,13 @@ def parse_plan(raw: str) -> IntegrationPlan:
 
 
 def _parse_references(raw: list | None) -> list[dict[str, str]]:
-    """安全解析 references 列表。
+    """解析 references 列表。
 
     Args:
         raw: 原始引用列表。
 
     Returns:
-        {"slug", "reason"} dict 列表；坏数据跳过。
+        {"slug", "reason"} dict 列表；坏条目跳过。
     """
     if not isinstance(raw, list):
         return []
@@ -219,18 +210,18 @@ def _parse_references(raw: list | None) -> list[dict[str, str]]:
 
 
 def extract_analyze_parts(content: str) -> tuple[str, str]:
-    """拆解 analyze 两段式输出 → (自由文本主体, JSON 尾巴文本)。
+    """拆解 analyze 两段式输出 → (自由文本主体, JSON 文本)。
 
     支持三种形态:
-    1. ```json ... ``` 包裹的尾巴在末尾（标准形态）
+    1. ```json ... ``` 包裹的 JSON 在末尾（标准形态）
     2. 无 fence 的裸 JSON 在末尾
-    3. 纯 JSON（无自由文本——宽容处理）
+    3. 纯 JSON，无自由文本
 
     Args:
         content: LLM 原始输出。
 
     Returns:
-        (自由文本主体, JSON 尾巴文本)。
+        (自由文本主体, JSON 文本)。
     """
     text = content.strip()
     m = re.search(r"```(?:json)?\s*\n(.*?)\n?```\s*$", text, re.S)
@@ -238,7 +229,7 @@ def extract_analyze_parts(content: str) -> tuple[str, str]:
         json_part = m.group(1)
         free_part = text[: m.start()].strip()
         return free_part, json_part
-    # 无 fence: 找最后一个完整 JSON 对象
+    # 无 fence：取首 { 到末 } 的片段
     first, last = text.find("{"), text.rfind("}")
     if first >= 0 and last > first:
         json_part = text[first : last + 1]
