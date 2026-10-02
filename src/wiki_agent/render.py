@@ -1,14 +1,14 @@
-"""终端渲染器——独立实体，作为 agent 的 hook 订阅事件并渲染。
+"""终端渲染器：作为 agent 的 hook 订阅事件并渲染输出。
 
-事件 → 渲染映射::
+事件与渲染行为::
 
     on_run_start        → 复位缓冲与 fence 状态
-    on_stream_delta     → 缓冲累积 + 完整行即时打印
+    on_stream_delta     → 累积到缓冲，完整行即时打印
     on_status           → 打印剩余缓冲 + 状态提示行
-    on_tool_call_start  → 打印剩余缓冲 + 工具行（时间序交错点）
+    on_tool_call_start  → 打印剩余缓冲 + 工具调用行（与流式输出交错）
     on_tool_result      → 结果行（✓ + 摘要 + 耗时）
     on_tool_error       → 错误行（✗）
-    on_run_end          → 打印未闭合尾行
+    on_run_end          → 打印未闭合的最后一行
 """
 
 from __future__ import annotations
@@ -43,8 +43,8 @@ ARG_STYLE = "bright_black"
 
 
 def _trunc(s: str, max_len: int = 80) -> str:
-    """截断长文本，按终端显示宽度（Rich cell_len——CJK 双宽/
-    emoji 宽度由 Rich 统一处理，替代手写 Unicode 区间判断）。
+    """按终端显示宽度截断长文本；宽度由 Rich cell_len 计算，
+    CJK 双宽与 emoji 已处理。
 
     Args:
         s: 原始文本。
@@ -82,7 +82,7 @@ def _fmt_args(args: dict[str, Any]) -> str:
 
 
 def _key_params(args: dict[str, Any]) -> list[str]:
-    """提取最关键的参数名，优先级靠前的排在前。
+    """按预设优先级提取最重要的参数名。
 
     Args:
         args: 工具参数字典。
@@ -125,7 +125,7 @@ def _result_summary(tool_name: str, result: str) -> str:
 
 
 class TerminalRenderer(AgentHook):
-    """终端渲染实体——流式文本 + 工具行的全部渲染状态与逻辑。"""
+    """终端渲染器：流式文本与工具行的全部渲染状态与逻辑。"""
 
     def __init__(
         self,
@@ -140,38 +140,34 @@ class TerminalRenderer(AgentHook):
         self._show_start = show_start
         self._show_result = show_result
         self._show_timing = show_timing
-        # 流式状态（内部——不再是独立实体）。
-        # _text 字符串累积而非 list——_stream_delta 每个 token 触发一次，
-        # list+join 是 O(n²)（长回复每 delta 全量 join），+= 是 O(1) 摊销
+        # _text 用字符串累积而非 list：每个 token 触发一次追加，
+        # list 每次全量 join 是 O(n²)，+= 摊销 O(1)
         self._text: str = ""
-        # fence 状态—— ``` 未闭合时代码行累积进 _fence_buf，
-        # 闭合后整块交 Markdown 渲染（语法高亮 + 代码块样式），
-        # 不逐行裸打印（逐行打印无高亮、fence 标记可见，观感
-        # 像"代码块没渲染"）
+        # fence 状态：``` 未闭合期间代码行累积进 _fence_buf，闭合后整块
+        # 交 Markdown 渲染；逐行打印会丢失语法高亮并露出 fence 标记
         self._in_fence: bool = False
         self._fence_buf: list[str] = []
         self._timers: dict[str, float] = {}
 
-    # 流式内部状态机（追加式——完整行即时打印）
+    # 流式缓冲：累积增量，完整行即时打印
 
     def _stream_delta(self, delta: str) -> None:
-        """缓冲累积，完整行即时渲染打印。
+        """把增量文本累积到缓冲，凑成完整行立即打印。
 
-        增量即最终——输出顺序天然正确，无预览帧、无擦除、无
-        重渲染（Live 两步模型的长回答双渲染 bug 在此架构不存在）。
+        输出顺序即到达顺序，无重渲染。
 
         Args:
             delta: 增量文本块。
         """
         self._text += delta
-        # 只打印含换行的完整行；未闭合尾行留在缓冲等下一个
+        # 只打印含换行的完整行；未闭合尾行留在缓冲，等下一个
         # delta 或 flush/finish
         while "\n" in self._text:
             line, self._text = self._text.split("\n", 1)
             self._print_line(line)
 
     def _print_line(self, line: str) -> None:
-        """渲染单行——fence 内累积，闭合时整块渲染；否则行级 Markdown。
+        """渲染单行：fence 内累积，闭合时整块渲染；否则按行级 Markdown 渲染。
 
         Args:
             line: 一行文本（不含换行符）。
@@ -193,11 +189,10 @@ class TerminalRenderer(AgentHook):
             self._c.print()
 
     def _close_fence(self) -> None:
-        """fence 闭合——整块交 Markdown 渲染（语法高亮 + 代码块背景）。
+        """fence 闭合，整块交 Markdown 渲染（语法高亮 + 代码块背景）。
 
-        块级渲染只在闭合时发生一次——代码块生成期间的延迟
-        （块不出现在屏幕上，直到闭合）换来的是一次性成型的
-        代码块观感；LLM 代码块通常 < 20 行，延迟不可感知。
+        块级渲染只在闭合时发生一次；代价是代码块在闭合前不显示，
+        LLM 代码块通常不超过 20 行，延迟可接受。
         """
         if self._fence_buf:
             self._c.print(Markdown("\n".join(self._fence_buf)))
@@ -205,12 +200,10 @@ class TerminalRenderer(AgentHook):
         self._in_fence = False
 
     def _flush_stream(self) -> None:
-        """打印剩余缓冲并复位（工具行/状态行时间序交错点）。
+        """排空缓冲并复位；在工具行/状态行插入前调用，保证尾行先打印。
 
-        追加式下"冻结"简化为排空未闭合尾行——流式输出本来
-        就按到达顺序落盘，交错只需保证尾行先于工具行打印。
-        fence 未闭合就交错（模型消息中途被工具行打断）——
-        补一个假闭合行让缓冲的代码块仍以代码块样式落盘。
+        fence 未闭合就被打断时，补一行假闭合，让已缓冲的代码块
+        仍按代码块样式打印。
         """
         if self._in_fence:
             self._fence_buf.append("```")
@@ -220,11 +213,7 @@ class TerminalRenderer(AgentHook):
             self._text = ""
 
     def _finish_stream(self) -> None:
-        """turn 收尾——打印未闭合尾行。
-
-        无 Live、无重渲染——内容已在流式过程中全部落盘，
-        收尾只剩最后一行未换行的缓冲。
-        """
+        """回合结束时打印未闭合的最后一行；此前内容已按到达顺序打印。"""
         self._flush_stream()
 
     # hook 事件（渲染入口）

@@ -1,17 +1,17 @@
-"""源文件快照——提交时复制输入，任务执行只读这份副本。
+"""源文件快照：任务提交时复制输入文件，执行只读这份副本。
 
 三条不变量：
 
     快照是输入；job 不读快照以外的源文件状态；issue 只随结算更新。
 
 布局：``workspace/snapshots/<batch_id>/<相对源目录的路径>``。
-一批一个目录；复制保相对路径，文件名与原件一致；写入用临时名替换就位，
-崩溃时不会留下半文件。批的最后一个任务进入终态时删目录；进程启动时
-清扫"没有对应非终态任务"的遗留目录——没有保留期配置，没有后台回收。
+一批一个目录；复制保持相对路径与文件名；写入先落临时名再替换就位，
+进程崩溃不会留下半截文件。批的最后一个任务进入终态时删除目录；
+进程启动时清扫没有非终态任务引用的遗留目录。
 
-不做内容寻址去重：批间互斥串行保证同一时刻一份内容至多属于一个活跃批，
-去重收益为零而多一套清单真相源。manifest 不需要：jobs 行的
-payload.batch/digest 就是本批清单。
+不做内容寻址去重：批间互斥串行，同一份内容至多属于一个活跃批，
+去重没有收益。manifest 不需要：jobs 行的 payload.batch/digest
+已记录本批文件清单。
 """
 
 from __future__ import annotations
@@ -25,13 +25,13 @@ from wiki_agent.log import get_logger
 
 logger = get_logger("SNAPSHOTS")
 
-# 内容指纹唯一配方（快照与完成账共用）
+# 内容指纹算法，快照与 sync 状态记录共用
 def digest_file_text(path: str | Path) -> tuple[str, str] | None:
-    """内容指纹唯一配方——read_text(errors=replace) + sha256。
+    """计算内容指纹：read_text(errors=replace) + sha256。
 
-    sync 判变更、consumer 落账必须调用同一函数：两侧各自手写哈希配方
-    存在漂移风险，digest 对不上就无法确认完成。
-    读失败（消失/权限）返回 None。
+    sync 判断变更与 consumer 记录完成状态必须调用同一函数，两侧各自
+    实现会产生对不上的 digest，无法确认完成。
+    读失败（文件不存在、无权限）返回 None。
     """
     try:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
@@ -40,16 +40,16 @@ def digest_file_text(path: str | Path) -> tuple[str, str] | None:
     return hashlib.sha256(text.encode("utf-8")).hexdigest(), text
 
 
-# 快照根目录名——workspace 下的内部布局，不是配置项
+# 快照根目录名：workspace 内部布局，不通过配置项暴露
 SNAPSHOTS_DIRNAME = "snapshots"
 
 
 class SnapshotError(RuntimeError):
-    """快照读写基础设施故障（磁盘、权限、损坏）——不是源文件的业务失败。"""
+    """快照读写的基础设施故障（磁盘、权限、文件损坏），不属于业务失败。"""
 
 
 class SnapshotStore:
-    """一个 workspace 一份快照仓库；service（写入）与 consumer（读取）共享。"""
+    """一个 workspace 一份快照仓库；service（写入）与 consumer（读取）共用。"""
 
     def __init__(self, workspace: str | Path):
         self.root = Path(workspace) / SNAPSHOTS_DIRNAME
@@ -57,8 +57,8 @@ class SnapshotStore:
     def capture(self, batch_id: str, source_dir: str | Path, paths: Sequence[str | Path]) -> dict[str, str]:
         """按相对路径复制进批目录，返回 原始绝对路径 → 快照件 digest。
 
-        digest 用落盘副本重算（read_text+sha256 唯一配方，与完成账同一函数）：
-        复制期间源文件被改动时，记录的也是实际存下的那份内容。
+        digest 用落盘副本经 digest_file_text 重新计算：复制期间源文件被
+        改动时，记录的是实际存下的那份内容。
         """
         src_root = Path(source_dir).resolve()
         captured: dict[str, str] = {}
@@ -84,7 +84,7 @@ class SnapshotStore:
         return captured
 
     def staged_path(self, batch_id: str, rel_path: str) -> Path:
-        """执行入口：payload 里的 batch+rel_path 定位快照件。"""
+        """按 payload 中的 batch 与相对路径定位快照文件。"""
         return self._staged(batch_id, rel_path)
 
     def drop_batch(self, batch_id: str) -> None:

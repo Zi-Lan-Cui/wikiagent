@@ -1,4 +1,4 @@
-"""FastAPI adapter——本地单用户服务；后台循环由 AppRuntime 统一装配。"""
+"""FastAPI 适配层：本地单用户服务；后台任务循环由 AppRuntime 装配。"""
 
 from __future__ import annotations
 
@@ -70,10 +70,10 @@ def create_app(
         project_root: 项目根，生产入口传入，工厂据此构造进程级 runtime。
         runtime: 测试注入用；传入后不再自行构造。
     """
-    # executor/handler/启动核对、worker 泵都由 AppRuntime 在装配根完成；
-    # web 只做 HTTP 映射
+    # runtime 装配、异常处理注册、worker 循环都在 AppRuntime 完成；
+    # 本模块只做 HTTP 映射
     app_runtime = runtime or AppRuntime.from_project_root(project_root)
-    # 端口都取自装配根：会话服务、wiki 读模型、issue 读服务、命令端口
+    # 依赖的服务实例统一取自 AppRuntime
     session_service = app_runtime.session
     browser = app_runtime.wiki_browser
     issue_service = app_runtime.issue_service
@@ -90,7 +90,7 @@ def create_app(
         return _task(job)
 
     def submit_retry_job(issue_id: str) -> dict[str, Any]:
-        # retry 直投 compile job（三入口同一提交点）；双击被提交点收敛
+        # retry 提交 compile 任务；重复提交由提交处的在途判重拦截
         return _task(job_service.submit_issue_retry(issue_id))
 
     def _issue_or_none(issue_id: str):
@@ -100,14 +100,14 @@ def create_app(
             return None
 
     def _task(job):
-        """队列卡片投影——视图规则在 jobs.card_view。"""
+        """把 job 转成前端任务卡片；投影规则见 jobs/card_view.py。"""
         return task_card(job, _issue_or_none)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         setup_event_log(app_runtime.workspace / "logs" / "web-events.jsonl")
         try:
-            # start() 拉起 job_worker 泵，close() 统一收尾
+            # AppRuntime 进入时启动 job worker，退出时停止
             async with app_runtime:
                 yield
         finally:
@@ -115,8 +115,8 @@ def create_app(
 
     app = FastAPI(title="wiki-agent", version="0.1.0", lifespan=lifespan)
 
-    # 异常→HTTP 状态集中映射：端点只写业务，站点级 try/except 全部撤除。
-    # 更具体的类型先注册（Starlette 按 MRO 找最近处理器）。
+    # 异常到 HTTP 状态码的集中映射，端点内不再各自 try/except。
+    # 注册要求具体类型在前（Starlette 按 MRO 匹配处理器）。
     _status_map: list[tuple[type[Exception], int]] = [
         (IssueNotFoundError, 404),
         (SessionNotFoundError, 404),
@@ -125,22 +125,22 @@ def create_app(
         (UnitError, 400),
         (IssueAlreadyClaimedError, 409),
         (IssueActionConflict, 409),
-        (InvalidIssueTransitionError, 409),  # 双击裁决的并发冲突与同类同码
-        (DuplicateInFlightJob, 409),  # 唯一在途索引冲突——现状即有在途任务
+        (InvalidIssueTransitionError, 409),  # 与其他状态冲突同样返回 409
+        (DuplicateInFlightJob, 409),  # 提交时该 issue 已有在途任务
         (SourceUnavailableError, 409),
         (PipelineBusy, 409),
         (SyncBaselineLag, 409),
-        (SnapshotError, 500),  # 隔离区存储故障不是业务失败，detail 透出
-        (LookupError, 404),  # 任务不存在等裸键缺失
-        (ValueError, 400),  # 参数非法兜底
-        (ServiceError, 500),  # 存储失败等服务内错误，detail 透出
+        (SnapshotError, 500),  # 快照存储故障，非业务失败；detail 原样返回
+        (LookupError, 404),  # 通用键缺失（如任务不存在）
+        (ValueError, 400),  # 未细分的非法参数
+        (ServiceError, 500),  # 存储失败等服务内部错误，detail 原样返回
     ]
 
     def _make_handler(code: int):
         async def handler(_: Request, exc: Exception) -> JSONResponse:
             detail = str(exc).strip() or ("资源不存在" if code == 404 else type(exc).__name__)
             if code >= 500:
-                # 5xx 必须留服务端痕迹——detail 只回客户端，进程内不能再无痕
+                # 5xx 的 detail 只发给客户端，服务端必须记录日志
                 logger.error("HTTP %d: %s", code, detail, exc_info=exc)
             return JSONResponse(status_code=code, content={"detail": detail})
         return handler
@@ -203,7 +203,7 @@ def create_app(
 
     @app.post("/api/sync", status_code=202)
     async def trigger_sync() -> dict[str, Any]:
-        """快照同步：拍 materials 现状入队一批；上一批未跑完则 409。"""
+        """对 materials 当前状态做快照并入队一批同步任务；上一批未结束则 409。"""
         jobs = job_service.submit_sync(app_runtime.materials_dir)
         return {"count": len(jobs), "tasks": [_task(job) for job in jobs]}
 
@@ -211,26 +211,26 @@ def create_app(
     async def sync_status() -> dict[str, int]:
         return job_service.sync_status(app_runtime.materials_dir)
 
-    # 维护线：结构重组预览/提交、关联扫提交——执行走同一队列与泵
+    # 维护端点：结构重组预览/提交、关联扫描提交；执行走同一任务队列
 
     @app.post("/api/maintenance/preview", status_code=202)
     async def maintenance_preview() -> dict[str, Any]:
-        """整理结构分析入队：提议→复核→消解，结果进任务清单。
+        """提交结构整理分析任务：生成整理提议并复核，结果供查看确认。
 
-        分析要一到几分钟，不吊住请求——入队后在"进行中的任务"看阶段，
-        完成点"查看建议"打开清单。花钱前闸在提交口（写任务在途、基线
-        落后或已有分析在途 409），基于动盘的提议没有执行价值。
+        分析需要一到几分钟，入队异步执行，不在请求内等待。
+        提交处判重：已有分析在途、写任务在途或基线落后时返回 409，
+        基于已变化 wiki 的提议没有执行价值。
         """
         return {"task": _task(job_service.submit_maintenance_preview())}
 
     @app.post("/api/maintenance/preview/{job_id}/resolve")
     async def maintenance_preview_resolve(job_id: str, request: PreviewResolveRequest) -> dict[str, Any]:
-        """处置一次分析结果（dismissed 否决 / submitted 已入队）：建议行撤下。"""
+        """标记一次分析结果为 dismissed（否决）或 submitted（已提交），移除对应建议。"""
         return {"task": _task(job_service.resolve_maintenance_preview(job_id, by=request.by))}
 
     @app.post("/api/maintenance", status_code=202)
     async def maintenance_submit(request: MaintenanceSubmitRequest) -> dict[str, Any]:
-        """确认后的单元清单整批入队（批尾自动跟波及面补链），整批同 batch。"""
+        """将确认后的整理单元整批入队，同批共用一个 batch；批尾自动追加受影响页面的链接补全任务。"""
         jobs = job_service.submit_maintenance(request.units)
         if not jobs:
             raise HTTPException(status_code=400, detail="单元清单为空")
@@ -242,7 +242,7 @@ def create_app(
 
     @app.post("/api/link", status_code=202)
     async def link_submit(request: LinkBatchRequest) -> dict[str, Any]:
-        """关联扫入队：指定页（默认全库内容页），一页一 job 一提交。"""
+        """提交链接关联扫描：指定页面（默认全部 wiki 内容页），每页一个任务。"""
         jobs = job_service.submit_link_batch(slugs=request.slugs)
         batch = str(jobs[0].payload.get("batch") or "") if jobs else ""
         return {"count": len(jobs), "batch": batch, "tasks": [_task(job) for job in jobs]}
@@ -258,7 +258,7 @@ def create_app(
     @app.post("/api/issues/{issue_id}/actions/{action}", response_model=None)
     async def execute_issue_action(issue_id: str, action: str, request: IssueActionRequest) -> Any:
         if action == "retry":
-            # 资格判定在提交口（JobService），入口不重复一套
+            # 重试资格在 JobService 提交处判定，端点不再重复校验
             return JSONResponse(status_code=202, content=submit_retry_job(issue_id))
         if action == "rescan":
             issue_actions.validate(issue_id, action)
@@ -311,7 +311,7 @@ def create_app(
 
     @app.post("/api/sessions/{session_id}/messages/stream")
     async def stream_message(session_id: str, request: MessageRequest) -> StreamingResponse:
-        session_service.get_session(session_id)  # 404/400 由集中映射承接
+        session_service.get_session(session_id)  # 会话不存在等异常由集中映射转成状态码
 
         async def events() -> AsyncIterator[str]:
             try:
@@ -319,15 +319,15 @@ def create_app(
                     payload = json.dumps(asdict(event), ensure_ascii=False)
                     yield f"event: {event.type}\ndata: {payload}\n\n"
             except Exception as exc:
-                # 流内任何异常都转 error 事件收尾——直接掐流会让前端把
-                # reader done 当正常结局，半截答案照常渲染
+                # 流内异常统一转成 error 事件再结束；若直接断开流，
+                # 前端会把正常结束误判为回答完成，照常渲染半截答案
                 logger.error("回合流中断: %s", exc, exc_info=exc)
                 payload = json.dumps({"error": str(exc)}, ensure_ascii=False)
                 yield f"event: error\ndata: {payload}\n\n"
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
-    # 前端目录跟着 runtime 的配置走：注入 runtime 时不再回退 cwd
+    # 前端目录取 runtime 配置的 project_root，注入 runtime 时不使用当前工作目录
     frontend_dir = app_runtime.config.paths.project_root / "frontend"
     if frontend_dir.is_dir():
         app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

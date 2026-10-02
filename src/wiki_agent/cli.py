@@ -60,7 +60,7 @@ async def _run(runtime: AppRuntime, session_key: str) -> None:
 
 
 def main() -> None:
-    """Launch the installed ``wiki-agent`` command."""
+    """wiki-agent 命令行入口。"""
     parser = argparse.ArgumentParser(description="wiki-agent — 基于 wiki 知识库的问答助手")
     parser.add_argument(
         "--project-root", type=Path, default=None, help="项目根目录（默认当前目录）"
