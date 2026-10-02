@@ -97,7 +97,7 @@ class MaintenancePlanner(Protocol):
         ...
 
     def resolve_link_targets(self, slugs: list[str] | None, wiki_dir: Path) -> list[str]:
-        """发现型补链目标：None=全库内容页；给定 slug 不在名册抛 ValueError。"""
+        """发现型补链目标：None=全库内容页；给定 slug 不在内容页列表抛 ValueError。"""
         ...
 
 
@@ -436,9 +436,9 @@ class JobService:
     # 维护批（restructure 单元 + 批尾 link）
 
     def submit_maintenance(self, units: list[dict]) -> list[Job]:
-        """已确认的单元清单整批入队：一单元一 job，批尾自动跟波及面补链。
+        """已确认的单元清单整批入队：一单元一 job，批尾自动跟受影响页补链。
 
-        单元声明经 MaintenancePlanner 校验与波及面计算；一个事务内先入队全部
+        单元声明经 MaintenancePlanner 校验与影响范围计算；一个事务内先入队全部
         单元再入队 link 任务。互斥与基线检查：已有 restructure 在途抛
         RestructureInProgress，其他写在途抛 PipelineBusy，未同步源抛
         SyncBaselineLag。payload 只带声明，章节归属由执行时路由计算。
