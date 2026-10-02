@@ -1,4 +1,4 @@
-"""Domain models for the unified issue center."""
+"""问题中心的领域模型。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ type JsonObject = dict[str, JsonValue]
 
 
 class IssueKind(StrEnum):
-    """Stable categories shared by all issue producers."""
+    """问题类别，所有上报方共用。"""
 
     INGESTION_FAILURE = "ingestion_failure"
     RUN_FAILURE = "run_failure"
@@ -20,10 +20,10 @@ class IssueKind(StrEnum):
 
 
 class IssueStatus(StrEnum):
-    """问题账本的持久化状态。
+    """问题的持久化状态。
 
-    没有"processing"镜像态——"谁在处理"由 jobs 表（该 issue 是否有在途
-    挂账 job）派生，issue 状态只表达问题本身的生命周期。
+    没有 processing 状态——是否在处理由 jobs 表（该 issue 是否有在途 job）
+    派生，此处只表达问题本身的生命周期。
     """
 
     OPEN = "open"
@@ -33,7 +33,7 @@ class IssueStatus(StrEnum):
 
 
 class IssueSeverity(StrEnum):
-    """User-facing urgency independent from lifecycle state."""
+    """面向用户的紧急程度，与生命周期状态无关。"""
 
     INFO = "info"
     WARNING = "warning"
@@ -63,7 +63,7 @@ ALLOWED_STATUS_TRANSITIONS: dict[IssueStatus, frozenset[IssueStatus]] = {
 
 @dataclass(frozen=True, slots=True)
 class IssueDraft:
-    """A producer-owned issue report before persistence assigns identity."""
+    """上报方构造的问题草稿，入库前不含 id 等身份字段。"""
 
     kind: IssueKind
     title: str
@@ -81,7 +81,7 @@ class IssueDraft:
 
 @dataclass(frozen=True, slots=True)
 class IssueRecord:
-    """The complete persisted issue, including internal execution context."""
+    """持久化后的完整问题记录，含内部执行上下文。"""
 
     id: str
     kind: IssueKind
@@ -104,7 +104,7 @@ class IssueRecord:
 
 @dataclass(frozen=True, slots=True)
 class IssueAction:
-    """One server-authorized decision that can be shown by an adapter."""
+    """服务端授权、可由界面展示的操作。"""
 
     id: str
     label: str
@@ -115,7 +115,7 @@ class IssueAction:
 
 @dataclass(frozen=True, slots=True)
 class IssueCard:
-    """Sanitized issue projection exposed to CLI and Web adapters."""
+    """面向 CLI 与 Web 的脱敏视图。"""
 
     id: str
     kind: str
@@ -137,16 +137,16 @@ class IssueCard:
 
 
 class IssueNotFoundError(LookupError):
-    """Raised when an issue id is unknown."""
+    """问题 id 不存在。"""
 
 
 class InvalidIssueTransitionError(ValueError):
-    """Raised when a lifecycle transition violates the state machine."""
+    """状态转换违反状态机。"""
 
 
 class IssueActionConflict(RuntimeError):
-    """问题现状不允许该操作（如已解决还要重试）——可等待后复查的冲突。"""
+    """问题当前状态不允许该操作（如已解决仍要求重试），复查状态后可解。"""
 
 
 class IssueAlreadyClaimedError(RuntimeError):
-    """Raised when another worker has already claimed an issue action."""
+    """带期望状态的条件更新失败：问题已被并发修改。"""

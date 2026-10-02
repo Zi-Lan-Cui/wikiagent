@@ -1,9 +1,8 @@
-"""sync 完成账持久层——记录每个文件的"已处理"账。
+"""sync 状态持久层——记录每个文件的已处理状态。
 
-hash/text 只在 job 成功后由 record 写入；本模块同时提供 sync 快照的
-两半：scan_disk（磁盘现状指纹表）与 SyncState.diff（现状 − 账本 =
-待同步/待清理）。sync 语义下"账本没有的内容"即脏，失败不写账 →
-失败内容保持脏 → 再次 sync 天然就是重试。
+hash/text 只在 job 成功后由 record 写入。快照由两部分组成：scan_disk
+（磁盘现状指纹表）与 SyncState.diff（现状与记录之差 = 待同步/待清理）。
+失败不写记录，内容保持待同步，再次 sync 即重试。
 """
 
 from __future__ import annotations
@@ -17,9 +16,9 @@ from wiki_agent.snapshots import digest_file_text
 
 
 def scan_disk(root: str | Path) -> dict[str, str]:
-    """受支持文件的指纹表：绝对路径 → digest。sync 快照的数据源。
+    """扫描受支持文件，返回 绝对路径 → digest 表。
 
-    读不到（权限/消失竞态）的文件跳过——下轮快照会再见到它。
+    读不到的文件（权限/竞态消失）跳过，下轮扫描会再见到。
     """
     from wiki_agent.documents.loader import DataLoader
 
@@ -39,12 +38,12 @@ def scan_disk(root: str | Path) -> dict[str, str]:
 class FileState:
     """单个文件的已知状态。"""
 
-    hash: str = ""  # 已处理内容的哈希（sha256，只在 job 成功时写）
-    text: str | None = None  # 已 ingest 过的内容文本（None = 从未 ingest）
+    hash: str = ""  # 已处理内容的 sha256，只在 job 成功时写入
+    text: str | None = None  # 已编译内容的文本（None 表示从未编译）
     last_ingested_at: str = ""
 
     def to_dict(self) -> dict:
-        """序列化为字典（持久化格式）。
+        """序列化为持久化格式。
 
         Returns:
             字段字典。
@@ -73,7 +72,7 @@ class FileState:
 
 
 class SyncState:
-    """state.json 的读写封装——原子写，读失败回空（首次运行无状态文件）。"""
+    """state.json 的读写封装：原子写，读失败视为空（首次运行无文件）。"""
 
     def __init__(self, path: str | Path):
         self._path = Path(path)
@@ -83,7 +82,7 @@ class SyncState:
     # 访问
 
     def get(self, abs_path: str) -> FileState:
-        """获取文件状态——不存在返回空 FileState（视为新文件）。
+        """获取文件状态；不存在返回空 FileState（视为新文件）。
 
         Args:
             abs_path: 文件绝对路径。
@@ -119,11 +118,11 @@ class SyncState:
         self._entries.pop(abs_path, None)
 
     def diff(self, disk: dict[str, str]) -> tuple[list[tuple[str, str]], list[str]]:
-        """sync 快照对比：磁盘现状 − 完成账。
+        """磁盘现状与已处理记录之差。
 
-        dirty = 账上没有该 digest 的文件（新文件/改过/失败过——失败不写账
-        所以保持脏）；removed = 账上有成功记录但磁盘已无的文件（名册式的
-        空条目不参与删除判定：从未入账，无账可清）。
+        dirty：digest 与记录不符的文件（新文件、改过、失败过）；
+        removed：有成功记录但磁盘已无的文件（无成功记录的空条目不参与
+        删除判定）。
 
         Args:
             disk: scan_disk 产出的 绝对路径→digest 表。
@@ -137,10 +136,10 @@ class SyncState:
         ]
         return dirty, removed
 
-    # 完成账本——hash/text 的唯一写入口是 record，且只允许 job 成功时调用
+    # hash/text 的唯一写入口是 record，且只在 job 成功时调用
 
     def matches(self, abs_path: str, digest: str) -> bool:
-        """该内容是否已确认完成（幂等短路 + 扫描去重共用）。"""
+        """该内容是否已处理（供幂等短路与扫描去重）。"""
         return (
             bool(digest)
             and self._entries.get(abs_path) is not None
@@ -148,7 +147,7 @@ class SyncState:
         )
 
     def record(self, abs_path: str, digest: str, text: str) -> None:
-        """成功核账：把"确实进入 Wiki 的内容"记为已处理并落盘。"""
+        """job 成功后调用：把已写入 Wiki 的内容记为已处理并落盘。"""
         st = self._entries.get(abs_path) or FileState()
         st.hash = digest
         st.text = text

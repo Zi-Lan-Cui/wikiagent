@@ -1,4 +1,4 @@
-"""Shared adapters from runtime/compiler findings to issue drafts."""
+"""把运行时与扫描结果转为 IssueDraft 并上报。"""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def report_correction(
     page: str = "",
     session_id: str = "",
 ) -> str:
-    """Persist a user correction directly in the issue database."""
+    """把用户纠错直接记为 issue。"""
     correction_id = f"correction_{uuid4().hex}"
     page = page.strip()
     text = text.strip()
@@ -67,7 +67,7 @@ def report_quality_findings(
     *,
     origin: JsonObject | None = None,
 ) -> list[str]:
-    """扫描发现记为质量问题账——内容正确性由用户裁决（复核/忽略）。"""
+    """扫描发现记为质量问题；内容正确性由用户裁决（复核/忽略）。"""
     issue_ids: list[str] = []
     for finding in findings:
         card = service.report(
@@ -96,7 +96,7 @@ def report_run_failure(
     origin: JsonObject,
     resource: JsonObject | None = None,
 ) -> str:
-    """Record a boundary-level failure that has no source-level owner."""
+    """记录没有明确归属来源的运行失败。"""
     card = service.report(
         IssueDraft(
             kind=IssueKind.RUN_FAILURE,

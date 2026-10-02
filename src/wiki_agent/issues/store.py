@@ -1,4 +1,4 @@
-"""Transactional persistence for user-visible issues."""
+"""问题的 SQLite 持久层。"""
 
 from __future__ import annotations
 
@@ -30,12 +30,12 @@ _SCHEMA_VERSION = "4"
 
 
 def utc_now() -> str:
-    """Return a sortable timezone-aware timestamp."""
+    """返回可排序的带时区时间戳。"""
     return datetime.now(UTC).isoformat()
 
 
 def issue_fingerprint(draft: IssueDraft) -> str:
-    """Build a stable deduplication key from producer-independent fields."""
+    """由与上报方无关的字段构造去重键。"""
     if draft.fingerprint.strip():
         return draft.fingerprint.strip()
     evidence_key = "|".join(
@@ -54,7 +54,7 @@ def issue_fingerprint(draft: IssueDraft) -> str:
 
 
 class IssueStore:
-    """issues 表的存储层：Database 之上的适配器，schema 由本类维护。"""
+    """issues 表的存储层；schema 由本类维护。"""
 
     def __init__(self, database: Database):
         self.database = database
@@ -70,7 +70,7 @@ class IssueStore:
 
     @contextmanager
     def _tx(self, _conn: sqlite3.Connection | None = None) -> Generator[sqlite3.Connection]:
-        """持 _conn 时并入调用方事务（job/issue 单事务联动），否则自管。"""
+        """传入 _conn 时并入调用方事务（job 与 issue 同事务），否则自开。"""
         if _conn is not None:
             yield _conn
             return
@@ -79,10 +79,10 @@ class IssueStore:
 
     @staticmethod
     def _resource_path(draft: IssueDraft) -> str:
-        """规范化来源路径列——与 Job.resource 同一身份空间（绝对路径字符串）。
+        """来源路径列，与 Job.resource 同为绝对路径字符串。
 
-        优先 context.source_path（producer 已 resolve）；退回 resource.path
-        （文件名类资源，如 wiki 页）——查询侧按等值匹配，两侧写法必须同源。
+        优先 context.source_path，退回 resource.path；查询按等值匹配，
+        两侧取值方式必须一致。
         """
         return str(draft.context.get("source_path") or draft.resource.get("path") or "").strip()
 
@@ -134,9 +134,8 @@ class IssueStore:
                 ON issue_events(issue_id, sequence);
                 """
             )
-            # schema v2：resource_path 冗余列——job resource 与 issue 来源的
-            # 等值匹配键（sync 挂账查待处理失败、手动通道反查都靠它）。
-            # ALTER 幂等（OperationalError=duplicate column）；老行按
+            # schema v2：resource_path 冗余列，用于 job 与 issue 来源的等值
+            # 匹配。ALTER 幂等（重复列抛 OperationalError）；老行按
             # context.source_path → resource.path 顺序回填。
             try:
                 connection.execute("ALTER TABLE issues ADD COLUMN resource_path TEXT")
@@ -153,16 +152,16 @@ class IssueStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_issues_resource_path ON issues(resource_path, status)"
             )
-            # schema v3：执行事实只有 jobs 表——"在途"由 job 挂账 join 派生。
-            # issue_actions 中间账本删除；processing 镜像态作废，存量行回落
-            # open（无条件 UPDATE 安全：新代码永不写 processing，跑一次即收敛）。
+            # schema v3：在途与否由 jobs 表判断。issue_actions 表删除；
+            # processing 状态作废，存量行回落 open（新代码不再写 processing，
+            # 跑一次即稳定）。
             connection.execute(
                 "UPDATE issues SET status = 'open', updated_at = ? WHERE status = 'processing'",
                 (utc_now(),),
             )
             connection.execute("DROP TABLE IF EXISTS issue_actions")
-            # schema v4：conflict 两通道移除（内容正确性交还用户）——无解决动作
-            # 的死路账不迁移不保留，连同事件一并清除，避免枚举缺失读崩。
+            # schema v4：移除 conflict 两类问题（内容正确性由用户裁决），
+            # 存量记录连同事件一并清除，避免读取时枚举缺失报错。
             connection.execute(
                 """
                 DELETE FROM issue_events WHERE issue_id IN (
@@ -180,7 +179,7 @@ class IssueStore:
             )
 
     def report(self, draft: IssueDraft, *, _conn: sqlite3.Connection | None = None) -> IssueRecord:
-        """Insert or merge a report using its stable fingerprint."""
+        """按指纹插入新记录，或合并到既有记录。"""
         fingerprint = issue_fingerprint(draft)
         resource_path = self._resource_path(draft)
         now = utc_now()
@@ -279,10 +278,10 @@ class IssueStore:
         return self._row_to_record(row) if row is not None else None
 
     def next_retry_snapshot(self, draft: IssueDraft, error: str) -> JsonObject:
-        """手动模型的一次失败记账快照。
+        """构造一次失败后的 retry 快照。
 
-        按指纹找既存账：attempts+1、last_error 刷新；unavailable_reason
-        等人注标记原样保留。不写任何排程字段——重试由人触发。
+        按指纹取既有记录：attempts 加 1、刷新 last_error，保留
+        unavailable_reason 等人工标记。不写排程字段，重试由人触发。
         """
         prev = self.get_by_fingerprint(issue_fingerprint(draft))
         merged: JsonObject = dict(prev.retry) if prev is not None else {}
@@ -300,7 +299,7 @@ class IssueStore:
     def report_failure(
         self, draft: IssueDraft, error: str, *, _conn: sqlite3.Connection | None = None
     ) -> IssueRecord:
-        """失败上报：先合成 retry 快照（IssueDraft 冻结，replace 出新实例），再合并入账。"""
+        """失败上报：先合成 retry 快照（draft 冻结，replace 出新实例），再合并入库。"""
         return self.report(
             replace(draft, retry=self.next_retry_snapshot(draft, error)), _conn=_conn
         )
@@ -312,10 +311,10 @@ class IssueStore:
         return record
 
     def find_pending_failures(self, source_path: str) -> list[IssueRecord]:
-        """同一来源的待处理 ingestion 失败（open/blocked）——sync 挂账/重试资格查询。
+        """查同一来源待处理的 ingestion 失败（open/blocked）。
 
-        "已认领"不是 issue 状态——在途与否由 jobs 表的唯一索引表达；
-        source_path 与 Job.resource 同一身份空间（绝对路径字符串）。
+        在途与否不由 issue 状态表达，由 jobs 表判断；
+        source_path 与 Job.resource 同为绝对路径字符串。
         """
         with self._connect() as connection:
             rows = connection.execute(
@@ -360,7 +359,7 @@ class IssueStore:
         statuses: set[IssueStatus] | None = None,
         kinds: set[IssueKind] | None = None,
     ) -> int:
-        """Count issues with the same filters used by :meth:`list`."""
+        """按与 :meth:`list` 相同的条件计数。"""
         clauses: list[str] = []
         values: list[object] = []
         if statuses:
@@ -388,7 +387,7 @@ class IssueStore:
         event: str = "status_changed",
         _conn: sqlite3.Connection | None = None,
     ) -> IssueRecord:
-        """Move one issue through the state machine with optional CAS semantics."""
+        """按状态机转换状态；expected 提供时做条件更新。"""
         now = utc_now()
         with self._tx(_conn) as connection:
             current = self._get_with_connection(connection, issue_id)
@@ -431,7 +430,7 @@ class IssueStore:
         event: str = "details_updated",
         _conn: sqlite3.Connection | None = None,
     ) -> IssueRecord:
-        """Update structured details without bypassing the audit stream."""
+        """更新结构化字段，并同步追加事件。"""
         now = utc_now()
         with self._tx(_conn) as connection:
             current = self._get_with_connection(connection, issue_id)

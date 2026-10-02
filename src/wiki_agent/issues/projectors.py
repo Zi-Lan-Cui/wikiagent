@@ -1,4 +1,4 @@
-"""Sanitized issue-card projections and server-authorized actions."""
+"""脱敏的问题卡片与可执行操作推导。"""
 
 from __future__ import annotations
 
@@ -26,10 +26,9 @@ def _attention(record: IssueRecord) -> str:
 
 
 def available_actions(record: IssueRecord) -> tuple[IssueAction, ...]:
-    """按问题类型与当前状态，推导用户可执行的动作。
+    """按问题类型与当前状态推导用户可执行的动作。
 
-    "在途不可重复操作"不在此表达——由提交点的唯一在途/幂等键收敛与
-    前端按活跃 job 过滤承担。
+    是否允许重复提交不在此判断：提交点有在途/幂等约束，前端按活跃 job 过滤。
     """
     if record.status in {IssueStatus.RESOLVED, IssueStatus.DISMISSED}:
         return (IssueAction("reopen", "重新打开"),)
@@ -103,7 +102,7 @@ def _sanitize_object(value: JsonObject) -> JsonObject:
 
 
 def to_card(record: IssueRecord) -> IssueCard:
-    """Remove internal execution context and build the adapter DTO."""
+    """去掉内部执行上下文，构造适配器视图。"""
     return IssueCard(
         id=record.id,
         kind=record.kind.value,

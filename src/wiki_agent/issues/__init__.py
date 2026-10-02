@@ -1,4 +1,4 @@
-"""Unified issue center domain and persistence services."""
+"""问题中心：领域模型、存储与服务。"""
 
 from wiki_agent.issues.models import (
     InvalidIssueTransitionError,
