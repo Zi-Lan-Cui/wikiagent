@@ -1,6 +1,6 @@
 """Integrator：四阶段组装器与组装工厂。
 
-阶段模块实现每个阶段的具体做法；本模块把四个阶段组合成执行链。
+各阶段逻辑在对应模块实现；本模块只组合成执行链。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from wiki_agent.llm.llm import LLMClient
 
 
 class Integrator:
-    """四阶段组装器——pipeline 的编排形状，本类只转发。"""
+    """四阶段组装器，各方法只转发给对应阶段。"""
 
     def __init__(
         self, searcher: Searcher, analyzer: Analyzer, planner: Planner, executor: Executor
@@ -73,14 +73,14 @@ class Integrator:
 
 
 def compile_integrator(llm: LLMClient, *, wiki_dir: str | Path) -> Integrator:
-    """组装策展人四阶段链（new/update 开放决策）。
+    """组装 compile 模式的四阶段链（plan 可选新建或更新页面）。
 
     Args:
         llm: LLM 客户端。
         wiki_dir: wiki 根目录。
 
     Returns:
-        策展人四阶段链。
+        compile 模式的 Integrator。
     """
     p = compile_prompts
     return Integrator(

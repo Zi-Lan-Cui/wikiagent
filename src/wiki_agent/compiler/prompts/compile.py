@@ -1,6 +1,4 @@
-"""compile 模式 prompt——全量共享（sync 编译同用）。
-
-"""
+"""compile 模式 prompt，compile 与 sync 路径共用同一套。"""
 
 from __future__ import annotations
 
@@ -24,10 +22,10 @@ DIGEST_TARGET_TOKENS = 1_500
 
 
 def chunk_system() -> str:
-    """chunk 摘要的固定段——角色 + 输出要求（跨 chunk 共享缓存前缀）。
+    """chunk 摘要的固定段：角色与输出要求。
 
-    位置/标题/来源/原文是动态数据，在 chunk_user 里（prompt cache:
-    固定段前移，动态段后移——同一文件所有 chunk 共享本段）。
+    位置/标题/原文等动态数据在 chunk_user；固定段在前，
+    作为同一文件所有 chunk 共享的缓存前缀。
 
     Returns:
         system prompt 文本。
@@ -54,7 +52,7 @@ def chunk_system() -> str:
 
 
 def chunk_user(chunk: SourceChunk) -> str:
-    """chunk 摘要的动态度——位置信息 + 片段原文。
+    """chunk 摘要的动态段：位置信息 + 片段原文。
 
     Args:
         chunk: 待摘要片段。
@@ -146,7 +144,7 @@ def rolling_user(
     previous_digest: str,
     total: int,
 ) -> str:
-    """滚动压缩的动态度——digest + 当前片段（每轮变化在尾部）。
+    """滚动压缩的动态段：digest + 当前片段（每轮变化在尾部）。
 
     Args:
         chunk: 当前片段。
@@ -198,7 +196,7 @@ def search_system() -> str:
 
 
 def search_user(extract: ExtractResult, index: str) -> str:
-    """search 动态度——文档摘要 + index（每文件不同，放尾部）。
+    """search 动态段：文档摘要 + index（每文件不同，放尾部）。
 
     Args:
         extract: 文档摘要结果。
@@ -297,7 +295,7 @@ def analyze_system() -> str:
 
 
 def analyze_user(extract: ExtractResult, candidates: str) -> str:
-    """analyze 动态度——文档摘要 + 候选页 meta（每文件不同，放尾部）。
+    """analyze 动态段：文档摘要 + 候选页 meta（每文件不同，放尾部）。
 
     Args:
         extract: 文档摘要结果。
@@ -328,11 +326,10 @@ def plan_system(
     schema: str = "",
     purpose: str = "",
 ) -> str:
-    """策展人决策 prompt 的固定段（compile 模式）。
+    """plan 决策 prompt 的固定段（compile 模式）。
 
-    schema/purpose 是 wiki 级常量（一次 run 内逐文件相同）——留在
-    system 跨文件共享。分析文本/文档摘要/index 逐文件变化，在
-    plan_user。
+    schema/purpose 是 wiki 级常量（同一 run 内逐文件相同），留在
+    system 跨文件共享；分析文本/文档摘要/index 逐文件变化，放 plan_user。
 
     Args:
         schema: 目录规范文本。
@@ -424,7 +421,7 @@ def plan_user(
     *,
     index_content: str = "",
 ) -> str:
-    """策展人决策的动态度——分析文本/文档摘要/index（逐文件变化）。
+    """plan 决策的动态段：分析文本/文档摘要/index（逐文件变化）。
 
     Args:
         extract: 文档摘要结果。
@@ -487,7 +484,7 @@ def new_page_system() -> str:
 
 
 def new_page_user(target: PageTarget, extract: ExtractResult) -> str:
-    """新页生成的动态度——页面/原因/references/内容源（逐页面变化）。
+    """新页生成的动态段：页面/原因/references/内容源（逐页面变化）。
 
     Args:
         target: 页面目标（标题/路径/原因/references）。
@@ -556,7 +553,7 @@ def update_system() -> str:
 
 
 def update_user(target: PageTarget, existing: str, extract: ExtractResult) -> str:
-    """页面更新的动态度——原因/references/已有页/新信息（逐页面变化）。
+    """页面更新的动态段：原因/references/已有页/新信息（逐页面变化）。
 
     Args:
         target: 页面目标。
@@ -612,7 +609,7 @@ def _truncate_index_by_entries(index: str, max_chars: int) -> str:
             else:
                 entries.append(line)
         else:
-            # 非条目行按 header 对待（保序无关紧要——index 结构是 header+条目）
+            # 非条目行按 header 对待：index 结构是 header+条目，header 顺序无关
             header.append(line)
 
     kept_entries: list[str] = []

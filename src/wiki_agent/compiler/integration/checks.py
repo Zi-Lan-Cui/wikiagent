@@ -1,7 +1,7 @@
-"""集成层校验——定义 LLM 阶段输出"什么算好"的 check 回调。
+"""集成层校验：LLM 阶段输出的 check 回调，返回 (ok, reason)。
 
-返回 (ok, reason)，错误消息可执行——LLM 重试时知道错在哪。
-与 parse 分工: 这里校验，parse 解析。
+错误消息会进入重试上下文，供模型定位并修正。与 parse 的分工：
+本模块校验，parse 解析。
 """
 
 from __future__ import annotations
@@ -12,8 +12,7 @@ from wiki_agent.compiler.integration.parse import extract_analyze_parts, strip_f
 from wiki_agent.wiki.pages import CONTENT_DIRS, TYPE_DIR, slug_from_ref
 
 _VALID_RELATIONS = {"duplicate", "extends", "related", "contradicts", "unrelated"}
-# "重要" 是 LLM 的自然语言高频词（实测违规全是它）——
-# 枚举拦截性价比低，并入合法集
+# "重要"是模型输出核心程度时的常用同义词，直接并入合法集
 _VALID_IMPORTANCE = {"核心", "边缘", "重要"}
 VALID_DISPOSITIONS = {"new", "update"}
 _VALID_PAGE_TYPES = set(TYPE_DIR)
@@ -25,14 +24,11 @@ def check_analyze_json(
     candidates: list[str] | None = None,
     extra_refs: set[str] | None = None,
 ) -> tuple[bool, str]:
-    """校验 analyze 两段式输出——自由文本 + JSON 尾巴的字段完整性。
+    """校验 analyze 两段式输出：自由文本 + JSON 字段的完整性。
 
-    candidates: search 阶段的候选页面路径列表。
-    提供时校验 relationships 的 from/to 归属——引用必须在
-    {候选 slug ∪ "current-doc"} 内，否则是 LLM 幻觉（审计 C5:
-    ``entities/current-doc`` 这类给固定标识乱加前缀的脏值）。
-    空内容在此返回 False——空响应判定归 check（审计 C1: 调用点
-    不再单独检测，retry 层统一处理重试 + check_ok 记录）。
+    提供 candidates 时校验 relationships 的 from/to，引用必须在
+    {候选 slug ∪ "current-doc" ∪ extra_refs} 内，否则视为无效引用。
+    空内容在此返回 False，由 retry 层统一处理重试。
 
     Args:
         content: LLM 原始输出。
@@ -44,7 +40,7 @@ def check_analyze_json(
     """
     if not content.strip():
         return False, "输出为空——请输出自由分析 + ```json {...}``` 尾巴。"
-    # from/to 合法集合由候选归一化而来——校验逻辑的内部构造，调用方只给原始候选
+    # from/to 合法集：校验逻辑的内部构造，由调用方给的候选归一化而来
     valid_refs: set[str] | None = None
     if candidates:
         valid_refs = {slug_from_ref(c) for c in candidates}
@@ -63,7 +59,6 @@ def check_analyze_json(
     if not isinstance(data, dict):
         return False, "JSON 尾巴必须是对象 {}。"
 
-    # entities
     entities = data.get("entities", [])
     if not isinstance(entities, list):
         return False, "entities 必须是数组。"
@@ -78,7 +73,6 @@ def check_analyze_json(
         if importance and importance not in _VALID_IMPORTANCE:
             return False, f"entities[{i}].importance 必须是 核心/边缘，当前: {importance}。"
 
-    # concepts
     concepts = data.get("concepts", [])
     if not isinstance(concepts, list):
         return False, "concepts 必须是数组。"
@@ -91,7 +85,6 @@ def check_analyze_json(
         if importance and importance not in _VALID_IMPORTANCE:
             return False, f"concepts[{i}].importance 必须是 核心/边缘，当前: {importance}。"
 
-    # relationships
     relationships = data.get("relationships", [])
     if not isinstance(relationships, list):
         return False, "relationships 必须是数组。"
@@ -107,7 +100,6 @@ def check_analyze_json(
                 False,
                 f"relationships[{i}].relation 必须是 {_VALID_RELATIONS} 之一，当前: {r.get('relation')}。",
             )
-        # 归属校验——from/to 必须指向候选页面或 current-doc
         if valid_refs:
             for field in ("from", "to"):
                 raw_v = str(r.get(field, "")).strip()
@@ -127,31 +119,27 @@ def check_plan_json(
     *,
     allowed_dispositions: set[str] | None = None,
 ) -> tuple[bool, str]:
-    """校验 plan 阶段的 JSON 输出——结构与字段级校验。
+    """校验 plan 阶段的 JSON 输出：结构与字段级校验。
 
-    与 analyze 的尾巴校验同风格: 逐字段检查，错误消息可执行，
-    让 LLM 在 retry 时知道自己错在哪。只校验'说得对不对'，
-    不校验'引用存不存在'——那由 parse_plan 后的 filter_plan_refs 做。
+    只校验格式与字段，不校验引用是否存在——那由 parse_plan 后的
+    filter_plan_refs 做。
 
     Args:
         content: LLM 原始输出。
-        allowed_dispositions: 模式契约（prompt 模块的
-            ALLOWED_DISPOSITIONS）。plan 只允许 update——
-            LLM 输出 new 直接 retry 修正。
+        allowed_dispositions: 各模式的合法处置集（prompt 模块的
+            ALLOWED_DISPOSITIONS），越界输出经 retry 修正。
 
     Returns:
         (是否通过, 可执行的错误消息)。
     """
     allowed = allowed_dispositions or VALID_DISPOSITIONS
-    # fence/尾部缺括号是格式化噪声不是内容错误——与 parse_plan 共享
-    # 同一格式规约（strip_fence 内含尾部括号补全）。关掉 thinking 后
-    # LLM 输出风格变化（爱包裹 ```json、深嵌套少写尾部 }），必须容忍。
+    # fence 包裹、尾部缺括号是格式噪声不是内容错误，与 parse_plan 同经
+    # strip_fence 归一；关闭 thinking 后模型输出这类噪声更多，须容忍
     cleaned = strip_fence(content)
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        # 错误消息可执行化——原始报错 "line 1 column 891" 对 LLM
-        # 不可行动，改成括号配对的行动指引
+        # 原始报错只有位置信息，模型无从修正，改写为括号配对的指引
         return False, (
             f"JSON 格式错误: {e}。"
             f"请输出合法的 JSON——检查最外层与 page_targets/references "
@@ -173,8 +161,7 @@ def check_plan_json(
         path = str(t.get("wiki_path", "")).strip()
         if not path:
             return False, f"page_targets[{i}].wiki_path 不能为空。"
-        # 路由校验——页面只允许落在内容目录；目录外的页面在 scan_wiki
-        # 里完全隐形（实测模型造过 languages/、tools/ 这类目录）
+        # 页面只允许落在内容目录：目录外的页面 scan_wiki 扫描不到
         first_seg = slug_from_ref(path).split("/", 1)[0]
         if first_seg not in CONTENT_DIRS:
             return False, (
@@ -193,10 +180,8 @@ def check_plan_json(
                 f"当前: {disposition!r}。"
                 f"不操作的页面不要写进 page_targets——输出空数组即可。"
             )
-        # new 页面必须由 plan 决策 page_type，且与路由目录一致——
-        # type 与目录来自同一次决策，generate 阶段不再自行判断
-        # （实测: plan 路由 entities/、generate 写 type=concept，
-        # 质量闸门 type/目录不一致，页面生成失败）。
+        # new 页面必须给出 page_type 且与路由目录一致：type 与目录出自
+        # plan 同一次决策，generate 阶段不再判断，避免两阶段不一致
         page_type = str(t.get("page_type", "")).strip()
         if disposition == "new":
             if page_type not in _VALID_PAGE_TYPES:
@@ -220,7 +205,6 @@ def check_plan_json(
                 f"从哪提取内容、补充到哪个章节、应包含哪些关键点。"
             )
 
-        # references 必须是对象数组，slug 非空
         refs = t.get("references", [])
         if not isinstance(refs, list):
             return False, f"page_targets[{i}].references 必须是数组。"
@@ -235,10 +219,10 @@ def check_plan_json(
 
 
 def check_paths_json(content: str) -> tuple[bool, str]:
-    """校验 search 阶段输出——{"paths": ["entities/x.md", ...]}。
+    """校验 search 阶段输出：{"paths": ["entities/x.md", ...]}。
 
-    双格式宽容：search 调用已开 json_object，但兼容端点可能静默忽略
-    response_format——顶层数组（旧契约）同样放行。校验宽进、prompt 严请。
+    对象与顶层数组两种格式都接受：调用已开 json_object，但兼容端点
+    可能静默忽略 response_format，顶层数组是旧契约。
 
     Args:
         content: LLM 原始输出。
@@ -246,7 +230,6 @@ def check_paths_json(content: str) -> tuple[bool, str]:
     Returns:
         (是否通过, 可执行的错误消息)。
     """
-    # fence 容错——与 check_plan_json 共享 strip_fence
     cleaned = strip_fence(content)
     try:
         data = json.loads(cleaned)

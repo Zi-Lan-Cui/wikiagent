@@ -7,7 +7,7 @@ from pathlib import Path
 
 from wiki_agent.wiki.pages import CONTENT_DIRS, slug_from_ref
 
-# 内容目录白名单由 PAGE_TYPE_BY_DIR 派生——新增内容目录只改 pages 一处
+# 目录前缀集合跟随 CONTENT_DIRS，新增内容目录只需改 pages 一处
 _INDEX_SLUG_RE = re.compile(rf"^(?:{'|'.join(CONTENT_DIRS)})/")
 
 

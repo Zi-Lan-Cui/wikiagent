@@ -1,4 +1,4 @@
-"""WikiCompiler 数据模型。"""
+"""编译流水线数据模型。"""
 
 from __future__ import annotations
 
@@ -9,38 +9,30 @@ from openai.types.shared_params import ResponseFormatJSONObject
 
 
 class Disposition(StrEnum):
-    """页面操作类型——只含要执行的决策。
+    """页面操作类型，只含要执行的决策。
 
-    plan 的产出是"要做什么"，不是"我考虑过什么"。
-    "不操作"不进 page_targets——由空数组 + plan_noop 事件表达。
+    无需操作时 page_targets 为空数组，不放"不操作"条目。
     """
 
     NEW = "new"
     UPDATE = "update"
 
 
-# 编译流水线关 thinking——deepseek-v4-flash 是 reasoning 模型，
-# 思考段会静默吃掉整个 max_tokens 预算、content 留空（审计 C1 根因）。
-# 编译输出是"写页面"不是"解难题"，直接写更可靠也更便宜。
-# 单一来源：integration 四阶段复用此常量（勿再各存副本）。
+# 编译调用关闭 thinking：reasoning 模型的思考段可能占满 max_tokens
+# 预算导致 content 为空。integration 各阶段共用此常量。
 NO_THINKING = {"thinking": {"type": "disabled"}}
 
-# API 级 JSON 模式——输出必为合法 JSON 对象，fence/前言类格式噪声重试归零。
-# 单一来源同 NO_THINKING；check/parse 层仍宽容旧顶层数组契约，
-# 防兼容端点静默忽略该参数。
+# API 级 JSON 模式，输出必为合法 JSON 对象。check/parse 层仍接受顶层数组，
+# 防兼容端点静默忽略该参数。各阶段共用此常量。
 JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
 
 
-# Phase 1 输入 —— 来自 Chunker 的结构化 chunk
+# 提取阶段输入——来自 Chunker 的结构化 chunk
 
 
 @dataclass
 class SourceChunk:
-    """单个 chunk 的完整上下文。
-
-    不只是裸文本——携带其在源文件中的位置信息，
-    Extract 阶段用这些元信息构造更精确的 prompt。
-    """
+    """单个 chunk 及其在源文件中的位置元信息，Extract 阶段用于构造 prompt。"""
 
     content: str
     """chunk 的文本内容。"""
@@ -57,14 +49,8 @@ class SourceChunk:
     source_name: str = ""
     """源文件名，如 ``吴恩达深度学习笔记.md``——chunk 级摘要 prompt 的出处标注。"""
 
-    # 未实现字段（预留——需要时再加，理由见下）
-    # heading_path 已由 chunker metadata 产出，见 text_chunker。
-    # chunk_overlap：检索场景（RAG 按相似度选 chunk）才需要——防切分点切断
-    #   语义导致漏命中。编译是全量消费（每 chunk 都喂 LLM），边界语义由
-    #   滚动压缩的 digest（全局摘要）与均匀分配的 synthesis（全量合成）覆盖，
-    #   比 overlap 更强。RAG 路径复活时再加，且不应在 chunker 层做——
-    #   重叠是"检索单元的构造策略"，该在 embedding 消费端做。
-    # prev_head/next_head：同理——编译消费端用 heading_path 已够。
+    # 不设 chunk_overlap/prev_head/next_head：编译全量消费每个 chunk，
+    # 跨边界语义由 digest 与 synthesis 覆盖；检索场景需要时再加在消费端。
 
 
 @dataclass
@@ -87,15 +73,11 @@ class SourceDocument:
 
     @property
     def chunk_count(self) -> int:
-        """返回 chunk 总数。
-
-        Returns:
-            chunks 列表长度。
-        """
+        """chunk 总数。"""
         return len(self.chunks)
 
 
-# Phase 1 输出 —— ExtractResult
+# 提取阶段输出
 
 
 @dataclass
@@ -107,12 +89,10 @@ class ChunkSummary:
 
 @dataclass
 class SourcePage:
-    """一个源文件的溯源档案页——slug + 完整页面文本。
+    """源文件的溯源档案页——slug + 完整页面文本。
 
-    档案页是给用户的来源信息中介，模型不可见、永不作为引用对象——
-    引用只指向原始文件；把它放在 wiki 之外正是这道可见性边界的实现。
-    构造在 extraction、落盘在终态结算（确认成功的 job 才写），
-    流水线执行中不写它。
+    档案页只向用户展示来源信息，对模型不可见，引用一律指向原始文件，
+    因此放在 wiki 之外。构造在 extraction，job 成功后才落盘。
     """
 
     slug: str
@@ -121,7 +101,7 @@ class SourcePage:
 
 @dataclass
 class ExtractResult:
-    """Extract 输出——纯文档级摘要。不做实体提取，不做格式化。"""
+    """Extract 输出：文档级摘要。不做实体提取，不做格式化。"""
 
     source_identity: str
     document_summary: str = ""
@@ -129,7 +109,7 @@ class ExtractResult:
     """档案页构造结果（compile/sync 模式才有），写入责任在结算方。"""
 
 
-# Phase 2 输出
+# 集成阶段输出
 
 
 @dataclass
@@ -171,10 +151,10 @@ class PageRelationship:
 
 @dataclass
 class AnalysisResult:
-    """Analysis 输出——自由分析（主体）+ 结构化尾巴（供下游消费）。
+    """Analysis 输出：自由分析主体 + 结构化字段（供下游消费）。
 
-    analyze 只做分析: 实体/概念提取 + 与候选页的关系判定。
-    新建建议和交叉引用是决策的活，由 plan 阶段产出。
+    analyze 只做实体/概念提取和与候选页的关系判定；
+    新建与交叉引用的决策由 plan 阶段产出。
     """
 
     source_identity: str

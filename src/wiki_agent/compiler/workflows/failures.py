@@ -1,7 +1,7 @@
-"""source 级失败诊断——把 IngestError 转成可持久化/展示的结构化字段。
+"""source 级失败诊断：把 IngestError 转成可持久化/展示的结构化字段。
 
-记账只有一条路：handler 产出 JobResult(ingest_error) → JobOutcomeHandler
-终态联动进问题账本（jobs/outcomes）。本模块不做上报，只负责诊断提取。
+失败信息统一经 handler 产出的 JobResult(ingest_error) 记入 jobs/outcomes；
+本模块不做上报，只负责诊断提取。
 """
 
 from __future__ import annotations

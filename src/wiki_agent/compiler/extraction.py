@@ -1,4 +1,4 @@
-"""编译第一阶段：从结构化源文档生成纯文档摘要，不做实体提取。
+"""编译第一阶段：从结构化源文档生成文档摘要，不做实体提取。
 
 两种摘要策略:
   - 均匀分配: chunk 少、上下文窗口大时，每个 chunk 独立并行摘要
@@ -27,7 +27,6 @@ from wiki_agent.log import get_logger
 
 logger = get_logger("EXTRACTOR")
 
-# 默认 token 分配
 _SYSTEM_TOKENS = 4_000
 _OUTPUT_TOKENS = 6_000
 _PER_CHUNK_MIN = 500  # 均匀分配时单个 chunk 最低 token
@@ -58,17 +57,15 @@ class Extractor:
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._source_records_dir = Path(source_records_dir) if source_records_dir else None
         self._save_sources = save_source_page
-        # prompt 模块由 pipeline 注入
+        # prompt 模块可由 pipeline 注入覆盖
         self._prompts = prompts
-
-    # 公开 API
 
     async def extract(self, source: SourceDocument) -> ExtractResult:
         """从 ``SourceDocument`` 提取知识。
 
         自动选择均匀分配或滚动压缩策略。
         save_sources 时构造档案页内容放进 ``result.source_page``——
-        只构造不落盘，写盘由成功结算方（sync outcome / compile 批）执行。
+        只构造不落盘，由调用方在 job 成功结束时写盘。
 
         Args:
             source: 结构化源文档（chunks + 元信息）。
@@ -102,8 +99,6 @@ class Extractor:
         logger.info("  Extract 摘要完成: %d chunks → 开始合成", len(summaries))
         return await self._synthesize(source, summaries)
 
-    # 均匀分配
-
     async def _extract_uniform(
         self,
         chunks: list[SourceChunk],
@@ -122,8 +117,6 @@ class Extractor:
                 return result
 
         return await asyncio.gather(*[summarize(c) for c in chunks])
-
-    # 滚动压缩
 
     async def _extract_rolling(
         self,
@@ -147,7 +140,7 @@ class Extractor:
                         ),
                     ),
                 ],
-                # digest 输出受控——目标长度的 2 倍留重写缓冲，防膨胀
+                # 上限取目标长度的 2 倍：留重写余量，防摘要膨胀
                 max_tokens=min(budget, self._prompts.DIGEST_TARGET_TOKENS * 2),
                 extra_body=NO_THINKING,
             )
@@ -162,21 +155,19 @@ class Extractor:
 
         return summaries
 
-    # 合成
-
     async def _synthesize(
         self,
         source: SourceDocument,
         summaries: list[ChunkSummary],
     ) -> ExtractResult:
-        """chunk 摘要 → 纯文档级概述。
+        """chunk 摘要 → 文档级概述。
 
         Args:
             source: 源文档（元信息进 prompt）。
             summaries: 各 chunk 摘要列表。
 
         Returns:
-            汇总结果（并保存 source 页）。
+            ExtractResult；符合设置时附带 source 页内容，不落盘。
         """
         parts: list[str] = [
             f"# 源文件: {source.name}",
@@ -212,11 +203,10 @@ class Extractor:
         return result
 
     def _build_source_page(self, source: SourceDocument, result: ExtractResult) -> SourcePage | None:
-        """构造源文档档案页（代码维护，不依赖 LLM plan 阶段）。
+        """构造源文档档案页（内容由代码生成，不经过 LLM plan 阶段）。
 
-        只构造内容不落盘——档案页属于结算面：失败/取消的执行不留下它，
-        成功的 job 在终态联动时写入。摘要为空时返回 None——避免 LLM
-        空响应生成空白 source 页。
+        只构造不落盘：失败的 job 不留下档案页，成功结束时由调用方写入。
+        摘要为空时返回 None，避免 LLM 空响应生成空白页。
 
         Args:
             source: 源文档。
@@ -242,10 +232,9 @@ class Extractor:
                 "type: source",
                 f'title: "{display_name}"',
                 f'summary: "{summary_line}"',
-                # 档案页统一静态 goal——scan 的 goal 必填判定对全页面一致，
-                # 档案页使命就是"溯源"（知识页 goal 由 LLM 写，档案页代码写）
+                # scan 对所有页面一致要求 goal 必填；档案页固定为溯源说明
                 'goal: "源文件档案——保存本文档的提取摘要供溯源"',
-                # 档案页无交叉引用是常态——显式空数组对齐 normalize 定稿链格式
+                # 档案页无交叉引用，显式空数组保持 normalize 后格式一致
                 "related: []",
                 f"created: {today}",
                 f"updated: {today}",
@@ -256,8 +245,6 @@ class Extractor:
         content = f"{frontmatter}\n# {display_name}\n\n{result.document_summary}"
         logger.info("  source page constructed: %s (%d chars)", slug, len(content))
         return SourcePage(slug=slug, content=content.strip() + "\n")
-
-    # 单个 chunk 摘要
 
     async def _summarize_chunk(self, chunk: SourceChunk, max_tokens: int) -> str:
         """单个 chunk 的摘要（均匀分配模式）。
@@ -283,8 +270,6 @@ class Extractor:
         )
         return response.content
 
-    # 工具
-
     @staticmethod
     def _slugify_source(filename: str) -> str:
         """文件名 → kebab-case slug（去扩展名）。
@@ -293,7 +278,7 @@ class Extractor:
             filename: 源文件名。
 
         Returns:
-            slug（空名兜底 "untitled"）。
+            slug；结果为空时返回 "untitled"。
         """
         name = filename.rsplit(".", 1)[0] if "." in filename else filename
         slug = name.lower().strip()
@@ -304,14 +289,13 @@ class Extractor:
         available = (
             self._model_context - self._system_tokens - self._output_tokens - self._safety_buffer
         )
-        # context_window 是请求可用的输入窗口，不应直接变成单次输出的
-        # max_tokens；输出上限由 extract_output_tokens 控制，避免向 provider
-        # 请求几十万 tokens。
+        # model_context 是输入窗口，不能直接当作输出 max_tokens 上限，
+        # 输出另由 output_tokens 控制
         return min(self._output_tokens, max(2_000, available))
 
 
 def write_source_page(source_records_dir: Path, page: SourcePage) -> Path:
-    """结算方落盘档案页——sync outcome / compile 批共用的唯一写入口。"""
+    """档案页落盘，sync 与 compile 批共用此写入口。"""
     source_records_dir.mkdir(parents=True, exist_ok=True)
     target = source_records_dir / f"{page.slug}.md"
     target.write_text(page.content, encoding="utf-8")
@@ -319,9 +303,9 @@ def write_source_page(source_records_dir: Path, page: SourcePage) -> Path:
 
 
 class ExtractionSourcePageWriter:
-    """jobs.SourcePageWriter 协议实现：把源档案页落盘的唯一入口。
+    """jobs.SourcePageWriter 协议实现。
 
-    结构满足协议（方法签名一致），无需 import jobs；由装配根注入结算层。
+    结构满足协议（方法签名一致），无需 import jobs；由装配层注入调用方。
     """
 
     def write(self, records_dir: Path, slug: str, content: str) -> None:

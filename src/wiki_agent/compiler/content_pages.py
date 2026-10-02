@@ -1,4 +1,4 @@
-"""wiki 内容页名册——维护侧（提议、分配、link、核对）共用的页面集合。"""
+"""wiki 内容页集合——维护流程（提议、分配、link、核对）共用。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def all_content_slugs(wiki_dir: str | Path) -> list[str]:
         d = wiki / sub
         if not d.is_dir():
             continue
-        # relative_to 保层级：嵌套页 concepts/a/b.md 的 slug 是 concepts/a/b
+        # 保留层级：嵌套页 concepts/a/b.md 的 slug 是 concepts/a/b
         slugs.extend(
             str(p.relative_to(wiki).with_suffix("")) for p in sorted(d.rglob("*.md"))
         )

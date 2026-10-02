@@ -1,4 +1,4 @@
-"""Execute 阶段——并行生成/更新页面 + 失败隔离 + 死链兜底。"""
+"""Execute 阶段：并行生成/更新页面，隔离失败，清理死链。"""
 
 from __future__ import annotations
 
@@ -29,13 +29,12 @@ from wiki_agent.wiki.rules import check_page_output
 logger = get_logger("STAGES")
 
 _UPDATE_TOKENS = 8_000
-# 页面生成总尝试次数（retry 层语义: 总尝试，原 1 = 零重试）
+# retry 层语义：max_attempts 是总尝试次数，1 即不重试
 _PAGE_GEN_RETRIES = 2
 
 
-
 class Executor:
-    """execute 阶段: 并行生成/更新页面 + 失败隔离 + 死链兜底。"""
+    """execute 阶段：并行生成/更新页面。"""
 
     def __init__(self, llm: LLMClient, wiki_dir: str | Path, prompts):
         self._llm = llm
@@ -57,7 +56,7 @@ class Executor:
             return ""
 
     async def _write_page(self, wiki_path: str, content: str) -> None:
-        """落盘——内容处理链在 execute 内完成，这里只写文件。
+        """落盘页面文件；内容处理已在 execute 内完成。
 
         Args:
             wiki_path: 页面相对路径（会做规范化）。
@@ -74,9 +73,9 @@ class Executor:
         existing: str,
         extract: ExtractResult,
     ) -> str:
-        """按 disposition 生成页面——new 从零生成 / update 合并已有页。
+        """按 disposition 生成页面：new 从零生成，update 合并已有页。
 
-        校验不过 → 重试；穷尽后仍不过 → raise（质量闸门，不许静默落盘）。
+        校验不过则重试，仍不过即抛错，不合格内容不落盘。
 
         Args:
             target: 页面目标（disposition/path/references）。
@@ -87,7 +86,7 @@ class Executor:
             生成的页面原始内容。
 
         Raises:
-            IngestError: 重试穷尽后校验仍失败。
+            IngestError: 重试后校验仍失败。
         """
         if not existing:
             system_prompt = self._prompts.new_page_system()
@@ -116,15 +115,14 @@ class Executor:
         plan: IntegrationPlan,
         extract: ExtractResult,
     ) -> list[PageTarget]:
-        """执行 plan——并行处理每个 target，失败隔离 + 死链兜底。
+        """并行执行 plan 的每个 target：隔离失败，事后清理死链。
 
         Args:
             plan: 集成计划。
             extract: 源文档抽取结果。
 
         Returns:
-            成功落盘的 target 列表（失败的 target 返回 None 被过滤，
-            不会混入成功结果）。
+            成功落盘的 target 列表。
         """
         if not plan.page_targets:
             return []
@@ -174,14 +172,14 @@ class Executor:
                 )
                 logger.error("  ✗ %s 生成失败: %s", target.wiki_path, str(exc)[:200])
                 emit_event("page_generation", path=target.wiki_path, status="error", error=str(exc))
-                # 失败返回 None——不能 return target（update 目标旧页仍存在，
-                # 会骗过调用方 exists() 过滤，把失败算成成功）
+                # 失败返回 None 而非 target：update 目标的旧页仍在磁盘上，
+                # 返回 target 会被调用方误判为成功
                 return None
 
         results = await asyncio.gather(*[_execute_target(t) for t in plan.page_targets])
         results = [r for r in results if r is not None]
 
-        # 兜底死链清理: 仅当有页面生成失败时触发
+        # 死链清理：仅在有页面生成失败时触发
         if failed_paths:
             actual_slugs = load_valid_slugs(self._wiki_dir)
             actual_slugs.update(
@@ -201,7 +199,7 @@ class Executor:
                     logger.info("  死链清理: %s 已更新（引用了生成失败的页面）", t.wiki_path)
 
         if failed_details:
-            # 页面级失败升级为 source 级失败：边界统一入队并从 source 起点重试。
+            # 页面级失败升级为 source 级失败，由调用方从 source 起点整体重试
             raise IngestError(
                 IngestStage.EXECUTE,
                 f"{len(failed_details)} 个页面生成失败",

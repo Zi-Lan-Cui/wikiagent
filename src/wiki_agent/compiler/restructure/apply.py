@@ -1,8 +1,8 @@
 """落盘与机械收尾：写产出页、删消失页、全库链接转纯文本、index 维护。
 
-全是代码动作，无 LLM。链接规则：指向消失页的 [[slug|别名]] 转别名、
-[[slug]] 转标题末段——不许留悬空引用，"无死链"的兑现点在这里，
-不靠扫描闸门（死链是 warning 级）。
+全部是代码操作，无 LLM。链接规则：指向消失页的 [[slug|别名]] 转别名、
+[[slug]] 转标题末段，不留悬空引用。无死链由本步骤保证，
+不依赖扫描（扫描中死链仅 warning 级）。
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ def _link_patterns(slug: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
 def _strip_related(text: str, vanished: set[str]) -> str:
     """frontmatter related 列表里指向消失页的条目整项移除。
 
-    related 是引用清单不是散文——转纯文本会留下指向不存在页面的
-    残项（扫描 error），必须删干净。条目兼容 "[[slug]]"、
-    "[[slug|别名]]"、"slug" 三种存形，保留原形态写回。
+    related 是引用清单而非正文：转成纯文本会留下指向不存在页面的
+    残项（扫描 error），只能删除。条目兼容 "[[slug]]"、
+    "[[slug|别名]]"、"slug" 三种形态，按原形态写回。
     """
     if not vanished:
         return text
@@ -74,7 +74,7 @@ def rewrite_links_for_vanished(wiki_dir: Path, vanished: list[str]) -> int:
 
 
 def pages_linking_to(wiki_dir: str | Path, slugs: list[str]) -> list[str]:
-    """仍留在盘上、正文含指向 slugs 的 wikilink 的页——批尾 link 的范围输入。"""
+    """仍存在于磁盘、正文含指向 slugs 的 wikilink 的页面，供批尾出链维护取范围。"""
     wiki_dir = Path(wiki_dir)
     targets = [re.compile(rf"\[\[{re.escape(s)}(?:\||\]\])") for s in slugs]
     hits: set[str] = set()
@@ -124,10 +124,10 @@ def _index_append(wiki_dir: Path, slug: str) -> None:
 def apply_unit(
     wiki_dir: str | Path, unit: Unit, plan: UnitPlan, contents: dict[str, str]
 ) -> None:
-    """落盘一个单元：产出页 → 删除消失页 → 链接与 index 收尾。
+    """落盘一个单元：写产出页 → 删除消失页 → 链接与 index 收尾。
 
-    前置的成文/装配产物都从内存取（contents 优先，缺省用草稿），
-    所以调用方 normalize 后传入成品即可。
+    成文/装配产物从内存取（contents 优先，缺省回退草稿），
+    调用方传入 normalize 后的成品即可。
     """
     wiki_dir = Path(wiki_dir)
     for page in unit.out:

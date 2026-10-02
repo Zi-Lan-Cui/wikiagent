@@ -1,4 +1,4 @@
-"""Plan 阶段——集成决策：策展人（new/update 开放决策）。"""
+"""Plan 阶段：集成决策，新建/更新页面均可选。"""
 
 from __future__ import annotations
 
@@ -45,10 +45,10 @@ class Planner:
         system_prompt: str,
         user_prompt: str = "",
     ) -> IntegrationPlan:
-        """共享的 LLM 调用 + 校验 + 解析 + 决策追踪。
+        """共享的调用 + 校验 + 解析流程。
 
-        system/user 双消息（prompt cache 拆分）——固定角色留 system，
-        动态数据（分析文本/index/当前页）放 user。
+        固定角色放 system、动态数据（分析文本/index/当前页）放 user，
+        以利用 prompt cache。
 
         Args:
             extract: 源文档抽取结果。
@@ -59,7 +59,7 @@ class Planner:
             解析后的 IntegrationPlan（含原始输出 raw）。
 
         Raises:
-            IngestError: 校验穷尽后仍失败。
+            IngestError: 重试后校验仍失败。
         """
         allowed = getattr(self._prompts, "ALLOWED_DISPOSITIONS", VALID_DISPOSITIONS)
 
@@ -114,7 +114,7 @@ class Planner:
 
 
 class CuratorPlanner(Planner):
-    """策展人——new/update 开放决策。"""
+    """新建/更新均可选的 plan 实现。"""
 
     async def plan(
         self,
@@ -125,7 +125,7 @@ class CuratorPlanner(Planner):
         purpose: str = "",
         index_content: str = "",
     ) -> IntegrationPlan:
-        """策展人决策——new/update 开放决策。
+        """决策页面目标，并过滤无效引用。
 
         Args:
             extract: 源文档抽取结果。
@@ -146,8 +146,7 @@ class CuratorPlanner(Planner):
                 index_content=index_content,
             ),
         )
-        # 后处理: 过滤 references 中不存在的 slug。
-        # 有效集合 = 已有页面 + 本次 plan 新建的页面。
+        # 引用过滤：合法集合 = 已有页面 + 本次 plan 新建的页面
         valid_slugs = load_valid_slugs(self._wiki_dir)
         for t in plan.page_targets:
             if t.disposition == Disposition.NEW:
@@ -155,7 +154,7 @@ class CuratorPlanner(Planner):
         if valid_slugs:
             filter_plan_refs(plan.page_targets, valid_slugs)
 
-        # 决策追踪——结果 + 依据（关系分析）同一条事件
+        # 决策结果与依据（关系分析）记在同一条事件
         emit_event(
             "plan_decision",
             file=extract.source_identity,
@@ -180,8 +179,8 @@ class CuratorPlanner(Planner):
 def _format_analysis_for_plan(analysis: AnalysisResult) -> str:
     """将 AnalysisResult 格式化为 plan prompt 可用的文本。
 
-    自由分析是核心依据（原样传递），结构化尾巴作索引——
-    plan 从自由文本里读推理，从尾巴里查实体/关系。
+    自由分析原样传递作为决策依据，实体/概念/关系等结构化字段
+    附在其后，供 plan 查询。
 
     Args:
         analysis: analyze 阶段结果。
@@ -191,12 +190,10 @@ def _format_analysis_for_plan(analysis: AnalysisResult) -> str:
     """
     parts: list[str] = []
 
-    # 自由分析主体优先——plan 的决策依据
     if analysis.analysis_text:
         parts.append(analysis.analysis_text)
         parts.append("")
 
-    # 结构化尾巴作补充索引
     if analysis.entities:
         parts.append("## 提取到的命名实体")
         for e in analysis.entities:

@@ -1,8 +1,8 @@
-"""运行时章节分配（路由）：执行时以当前盘面计算，不进 payload。
+"""运行时章节分配（路由）：执行时按当前 wiki 状态计算，不进 payload。
 
 分配表只回答"每个输入章节进哪个输出页"；显式 take 的输出页由代码直接
-生成归属、不请求 LLM。守恒在这里成为可校验约束：漏配、重配、空 out、
-非法目标都使单元失败。
+生成归属，不请求 LLM。分配完整性在此校验：漏配、重配、空 out、
+非法目标都会使单元失败。
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ from .models import RouteError, Unit
 def take_assignment(unit: Unit, sections: list[Section]) -> dict[str, str]:
     """take 声明 → 固定归属。章节必须存在于 in 页，且不得被两个输出页重复取用。
 
-    未被 take 覆盖的章节归属其余待分配页，由路由 LLM 决定；take 未覆盖且
-    无待分配页的落点不在此预判——route_unit 尾部的守恒检查统一拒绝
-    （守恒只在单一位置判定）。
+    未被 take 覆盖的章节归属其余待分配页，由路由 LLM 决定；"take 未覆盖
+    且无待分配页"的情况不在此预判，统一由 route_unit 尾部的完整性检查
+    拒绝（只在单一位置判定）。
     """
     assignment: dict[str, str] = {}
     for page in unit.out:
@@ -44,10 +44,10 @@ def take_assignment(unit: Unit, sections: list[Section]) -> dict[str, str]:
 async def route_unit(
     llm: Any, unit: Unit, sections: list[Section]
 ) -> tuple[dict[str, str], dict[str, str]]:
-    """返回 (分配表 章节id→out_slug, 固定表——take 直给的部分，供审计)。
+    """返回 (分配表：章节 id→out_slug, 固定表：take 指定的部分，供审计)。
 
-    全单元都是 take 装配时不调 LLM。删除单元（out 空）短路：章节的
-    归宿就是消失，没有分配可算——守恒约束不适用于无输出页的单元。
+    全部输出页都有 take 时不调 LLM。删除单元（out 空）直接短路：
+    没有输出页，不存在分配问题。
     """
     if not unit.out:
         return {}, {}
@@ -86,7 +86,7 @@ async def route_unit(
                 raise RouteError(f"章节被重复分配: {sid}")
             assignment[sid] = to
 
-    # 守恒：每个章节恰好一次；每个输出页至少一章（删除单元 out 为空，跳过）
+    # 完整性：每个章节恰好一次；每个输出页至少一章（删除单元 out 为空，跳过）
     all_ids = {s.id for s in sections}
     missing = sorted(all_ids - set(assignment))
     if missing:
