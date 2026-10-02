@@ -23,9 +23,7 @@ from wiki_agent.log import get_logger
 
 logger = get_logger("MINERU_CONVERTER")
 
-# 常量
-
-# 需要 MinerU 解析的格式（非 Markdown、非纯文本）
+# 需要 MinerU 解析的格式
 _NEEDS_PARSING = {
     "pdf",
     "docx",
@@ -42,10 +40,10 @@ _NEEDS_PARSING = {
     "webp",
 }
 
-# 已是 Markdown 格式——直接读文件，不需要 MinerU
+# 已是 Markdown 格式，直接读取
 _IS_ALREADY_MARKDOWN = {"md", "markdown"}
 
-# 所有图片引用: ![任意alt](path)
+# 图片引用 ![alt](path)
 _RE_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
 
@@ -69,15 +67,12 @@ class MinerUConverter(BaseConverter):
         self._table_enable = table_enable
         self._llm = llm
         self._caption_enabled = caption_images and llm is not None
-        # 图片资产目录（wiki/assets）——caption 时复制图片并回填路径，
-        # wiki 页面里的 ![](assets/x.png) 自包含可渲染。
-        # None = 不回填（只 caption 不改路径）。
+        # 图片资产目录（wiki/assets）：caption 时复制图片并回填路径，
+        # 使页面引用自包含；None 表示只 caption、不改写路径
         self._assets_dir = Path(assets_dir) if assets_dir else None
 
-    # BaseConverter 接口实现
-
     def accepts(self, raw_file: RawFileProperties) -> bool:
-        """是否支持该文件（MinerU 可用且扩展名在支持表内）。
+        """是否支持该文件（扩展名在支持表内）。
 
         Args:
             raw_file: 原始文件属性。
@@ -85,8 +80,7 @@ class MinerUConverter(BaseConverter):
         Returns:
             True 表示支持处理。
         """
-        # Markdown 已是目标格式，直接读取、不依赖 MinerU 解析（历史坑:
-        # 曾把 .md 与 PDF/DOCX 一起放在同一门控下）。
+        # Markdown 已是目标格式，直接读取，不依赖 MinerU 解析
         return raw_file.ext in _IS_ALREADY_MARKDOWN or raw_file.ext in _NEEDS_PARSING
 
     async def convert(self, raw_file: RawFileProperties) -> ConvertedFile:
@@ -125,7 +119,7 @@ class MinerUConverter(BaseConverter):
 
     @staticmethod
     def _read_markdown_file(file_path: str) -> str:
-        """读取 .md / .markdown 文件。
+        """读取 .md、.markdown 文件。
 
         Args:
             file_path: 文件路径。
@@ -161,8 +155,7 @@ class MinerUConverter(BaseConverter):
         Returns:
             转换后的 Markdown。
         """
-        # 第三方库延迟到这里才 import：documents 包的任何 import 都不该
-        # 顺带拉起 mineru 全家（模块级 import 曾让冷启动多付 1.5s）
+        # 延迟 import：documents 包被导入时不应连带加载 mineru
         from mineru.cli.common import do_parse, read_fn
 
         pdf_bytes = read_fn(file_path)
@@ -241,9 +234,8 @@ class MinerUConverter(BaseConverter):
     async def _apply_captions(self, markdown: str, images_base_dir: str) -> str:
         """找出所有 ``![]()``，并发 VLM caption，回填到 Markdown。
 
-        ``images_base_dir`` 是解析相对路径时的基准目录。
-        - 对于 .md : 源文件所在目录
-        - 对于 PDF : MinerU 临时 images/ 目录
+        ``images_base_dir`` 是解析相对路径的基准目录：.md 为源文件所在
+        目录，MinerU 解析结果为临时 images/ 目录。
 
         Args:
             markdown: 原始 Markdown。
@@ -258,7 +250,6 @@ class MinerUConverter(BaseConverter):
 
         logger.info("  caption 开始: %d 张图片", len(matches))
 
-        # 并发为所有图片生成 caption
         new_parts = await asyncio.gather(
             *[self._caption_one_match(m, images_base_dir) for m in matches]
         )
@@ -277,31 +268,29 @@ class MinerUConverter(BaseConverter):
         match: re.Match,
         images_base_dir: str,
     ) -> str:
-        """处理单个 ``![]()`` 匹配——解析路径 → VLM → 返回替换文本。
+        """处理单个 ``![]()`` 匹配：解析路径 → VLM → 返回替换文本。
 
-        assets_dir 配置时: 图片复制到 wiki/assets/（内容 hash 命名去重），
-        回填 assets 相对路径——wiki 页面自包含可渲染。
+        assets_dir 已配置时，图片复制到 wiki/assets/（按内容 hash 命名去重），
+        回填 assets 相对路径。
 
         Args:
             match: 单个 ``![]()`` 匹配。
             images_base_dir: 图片基准目录。
 
         Returns:
-            替换后的文本（VLM 失败/路径无法解析时原样保留）。
+            替换后的文本；VLM 失败或路径无法解析时原样保留。
         """
         rel_path = match.group(1)
 
-        # 解析实际文件路径
         image_path = self._resolve_image_path(rel_path, images_base_dir)
         if image_path is None:
             return match.group(0)
 
-        # VLM 描述
         description = await self._vlm_describe_image(image_path)
         if not description:
             return match.group(0)
 
-        # 图片资产化——caption 时复制（MinerU 临时目录用完即清，这是唯一时机）
+        # 资产化复制只能发生在 caption 阶段：MinerU 临时目录随后即被清理
         final_path = rel_path
         if self._assets_dir is not None:
             final_path = self._copy_to_assets(image_path)
@@ -310,10 +299,8 @@ class MinerUConverter(BaseConverter):
     def _copy_to_assets(self, image_path: str) -> str:
         """复制图片到 assets/，返回相对 wiki 的路径。
 
-        内容 hash 命名——天然去重。复制失败返回原始相对路径
-        （资产化失败 ≠ caption 失败——页面仍可用原始引用，图片
-        位置不变时能解析）。代价是页面不再自包含（图片依赖源目录），
-        scan 的 assets 检查会发现。
+        按内容 hash 命名，重复图片只存一份。读取或写入失败时返回
+        原始文件名，页面继续用原引用，不再自包含。
 
         Args:
             image_path: 源图片路径。
@@ -335,7 +322,6 @@ class MinerUConverter(BaseConverter):
         target = assets_dir / f"{digest}{ext}"
         if not target.exists():
             target.write_bytes(data)
-        # 路径相对 wiki 根（assets 在 wiki/ 下）
         return f"assets/{target.name}"
 
     @staticmethod
@@ -367,7 +353,7 @@ class MinerUConverter(BaseConverter):
             image_path: 图片路径。
 
         Returns:
-            描述文本（读图失败/VLM 失败返回空串）。
+            描述文本；读取图片或调用 VLM 失败时返回空串。
         """
         if self._llm is None:
             return ""

@@ -11,7 +11,7 @@ from wiki_agent.documents.converters.base import ConvertedFile
 
 
 class ChunkedFileProperties(BaseModel):
-    """单个 chunk——一段完整语义单元。"""
+    """单个 chunk：一段完整语义单元。"""
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     content: str
@@ -20,10 +20,7 @@ class ChunkedFileProperties(BaseModel):
 
 
 class BaseChunker(ABC):
-    """文本 → chunk 的切割器。
-
-    不同实现之间是替代关系——换 chunker 就是换切割策略。
-    """
+    """文本 → chunk 的切割器。"""
 
     @abstractmethod
     def chunk(self, file: ConvertedFile) -> list[ChunkedFileProperties]:

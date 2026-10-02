@@ -1,7 +1,4 @@
-"""Chunker 分发器。
-
-按注入顺序遍历，首个能处理该文件的 chunker 负责。
-"""
+"""Chunker 分发器：按注入顺序取首个能处理该文件的 chunker。"""
 
 from __future__ import annotations
 
@@ -15,9 +12,8 @@ logger = get_logger("CHUNKER_DISPATCHER")
 
 
 class Chunker:
-    """文本 → chunk 的分发器。
+    """按顺序取首个 ``can_process()`` 为 True 的 chunker。
 
-    chunker 列表按顺序匹配，首个 ``can_process()`` 的获胜。
     默认注册 StructuredChunker → TextChunker。
     """
 

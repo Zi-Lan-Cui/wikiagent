@@ -1,4 +1,4 @@
-"""结构化数据块切割器——CSV / JSON / JSONL / Excel"""
+"""CSV / JSON / JSONL 结构化切割器。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class StructuredChunker(BaseChunker):
         self._batch_size = batch_size
 
     def can_process(self, file: ConvertedFile) -> bool:
-        # 模态为 text 且扩展名匹配——文件可能已被 Converter 转义
+        # 表格文件经 Converter 转换后模态为 text
         return file.modality == "text" and file.ext in self._SUPPORTED
 
     def chunk(self, file: ConvertedFile) -> list[ChunkedFileProperties]:
@@ -49,7 +49,7 @@ class StructuredChunker(BaseChunker):
             file: 转换后的文件。
 
         Returns:
-            chunk 列表（解析失败返回 [] 降级纯文本）。
+            chunk 列表；解析失败返回 []。
         """
         try:
             reader = csv.DictReader(io.StringIO(file.content))
@@ -76,7 +76,6 @@ class StructuredChunker(BaseChunker):
                 chunk_index += 1
                 batch_rows = []
 
-        # 剩余行
         if batch_rows:
             chunks.append(
                 self._make_chunk(
@@ -126,7 +125,6 @@ class StructuredChunker(BaseChunker):
                 chunk_index += 1
             return chunks
 
-        # 非 JSONL：解析整个文档
         try:
             data = json.loads(file.content)
         except json.JSONDecodeError:
@@ -174,7 +172,7 @@ class StructuredChunker(BaseChunker):
 
         Args:
             index: chunk 序号。
-            data: 行数据/元素/键值对。
+            data: 行数据、元素或键值对。
             headers: CSV 列名（metadata 用）。
             file: 转换后的文件。
 

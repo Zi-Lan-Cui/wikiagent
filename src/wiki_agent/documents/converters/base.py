@@ -1,7 +1,7 @@
 """转换器基类与统一输出格式。
 
 所有 converter 继承 ``BaseConverter``，输入 ``RawFileProperties``，
-输出 ``ConvertedFile``。不同 converter 之间是替代关系——换一个就换一套策略。
+输出 ``ConvertedFile``。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from wiki_agent.documents.loader import RawFileProperties
 
 @dataclass
 class ConvertedFile:
-    """转换完成后的文件——所有格式统一为文本，准备送入 Chunker。"""
+    """转换后的文件：格式统一为文本，作为 Chunker 的输入。"""
 
     content: str  # 转换后的完整文本（可能是 Markdown）
     name: str
@@ -48,10 +48,7 @@ class ConvertedFile:
 
 
 class BaseConverter(ABC):
-    """文件 → 文本 的转换器。
-
-    不同实现之间是替代关系——换 converter 就是换解析策略。
-    """
+    """文件 → 文本 的转换器。"""
 
     @abstractmethod
     async def convert(self, raw_file: RawFileProperties) -> ConvertedFile:
