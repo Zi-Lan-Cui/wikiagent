@@ -20,7 +20,7 @@ class BaseAgent(ABC):
     ):
         """执行 Agent 一轮对话。
 
-        输出经 hook 事件（on_stream_delta 等）订阅，不传渲染回调。
+        输出经 hook 事件（on_stream_delta 等）发布，不传渲染回调。
 
         Args:
             session_key: 会话标识（持久化文件名）。
@@ -29,7 +29,7 @@ class BaseAgent(ABC):
             run_id: 可选的回合标识，供事件订阅方关联事件。
 
         Returns:
-            None。运行结果经 hook 事件对外发布。
+            None。运行结果经 hook 事件发布。
         """
         await self._run(
             session_key=session_key,

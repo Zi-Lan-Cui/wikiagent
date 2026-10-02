@@ -1,10 +1,7 @@
 """命令路由系统。
 
-回合流程: RESTORE → COMPACT(轻量) → COMMAND → BUILD → RUN → SAVE——
-命令分发在 restore 之后、重压缩之前：命令需要 session 状态，
-但不应触发昂贵的 LLM 压缩。
-
-所有命令统一 `/` 前缀: /help /session /retry
+命令分发在会话恢复之后、压缩之前：命令需要 session 状态，
+但不应触发 LLM 压缩。所有命令以 `/` 为前缀，如 /help /session /retry。
 """
 
 from __future__ import annotations
@@ -206,8 +203,7 @@ class CommandRouter:
     ) -> CommandResult | None:
         """分发命令。
 
-        CommandContext 在此构造——key/args 由 match 结果填充，
-        调用方只传原材料（raw/session/agent），不接触占位值。
+        CommandContext 在此构造：key/args 由 match 结果填充，调用方不构造它。
 
         Args:
             raw: 用户原始输入。
@@ -250,18 +246,17 @@ class CommandRouter:
 
 
 def wiki_root(ctx: CommandContext) -> Path | None:
-    """wiki 根来自装配根注入的 agent.wiki_dir——不再从工具注册表探测。"""
+    """返回 wiki 根目录（构造 agent 时由调用方注入的 wiki_dir）。"""
     return ctx.agent.wiki_dir
 
 
 def _in_flight_wiki_jobs(agent: ReActAgent) -> int:
-    """写 wiki 的 job（compile/delete）在途数。
+    """写 wiki 的 job（compile/delete）在同进程的在途数。
 
-    跨进程互斥由执行锁（flock）强制，这条门只管同进程：/wiki revert
-    入口带 restore——同进程正在执行写 wiki 的任务时拒绝改历史，
-    否则会把正在执行的未提交改动清掉。
+    跨进程互斥由执行锁（flock）负责；/wiki revert 会 restore 工作区，
+    同进程有写任务在途时回撤会清掉其未提交改动，须先检查这里。
     """
-    # 能力是显式声明的可选属性（ReActAgent.job_service），缺席=本会话无执行入口
+    # job_service 为可选注入；None 表示本会话没有任务队列
     if agent.job_service is None:
         return 0
     return agent.job_service.wiki_write_in_flight()
@@ -284,7 +279,7 @@ class HelpCommand(Command):
 
 
 class QueueCommand(Command):
-    """统一问题中心的 CLI 适配器。"""
+    """问题中心（issue 列表）的命令入口。"""
 
     name = "queue"
     description = "查看问题中心（/queue retry <id> / done <id>）"
@@ -390,10 +385,10 @@ class ScanCommand(Command):
 
 
 class CompileCommand(Command):
-    """/compile = 拍一次快照 sync——写 wiki 只有队列一条路。
+    """/compile 提交一次快照 sync；写 wiki 只经任务队列。
 
-    没有独立的批编译通道：空账本时快照差集=全部文件，首跑天然全量；
-    有账本时就是增量。任务入队后由本进程的 worker 泵执行，逐文件提交。
+    没有独立的批编译通道：首次运行时快照差集即全部文件，自然全量；
+    之后为增量。任务入队后由本进程 worker 执行，逐文件提交。
     """
 
     name = "compile"
@@ -463,10 +458,10 @@ class SessionCommand(Command):
 
 
 class WikiCommand(Command):
-    """Wiki Git 历史查询与版本回撤入口。
+    """Wiki Git 历史查询与版本回撤。
 
-    版本身份 = commit（HEAD 即最近已结算状态，不再有 run 容器概念）；
-    撤销一批 sync = 按 commit 尾注 `Batch: <id>` 选段 revert。
+    版本以 commit 标识，HEAD 即当前状态；按批撤销 sync：
+    对 commit message 中标注 `Batch: <id>` 的提交范围执行 revert。
     """
 
     name = "wiki"
@@ -523,7 +518,7 @@ class WikiCommand(Command):
                     diff = "（该版本没有 Wiki 差异。）"
                 return CommandResult(text=f"# Wiki diff: {args[1]}\n\n```diff\n{diff}\n```")
             if action in {"revert", "revert-batch", "revert_batch"}:
-                # 回撤入口自带 restore——有活在跑就不碰历史（与 sync 互斥闸同一语义）
+                # 有写 wiki 任务在途时拒绝回撤，避免 restore 清掉其未提交改动
                 if _in_flight_wiki_jobs(ctx.agent) > 0:
                     return CommandResult(
                         text="存在在途写 wiki 任务，拒绝版本回撤——先等队列跑完。"
@@ -563,7 +558,7 @@ class RetryCommand(Command):
     description = "对上一个回答不满意？换个思路重新组织"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        # 找最后一条 user 消息作为原始问题
+        # 取最后一条 user 消息作为原始问题
         original = ""
         for m in reversed(ctx.session.history):
             if m.role == "user":
@@ -573,26 +568,22 @@ class RetryCommand(Command):
         if not original:
             return CommandResult(text="# 没有可重试的内容\n\n还没有进行过任何问答。")
 
-        # 不清理历史——追加一条"不满意"指令走正常 build，
-        # 历史原封不动传给模型，模型自然知道如何重构。
+        # 不清理历史，以"不满意"指令作为新 user_input 重跑
         return CommandResult(
             text=f"重新组织思路回答：**{original}**",
             rerun_with=(f"我不喜欢上面的回答。请重新组织思路、换个角度回答我的问题：{original}"),
         )
 
 
-# 内置命令聚合
-
-
 def create_command_router() -> CommandRouter:
-    """创建已注册 agent 原生命令的 router。
+    """创建注册了内置命令的 CommandRouter。
 
-    只登记不依赖 application 用例的命令（会话/重试/wiki/同步/扫/队列）。
-    依赖应用用例的命令（maintain/link/resolve）在 application.commands，
-    由组合根注册到同一 router——命令层不反向 import application。
+    此处只登记不依赖 application 的命令（help/session/retry/wiki/compile/scan/queue）；
+    依赖应用用例的命令（maintain/link/resolve）在 application.commands
+    注册到同一 router——commands 模块不 import application。
 
     Returns:
-        含全部原生命令的 CommandRouter。
+        含全部内置命令的 CommandRouter。
     """
     router = CommandRouter()
     for cmd in (

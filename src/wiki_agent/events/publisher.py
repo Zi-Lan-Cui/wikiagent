@@ -1,4 +1,4 @@
-"""Run events and an in-process publisher used by CLI/Web adapters."""
+"""Agent 运行事件与进程内发布器，供 CLI/Web 适配层使用。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ logger = get_logger("EVENT_PUB")
 
 @dataclass(frozen=True, slots=True)
 class AgentEvent:
-    """Serializable event emitted during one Agent run."""
+    """Agent 运行期间发出的可序列化事件。"""
 
     run_id: str
     session_id: str
@@ -34,8 +34,7 @@ class AgentEvent:
 class EventPublisher(AgentHook):
     """向本进程订阅者推送 Agent 生命周期事件。
 
-    The publisher is an AgentHook, so it can be composed with the terminal
-    renderer.  It deliberately knows nothing about HTTP or SSE.
+    本身是 AgentHook，可与终端渲染 hook 组合使用；不涉及 HTTP/SSE 传输。
     """
 
     def __init__(self, *, queue_size: int = 256) -> None:
@@ -50,7 +49,7 @@ class EventPublisher(AgentHook):
     async def publish(
         self, context: RunContext, event_type: str, data: dict[str, Any] | None = None
     ):
-        """Create and fan out one event to subscribers of its run."""
+        """构造一条事件并推送给该 run 的订阅者。"""
         event = AgentEvent(
             run_id=context.run_id,
             session_id=context.session_key,
@@ -64,8 +63,8 @@ class EventPublisher(AgentHook):
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
-                # 慢消费者（卡住的 SSE）不得背压 agent 回合本体——丢事件
-                # 并计数；回合与落库不受影响，订阅方以断开重连兜底。
+                # 慢订阅者不得阻塞 agent 回合：队列满时丢事件并计数，
+                # 订阅方以断开重连恢复
                 n = self._dropped.get(context.run_id, 0) + 1
                 self._dropped[context.run_id] = n
                 if n == 1 or n % 50 == 0:
@@ -74,7 +73,7 @@ class EventPublisher(AgentHook):
 
     @asynccontextmanager
     async def subscribe(self, run_id: str) -> AsyncIterator[asyncio.Queue[AgentEvent]]:
-        """Subscribe to future events for one run."""
+        """订阅指定 run 之后的事件。"""
         queue: asyncio.Queue[AgentEvent] = asyncio.Queue(maxsize=self._queue_size)
         async with self._lock:
             self._subscribers.setdefault(run_id, set()).add(queue)
