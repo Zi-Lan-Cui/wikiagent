@@ -1,9 +1,7 @@
-"""Agent 生命周期钩子基元。
+"""Agent 生命周期 hook。
 
-Exposes key AG-UI event points as async lifecycle methods that the agent
-runner invokes. Custom hooks subclass :class:`AgentHook` and override the
-handful of methods they care about; :class:`CompositeHook` fans out to
-multiple hooks with per-hook error isolation.
+AgentHook 把一次回合的关键节点暴露为异步方法，子类按需覆写；
+CompositeHook 将每个回调依次转发给多个子 hook，单个 hook 出错不影响其余。
 """
 
 from __future__ import annotations
@@ -18,12 +16,7 @@ logger = get_logger("HOOK")
 
 @dataclass(slots=True)
 class RunContext:
-    """Turn‑level context passed to every hook callback.
-
-    Created by the agent at the start of ``_run()``, shared across all
-    iterations within a single turn.  Hooks read (and may mutate) it as
-    the turn progresses.
-    """
+    """单回合上下文，随回合创建，传给该回合的全部 hook 回调；hook 可读写。"""
 
     session_key: str
     """The session this turn belongs to."""
@@ -70,29 +63,11 @@ class CommandProgress:
 
 
 class AgentHook:
-    """Lifecycle surface for agent‑run customisation.
+    """Agent 运行生命周期的 hook 基类。
 
-    Subclass and override the async methods you need.  Every method
-    receives the same :class:`RunContext` and returns ``None``.
-
-    Typical mapping to AG‑UI events (implementations emit these):
-
-    ======================= =================================
-    Hook method              AG‑UI event
-    ======================= =================================
-    ``on_run_start``         ``RUN_STARTED``
-    ``on_run_end``           ``RUN_FINISHED``
-    ``on_run_error``         ``RUN_ERROR``
-    ``on_stream_delta``      ``TEXT_MESSAGE_CONTENT``
-    ``on_tool_call_start``   ``TOOL_CALL_START / TOOL_CALL_ARGS``
-    ``on_tool_result``       ``TOOL_CALL_RESULT``
-    ``on_tool_error``        ``TOOL_CALL_RESULT`` (error case)
-    ``on_reasoning_start``   ``THINKING_START``
-    ``on_reasoning_end``     ``THINKING_END``
-    ======================= =================================
+    按需覆写其中的异步方法；每个方法接收同一个 RunContext，返回 None。
+    实现方通常把回调映射为对应的事件（如 on_run_start → RUN_STARTED）。
     """
-
-    # Run scope
 
     async def on_status(self, context: RunContext, status: str) -> None:
         """Agent 状态变更通知。
@@ -105,21 +80,21 @@ class AgentHook:
         pass
 
     async def on_run_start(self, context: RunContext) -> None:
-        """Called once before the agent loop begins.
+        """agent 循环开始前调用一次。
 
         Args:
             context: 回合级上下文。
         """
 
     async def on_run_end(self, context: RunContext) -> None:
-        """Called once after the agent loop finishes (success path).
+        """agent 循环成功结束后调用一次。
 
         Args:
             context: 回合级上下文。
         """
 
     async def on_run_error(self, context: RunContext) -> None:
-        """Called once when the agent loop terminates with an error.
+        """agent 循环因异常终止时调用一次。
 
         Args:
             context: 回合级上下文。
@@ -166,17 +141,13 @@ class AgentHook:
     ) -> None:
         """命令被取消。"""
 
-    # Stream scope
-
     async def on_stream_delta(self, context: RunContext, delta: str) -> None:
-        """Called for each chunk of streamed LLM text output.
+        """流式 LLM 文本输出的每个分片触发。
 
         Args:
             context: 回合级上下文。
             delta: 本次增量文本块。
         """
-
-    # Tool scope
 
     async def on_tool_call_start(
         self,
@@ -185,7 +156,7 @@ class AgentHook:
         tool_call_id: str,
         arguments: dict[str, Any],
     ) -> None:
-        """Called immediately before a single tool is invoked.
+        """单个工具即将执行前触发。
 
         Args:
             context: 回合级上下文。
@@ -201,7 +172,7 @@ class AgentHook:
         tool_call_id: str,
         result: Any,
     ) -> None:
-        """Called after a single tool invocation succeeds.
+        """单个工具执行成功后触发。
 
         Args:
             context: 回合级上下文。
@@ -217,7 +188,7 @@ class AgentHook:
         tool_call_id: str,
         error: Any,
     ) -> None:
-        """Called when a tool invocation raises an exception.
+        """单个工具执行抛出异常时触发。
 
         Args:
             context: 回合级上下文。
@@ -226,17 +197,15 @@ class AgentHook:
             error: 捕获到的异常对象。
         """
 
-    # Reasoning scope
-
     async def on_reasoning_start(self, context: RunContext) -> None:
-        """Called when the LLM begins emitting reasoning / thinking content.
+        """LLM 开始输出思考内容时触发。
 
         Args:
             context: 回合级上下文。
         """
 
     async def on_reasoning_delta(self, context: RunContext, delta: str) -> None:
-        """Called for each chunk of reasoning / thinking text.
+        """思考内容的每个增量分片触发。
 
         Args:
             context: 回合级上下文。
@@ -244,17 +213,16 @@ class AgentHook:
         """
 
     async def on_reasoning_end(self, context: RunContext) -> None:
-        """Called when the reasoning stream has finished.
+        """思考流结束时触发。
 
         Args:
             context: 回合级上下文。
         """
 
 class CompositeHook(AgentHook):
-    """Fan‑out hook that delegates to an ordered list of child hooks.
+    """将每个回调按序转发给一组子 hook。
 
-    Each async method iterates over the children, catching and logging
-    exceptions per‑child.
+    逐个遍历子 hook，单个子 hook 的异常被捕获并记录，不影响其余。
     """
 
     __slots__ = ("_hooks",)
@@ -263,18 +231,15 @@ class CompositeHook(AgentHook):
         super().__init__()
         self._hooks = list(hooks)
 
-    # helpers
-
     async def _fanout(self, method: Any, *args: Any, **kwargs: Any) -> None:
-        """逐 hook 扇出调用。
+        """逐个调用每个子 hook 的同名方法。
 
-        传入基类方法对象只为在定义处钉住方法名（改名时所有 _fanout
-        调用点直接报错，不像字符串那样静默丢失）；实际派发必须走
-        getattr(h, name)——AgentHook.on_x(h, ...) 是显式绑死基类实现，
-        绕过子类的 MRO 覆写，会让全部子 hook 静默失效。
+        method 传基类方法对象，只是为了在调用处固定方法名（改名即报错，
+        不像字符串那样静默失效）；实际派发必须走 getattr(h, name)——
+        直接调 AgentHook 的方法会绑定基类实现，绕过子类的覆写。
 
         Args:
-            method: 基类的同名方法（用作方法名凭证与存在性检查）。
+            method: 基类的同名方法（提供方法名）。
             *args / **kwargs: 透传给每个 hook 的参数。
         """
         name = method.__name__
@@ -284,8 +249,6 @@ class CompositeHook(AgentHook):
                 await fn(*args, **kwargs)
             except Exception:
                 logger.exception("AgentHook.%s 失败在 %s 中", name, type(h).__name__)
-
-    # run
 
     async def on_status(self, c: RunContext, status: str) -> None:
         await self._fanout(AgentHook.on_status, c, status)
@@ -314,12 +277,8 @@ class CompositeHook(AgentHook):
     async def on_command_cancelled(self, c: RunContext, command: str, task_id: str) -> None:
         await self._fanout(AgentHook.on_command_cancelled, c, command, task_id)
 
-    # stream
-
     async def on_stream_delta(self, c: RunContext, delta: str) -> None:
         await self._fanout(AgentHook.on_stream_delta, c, delta)
-
-    # tools
 
     async def on_tool_call_start(
         self, context: RunContext, tool_name: str, tool_call_id: str, arguments: dict[str, Any]
@@ -337,8 +296,6 @@ class CompositeHook(AgentHook):
         self, context: RunContext, tool_name: str, tool_call_id: str, error: Any
     ) -> None:
         await self._fanout(AgentHook.on_tool_error, context, tool_name, tool_call_id, error)
-
-    # reasoning
 
     async def on_reasoning_start(self, c: RunContext) -> None:
         await self._fanout(AgentHook.on_reasoning_start, c)

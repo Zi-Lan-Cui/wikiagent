@@ -23,7 +23,7 @@ from wiki_agent.memory import Dreamer, MemoryStore
 from wiki_agent.tools import RecordCorrection, ToolRegistry
 
 if TYPE_CHECKING:
-    # 类型引用不导运行时——application 组装 agent，反向 import 即环
+    # 仅类型检查期引用：application 组装 agent，运行时 import 会形成循环依赖
     from wiki_agent.jobs.service import JobService
 
 logger = get_logger("REACT_RUNNER")
@@ -35,8 +35,8 @@ def _elapsed_ms(started: float) -> int:
 
 
 def _turn_thinking(response) -> list[ThinkingSegment]:
-    """assistant 消息的初始 thinking：本回合思考段；工具回合把
-    content 当作过程旁白也收进来（最终回合的 content 是正文，不进折叠块）。"""
+    """提取 assistant 消息的 thinking 段。工具回合的 content 是过程文本，
+    一并计入；最终回合的 content 是正文，不计入。"""
     segments: list[ThinkingSegment] = []
     if response.reasoning_content:
         segments.append(ThinkingSegment(kind="think", text=response.reasoning_content))
@@ -46,14 +46,14 @@ def _turn_thinking(response) -> list[ThinkingSegment]:
 
 
 class ReActRunner:
-    """只负责 ReAct 循环：governor → LLM → tools，重复直到终止。
+    """ReAct 循环：governor → LLM → tools，重复直到终止。
 
-    restore / build / save 留在 ReActAgent 中，属于状态机流转。
+    restore / build / save 由 ReActAgent 负责。
     """
 
     def __init__(self, agent: ReActAgent):
         self._agent = agent
-        # 所有主动创建的工具 Task 都登记在这里；取消 Agent 回合时统一收尾。
+        # 登记本 runner 创建的工具 Task；取消回合时逐个取消并等待。
         self._active_tasks: set[asyncio.Task] = set()
 
     async def run_loop(
@@ -89,8 +89,6 @@ class ReActRunner:
             if not had_tools:
                 break
 
-    # 工具执行
-
     async def _execute_tools(
         self,
         tool_calls: list,
@@ -101,9 +99,9 @@ class ReActRunner:
 
         Args:
             tool_calls: LLM 返回的工具调用列表（含 name/id/arguments）。
-            run_ctx: 回合上下文——工具事件与 tools_used 记录对象。
+            run_ctx: 回合上下文，工具事件与 tools_used 记录于此。
             assistant: 发起这批调用的 assistant 消息——每次调用的耗时与
-                成败作为 tool 段记入其 thinking，供历史重放折叠块。
+                成败作为 tool 段记入其 thinking，历史重放时据此展示。
 
         Returns:
             tool role 消息列表（每条对应一次工具调用，失败时
@@ -149,8 +147,7 @@ class ReActRunner:
         try:
             results = await asyncio.gather(*tasks)
         except asyncio.CancelledError:
-            # gather 通常会传播取消，但显式逐个 cancel 是保护性兜底，
-            # 尤其防止未来改成 shield/独立等待后留下后台工具。
+            # 显式逐个 cancel，不依赖 gather 的传播行为
             for task in tasks:
                 if not task.done():
                     task.cancel()
@@ -190,8 +187,6 @@ class ReActRunner:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._active_tasks.difference_update(tasks)
 
-    # 内部：非流式调用
-
     async def _invoke(
         self,
         session: Session,
@@ -211,8 +206,7 @@ class ReActRunner:
             True 表示存在工具调用需继续循环；False 表示已出最终回答。
         """
         async with span("llm_call", model=self._agent.llm.model_id, stream=False) as s:
-            # 瞬态失败退避重试统一走 llm.retry 唯一内核（retry_llm_call）；
-            # 非流式屏幕无动态，静默退避即可，不注入 on_retry。
+            # 瞬态失败退避重试统一走 retry_llm_call；非流式无增量输出，静默重试即可。
             response = await retry_llm_call(
                 lambda: self._agent.llm.async_invoke(
                     runner_messages,
@@ -270,14 +264,10 @@ class ReActRunner:
     ) -> bool:
         """调用 LLM 并执行工具（流式）。
 
-        流式增量经 on_stream_delta hook 事件——渲染层等订阅方
-        工作在 hook 信息之上（llm 侧 on_delta 支持 awaitable，
-        hook 是 async 也按序触发）。
-
-        瞬态失败经 llm.retry 唯一内核（retry_llm_call）退避重试；
-        重试会重放已生成增量——流式本就向前滚动，多刷一段可接受。
-        网络抖动提示经 on_retry 走 hook 事件，属于 UI 反馈，
-        不写进通用核心。
+        流式增量经 on_stream_delta hook 事件发布，渲染层只依赖 hook。
+        瞬态失败经 retry_llm_call 退避重试；重试会重放已生成增量，
+        流式下可接受。重试提示经 on_retry 走 hook 事件，属于 UI 反馈，
+        不放进通用重试。
 
         Args:
             session: 会话（usage 统计写入对象）。
@@ -287,17 +277,17 @@ class ReActRunner:
 
         Returns:
             True 表示存在工具调用需继续循环；False 表示已出最终回答
-            （空响应时经 hook 发送兜底提示）。
+            （空响应时经 hook 发送提示文本）。
         """
 
         async def on_retry(attempt: int, total: int, exc: BaseException) -> None:
-            # 只对网络抖动提示——未知异常可能是代码 bug，不误导用户等网络
+            # 只对 RetryableError 提示；未知异常可能是代码 bug，提示等待网络会误导
             if isinstance(exc, RetryableError):
                 await self._agent.hooks.on_stream_delta(
                     run_ctx, f"_(网络抖动——重试中 {attempt}/{total - 1})_"
                 )
 
-        # reasoning 分片实时转发给折叠块；每回合首个分片补发 started
+        # reasoning 分片实时转发；本回合首个分片前先触发 on_reasoning_start
         reasoning_started = False
 
         async def on_reasoning(chunk: str) -> None:
@@ -323,8 +313,8 @@ class ReActRunner:
                 s.set_attr("tokens", response.usage)
             if not (response.content and response.content.strip()) and not response.tool_calls:
                 s.set_attr("empty_response", True)
-            # finish=length = 生成被 max_tokens 截断（reasoning 模型思考段
-            # 吃预算后正文到一半断掉）——span 记录现场供诊断
+            # finish=length 表示生成被 max_tokens 截断（reasoning 模型
+            # 思考占用预算后正文中断）——span 记录现场供诊断
             if response.finish_reason == "length":
                 s.set_attr("truncated", True)
                 s.set_attr("reasoning_len", len(response.reasoning_content or ""))
@@ -359,10 +349,10 @@ class ReActRunner:
                     getattr(response, "usage", {}),
                     getattr(response, "finish_reason", "?"),
                 )
-                # 给个兜底提示（经 hook 事件——渲染层统一显示）
+                # 空响应需要让用户感知，提示经 hook 事件发出
                 await self._agent.hooks.on_stream_delta(run_ctx, "_(模型未生成回答，请重试)_")
             elif response.finish_reason == "length":
-                # 截断必须对用户可见——半截回答会被当作完整回答落盘
+                # 截断必须对用户可见，否则半截回答会被当作完整回答保存
                 logger.warning(
                     "回答被 max_tokens 截断（finish=length, usage=%s, reasoning=%d chars）",
                     getattr(response, "usage", {}),
@@ -424,22 +414,20 @@ class ReActAgent(BaseAgent):
         commands: CommandRouter | None = None,
     ):
         super().__init__(name=name, workspace=workspace)
-        # 能力全部由装配根注入：job_service 可缺席（QA-only 会话无执行入口），
-        # issue_service 必备（RecordCorrection 工具依赖）——本类不再
-        # 自装配存储。
+        # 依赖由调用方注入：job_service 可缺席（纯问答会话无任务队列），
+        # issue_service 必备（RecordCorrection 工具依赖）。
         self.job_service = job_service
         self.llm = llm
-        # 装配根直给的路径身份——命令层不再从工具注册表探测 wiki 根
+        # wiki/materials 路径由调用方注入，命令层从这里读取
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         self.materials_dir = Path(materials_dir) if materials_dir is not None else None
         # vlm 供编译类命令使用（CompilePipeline 需要）
         self.vlm = vlm
         self.agent_config = agent_config or AgentCfg()
-        # 由组装入口传入 RootConfig.compile；默认仅保留给单元测试和
-        # 直接构造 Agent 的兼容路径。
+        # 由组装入口传入 RootConfig.compile；默认值仅供单元测试和直接构造。
         self.compile_config = compile_config or CompileConfig()
         self.retry_config = retry_config or RetryConfig()
-        # 会话存储由组合根注入；独立构造 agent 时用默认实现
+        # 会话管理器由调用方注入；缺席时用默认实现
         self.session_manager = session_manager or SessionManager(workspace=workspace)
         self.tool_registry = tool_registry
         self.memory_store = MemoryStore(workspace=workspace)
@@ -450,8 +438,7 @@ class ReActAgent(BaseAgent):
             tool_registry=tool_registry,
             memory_store=self.memory_store,
             issue_service=self.issue_service,
-            # wiki 目录显式传入（CLI 从配置解析）——build 时读
-            # purpose/schema/index 组装环境块
+            # wiki 目录显式传入；build 时读取其中 purpose/schema/index 组装上下文
             wiki_dir=wiki_dir,
             agent_config=self.agent_config,
         )
@@ -460,21 +447,17 @@ class ReActAgent(BaseAgent):
             consolidate_ratio=self.agent_config.consolidate_ratio,
             trigger_ratio=self.agent_config.trigger_ratio,
         )
-        # 命令 router 由组合根注入（原生命令 + 应用驱动命令）；缺席回退原生
+        # 命令 router 由调用方注入（内置命令 + application 层命令）；缺席用内置 router
         self.commands = commands or create_command_router()
         self.dreamer = Dreamer(workspace=workspace, memory_store=self.memory_store)
         self._dream_task: asyncio.Task | None = None
-        # 配置单一来源——直接读 agent_config（frozen 契约），
-        # 不再维护 dict 视图（双真相：改配置忘同步视图就分叉）
         self.max_loop = self.agent_config.max_loop
 
-        # hooks
         _raw = hooks or []
         self.hooks: AgentHook = (
             CompositeHook(_raw) if len(_raw) > 1 else _raw[0] if _raw else AgentHook()
         )
 
-        # runner
         self._runner = ReActRunner(self)
 
     async def _run(
@@ -485,8 +468,8 @@ class ReActAgent(BaseAgent):
         run_id: str | None = None,
     ):
         self._ensure_dream_task()
-        # 锁覆盖整个 turn，避免两个 turn 基于同一旧 history 生成回答
-        # 后交错写回，导致 history/token cost/compaction/checkpoint 覆盖。
+        # 锁覆盖整个 turn：两个 turn 并发会基于同一旧 history 生成回答并交错
+        # 写回，覆盖 history/token cost/compaction 状态。
         async with self.session_manager.session_lock(session_key):
             begin_trace()
             async with span("turn", session=session_key):
@@ -510,24 +493,23 @@ class ReActAgent(BaseAgent):
 
     @staticmethod
     def _restore_session(session: Session, snapshot: dict) -> None:
-        """取消时恢复未提交的本轮状态；历史消息本来尚未追加。"""
+        """取消时恢复未提交的本轮状态；历史消息此时尚未追加。"""
         session.last_consolidated = snapshot["last_consolidated"]
         session.last_summary = snapshot["last_summary"]
         session.current_window_tokens = snapshot["current_window_tokens"]
-        # token_cost 表示已经实际发生的 LLM 消耗；取消不应伪造为未发生。
-        # 它不等于本轮是否成功写入 history。
+        # token_cost 是已实际发生的 LLM 消耗，取消不恢复；与本轮是否写入 history 无关
         session.updated_at = snapshot["updated_at"]
 
     async def _notify_cancelled(self, run_ctx: RunContext, reason: str) -> None:
-        """取消路径的最后收尾；清理失败不能掩盖原始取消。"""
+        """取消路径的善后；清理失败不能掩盖原始取消。"""
         run_ctx.stop_reason = "cancelled"
         run_ctx.error = reason
         run_ctx.exception = asyncio.CancelledError(reason)
         try:
             await asyncio.shield(self._runner.cancel_active_tools())
             await asyncio.shield(self.hooks.on_run_error(run_ctx))
-            # renderer 的 on_run_end 负责关闭未完成的 stream/tool UI；
-            # 这里虽非成功结束，但必须执行其清理语义。
+            # renderer 的 on_run_end 负责关闭未完成的 stream/tool UI，
+            # 非正常结束也要执行其清理逻辑
             await asyncio.shield(self.hooks.on_run_end(run_ctx))
         except Exception as exc:
             logger.warning("取消收尾失败: %s: %s", type(exc).__name__, str(exc)[:160])
@@ -541,8 +523,8 @@ class ReActAgent(BaseAgent):
     async def generate_session_title(self, question: str, answer: str) -> str:
         """一次轻量非流式调用生成会话短标题。
 
-        关思考、小 max_tokens，不进 ReAct 循环。调用失败抛异常，
-        由编排方兜底为已落盘的截断标题。
+        关闭思考、小 max_tokens，不进 ReAct 循环。调用失败抛异常，
+        由编排方改用已保存的截断标题。
 
         Args:
             question: 用户首轮问题原文。
@@ -577,7 +559,7 @@ class ReActAgent(BaseAgent):
             run_id=run_id or f"run_{uuid4().hex}",
         )
         session: Session = self.session_manager.get_or_create(session_key=session_key)
-        # closed 只表示上一轮 idle 收尾完成；用户重新输入时恢复活动态。
+        # closed 只表示上一轮 idle 清理完成；用户重新输入时恢复活动态
         session.status = "active"
         session.updated_at = datetime.now().isoformat()
         snapshot = self._snapshot_session(session)
@@ -625,36 +607,33 @@ class ReActAgent(BaseAgent):
         run_ctx: RunContext,
         turn_state: dict,
     ):
-        """执行一轮完整对话（restore → 命令分发 → 压缩 → 回答 → save）。
+        """执行一轮完整对话：命令分发 → 压缩 → 回答 → 保存。
 
         Args:
-            session_key: 会话标识。
+            session: 当前会话。
             user_input: 用户输入文本。
             stream: 为 True 时使用流式调用。
+            run_ctx: 回合上下文。
+            turn_state: 本轮可变状态（compaction_persisted 标记）。
         """
         await self.hooks.on_run_start(run_ctx)
 
-        # command — 命令在 restore 之后、压缩之前分发
-        # 命令需要 session 状态，但不应触发昂贵的 LLM 压缩
+        # 命令在压缩之前分发：需要 session 状态，但不应触发 LLM 压缩
         cmd_result = await self.commands.dispatch(
             user_input.strip(), session, self, run_context=run_ctx
         )
         if cmd_result is not None:
             if cmd_result.text:
-                # 命令输出经流式增量事件——渲染层订阅 hook 统一显示
+                # 命令输出同样经流式增量事件发布
                 await self.hooks.on_stream_delta(run_ctx, cmd_result.text + "\n\n")
             if cmd_result.rerun_with:
-                # /retry 类命令：替换 user_input 继续走完整流程
-                # （历史原封不动，追加的"不满意"指令就是新 user 消息）
+                # /retry 类命令：替换 user_input 后继续走完整流程
                 user_input = cmd_result.rerun_with
             else:
-                # 命令路径不跑 LLM loop——手动收尾 run 事件
-                # （正常路径在 run_loop 结束后 on_run_end）
+                # 命令路径不跑 LLM loop，run 结束事件在此发出
                 await self.hooks.on_run_end(run_ctx)
                 return
 
-        # compact
-        # 对会话进行压缩
         await self.hooks.on_status(run_ctx, "compacting")
         async with span("compaction", session=session.key) as s:
             consolidation = await self.consolidator.maybe_consolidate(
@@ -682,13 +661,12 @@ class ReActAgent(BaseAgent):
             )
 
         if consolidated:
-            # 这里不需要锁，因为session之间在while下一定是串行的，后面改成消息队列的话再处理
             saved = await self.session_manager.asave(session)
             if saved:
-                # 压缩是历史状态整理；一旦 checkpoint 成功，即使本轮
-                # 回答后来取消，也保留它，避免下一轮重复压缩。
+                # 压缩 checkpoint 成功后即使本轮回答随后取消也保留，
+                # 避免下一轮重复压缩
                 turn_state["compaction_persisted"] = True
-            # 单用户模式：所有session共享同一个history
+            # 单用户模式：所有 session 共享同一份 history
             await asyncio.to_thread(
                 self.memory_store.append_history, session=session, summary=session.last_summary
             )
@@ -696,8 +674,7 @@ class ReActAgent(BaseAgent):
 
         current_message = Message(role="user", content=user_input)
 
-        # build
-        # 注意这里的history是未压缩的部分，长度比真实的historyfile小
+        # history 只含未压缩部分，比落盘的完整历史短
         history = session.get_history(max_messages_length=self.agent_config.max_messages_length)
         messages = self.context_builder.build_messages(
             session=session,
@@ -707,18 +684,15 @@ class ReActAgent(BaseAgent):
         )
         initail_message_count = len(messages)
 
-        # RUN
         await self._runner.run_loop(session, messages, stream, run_ctx)
 
-        # SAVE
         get_skip_count = self._get_skip_count(
             initial_message_count=initail_message_count,
         )
 
-        session.add_messages(messages[get_skip_count:])  # 纯内存操作，不值一次线程往返
+        session.add_messages(messages[get_skip_count:])  # 纯内存操作，不必经线程
         await self.session_manager.asave(session)
 
-        # on_run_end
         run_ctx.final_content = messages[-1].content if messages else ""
         await self.hooks.on_run_end(run_ctx)
 
@@ -747,7 +721,7 @@ class ReActAgent(BaseAgent):
                 continue
 
             async with self.session_manager.session_lock(session.key):
-                # 等锁期间可能已有新消息，重新检查而不是盲目收尾。
+                # 等锁期间可能已有新消息，取锁后重新检查再决定是否收尾
                 try:
                     idle_for = (
                         datetime.now() - datetime.fromisoformat(session.updated_at)
@@ -791,7 +765,7 @@ class ReActAgent(BaseAgent):
         return changed
 
     async def dream_loop(self, interval: int = 60):
-        """定期结束 idle session，并处理已落账的 Dream 输入。
+        """定期结束 idle session，并处理待整理的 Dream 输入。
 
         Args:
             interval: 检查间隔（秒）。
@@ -805,8 +779,8 @@ class ReActAgent(BaseAgent):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                # Dream 是后台维护任务，失败不能杀死 Agent 主循环；下个
-                # poll 会再次尝试，且 Dreamer 不会在失败时推进游标。
+                # Dream 是后台任务，失败不影响 agent 运行；下个周期重试，
+                # 且 Dreamer 失败时不推进游标
                 logger.warning(
                     "idle/dream 后台任务失败: %s: %s", type(exc).__name__, str(exc)[:200]
                 )
@@ -821,7 +795,4 @@ class ReActAgent(BaseAgent):
             新消息的起始下标（丢弃 build 阶段的历史部分，
             只追加本轮新增消息）。
         """
-        # 在nanobot上，情况稍微复杂点，因为作者想要崩溃时保存住用户的消息，为了防止突然崩溃，会提前将合并的部分写入磁盘
-        # 所以合并不合并的起始在这种情况下就改变了。但是我的设计逻辑是，任何情况下history都存储的是上一轮结束的结果
-        # 如果这一轮崩溃，自然回退到上一轮，代价是用户需要重新输入一遍。
         return initial_message_count - 1
