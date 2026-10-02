@@ -1,11 +1,11 @@
-"""Trace 传播层——trace_id + span，异步并发安全（任务间互不串扰）。
+"""Trace 传播层：trace_id + span，基于 contextvars，异步并发下互不影响。
 
-- trace_id: 一次 agent.run() 一个，贯穿 LLM 调用/工具执行/压缩全链路
-- span: 嵌套计时区间，自动记录起止和耗时到事件日志
+- trace_id: 一次 agent.run() 一个，贯穿 LLM 调用/工具执行/压缩
+- span: 嵌套计时区间，退出时自动把耗时写入事件日志
 
 用法::
 
-    async with span("llm_call", model="deepseek-v4-flash"):
+    async with span("llm_call", model="x"):
         response = await llm.async_invoke(...)
     # 退出时自动 emit: {"event": "llm_call", "dur_ms": ..., "status": "ok"}
 """
@@ -59,7 +59,7 @@ def begin_trace(trace_id: str | None = None) -> str:
 
 
 class span:
-    """嵌套计时区间——退出时自动 emit 事件到结构化日志。
+    """嵌套计时区间，退出时自动 emit 事件到结构化日志。
 
     用法::
 
@@ -68,7 +68,7 @@ class span:
 
     成功:  emit {"event": "llm_call", "dur_ms": 123, "status": "ok", ...attrs}
     异常:  emit {"event": "llm_call", "dur_ms": 123, "status": "error", "error": "..."}
-          然后 re-raise（span 只观察，不吞异常）
+          然后原样抛出，不吞异常
     """
 
     __slots__ = (
@@ -115,7 +115,7 @@ class span:
         return self
 
     def set_attr(self, key: str, value: Any) -> None:
-        """补充观测属性——span 运行中收集上下文（成功数/游标等）。
+        """向退出事件中追加观测属性。
 
         Args:
             key: 属性名。
@@ -124,7 +124,7 @@ class span:
         self._attrs[key] = value
 
     def mark_failure(self, reason: str) -> None:
-        """标记失败——异常外的失败路径（空响应/校验失败）用。
+        """标记非异常失败（空响应/校验失败等）。
 
         Args:
             reason: 失败原因描述。
@@ -151,5 +151,5 @@ class span:
             _span_id_var.reset(self._token)
         if self._prev_span_id is not None:
             _span_id_var.set(self._prev_span_id)
-        # 不吞异常——返回 None 即让异常照常传播（类型检查据此不误判可抑制）
+        # 返回 None，不吞异常
         return

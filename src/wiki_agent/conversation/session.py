@@ -1,10 +1,12 @@
-# 实现session和session manager
+"""会话与会话管理。
 
-# session 主要负责单个会话的持久化和回复，消息检索存储，基本的元信息管理，不触碰数据本身的操作逻辑
-# session manager 则负责管理一个会话的生命周期和状态管理，创建，读取，删除，获取状态等
+Session 负责单个会话的持久化、消息存储检索与元信息；
+SessionManager 负责会话生命周期：创建、读取、删除、状态查询。
+"""
+
 import asyncio
 import json
-import os  # 用于将tmp替换原始文件
+import os  # 用于原子替换与 fsync
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -18,31 +20,28 @@ from wiki_agent.utils import (
 
 logger = get_logger("SESSION")
 
-_FREE = asyncio.Lock()  # 未持锁会话判定用的共享哨兵
+_FREE = asyncio.Lock()  # 会话无锁时的占位，供 locked() 判断
 
 
 class Session:
     def __init__(self, key):
-        # 身份/元信息
-        self.key = key  # 我是谁，标识
+        self.key = key
 
         self.created_at = datetime.now().isoformat()
         self.updated_at = datetime.now().isoformat()
 
-        # 状态信息
         self.session_title = "未命名"
         self.status: Literal["active", "closed"] = "active"
         self.token_cost: dict = {"prompt": 0, "completion": 0, "total": 0}
         self.current_window_tokens: int = 0
         self.last_consolidated: int = 0
         self.last_summary: str = ""
-        # 已写入 MemoryStore.history 的会话消息边界，避免 idle 收尾
-        # 在短会话上重复把同一批消息送进 Dreamer。
+        # 已写入 MemoryStore.history 的消息边界，idle 收尾据此
+        # 避免把同一批消息重复送进 Dreamer
         self.last_memory_archived: int = 0
 
-        # 内容信息
         self.history: list[Message] = []
-        # 已落盘消息条数——checkpoint 增量写指针（history 只追加，压缩移游标）
+        # 已落盘消息条数；history 只追加，压缩仅移动游标
         self._persisted_count = 0
 
     def add_message(self, message: Message):
@@ -56,10 +55,9 @@ class Session:
         self.updated_at = datetime.now().isoformat()
 
     def get_history(self, max_messages_length: int = 10, extend_to_user: bool = True):
-        """
-        返回满足最大长度且起始合法的历史窗口。
+        """返回满足最大长度且起点合法的历史窗口。
 
-        只保证窗口起点合法，不保证整个窗口合法（build 阶段再处理）。
+        只保证窗口起点合法，不保证整个窗口合法。
 
         Args:
             max_messages_length: 窗口最大消息数。
@@ -70,7 +68,6 @@ class Session:
         """
         if max_messages_length <= 0:
             return []
-        # 1. 选中可选的未压缩信息
         unconsolidated_messages = self.history[self.last_consolidated :]
         limited_messages = []
         if len(unconsolidated_messages) < max_messages_length:
@@ -82,8 +79,7 @@ class Session:
         return messages
 
     def update_token_cost(self, prompt: int, completion: int, total: int):
-        """
-        累加本轮调用的 token 消耗。
+        """累加本轮调用的 token 消耗。
 
         Args:
             prompt: 本轮 prompt token 数。
@@ -151,7 +147,6 @@ class SessionManager:
         with open(file_path) as f:
             for line in f:
                 try:
-                    # 处理空行,空行会带"\n"，需要进行strip
                     if not line.strip():
                         continue
 
@@ -167,7 +162,7 @@ class SessionManager:
         return metadata, history
 
     def _validate_meta_data(self, meta_data: dict):
-        # key/last_consolidated 用 is None 判断（0 是合法值——空会话游标从 0 开始）
+        # 用 is None 判断：0 是合法值（空会话游标从 0 开始）
         for required in ("key", "last_consolidated"):
             if meta_data.get(required, None) is None:
                 logger.warning("元信息损坏（缺 %s），将新建会话", required)
@@ -183,7 +178,7 @@ class SessionManager:
         if not meta_data.get("status", None):
             meta_data["status"] = "active"
 
-        # 兼容旧 checkpoint 的错拼字段；后续 save_checkpoint 只写新字段。
+        # 兼容旧 checkpoint 中的错拼字段 last_summery
         if meta_data.get("last_summary") is None:
             meta_data["last_summary"] = meta_data.get("last_summery", "")
 
@@ -209,7 +204,6 @@ class SessionManager:
                 except (OSError, ValueError):
                     logger.warning("meta 文件损坏，回退 jsonl 内嵌头: %s", session_key)
 
-            # 分解文件，读取metadata，和content，重新组织session
             validate_meta_data = self._validate_meta_data(meta_data)
             if validate_meta_data:
                 session = Session(key=meta_data["key"])
@@ -228,15 +222,15 @@ class SessionManager:
         return None
 
     async def asave(self, session: Session, *, fsync: bool = False) -> bool:
-        """save_checkpoint 的 async 门面：线程池落盘，调用点不再各自 to_thread。"""
+        """在线程池中调用 save_checkpoint。"""
         return await asyncio.to_thread(self.save_checkpoint, session, fsync)
 
     def save_checkpoint(self, session: Session, fsync: bool = False):
-        """持久化会话：meta 原子小文件替换，消息增量追加。
+        """持久化会话：meta 原子替换小文件，消息增量追加。
 
-        history 只追加（压缩移动游标不删行），每次只写上次落盘后的新增
-        行——回合写盘成本与会话总长无关。崩溃留下的半行由读取侧跳过，
-        重新载入按现存行数对齐 _persisted_count，自愈。
+        history 只追加（压缩只移动游标，不删行），每次只写上次落盘后的
+        新增行，写盘成本与会话总长无关。异常退出留下的半行由读取侧跳过，
+        载入后按现存行数对齐 _persisted_count。
 
         fsync 为 True 时立即刷盘（较慢）；False 只写页缓存。
 
@@ -273,7 +267,7 @@ class SessionManager:
                     if fsync:
                         f.flush()
                         os.fsync(f.fileno())
-            # meta 最后写：它描述的 updated_at 不能跑在消息内容前面
+            # meta 在消息之后写：其 updated_at 不早于本轮消息内容
             tmp_meta = file_path.with_suffix(".meta.tmp")
             with open(tmp_meta, "w", encoding="utf-8") as f:
                 f.write(json.dumps(metadata_line, ensure_ascii=False))
@@ -282,7 +276,7 @@ class SessionManager:
                     os.fsync(f.fileno())
             os.replace(tmp_meta, session_dir / f"{key}.meta.json")
             if fsync:
-                # 目录本质是特殊文件，新条目可见性需目录也刷新
+                # 刷新目录，保证替换后的 meta 可见
                 with open(session_dir) as dir_fd:
                     os.fsync(dir_fd.fileno())
             session._persisted_count = len(session.history)

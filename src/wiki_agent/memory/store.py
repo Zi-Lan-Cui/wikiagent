@@ -43,12 +43,10 @@ class MemoryStore:
         return self.memory_dir / "memory.md"
 
     def get_cursor(self) -> int:
-        """
-        获取 history 游标（已处理的行数）。
+        """获取 history 游标（已处理的行数）。
 
         Returns:
-            游标值；文件缺失/损坏时回退为按文件行数统计
-            （并回写校正游标文件）。
+            游标值；文件缺失或损坏时按 history 行数统计并回写校正。
         """
         try:
             raw = self.cursor_file.read_text()
@@ -62,11 +60,10 @@ class MemoryStore:
             return self._read_history_counts()
 
     def get_dream_cursor(self) -> int:
-        """
-        获取 dream 游标（指向的值已被处理）。
+        """获取 dream 游标（该值之前的记录已被 Dreamer 处理）。
 
         Returns:
-            dream 游标值；文件缺失/损坏返回 0。
+            dream 游标值；文件缺失或损坏返回 0。
         """
         try:
             raw = self.dream_cursor_file.read_text()
@@ -77,15 +74,15 @@ class MemoryStore:
             return 0
 
     def _atomic_write(self, path: Path, content: str, fsync: bool = False) -> None:
-        """原子写——tmp + fsync（可选）+ replace + 目录 fsync。
+        """原子写：写 tmp、可选 fsync、replace、目录 fsync。
 
-        与 session.save_checkpoint 同模式: replace 保证读者
-        要么旧要么新；fsync 防掉电丢已确认的写。
+        replace 使读者要么看到旧文件要么看到新文件；
+        fsync 防止掉电丢失已确认的写入。
 
         Args:
             path: 目标文件路径。
             content: 写入内容。
-            fsync: 是否强制刷盘（目录 fsync 一并做）。
+            fsync: 是否强制刷盘（含目录）。
         """
         tmp = path.with_suffix(".tmp")
         with open(tmp, "w") as f:
@@ -106,10 +103,10 @@ class MemoryStore:
         self._atomic_write(self.dream_cursor_file, str(new_cursor), fsync=fsync)
 
     def append_history(self, session: Session, summary: str, fsync: bool = False):
-        """
-        追加一条压缩记录。
+        """追加一条压缩记录。
 
-        不区分 session，按 session.key 分组后再由 dreamer 处理。
+        各会话的记录混写同一文件，由 get_unprocessed_history 按
+        session.key 分组后交给 Dreamer。
 
         Args:
             session: 产生记录的会话。
@@ -135,11 +132,10 @@ class MemoryStore:
         self.update_cursor(next_cursor, fsync=fsync)
 
     def get_unprocessed_history(self) -> dict:
-        """
-        返回 dream 游标之后按 session 分组的历史记录。
+        """返回 dream 游标之后、按 session 分组的历史记录。
 
         Returns:
-            session.key → 记录列表的映射；文件缺失/损坏返回空 dict。
+            session.key → 记录列表的映射；文件缺失或损坏返回空 dict。
         """
         memory_cursor = self.get_dream_cursor()
         try:
@@ -147,8 +143,7 @@ class MemoryStore:
             with open(self.history_file) as f:
                 for line in f:
                     entry = json.loads(line.strip())
-                    # history.jsonl 曾将 summary 错拼为 summery；读取时
-                    # 规范化，下一次追加只会写正确字段。
+                    # 兼容旧记录中的错拼字段 summery，读取时规范化
                     if "summary" not in entry:
                         entry["summary"] = entry.get("summery", "")
                     entry.pop("summery", None)

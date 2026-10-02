@@ -1,4 +1,4 @@
-"""LLM-driven consolidation of conversation history into user memory."""
+"""LLM 驱动的记忆加工：把会话历史汇总为用户画像。"""
 
 import json
 from pathlib import Path

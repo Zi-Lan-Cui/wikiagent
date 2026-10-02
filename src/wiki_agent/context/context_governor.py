@@ -11,21 +11,20 @@ from wiki_agent.utils import (
 
 logger = get_logger("CONTEXT_GOVERNOR")
 
-# 内部瞬时工具——结果是副作用确认（无时效内容），不驱逐不标注
+# 内部瞬时工具：结果只确认副作用，无时效性，不参与驱逐
 _INTERNAL_TRANSIENT_TOOLS = frozenset({"RecordCorrection"})
 
 
 def _age_label(age_seconds: float) -> str:
     """新鲜度粗粒度分桶。
 
-    逐分钟变化会破坏 prompt cache 前缀稳定——桶粒度保证占位
-    文本在会话内稳定。
+    精确到分钟会破坏 prompt cache 前缀稳定，桶粒度保证占位文本会话内不变。
 
     Args:
         age_seconds: 年龄（秒）。
 
     Returns:
-        中文分桶标签（刚刚/几分钟前/半小时内/超过一小时）。
+        分桶标签（刚刚/几分钟前/半小时内/超过一小时）。
     """
     if age_seconds < 60:
         return "刚刚"
@@ -38,19 +37,17 @@ def _age_label(age_seconds: float) -> str:
 
 class ContextGovernor:
     _MERGEABLE_ROLES = {"user", "assistant"}
-    # 导航三件套是探索原语，输出已自限——不截断，模型需要完整结果决定下一步
+    # ReadFile/Grep/ListDir 输出量已由工具自身限制，不转存，
+    # 模型需要完整结果决定下一步
     _PERSIST_EXEMPT_TOOLS = frozenset({"ReadFile", "Grep", "ListDir"})
 
     def __init__(self, workspace: Path, agent_config=None, tool_ttl: dict[str, int] | None = None):
-        """初始化治理器。
-
-        治理参数从 agent_config 取；tool_ttl 是测试注入口
-        （测试传 60 秒验证驱逐行为，生产用 config 默认）。
+        """初始化上下文治理器。
 
         Args:
             workspace: 工作区（tmp/ 转存目录的根）。
-            agent_config: AgentConfig（治理参数来源；None 用默认）。
-            tool_ttl: 工具名 → TTL 秒数覆盖表（测试注入用）。
+            agent_config: AgentConfig，治理参数来源；None 用默认。
+            tool_ttl: 工具名 → TTL 秒数覆盖表，测试注入用。
         """
         self.workspace = workspace
         self.tmp_dir = self.workspace / "tmp"
@@ -103,10 +100,9 @@ class ContextGovernor:
     ) -> list[Message]:
         """请求前消息治理流水线。
 
-        repair 出现两次（前后各一）:
-        - 前置: 修复历史本身的断裂（上次崩溃留下的孤儿调用/结果）
-        - 后置: snip 按窗口截断可能切断调用-结果配对、inflight
-          紧凑化替换内容也可能产生新孤儿——发出请求前必须再修一次
+        repair 前后各执行一次：前置修复历史中已有的孤儿调用/结果；
+        snip 截断和 inflight 紧凑化可能切断调用-结果配对或产生新孤儿，
+        发出请求前需再修一次。
 
         Args:
             session: 会话（转存/驱逐的归属）。
@@ -114,7 +110,7 @@ class ContextGovernor:
             agent_config: AgentConfig（预算参数）。
 
         Returns:
-            治理后的消息列表（可安全发给 LLM）。
+            治理后的消息列表（可发给 LLM）。
         """
         messages = self._merge_consecutive(messages)
         messages = self._repair_broken_history(messages=messages)
@@ -129,11 +125,10 @@ class ContextGovernor:
         return context_window - max_tokens - self._safe_buffer
 
     def _snip_by_tokens(self, messages: list[Message], agent_config):
-        """
-        按 token 预算截断对话部分（保留 system）。
+        """按 token 预算截断对话部分（保留 system）。
 
-        逆序收集（从最近开始保留），再反转恢复时间顺序——避免
-        输出倒序对话。失败时返回原始消息，让 LLM 自然失败。
+        从最近的消息逆序收集到预算后反转回时间序。截断失败时
+        返回原始消息，交由 LLM 报错。
 
         Args:
             messages: 消息列表。
@@ -164,10 +159,8 @@ class ContextGovernor:
         if conversation_tokens <= target:
             return messages
 
-        # 逆序收集（最近的在末尾停下），再反转恢复时间顺序。
-        # 旧代码收集完直接拼接——输出是倒序对话（问题3回答3问题2...），
-        # LLM 读到逆时间线。find_first_legal_idx 在同一列表上做，
-        # 两个操作都要在反转后的时间序上进行。
+        # 逆序收集后反转回时间序；find_first_legal_idx 也必须在
+        # 反转后的列表上操作
         saved_tokens = 0
         saved_messages_reversed: list[Message] = []
         for message in reversed(conversation_messages):
@@ -186,7 +179,7 @@ class ContextGovernor:
         idx = find_first_legal_idx(saved_messages, extend_to_user=True)
         return system_messages + saved_messages[idx:]
 
-    # 窗口维度紧凑化（空间不够就丢可重取结果）
+    # inflight 紧凑化：空间不够时丢弃可重取的工具结果
 
     def _total_tokens(self, messages: list[Message]) -> int:
         return sum(estimate_text_tokens(m.text_schema) for m in messages)
@@ -196,15 +189,14 @@ class ContextGovernor:
         messages: list[Message],
         agent_config,
     ) -> None:
-        """窗口维度驱逐——snip 后仍超预算时，丢弃可重取工具结果。
+        """snip 后仍超预算时，把可重取工具结果换成占位符。
 
-        snip 处理"历史太长"（丢最老消息）；本步处理"单条消息太大"——
-        最近一条巨型工具结果让 snip 无从下手（要么全丢要么全留）时，
-        把可重取工具的结果换成占位符，让模型需要时重新调用。
+        snip 丢最老消息，处理历史过长；本步处理单条消息过大——
+        最近的巨型工具结果使 snip 只能全丢或全留时，将可重取结果
+        替换为占位符，模型需要时重新调用。
 
-        与 TTL 驱逐的互补: TTL 是时间维度（旧了就扔，窗口有空间也扔），
-        本步是空间维度（窗口不够了就扔，还新鲜也扔）。同一白名单
-        （self._tool_ttl 的 key = 可重取工具注册表）。
+        与 TTL 驱逐互补：TTL 按时间驱逐（过期即驱逐），本步按空间
+        驱逐（超预算即驱逐）。两者共用 self._tool_ttl 登记的可重取工具集合。
 
         Args:
             messages: 消息列表（就地修改 tool 消息内容）。
@@ -231,7 +223,7 @@ class ContextGovernor:
         if not tool_indexes:
             return
 
-        # 最新一条保留（最新结果最可能有价值——简化的 keep-recent）
+        # 保留最新一条结果，其余按顺序紧凑化
         if len(tool_indexes) > 1:
             tool_indexes = tool_indexes[:-1]
 
@@ -254,13 +246,13 @@ class ContextGovernor:
     def _safe_session_dir(session_key: str) -> str:
         """净化 session key 为安全目录名。
 
-        session key 可能来自 --resume 用户输入——防路径穿越。
+        session key 可能来自 --resume 用户输入，需防路径穿越。
 
         Args:
             session_key: 原始 session key。
 
         Returns:
-            净化后的目录名（非法字符替换为 _，空值兜底 "default"）。
+            净化后的目录名（非法字符替换为 _，空值用 "default"）。
         """
         return re.sub(r"[^\w\-]", "_", session_key) or "default"
 
@@ -272,7 +264,7 @@ class ContextGovernor:
             message: 要转存的 tool 消息。
 
         Returns:
-            相对指针路径（相对 workspace/）——不泄漏用户文件系统布局。
+            相对 workspace/ 的指针路径，避免暴露文件系统布局。
         """
         safe_key = self._safe_session_dir(session.key)
         persist_path = self.tmp_dir / safe_key
@@ -282,7 +274,7 @@ class ContextGovernor:
         return f"tmp/{safe_key}/{file.name}"
 
     def _maybe_persist_tool_result(self, session: Session, message: Message):
-        # 豁免工具（ReadFile/Grep/ListDir）不转存——导航原语需要完整结果
+        # 探索类工具（ReadFile/Grep/ListDir）不转存，模型需要完整结果
         if message.tool_name in self._PERSIST_EXEMPT_TOOLS:
             return
         content_length = len(message.content)
@@ -300,8 +292,7 @@ class ContextGovernor:
         session: Session,
         messages: list[Message],
     ):
-        """
-        处理工具结果——超长结果转存文件，内容替换为指针路径。
+        """处理工具结果：超长结果转存文件，内容替换为相对路径。
 
         Args:
             session: 会话（转存目录归属）。
@@ -313,17 +304,17 @@ class ContextGovernor:
             self._maybe_persist_tool_result(session, message)
 
     def _tool_age_seconds(self, message: Message) -> float:
-        """计算工具结果年龄——经 Message.created_at 查询接口。
+        """计算工具结果年龄（Message.created_at 起算）。
 
         Args:
             message: 工具消息。
 
         Returns:
-            年龄（秒）；时间戳损坏返回 0（视为新鲜，保守不驱逐）。
+            年龄（秒）；时间戳缺失返回 0，视为新鲜不驱逐。
         """
         created = message.created_at
         if created is None:
-            return 0.0  # 时间戳损坏视为新鲜——保守不驱逐
+            return 0.0
         return (datetime.now() - created).total_seconds()
 
     def _stale_result_reason(self, message: Message) -> str | None:
@@ -333,7 +324,7 @@ class ContextGovernor:
             message: 消息。
 
         Returns:
-            过期占位文本；新鲜/豁免/未登记工具返回 None。
+            过期占位文本；新鲜、豁免或未登记的工具返回 None。
         """
         if message.role != "tool" or not message.content.strip():
             return None
@@ -352,12 +343,11 @@ class ContextGovernor:
         return None
 
     def _expire_stale_tool_results(self, messages: list[Message]) -> None:
-        """TTL 硬驱逐——过期工具结果替换为占位提示（模型重新调用）。
+        """TTL 驱逐：过期工具结果替换为占位提示，由模型重新调用。
 
-        只作用于可重复获得的工具（wiki 导航三件套）：wiki 经
-        compile 变化后，长对话跨轮携带的旧读取结果已失真。
-        占位消息本身不设过期（防死循环——驱逐一次后模型若不理，
-        下一轮重估年龄已重置，过期内容不再注入）。
+        只作用于可重复获得结果的工具：wiki 内容经 compile 变化后，
+        长对话跨轮携带的旧读取结果不再准确。
+        已替换的占位文本含"已过期"，再次 prepare 时跳过，不重复替换。
 
         Args:
             messages: 消息列表（就地修改过期 tool 消息）。
@@ -366,7 +356,7 @@ class ContextGovernor:
             reason = self._stale_result_reason(message)
             if reason is None:
                 continue
-            # 标记已驱逐（幂等）——重复 prepare 不二次替换
+            # 已是占位文本则跳过，保证重复调用不二次替换
             if "已过期" in message.content:
                 continue
             logger.info(

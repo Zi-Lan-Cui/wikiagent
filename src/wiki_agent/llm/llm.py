@@ -18,21 +18,20 @@ logger = get_logger("LLMCLIENT")
 
 
 def _openai_messages(messages: list[Message]) -> list[ChatCompletionMessageParam]:
-    """Serialize internal messages at the boundary to the OpenAI SDK."""
+    """转换为 OpenAI SDK 的消息格式。"""
     return cast(list[ChatCompletionMessageParam], [message.openai_schema for message in messages])
 
 
 def _parse_tool_calls(openai_calls) -> list[ToolCall]:
-    """将 OpenAI 工具调用转换为内部 ToolCall 列表。
+    """将 OpenAI 工具调用转换为 ToolCall 列表。
 
-    arguments 解析失败不丢弃调用本身——空 args + 警告（调用存在
-    是事实，参数坏是 LLM 的错；丢弃会让上层误以为没调用）。
+    arguments 解析失败时保留该调用并将参数置空，避免上层误判为未调用。
 
     Args:
         openai_calls: OpenAI 响应中的 tool_calls 列表。
 
     Returns:
-        内部 ToolCall 列表（坏参数调用保留空 arguments）。
+        ToolCall 列表；参数解析失败的调用 arguments 为空 dict。
     """
     result: list[ToolCall] = []
     for tc in openai_calls:
@@ -58,21 +57,18 @@ class LLMClient:
     ):
         """初始化 LLM 客户端。
 
-        构造即完整——配置注入后立刻可用，无中间态。
-
         Args:
             config: LLM 配置（api_key/base_url/model_id）。
+            retry_config: 重试配置，缺省用默认值。
+            request_limiter: 请求限流器，缺省按 config 参数构造。
         """
         self.api_key: str = config.api_key
         self.base_url: str = config.base_url
         self.model_id: str = config.model_id
-        # ``enabled`` is the provider default and sends no vendor-specific
-        # field; ``disabled`` uses the compatible-mode switch supported by the
-        # configured OpenAI-compatible endpoint.
+        # enabled 是服务端默认，不发送字段；disabled 通过兼容端点的开关字段关闭。
         self.default_extra_body = (
             {"thinking": {"type": "disabled"}} if config.thinking == "disabled" else None
         )
-        # 注入 RootConfig.retry；默认保留给直接构造客户端的测试兼容路径。
         self.retry_config = retry_config or RetryConfig()
         self.request_limiter = request_limiter or RequestLimiter(
             max_concurrency=config.max_concurrency,
@@ -109,7 +105,7 @@ class LLMClient:
         return max(1, estimate_text_tokens(text) + image_budget + (max_tokens or 0))
 
     def _request_extra_body(self, extra_body: dict | None) -> dict | None:
-        """Return explicit request options or the configured reasoning policy."""
+        """返回请求级 extra_body；未提供时用配置的 thinking 策略。"""
         return self.default_extra_body if extra_body is None else extra_body
 
     def invoke(
@@ -133,7 +129,7 @@ class LLMClient:
         temperature: float = 0.5,
         extra_body: dict | None = None,
     ) -> LLMResponse:
-        """同步非流式调用（内部工具，测试/脚本用）。
+        """同步非流式调用本体，不含限流；invoke() 申请限流槽后调用此方法。
 
         Args:
             messages: 消息列表（内部 Message 格式）。
@@ -143,10 +139,10 @@ class LLMClient:
             extra_body: 附加请求体参数（如 thinking 开关）。
 
         Returns:
-            组装好的 LLMResponse。
+            LLMResponse。
 
         Raises:
-            翻译后的异常分类（RetryableError/FatalError）。
+            翻译后的分类异常（RetryableError/FatalError）。
         """
         try:
             response = self.client.chat.completions.create(
@@ -162,9 +158,8 @@ class LLMClient:
             llm_response.finish_reason = response.choices[0].finish_reason
             message = response.choices[0].message
             llm_response.content = message.content or ""
-            # reasoning 模型（如 deepseek-v4-flash）把思考放独立字段。
-            # 不读它时思考会静默吃掉整个 max_tokens 预算、content 留空——
-            # 捕获下来用于诊断与日志（编译流水线用 thinking=disabled 关掉它）
+            # reasoning 模型的思考内容在独立字段；不捕获则 max_tokens 被思考
+            # 耗尽而 content 为空。捕获用于诊断与日志。
             llm_response.reasoning_content = getattr(message, "reasoning_content", "") or ""
 
             if message.tool_calls:
@@ -172,7 +167,7 @@ class LLMClient:
 
             return llm_response
         except Exception as e:
-            # 翻译成三分类异常——类型携带策略，上层按类型决策重试/放弃
+            # 翻译为分类异常，上层按类型决定重试或放弃
             raise translate_openai_error(e) from e
 
     async def async_invoke(
@@ -208,14 +203,13 @@ class LLMClient:
             max_tokens: 生成 token 上限。
             temperature: 采样温度。
             extra_body: 附加请求体参数（如 thinking 开关）。
-            response_format: API 级输出格式（如 {"type": "json_object"}）——
-                编译阶段用它消灭 fence/前言类格式噪声重试；None 不传。
+            response_format: API 级输出格式约束；None 不传。
 
         Returns:
-            组装好的 LLMResponse（含 usage 与 cache_hit/cache_miss）。
+            LLMResponse（含 usage 与 cache_hit/cache_miss）。
 
         Raises:
-            翻译后的三分类异常。
+            翻译后的分类异常。
         """
         try:
             response = await self.async_client.chat.completions.create(
@@ -225,7 +219,7 @@ class LLMClient:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 extra_body=self._request_extra_body(extra_body),
-                # SDK 签名不收 None——省略用 NOT_GIVEN 哨兵（等同不传）
+                # SDK 签名不接受 None，用 omit 表示不传
                 response_format=response_format if response_format is not None else openai.omit,
             )
             llm_response = LLMResponse()
@@ -238,7 +232,7 @@ class LLMClient:
                 "prompt": usage.prompt_tokens if usage else 0,
                 "completion": usage.completion_tokens if usage else 0,
                 "total": usage.total_tokens if usage else 0,
-                # 磁盘缓存命中监控——prompt cache 纪律的执行机制
+                # prompt cache 命中监控
                 "cache_hit": getattr(usage, "prompt_cache_hit_tokens", 0) or 0,
                 "cache_miss": getattr(usage, "prompt_cache_miss_tokens", 0) or 0,
             }
@@ -279,14 +273,9 @@ class LLMClient:
     ) -> LLMResponse:
         """基于回调的流式调用。
 
-        流式过程中每收到一段文本即调用 ``on_delta(delta)``；reasoning 模型
-        的思考段在 ``delta.reasoning_content`` 分片到达，同样每段调用
-        ``on_reasoning(chunk)``——不接它就整段丢弃，回答前界面只能干等。
-        返回组装好的 ``LLMResponse``（content + reasoning + tool_calls + usage）。
-
-        on_delta 支持同步/异步两种回调（返回值 awaitable 则 await）——
-        订阅方（agent 的 on_stream_delta hook）是 async 的，
-        流式增量要按序触发。
+        每收到一段文本调用一次 on_delta；reasoning 模型的思考段每片调用一次
+        on_reasoning（未传回调时思考段仅累积不触发）。on_delta/on_reasoning
+        支持同步或异步，返回 awaitable 时 await，保证增量按序处理。
 
         Args:
             messages: 消息列表（内部 Message 格式）。
@@ -294,12 +283,13 @@ class LLMClient:
             max_tokens: 生成 token 上限。
             temperature: 采样温度。
             on_delta: 每收到一段文本调用一次的回调（同步或异步）。
+            on_reasoning: 每收到一段思考内容调用一次的回调（同步或异步）。
 
         Returns:
-            组装好的 LLMResponse（content + tool_calls + usage）。
+            LLMResponse（content + reasoning_content + tool_calls + usage）。
 
         Raises:
-            翻译后的三分类异常。
+            翻译后的分类异常。
         """
         tool_calls_buffer: dict[int, dict[str, str]] = {}
         content_buffer = ""
@@ -326,14 +316,12 @@ class LLMClient:
                         "prompt": chunk.usage.prompt_tokens,
                         "completion": chunk.usage.completion_tokens,
                         "total": chunk.usage.total_tokens,
-                        # 磁盘缓存命中监控（流式最后一个 chunk 才带 usage）
+                        # prompt cache 命中监控（流式仅最后一个 chunk 带 usage）
                         "cache_hit": getattr(chunk.usage, "prompt_cache_hit_tokens", 0) or 0,
                         "cache_miss": getattr(chunk.usage, "prompt_cache_miss_tokens", 0) or 0,
                     }
 
-                # OpenAI-compatible providers may emit a final usage-only
-                # chunk with ``choices=[]`` when stream_options includes
-                # usage.  It is valid metadata, not a generation failure.
+                # 部分兼容端点在流末追加 choices 为空、仅含 usage 的 chunk，属正常
                 if not chunk.choices:
                     continue
 
@@ -384,7 +372,7 @@ class LLMClient:
                         )
                     )
                 except json.JSONDecodeError:
-                    # 保留空参数的调用——调用存在是事实（与 _parse_tool_calls 同语义）
+                    # 解析失败仍保留调用，参数置空（与 _parse_tool_calls 一致）
                     logger.warning("工具调用 %s 参数解析失败——保留空参数", tool_call["name"])
                     tool_calls_list.append(
                         ToolCall(id=tool_call["id"], name=tool_call["name"], arguments={})
@@ -434,10 +422,10 @@ class LLMClient:
             on_delta: 每收到一段文本调用一次的回调（仅同步）。
 
         Returns:
-            组装好的 LLMResponse（content + tool_calls）。
+            LLMResponse（content + tool_calls）。
 
         Raises:
-            翻译后的三分类异常。
+            翻译后的分类异常。
         """
         tool_calls_buffer: dict[int, dict[str, str]] = {}
         content_buffer = ""
@@ -456,8 +444,7 @@ class LLMClient:
             )
 
             for chunk in stream_response:
-                # Some compatible endpoints append a usage-only chunk with
-                # no choices.  Ignore it instead of indexing an empty list.
+                # 部分兼容端点在流末追加 choices 为空、仅含 usage 的 chunk，跳过
                 if not chunk.choices:
                     continue
 
@@ -495,7 +482,7 @@ class LLMClient:
                         ToolCall(id=tool["id"], name=tool["name"], arguments=args)
                     )
                 except json.JSONDecodeError:
-                    # 保留空参数的调用（与 _parse_tool_calls 同语义）
+                    # 解析失败仍保留调用，参数置空（与 _parse_tool_calls 一致）
                     logger.warning("工具调用 %s 参数解析失败——保留空参数", tool["name"])
                     tool_calls_list.append(ToolCall(id=tool["id"], name=tool["name"], arguments={}))
 

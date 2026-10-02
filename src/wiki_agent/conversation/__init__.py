@@ -1,4 +1,4 @@
-"""Conversation messages, history rules and session lifecycle."""
+"""会话消息、历史规则与会话生命周期。"""
 
 from wiki_agent.conversation.models import (
     LLMResponse,

@@ -1,4 +1,4 @@
-"""Process-local request limiter shared by every call made through one client."""
+"""进程级请求限流器，同一客户端的所有调用共享。"""
 
 from __future__ import annotations
 
@@ -11,11 +11,10 @@ from threading import Condition, Lock
 
 
 class RequestLimiter:
-    """Enforce concurrency, RPM and estimated TPM across sync/async calls.
+    """限制并发数、RPM 与预估 TPM，同步/异步调用通用。
 
-    The limiter reserves request/token budget before a provider request starts and
-    holds the concurrency slot until a streaming response is fully consumed.
-    A zero RPM/TPM value disables only that window limit.
+    请求发出前预约请求数与 token 额度；并发槽持有到流式响应读取完毕。
+    RPM/TPM 为 0 表示关闭该项窗口限制。
     """
 
     def __init__(
@@ -106,7 +105,7 @@ class RequestLimiter:
 
     @contextmanager
     def slot(self, estimated_tokens: int) -> Iterator[None]:
-        """Reserve a synchronous request slot."""
+        """预约同步请求额度并占用并发槽。"""
         self._reserve_sync(estimated_tokens)
         self._acquire_sync()
         try:
@@ -116,7 +115,7 @@ class RequestLimiter:
 
     @asynccontextmanager
     async def async_slot(self, estimated_tokens: int) -> AsyncIterator[None]:
-        """Reserve an asynchronous request slot."""
+        """预约异步请求额度并占用并发槽。"""
         await self._reserve_async(estimated_tokens)
         await self._acquire_async()
         try:
