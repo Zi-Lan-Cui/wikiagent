@@ -1,4 +1,4 @@
-"""Agent lifecycle integration for the unified issue center."""
+"""Agent 生命周期接入问题中心。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from wiki_agent.issues.service import IssueService
 
 
 class IssueReporterHook(AgentHook):
-    """Persist fatal Agent turns without coupling the agent to SQLite."""
+    """把致命的 Agent 运行记录为 issue，agent 本身不依赖存储。"""
 
     def __init__(self, service: IssueService):
         super().__init__()

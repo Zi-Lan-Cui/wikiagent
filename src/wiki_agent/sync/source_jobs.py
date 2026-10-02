@@ -1,38 +1,36 @@
-"""源材料 job 的 handler：compile 与 delete，sync 点击与 issue retry 共用——读快照输入，per-job git 协议执行。
+"""源材料 job 的 handler：compile 与 delete，sync 提交与 issue 重试共用。
 
-串行由 JobWorker 保证，一次领取一个任务：编译会更新 wiki 与工作区溯源
-存档，并发执行会互相覆盖，因此必须串行。
+串行由 JobWorker 保证：编译会更新 wiki 与工作区溯源存档，并发执行会互相覆盖。
 
-输入来自 SnapshotStore（wiki_agent.snapshots）：compile 任务只读"点击
-提交时复制进 workspace/snapshots/<批>/" 的副本。执行期间原件的修改、
-删除、复活都不构成本任务的输入变化。快照件缺失、或快照内容与提交记录的
-digest 不符，都属于存储层故障（snapshot_error：任务失败 + 事件，不动
-wiki、不动账本），不是源文件的业务失败。业务身份（resource、页面和档案
-页引用的名字、完成账的键）始终是原始路径。
+输入只读提交时复制进 workspace/snapshots/<批>/ 的快照副本，执行期间原件
+的修改、删除不影响本任务。快照缺失、或与提交记录的 digest 不符，属于存储
+层故障（snapshot_error：任务失败 + 事件，不改 wiki、不写状态），不是
+源文件的业务失败。业务身份（resource、页面和档案页引用的名字、状态键）
+始终是原始路径。
 
-每个 compile/delete job 都走同一协议（jobs.wiki_session，上下文管理器形式）：
+每个 compile/delete job 走同一 git 协议（jobs.wiki_session，上下文管理器）：
 
     with session.open(job) as write: 执行 → 成功 write.commit() /
-    业务失败 write.abort_export()；离开上下文时工作区必收敛回 HEAD
+    业务失败 write.abort_export()；离开上下文时工作区回到 HEAD
 
-wiki 是机器管理的，未提交改动都出自失败或中断的任务，因此 pre-reset
-（进入上下文时）无条件安全；异常、漏结算留下的改动由出口兜底 restore。
-HEAD 于是始终等于"最近已结算状态"。业务失败 restore 前把 diff 导出到
+wiki 只由程序写入，未提交改动都出自失败或中断的任务，因此进入时 reset
+安全；异常、漏结算留下的改动在退出时 restore，HEAD 始终等于最近一次
+已结算状态。业务失败 restore 前把 diff 导出到
 workspace/provenance/debris/ 留证据（日志/事件/证据文件不随回滚清除）。
 
-本模块不写"完成账"也不报失败 issue：
+本模块不写 SyncState、不报失败 issue：
 - 成功时把快照件的 digest+text（+档案页内容、commit）放进 JobResult.detail，
-  由 JobOutcomeHandler 在终态事务提交后写 SyncState 与溯源档案（成功才
-  落账、先库后文件）；
-- 业务失败（IngestError）→ 导出未提交改动 + restore，转成 failed/ingest_error
-  结果；issue 记账统一在 outcome；未预期异常直接上抛，由 Worker 归日志+事件。
+  由 JobOutcomeHandler 在终态事务提交后写 SyncState 与溯源档案（成功才写、
+  先库后文件）；
+- 业务失败（IngestError）导出未提交改动并 restore，转成 failed/ingest_error
+  结果；issue 统一在 outcome 记录；未预期异常直接上抛，由 Worker 记日志与事件。
 
-源文件删除按确定性规则清理（纯代码，无 LLM）: 溯源记录只含被删文件 →
-删除记录；还含其他文件 → 仅移除该条目。删除决定来自快照（removed 差集），
-执行时不重新看磁盘——原件复活也按快照清旧账，复活的内容由下一次点击作为
-新文件处理。档案页在 git scope 外、不受回滚保护，因此清理动作只规划成
-清单、交给结算落盘；wiki 正文的引用清理是 scope 内变更，随本次 commit
-一起生效。
+源文件删除按确定性规则清理（纯代码，无 LLM）：溯源记录只含被删文件 →
+删除记录；还含其他文件 → 仅移除该条目。决定来自快照的 removed 差集，
+执行时不重新读磁盘——即使源文件已恢复也照常清理，恢复的内容由下一次
+提交按新文件处理。档案页在 git scope 外、不受回滚保护，因此清理动作只
+返回清单、交给结算落盘；wiki 正文的引用清理是 scope 内变更，随本次
+commit 一起生效。
 """
 
 from __future__ import annotations
@@ -97,7 +95,7 @@ def clean_body_links(wiki: Path, slug: str) -> int:
 
 
 class SourceJobHandler:
-    """源材料 job 的执行体——compile/delete 两类 handler。"""
+    """源材料 job 的执行体，处理 compile 与 delete 两类任务。"""
 
     def __init__(
         self,
@@ -114,19 +112,19 @@ class SourceJobHandler:
         self._wiki_dir = Path(wiki_dir)
         self._snapshots = snapshots
         self._source_records_dir = Path(source_records_dir)
-        # git=None 只在离线单测里出现（无仓库环境的裸 handler 测试）
+        # git=None 仅用于离线单测（无仓库环境）
         self._session = WikiWriteSession(git, debris_dir=debris_dir_for(self._source_records_dir))
 
     def register_jobs(self, worker: JobWorker) -> None:
-        """声明认领的 kind——与 handle_job 的内部分发同源，装配方不需要知道细节。"""
+        """注册本 handler 处理的 kind，与 handle_job 的分发一致。"""
         worker.register(Kind.COMPILE, self.handle_job)
         worker.register(Kind.DELETE, self.handle_job)
 
     async def handle_job(self, job: Job, progress) -> JobResult:
-        """执行一个源文件 Job，返回业务结局（程序错误才抛）。
+        """执行一个源文件 Job，返回业务结局；程序错误才抛。
 
-        git 三段协议由 session.open() 包住整个分发：进入即 pre-reset，
-        离开必收敛回 HEAD；分发内只管 write.commit() / write.abort_export()。
+        git 协议由 session.open() 包住整个分发：进入时 reset，离开时工作区
+        回到 HEAD；分发内只管 write.commit() / write.abort_export()。
         """
         with self._session.open(job) as write:
             progress("读取资料")
@@ -139,10 +137,10 @@ class SourceJobHandler:
     # delete
 
     def _handle_delete(self, job: Job, write: WikiWrite) -> JobResult:
-        """删除任务：决定来自快照的 removed 差集，执行时不重看磁盘。
+        """删除任务：决定来自快照的 removed 差集，执行时不重新读磁盘。
 
-        原件此刻复活也照常清旧账（wiki 引用清理 + 档案清单 + 完成账条目
-        删除）；复活的内容在下一次点击时作为新文件入批。
+        即使源文件已恢复也照常清理（wiki 引用、档案清单、状态条目）；
+        恢复的内容在下一次提交时作为新文件入批。
         """
         name = Path(job.resource).name
         archive_ops = self._plan_archive_cleanup(name)
@@ -155,11 +153,11 @@ class SourceJobHandler:
         return JobResult(status="succeeded", detail=detail)
 
     def _plan_archive_cleanup(self, name: str) -> list[dict[str, str]]:
-        """源文件删除 → 规划溯源档案清理（本 handler 的职责）。
+        """规划源文件删除对应的溯源档案清理。
 
-        档案页在 wiki/git scope 外、不受回滚保护：这里只返回改写/移除
-        清单，落盘由 outcome 在成功结算时执行（与账本 drop 同点）。
-        正文引用清理是 scope 内变更，立即生效、随本次 delete commit 入账，
+        档案页在 git scope 外、不受回滚保护：这里只返回改写/移除清单，
+        落盘由 outcome 在成功结算时执行（与状态条目 drop 同点）。
+        正文引用清理是 scope 内变更，立即生效、随本次 delete commit 提交，
         崩溃后重放幂等。
 
         Args:
@@ -182,7 +180,7 @@ class SourceJobHandler:
             remaining = [s for s in listed if s != name]
             slug = page.stem
             if remaining:
-                # 规则 3: 保留页面，移除条目
+                # 还含其他来源：保留页面，仅移除该条目
                 new_sources = ", ".join(f'"{s}"' for s in remaining)
                 new_content = re.sub(
                     r"(?m)^\s*sources\s*:.*$",
@@ -193,7 +191,7 @@ class SourceJobHandler:
                 ops.append({"action": "rewrite", "path": str(page), "content": new_content})
                 action = f"keep {slug}（sources 移除 {name}）"
             else:
-                # 规则 2: 只剩被删文件 → 页面删除 + 正文引用换别名
+                # 只剩被删文件：删除页面，正文引用换成别名
                 ops.append({"action": "unlink", "path": str(page)})
                 cleaned = clean_body_links(wiki, slug)
                 action = f"delete {slug}（清理 {cleaned} 处正文引用）"
@@ -205,7 +203,7 @@ class SourceJobHandler:
 
     async def _handle_compile(self, job: Job, progress, write: WikiWrite) -> JobResult:
         """ingest 一个源文件；输入只认提交时保存的快照副本。"""
-        path = Path(job.resource)  # 业务身份：resource、事件名、完成账键
+        path = Path(job.resource)  # 业务身份：resource、事件名、状态键
         batch = str(job.payload.get("batch") or "")
         rel = str(job.payload.get("rel_path") or "")
         if not batch or not rel:
@@ -218,11 +216,11 @@ class SourceJobHandler:
         digest, text = read
         payload_digest = str(job.payload.get("digest") or "")
         if payload_digest and digest != payload_digest:
-            # 快照件按设计不可变——对不上说明存储被外部改动或复制竞态，
+            # 快照件不可变：对不上说明存储被外部改动或复制竞态，
             # 属于故障而不是业务结果
             return self._snapshot_error_result(job, "快照内容与提交记录不一致")
 
-        # 幂等短路（重放保险）：崩溃恢复后同一快照重跑，已入账即直接成功
+        # 幂等短路：崩溃恢复后同一快照重跑，已处理则直接成功
         if payload_digest and self._state.matches(str(path), payload_digest):
             emit_event("sync_skipped", file=path.name, reason="already_ingested")
             return JobResult(status="succeeded", detail={"settlement": Settlement.ALREADY_INGESTED})
@@ -234,7 +232,7 @@ class SourceJobHandler:
             return self._ingest_error_result(
                 job, IngestError(IngestStage.LOAD, "文件加载为空", source=path.name)
             )
-        # 业务身份回到原路径：prompt、档案页、失败 detail 都不能出现快照目录
+        # 业务身份用原路径：prompt、档案页、失败 detail 不出现快照目录
         summary.files[0].path = path
 
         progress("编译成页")
@@ -244,9 +242,9 @@ class SourceJobHandler:
             write.abort_export()
             return self._ingest_error_result(job, exc)
 
-        # 单 source 局部质量闸门：检查本轮产出——生成页查结构/死链，
-        # 档案页查内存内容（尚未落盘）。error 即本 job 业务失败：
-        # restore 未提交改动、记账等人，不影响其他 source。
+        # 单 source 质量检查：生成页查结构/死链，档案页查内存内容
+        # （尚未落盘）。error 即本 job 业务失败：restore 未提交改动、
+        # 记 issue 等人，不影响其他 source。
         page = outcome.extract.source_page if outcome.extract is not None else None
         local_issues = scan_source(
             self._wiki_dir,
@@ -268,8 +266,8 @@ class SourceJobHandler:
                 ),
             )
 
-        # 成功：wiki 变更即刻 commit（HEAD 前移一步），账本与档案页随后由
-        # outcome 结算——先文件后库的方向保证崩溃只会重做、不会丢内容。
+        # 成功：wiki 变更即刻 commit，状态与档案页随后由 outcome 落盘；
+        # 先 commit 后写状态，崩溃时只会重做、不会丢内容。
         prefix = Subject.RETRY if job.mode == "issue_retry" else Subject.SYNC
         commit = write.commit(commit_subject(prefix, path.name))
         detail: dict[str, object] = {"settlement": Settlement.INGESTED, "digest": digest, "text": text}
@@ -284,18 +282,18 @@ class SourceJobHandler:
         return JobResult(status="succeeded", detail=detail)
 
     def _snapshot_error_result(self, job: Job, reason: str) -> JobResult:
-        """存储层故障：任务失败 + 事件。wiki 未动过（读输入即败），账本不动
-        ——snapshot_error 不是源材料的业务失败，不进问题账本。"""
+        """存储层故障：任务失败 + 事件。wiki 未改动，也不记 issue——
+        snapshot_error 不是源材料的业务失败。"""
         logger.error("  快照故障 [%s]: %s", job.id, reason[:200])
         emit_event("snapshot_error", job_id=job.id, resource=job.resource, error=reason)
         return JobResult(status="failed", detail={"error": f"snapshot_error: {reason}"[:500]})
 
     def _ingest_error_result(self, job: Job, exc: IngestError) -> JobResult:
-        """业务失败的结果化（未提交改动已由 write.abort_export() 收拾；
-        issue 记账统一在 outcome）。"""
+        """业务失败转为结果返回；未提交改动已由 write.abort_export() 回滚，
+        issue 统一在 outcome 记录。"""
         name = Path(job.resource).name
         logger.error("  ingest 失败 [%s]: %s", exc.stage.value, str(exc)[:200])
-        # 事件是机器通道——全量不截断（截断是给人看的习惯）
+        # 事件供机器消费，全量不截断
         emit_event(
             "sync_failure",
             file=name,

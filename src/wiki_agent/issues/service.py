@@ -12,7 +12,7 @@ from wiki_agent.issues.store import IssueStore
 
 
 class IssueService:
-    """Keep adapters and producers independent from persistence details."""
+    """隔离适配器、上报方与持久层细节。"""
 
     def __init__(self, store: IssueStore):
         self.store = store
@@ -52,7 +52,7 @@ class IssueService:
     def apply_simple_action(
         self, issue_id: str, action: str, payload: JsonObject | None = None
     ) -> IssueCard:
-        """Apply state-only decisions; workflow actions are delegated later."""
+        """处理只改状态的操作；其余操作抛错，由工作流 handler 处理。"""
         record = self.store.require(issue_id)
         allowed = {item.id for item in available_actions(record)}
         if action not in allowed:
