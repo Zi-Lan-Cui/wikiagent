@@ -1,10 +1,11 @@
-"""应用驱动的斜杠命令——编排用例，故住 application，不反向压在 agent 上。
+"""应用驱动的斜杠命令。
 
 这三条命令调用应用用例（run_maintain/gate_text/resolve_correction_issue）
-并格式化其结果类型（MaintainFlow/MaintenanceOutcome）。把它们留在
-agent.commands 会让 agent 包反向 import application，构成包级环。命令框
-架（Command/CommandContext/CommandResult）与只依赖 agent+infra 的原生命令
-仍在 agent.commands；组合根把本模块的命令注册进同一个 router 注入 agent。
+并格式化其结果类型（MaintainFlow/MaintenanceOutcome），属于编排层，因此
+放在 application；若放在 agent.commands，agent 包会反向 import application，
+构成包级导入环。命令框架（Command/CommandContext/CommandResult）与只依赖
+agent+infra 的原生命令仍在 agent.commands；组装根把本模块的命令注册进
+同一个 router 注入 agent。
 """
 
 from __future__ import annotations
@@ -23,9 +24,9 @@ class MaintainCommand(Command):
     description = "结构重组入队（单元 + 批尾补链）；--dry-run 只预览提议"
 
     async def execute(self, ctx: CommandContext) -> CommandResult:
-        """/maintain 不直接写 wiki——流程（预检→提议→入队）经 run_maintain，
-        命令只解析参数与格式化。逐条确认走 scripts/restructure_wiki.py，
-        本命令无交互全收；整批撤销用 ``/wiki revert-batch <batch_id>``。
+        """/maintain 不直接写 wiki，流程（预检→提议→入队）由 run_maintain 完成，
+        命令只解析参数与格式化结果。逐条确认走 scripts/restructure_wiki.py，
+        本命令无交互步骤；整批撤销用 ``/wiki revert-batch <batch_id>``。
         """
         wiki = wiki_root(ctx)
         if wiki is None:
@@ -81,7 +82,7 @@ class MaintainCommand(Command):
 
 
 class LinkCommand(Command):
-    """关联扫：给指定页（默认全库内容页）补充/修正 wikilink。"""
+    """出链维护：给指定页（默认全库内容页）补充/修正 wikilink。"""
 
     name = "link"
     description = "全库（或指定页）出链维护入队；发现型补链的手动入口"
@@ -89,8 +90,9 @@ class LinkCommand(Command):
     async def execute(self, ctx: CommandContext) -> CommandResult:
         """/link [页...] 入队一批 link job（一页一 job、一页一提交）。
 
-        维护批的批尾 link 只覆盖波及面；"老页该链新页"这类发现型需求由
-        这里的全库扫承接。互斥与基线检查与 /maintain 同一套，前置执行。
+        维护批的批尾 link 只覆盖受影响的页面；"旧页面应链接新页面"这类
+        补链需求由这里的全库扫描处理。互斥与基线检查与 /maintain 同一套，
+        在入队前执行。
         """
         wiki = wiki_root(ctx)
         if wiki is None:

@@ -51,7 +51,7 @@ class SessionMessage:
 
     role: str
     content: str
-    # 思考折叠块的有序分段（think 文字段 + tool 动作段，聚合工具回合）
+    # 思考过程分段（文字段 + 工具动作段），按回合顺序聚合
     thinking: list[dict] = field(default_factory=list)
 
 
@@ -113,7 +113,7 @@ class SessionService:
         self._validate_session_id(session_id)
         session = self._get_loaded_session(session_id)
         # 一次提问的 ReAct 循环会产生多条 assistant 消息（工具回合的
-        # content 常为空）；thinking 分段按回合顺序聚合，挂到下一个可见回答上
+        # content 常为空）；thinking 分段按回合顺序聚合，随下一个可见回答返回
         out: list[SessionMessage] = []
         pending: list[dict] = []
         for message in session.history:
@@ -140,7 +140,8 @@ class SessionService:
         async for event in self._stream_message(session_id, text, run_id):
             if event.type == "run_error":
                 raise ServiceError(str(event.data.get("error") or "Agent 运行失败"))
-        # 同步接口定名后再返回：CLI/脚本调用完即退出进程，后台任务不能吊着
+        # 同步接口等标题落定后再返回：CLI/脚本调用完即退出进程，
+        # 不能把后台标题任务留在退出路径上
         if self._title_tasks:
             await asyncio.gather(*list(self._title_tasks), return_exceptions=True)
         assistant_text = self._last_assistant_text(session)
@@ -168,9 +169,9 @@ class SessionService:
     ) -> AsyncIterator[AgentEvent]:
         """执行 agent 任务，同时消费该回合的事件队列。
 
-        首轮正常结束后后台发起 LLM 标题生成——不阻塞 run_finished
-        完成信号；标题全程只落一次盘（定名，失败时截断兜底），
-        回合进行中新会话保持"未命名"，避免占位→定名两段抖动。
+        首轮正常结束后在后台发起标题生成，不阻塞 run_finished 事件；
+        标题全程只落一次盘（LLM 失败时改用截断标题），回合进行中新会话
+        保持"未命名"，避免先写占位标题、再改正式标题的两次更新。
         """
         session = self._get_loaded_session(session_id)
         is_first_turn = session.session_title.strip() == _DEFAULT_SESSION_TITLE
@@ -220,16 +221,16 @@ class SessionService:
                     task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 raise
-        # stop_reason 为 None 的正常收尾才定名；取消/出错回合不烧调用
+        # 仅在 stop_reason 为 None 的正常结束时才生成标题；取消/出错回合不发起调用
         if is_first_turn and stop_reason not in ("cancelled", "error"):
             self._schedule_session_title(session, text)
 
     def _schedule_session_title(
         self, session: Session, question: str
     ) -> asyncio.Task[None]:
-        """后台一次性定名：LLM 成功用其结果，失败退回截断标题。
+        """后台一次性生成标题：LLM 成功用其结果，失败改用截断标题。
 
-        标题只有这一次落盘；期间用户手动改过名（已非"未命名"）则放弃。
+        标题只在这一次落盘；期间用户手动改过名（已非"未命名"）则放弃。
         返回创建的任务以便同步路径等待（CLI 进程会立即退出）。
         """
 
@@ -282,8 +283,7 @@ class SessionService:
 
     @staticmethod
     def _to_info(session: Session) -> SessionInfo:
-        # 工具消息是内部执行记录，不是用户可见的聊天轮次。把它们计入
-        # 会让界面在刷新后凭空多出消息。
+        # 只统计用户可见轮次；计入工具消息会让界面显示不存在的聊天轮次。
         visible_message_count = sum(
             bool(
                 message.role == "user" or (message.role == "assistant" and message.content.strip())

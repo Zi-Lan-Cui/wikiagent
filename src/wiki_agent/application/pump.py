@@ -1,4 +1,4 @@
-"""自泵助手——批处理脚本把队列泵到空的共用循环。"""
+"""批处理脚本把 jobs 队列执行到空的共用循环。"""
 
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ if TYPE_CHECKING:
 
 
 async def drain_queue(service: JobService, worker: JobWorker) -> int:
-    """本进程充当 worker 把队列泵空，返回泵不动时剩余的在途数。
+    """本进程充当 worker 执行队列直到无法继续，返回剩余的在途数。
 
     run_once 返回 None 表示在途行都不是本进程注册的 kind（例如常驻 web
-    进程正领着的活），停下等待对方，不是异常。
+    进程正在处理的行），此时停止等待对方完成，不是异常。
 
-    前提是调用方已持执行锁——进泵先回收无主 running（上次进程崩溃或
-    Ctrl-C 留下的），它们属于本队列，不回收就永远泵不动。
+    前提是调用方已持执行锁。进入时先回收上次进程崩溃或中断遗留的
+    running 行——它们属于本队列，不回收则队列无法清空。
     """
     service.recover_stale()
     while service.count_in_flight() > 0:

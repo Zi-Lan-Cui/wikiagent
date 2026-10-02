@@ -1,11 +1,11 @@
-"""Manifest 分批评测编排——materialize 嵌套 source 后逐批走快照 sync。
+"""Manifest 分批评测编排：materialize 嵌套 source 后逐批走快照 sync。
 
-写 wiki 只有队列一条路，本模块不造第二执行通道：每批只是把 manifest
+写 wiki 只有 jobs 队列一条路径，本模块不建第二条执行通道：每批把 manifest
 指向的嵌套文件复制成一个扁平 staging 目录，然后对它执行一次 sync
-（submit_sync + 自泵到队列空）。
+（submit_sync + 本进程 worker 执行到队列空）。
 
-因此这里没有进度账本——进度 = sync 完成账（state.json）+ jobs 队列：
-中断后重跑同一命令，已成功的内容按账本不再入队，未跑完的重新拍进快照。
+因此这里不存进度状态——进度只有 sync 状态（state.json）与 jobs 队列：
+中断后重跑同一命令，已成功的文件按 sync 状态不再入队，未跑完的重新拍进快照。
 本模块不落任何编排状态，也没有与之对应的参数。
 
 示例::
@@ -14,8 +14,8 @@
         --root /path/to/notebook --manifest /path/to/source_manifest.json \
         --wiki-dir /tmp/wiki-agent-batched --batch-size 20
 
-workspace（评测沙箱的 jobs/账本/events 所在）默认取配置的 workspace，
-评测请显式传 --workspace 指向隔离目录，避免污染正式完成账。
+workspace（评测沙箱的 jobs/sync 状态/events 所在）默认取配置的 workspace，
+评测请显式传 --workspace 指向隔离目录，避免写入正式 workspace 的 sync 状态。
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from wiki_agent.config import (
 )
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 
-# 注入点：一批 = 一次快照 sync + 泵到空（单测替换，不碰 LLM）
+# 注入点：一批 = 一次快照 sync + 执行到队列空（单测替换，不碰 LLM）
 SyncExecute = Callable[[Path], Awaitable[int]]
 
 
@@ -70,8 +70,8 @@ def materialize_batch(
 ) -> None:
     """将可能嵌套的笔记复制成 sync 可扫描的扁平目录。
 
-    先清空再复制——staging 路径即账本键（`id__文件名`），重跑内容
-    逐字节一致时 digest 不变、按账本不再入队。
+    先清空再复制：staging 路径即 sync 状态键（`id__文件名`），重跑内容
+    逐字节一致时 digest 不变，不会再次入队。
     """
     if batch_dir.exists():
         shutil.rmtree(batch_dir)
@@ -124,11 +124,11 @@ async def run_manifest(
 
 
 def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> SyncExecute:
-    """默认执行器：装配一个隔离于 AppRuntime 的小型 sync 执行现场。
+    """默认执行器：装配一个隔离于 AppRuntime 的小型 sync 执行环境。
 
-    评测沙箱自带 workspace 的 jobs/账本与目标 wiki；LLM 客户端按调用方
-    传入的配置构造（配置只在入口读一次，现场不自己 load）。执行锁让同一
-    沙箱目录同时只有一个跑批进程。
+    评测沙箱使用自己 workspace 的 jobs/sync 状态与目标 wiki；LLM 客户端按
+    调用方传入的配置构造（配置只在入口读一次，内部不再 load）。执行锁保证
+    同一沙箱目录同时只有一个跑批进程。
     """
 
     async def execute(batch_dir: Path) -> int:
@@ -152,7 +152,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             setup_event_log(workspace / "logs" / "compile-batches-events.jsonl")
             source_records_dir = source_records_dir_for(workspace)
             state = SyncState(sync_state_path_for(workspace))
-            # 沙箱自己的组合根：Database → store → JobService
+            # 沙箱独立组装根：Database → store → JobService
             database = Database(workspace)
             issue_store = IssueStore(database)
             service = JobService(
