@@ -1,13 +1,11 @@
-"""持久化执行任务表——sync、CLI、Web 各入口共用。
+"""持久化任务表，sync、CLI、Web 各入口共用。
 
-Job 是唯一执行事实来源。关键不变式：
-- 同一 resource 至多一个在途（in-flight = queued/running）Job——由部分
-  唯一索引 uq_jobs_in_flight_resource 在数据库层强制。resource 是操作
-  对象身份键，三个命名空间构造性不相交：源材料用绝对路径字符串
-  （compile/delete/issue_retry 同族共享），rescan 用 issue id，
-  维护任务用带字面前缀的坐标（restructure:<批>:<序号>、link:<slug>）。
-- 所有写方法支持 ``_conn`` 透传：与 issue 账本同事务提交时由调用方
-  持有连接，这里禁止自开事务。
+关键不变式：
+- 同一 resource 至多一个在途（queued/running）Job，由部分唯一索引
+  uq_jobs_in_flight_resource 在数据库层强制。resource 三个命名空间互不相交：
+  源材料用绝对路径（compile/delete/issue_retry 共用），rescan 用 issue id，
+  维护任务用带前缀的坐标（restructure:<批>:<序号>、link:<slug>）。
+- 所有写方法支持 _conn 透传：与 issue 同事务提交时由调用方持有连接，这里不自开事务。
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ from wiki_agent.jobs.errors import DuplicateInFlightJob
 from wiki_agent.jobs.models import Detail, Job
 from wiki_agent.persistence import Database
 
-# "在途"的唯一定义：queued + running。所有查询与唯一索引共用这一片段。
+# 在途 = queued + running，查询与唯一索引共用此片段
 _IN_FLIGHT_SQL = "status IN ('queued', 'running')"
 
 
@@ -38,23 +36,19 @@ class JobStore:
         self.database = database
         self._initialize()
 
-    # 连接与事务
-
     @contextmanager
     def transaction(self, *, immediate: bool = False) -> Generator[sqlite3.Connection]:
-        """库级事务：返回连接指向共享的 state.db。
+        """库级事务，返回连接指向共享的 state.db。
 
-        连接可以传给任何同库 store 写方法的 ``_conn`` 参数（如
-        IssueStore.transition）——跨表提交边界只有一个事务，这是 store
-        之间既定的 _conn 协议；"jobs store 的事务"管到 issues 表不是
-        越权，是同一 Database 上的同一连接。
+        连接可传给同库其它 store 写方法的 _conn 参数（如 IssueStore.transition），
+        把跨表写并入同一事务——同一 Database 上的同一连接。
         """
         with self.database.transaction(immediate=immediate) as conn:
             yield conn
 
     @contextmanager
     def _tx(self, _conn: sqlite3.Connection | None = None) -> Generator[sqlite3.Connection]:
-        """持 _conn 时用调用方事务（不再开新事务），否则自管 immediate 事务。"""
+        """有 _conn 时用调用方事务，否则自开 immediate 事务。"""
         if _conn is not None:
             yield _conn
             return
@@ -88,12 +82,12 @@ class JobStore:
                 db.execute("ALTER TABLE jobs ADD COLUMN issue_id TEXT")
             except sqlite3.OperationalError:
                 pass
-            # schema v4：handler 结果明细随终态落库（分析类 job 的产出处）
+            # v4：handler 结果明细随终态写入，供分析类 job 查看产出
             try:
                 db.execute("ALTER TABLE jobs ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'")
             except sqlite3.OperationalError:
                 pass
-            # schema v3：手动重试模型——排程列作废，老库的 next_run_at 删除
+            # v3：删除废弃的排程列 next_run_at（手动重试不再排程）
             try:
                 db.execute("ALTER TABLE jobs DROP COLUMN next_run_at")
             except sqlite3.OperationalError:
@@ -290,7 +284,7 @@ class JobStore:
             return self.get(str(row["id"]), _conn=db)
 
     def recover_stale(self, *, max_age_seconds: int = 300) -> int:
-        """把超时未心跳的 running 回队（重启与卡死的对账兜底）。"""
+        """把超时未更新的 running 回队（重启与卡死时的恢复）。"""
         cutoff = datetime.now(UTC).timestamp() - max_age_seconds
         with self._tx() as db:
             rows = db.execute("SELECT id, updated_at FROM jobs WHERE status='running'").fetchall()
@@ -385,7 +379,7 @@ class JobStore:
         return int(row["total"]) if row is not None else 0
 
     def in_flight_batch_ids(self) -> set[str]:
-        """非终态任务引用的批 id 集合——启动时清扫无主快照目录的保留名单。"""
+        """非终态任务引用的批 id 集合，供启动时保留在用快照目录。"""
         with self.database.connect() as db:
             rows = db.execute(
                 f"SELECT payload_json FROM jobs WHERE {_IN_FLIGHT_SQL}"
@@ -404,7 +398,7 @@ class JobStore:
     def in_flight_job_by_issue(
         self, issue_id: str, *, _conn: sqlite3.Connection | None = None
     ) -> Job | None:
-        """该 issue 的在途挂账 job——retry 提交点的收敛预查。"""
+        """该 issue 的在途 job，供 retry 提交前收敛查询。"""
         with self._tx(_conn) as db:
             row = db.execute(
                 f"SELECT * FROM jobs WHERE issue_id = ? AND {_IN_FLIGHT_SQL}"

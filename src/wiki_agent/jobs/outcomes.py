@@ -1,19 +1,16 @@
-"""Job 终态 → Issue 账本 / SyncState 的唯一联动点。
+"""Job 终态 → Issue / SyncState 的唯一联动点。
 
-由 JobService.complete_with_outcome 在终态事务内调用 apply(job, result, conn)：
-一切跨表写都并入该事务。SyncState 是 JSON 文件、参与不了 SQLite
-事务——apply 返回"提交后动作"清单，由 service 在 commit 之后立即执行
-（先库后文件：崩溃窗口靠 recover_stale 与 digest 幂等短路收敛，方向
-只能是"库里没记成就重做"）。
+由 complete_with_outcome 在终态事务内调用 apply(job, result, conn)，所有跨表写
+并入该事务。SyncState 是 JSON 文件、进不了 SQLite 事务——apply 返回提交后要执行
+的动作清单，由 service 在 commit 后立即执行：先写库再写文件，崩溃时靠 recover_stale
+与 digest 幂等重做收敛。
 
-issue 联动的账本动作只由成功结果的 settlement（结算类别）决定：handler 申报
-"完成了哪一种业务事实"，本模块查 ISSUE_RULES 决定账本动作——不存在
-"job 成功就一律销账"的通用规则，也没有 handler 直接写账的路径。
-未申报/表里没有的类别不动账本。
+issue 变更只由成功结果的 settlement 决定：handler 申报完成的业务事实类型，本模块
+按 ISSUE_RULES 决定动作；没有"成功即一律 resolve"的通用规则，handler 也不直接改
+issue。未申报或表中无此类别时不改 issue。
 
-手动重试模型：失败只做记账——issue 停在 open（attempts 计数、
-last_error 快照），不排任何程。人修好环境后再次 sync 即重试；issue 的
-retry 按钮走 submit_issue_retry 直投一次性尝试。
+失败只记 issue（停在 open，更新 attempts 与 last_error），不自动排程：环境修好后
+再次 sync 即重试，issue 的 retry 按钮走 submit_issue_retry 发起单次尝试。
 """
 
 from __future__ import annotations
@@ -50,11 +47,10 @@ logger = get_logger("JOB_OUTCOMES")
 
 @dataclass(frozen=True, slots=True)
 class IssueEffect:
-    """一种结算类别对问题账本的动作描述。
+    """一种结算类别对应的 issue 动作。
 
-    resolve_source：解决"该资源路径"的全部活动失败记录（不止 job 挂的那条
-    ——对象已被处理掉时，同源的旧账一起失效）；
-    transition_linked：只动 job 挂账的那条 issue，带 CAS。
+    resolve_source：resolve 该资源路径上的全部活动失败记录（不止 job 关联的那条，
+    同源旧记录一并失效）；transition_linked：只改 job 关联的那条 issue，带 CAS。
     """
 
     kind: Literal["resolve_source", "transition_linked", "none"]
@@ -62,8 +58,7 @@ class IssueEffect:
     cause: str = ""
 
 
-# 结算类别 → 账本动作。没列出的类别 = 不碰账本；新增动作型 job
-# 在这里加一行，不改分支。
+# settlement → issue 动作；未列出的类别不改 issue。新增动作型 job 在此加一行。
 ISSUE_RULES: dict[Settlement, IssueEffect] = {
     Settlement.INGESTED: IssueEffect("resolve_source"),
     Settlement.ALREADY_INGESTED: IssueEffect("resolve_source"),
@@ -76,9 +71,9 @@ ISSUE_RULES: dict[Settlement, IssueEffect] = {
 
 
 class SourcePageWriter(Protocol):
-    """compile 成功把源档案页落盘的端口——实现包 compiler.extraction。
+    """compile 成功时写源档案页的端口，由 compiler.extraction 实现。
 
-    jobs 结算层不认识 SourcePage/writer 内部；装配根注入（断 jobs→compiler 边）。
+    经装配根注入，jobs 不直接依赖 compiler。
     """
 
     def write(self, records_dir: Path, slug: str, content: str) -> None: ...
@@ -100,15 +95,12 @@ class JobOutcomeHandler:
         self._records_dir = Path(source_records_dir) if source_records_dir is not None else None
         self._source_writer = source_writer
 
-    # 唯一入口：终态事务内调用
-
     def apply(
         self, job: Job, result: JobResult, conn: sqlite3.Connection
     ) -> list[Callable[[], None]]:
         """把 result 的联动写入并入 conn 事务；返回 commit 后要执行的动作。
 
-        分支只覆盖 succeeded/ingest_error——cancelled 与无联动语义的失败
-        （handler bug 由 Worker 记日志+事件承接）在此都是 no-op。
+        只处理 succeeded 与 ingest_error；cancelled 与无联动的失败在此不产生动作。
         """
         post_commit: list[Callable[[], None]] = []
         if result.status == "succeeded":
@@ -116,15 +108,14 @@ class JobOutcomeHandler:
             self._apply_issue_rule(job, result, conn)
         elif result.error_type == "ingest_error":
             self._on_ingest_error(job, result, conn)
-        # 其余（cancelled、handler bug 的无联动 failed）刻意零动作
         return post_commit
 
-    # settlement → 账本动作（规则表在模块顶部）
+    # settlement → issue 动作（规则表在模块顶部）
 
     def _apply_issue_rule(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
         raw = str(result.detail.get("settlement") or "")
         if not raw:
-            return  # 未申报 = 无联动语义的成功（协议如此，不猜）
+            return  # 未申报即无联动语义的成功
         try:
             settlement = Settlement(raw)
         except ValueError:
@@ -146,10 +137,10 @@ class JobOutcomeHandler:
         effect: IssueEffect,
         conn: sqlite3.Connection,
     ) -> None:
-        """解决该资源路径上的全部活动失败记录（open/blocked）。
+        """resolve 该资源路径上的全部活动失败记录（open/blocked）。
 
-        对象被处理掉时同源旧账一起失效，不止 job 挂的那条；resolution 只留
-        小的可追溯字段——detail 里的全文（text/source_page/archive_ops）不进账本。
+        resolution 只记小的可追溯字段；detail 的全文（text/source_page/archive_ops）
+        不写进 issue。
         """
         base: JsonObject = {"fixed_by": job.id, "settlement": settlement.value}
         if effect.cause:
@@ -175,10 +166,10 @@ class JobOutcomeHandler:
         effect: IssueEffect,
         conn: sqlite3.Connection,
     ) -> None:
-        """只动 job 挂账的那条 issue；CAS 带 expected 状态，扫描期间被
-        人工改过就保持人工结果。
+        """只改 job 关联的那条 issue；CAS 带 expected 状态，扫描期间被人工
+        改过则保持人工结果。
 
-        （当前唯一使用者是 rescan：executor 只产出复扫结论，终态在这里落。）
+        当前仅 rescan 使用：executor 只产出复扫结论，终态在此写入。
         """
         assert effect.target is not None
         raw_findings = result.detail.get("rescan_findings")
@@ -201,16 +192,14 @@ class JobOutcomeHandler:
                 "rescan 的 issue %s 已在扫描期间被人工裁决，终态保持人的结论", job.issue_id
             )
 
-    # 各分支
+    # 各结算分支
 
     def _on_succeeded(self, job: Job, result: JobResult) -> list[Callable[[], None]]:
         state = self._sync_state
         if state is None:
             return []
         if job.kind == Kind.DELETE:
-            # 删除结算（延迟到 commit 后，先库后文件）：溯源档案清理清单
-            # （执行体运行中只规划不落盘）+ state 条目移除，一并落盘。
-
+            # 删除结算（commit 后执行）：应用运行期只规划的档案清理清单 + 移除 state 条目
             ops = result.detail.get("archive_ops")
 
             def settle_delete() -> None:
@@ -240,8 +229,10 @@ class JobOutcomeHandler:
 
     @staticmethod
     def _apply_archive_op(op: object) -> None:
-        """执行 delete job 规划的溯源档案改写/移除——档案页在 scope 外，
-        不受 wiki 的 git 回滚保护，因此与账本同点结算。"""
+        """执行 delete job 规划的档案改写/移除。
+
+        档案页在 wiki 的 git 作用域外、不受回滚保护，故与 issue 变更同点写入。
+        """
         if not isinstance(op, dict):
             return
         target = Path(str(op.get("path") or ""))
@@ -271,12 +262,12 @@ class JobOutcomeHandler:
             summarize_error(detail.get("error"), ERROR_TRACE_LIMIT),
         )
         if job.issue_id and issue.id != job.issue_id:
-            # 重试 job 撞上了他人合并出的不同指纹——理论上不该发生，留观测
+            # 重试 job 的失败合并到了另一条 issue：非预期，留观测
             logger.warning(
                 "retry job %s 的失败合并到了新 issue %s（预期 %s）", job.id, issue.id, job.issue_id
             )
 
-    # 账本构造
+    # issue draft 构造
 
     def _draft(self, job: Job, detail: dict) -> IssueDraft:
         source = str(detail.get("source") or Path(job.resource).name)
