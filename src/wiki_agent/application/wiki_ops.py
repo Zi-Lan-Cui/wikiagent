@@ -1,16 +1,16 @@
-"""restructure / link 执行体——与 SourceJobHandler 同一 wiki 写协议。
+"""restructure / link 执行体，与 SourceJobHandler 使用同一 wiki 写协议。
 
-with session.open(job) as write: 执行 → 成功 write.commit() /
-业务失败 write.abort_export()（jobs.wiki_session 的出口不变量兜底）。
-两类 job 与 sync job 同一队列串行执行；提交层的互斥与基线检查保证
-执行时盘面与声明依据一致。
+with session.open(job) as write: 执行，成功 write.commit()，
+业务失败 write.abort_export()（jobs.wiki_session 的出口不变量）。
+两类 job 与 sync job 在同一队列串行执行；提交层的互斥与基线检查保证
+执行时 wiki 当前状态与提交时的声明依据一致。
 
-职责划界：restructure 动页面集合与内容（结构手术 + 触及页逐页成文），
-link 只动出链（字面替换清单经代码校验应用，不重写正文）。失败的承接面
-是 task failed + 日志 + 事件，不进问题账本——批操作结果不是"源材料等
-人修"的待办，想再试就再提交一次。落盘前的一切失败不产生工作区改动，
-直接返回 failed；apply_unit 写盘之后只有扫描闸门一条失败路径，
-它走 abort_export（证据进 debris）后失败。
+职责划分：restructure 修改页面集合与内容（结构调整 + 触及页逐页成文），
+link 只修改出链（字面替换清单经代码校验后应用，不重写正文）。失败只体现为
+task failed、日志与事件，不写入 issue 记录——批操作结果不属于待人工处理的
+问题项，需要重试时重新提交即可。落盘前的任何失败都不产生工作区改动，直接
+返回 failed；apply_unit 写盘之后只有质量扫描检查一条失败路径，
+命中时走 abort_export（证据存入 debris）后返回 failed。
 """
 
 from __future__ import annotations
@@ -52,9 +52,9 @@ _FM_REQUIRED = ("type", "title", "summary", "goal")
 
 
 def _fill_frontmatter(text: str, skeleton: dict) -> str:
-    """成文输出缺必填字段时用代码骨架补齐——模型丢字段不值得整单元失败。
+    """成文输出缺必填字段时用代码骨架补齐，避免因丢字段使整单元失败。
 
-    只动缺失的必填 key，模型已给的值一律保留；骨架来自
+    只补缺失的必填 key，模型已给的值一律保留；骨架来自
     _frontmatter_for（旧页=旧 frontmatter，新页=由 intent 派生），
     与草稿同源。输出没有 frontmatter（模型对拆分新页常返回纯正文
     片段）时整页由骨架合成，正文原样保留。
@@ -108,10 +108,10 @@ class WikiOpsHandler:
     # restructure——一个单元一个任务一笔提交
 
     async def handle_restructure(self, job: Job, progress) -> JobResult:
-        """执行一个重组单元：核对 → 路由 → 装配 → 逐页成文 → 落盘收尾 → 扫描闸。
+        """执行一个重组单元：核对 → 路由 → 装配 → 逐页成文 → 落盘 → 质量扫描。
 
         单元失败等于从未发生（落盘前失败无工作区改动；落盘后失败由
-        abort_export 撤销并入 debris 证据）。
+        abort_export 撤销并留下 debris 证据）。
         """
         try:
             unit = Unit.from_dict(job.payload.get("unit"))
@@ -122,7 +122,7 @@ class WikiOpsHandler:
             try:
                 plan = await prepare_unit(self._wiki_dir, unit, self._llm)
             except UnitMismatchError as exc:
-                # 单页改写（A→A）的目标页消失：排队期间被删，正常了结
+                # 单页改写（A→A）的目标页消失：排队期间被删，按正常结束处理
                 if len(unit.in_pages) == 1 and unit.in_pages == unit.out_slugs:
                     emit_event("restructure_skipped", unit=str(unit.in_pages), reason="unit_missing")
                     return JobResult(
@@ -207,7 +207,7 @@ class WikiOpsHandler:
                 detail["commit"] = commit
             return JobResult(status="succeeded", detail=detail)
 
-    # link——一页一个任务，互不连坐
+    # link——一页一个任务，各页独立，互不影响
 
     async def handle_link(self, job: Job, progress) -> JobResult:
         """维护一页的出链：LLM 出替换清单，代码校验后应用；无可补即空操作。"""
@@ -215,7 +215,7 @@ class WikiOpsHandler:
         page = path_for(self._wiki_dir, slug)
         with self._session.open(job) as write:
             if not slug or not page.is_file():
-                # 排队期间被重组掉——link 是当前状态的函数，页不在即了结
+                # 排队期间被重组删除——link 结果只取决于当前状态，页不存在即按正常结束处理
                 emit_event("link_skipped", slug=slug, reason="gone_after_submit")
                 return JobResult(
                     status="succeeded", detail={"settlement": Settlement.UNIT_MISSING}

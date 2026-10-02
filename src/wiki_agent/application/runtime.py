@@ -1,9 +1,9 @@
-"""Application runtime: the single composition root for a Wiki Agent process.
+"""Wiki Agent 进程的唯一组装根（composition root）。
 
-统一执行模型的装配点：Job 队列 + Worker（唯一的执行后台循环）在这里组装。
-崩溃自愈不靠常驻调度器：执行锁到手后 recover_stale 回收无主 running，sync 互斥闸保证
-队列排空前不开新快照。宿主进程 start() 即拥有执行能力——jobs 表是唯一
-队列，谁领取都收敛。
+执行模型的组装点：Job 队列与 Worker（唯一的执行后台循环）在这里装配。
+崩溃恢复不依赖常驻调度器：取得执行锁后由 recover_stale 回收上次进程遗留的
+running 行，sync 互斥检查保证队列清空前不开新快照。宿主进程 start() 后即可
+执行——jobs 表是唯一队列，由哪个进程领取结果都相同。
 """
 
 from __future__ import annotations
@@ -57,10 +57,10 @@ class AppRuntime:
         self.issue_store = IssueStore(database)
         self.issue_service = IssueService(self.issue_store)
         self.sync_state = SyncState(config.paths.resolved_sync_state_path())
-        # wiki 版本面：HEAD=最近已结算状态，sync/retry 逐 job 提交由 consumer 执行
+        # wiki git 版本：HEAD 即最近已结算状态，sync/retry 的逐 job 提交由 consumer 执行
         self.git_manager = WikiGitManager(self.wiki_dir)
         self.snapshots = SnapshotStore(self.workspace)
-        # 同步基线面归 sync 域，按协议注入 jobs 提交口（断包级环）
+        # 同步基线由 sync 域维护，按协议注入 jobs 提交入口，避免 jobs 直接 import sync
         self.baseline = SyncBaseline(
             state=self.sync_state, issues=self.issue_store, materials_dir=self.materials_dir
         )
@@ -75,7 +75,8 @@ class AppRuntime:
                 source_writer=ExtractionSourcePageWriter(),
             ),
             baseline=self.baseline,
-            # 维护规划面注入提交口（compiler 校验/波及面知识不住 jobs，断 jobs→compiler 边）
+            # 维护规划注入提交入口：单元校验与批尾补链计算依赖 compiler，
+            # 由协议注入避免 jobs 直接 import compiler
             maintenance=MaintenancePlannerImpl(),
             wiki_dir=self.wiki_dir,
         )
@@ -152,8 +153,8 @@ class AppRuntime:
         self.source_jobs.register_jobs(self.job_worker)
         self.wiki_ops.register_jobs(self.job_worker)
         register_job_handlers(self.job_worker, self.issue_actions)
-        # 启动核对（与 recover_stale、快照清扫同族）：丢失的重试输入
-        # 标记 unavailable——任何宿主进程启动后账目即如实
+        # 启动核对（与 recover_stale、快照清扫同一类）：把重试输入
+        # 已丢失的记录标记 unavailable，使 issue 记录与磁盘一致
         self.issue_actions.reconcile_retry_sources()
         self._mcp_connections: dict[str, Any] = {}
         self._bg_tasks: list[asyncio.Task] = []
@@ -176,16 +177,16 @@ class AppRuntime:
         return cls(config, hooks=hooks)
 
     async def start(self) -> None:
-        """MCP 连接 + 执行后台循环（worker 泵）一次性拉起。
+        """建立 MCP 连接并启动 worker 后台循环。
 
-        start = 宣布本进程为执行者：先拿执行锁（git 协议要求 wiki 写者唯一），
-        他进程持有时直接失败，不降级启动。
+        先取得执行锁（git 协议要求 wiki 写者唯一）；他进程持有时直接失败，
+        不在无锁状态下继续运行。
         """
         if self._started:
             return
         acquire_execution_lock(self.workspace)
         self._exec_lock_held = True
-        self.job_service.recover_stale()  # 持锁后才允许回收无主 running
+        self.job_service.recover_stale()  # 取得执行锁后才允许回收遗留的 running 行
         if self.config.mcp.servers:
             from wiki_agent.tools.mcp_adaptor import connect_mcp_servers
 
@@ -199,7 +200,7 @@ class AppRuntime:
         self._started = True
 
     async def close(self) -> None:
-        """停后台循环、关 MCP、释放执行锁与 runtime 资源。"""
+        """停止后台循环、关闭 MCP 连接、释放执行锁。"""
         self.job_worker.stop()
         tasks, self._bg_tasks = self._bg_tasks, []
         for task in tasks:

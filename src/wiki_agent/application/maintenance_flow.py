@@ -1,12 +1,11 @@
-"""结构维护 CLI 用例——花钱前预检、提议、整批入队的流程编排。
+"""结构维护流程编排：调用 LLM 前的预检、提议、整批入队。
 
-原先整段流程长在 agent/commands 的 MaintainCommand 里（agent 包反向
-import application，靠函数级导入遮环）；命令层只应解析参数与格式化
-结果。本模块收编流程，返回结构化结果，文案归命令。
+命令层只做参数解析与结果格式化；流程在本模块，返回结构化结果，
+输出文案由命令处理。
 
-另实现 jobs.MaintenancePlanner 协议：单元校验与批尾波及面计算要读
-wiki 盘面与 restructure 声明模型（compiler），属业务知识，不该住在
-通用提交口。装配根把本实现注入 JobService，jobs 不再 import compiler。
+另实现 jobs.MaintenancePlanner 协议：单元校验与批尾补链目标计算需要读
+wiki 当前内容与 restructure 声明模型（compiler），属于 compiler 的知识，
+不放在通用的 jobs 提交入口。组装根把本实现注入 JobService，jobs 不 import compiler。
 """
 
 from __future__ import annotations
@@ -30,10 +29,10 @@ from wiki_agent.jobs.service import MaintenancePlan
 
 
 def gate_text(job_service: Any) -> str | None:
-    """/maintain 与 /link 共用的花钱前预检：在途或基线落后返回暂拒文案。
+    """/maintain 与 /link 共用的预检：有在途任务或基线落后时返回暂拒文案。
 
-    提交口（JobService._raise_if_maintenance_blocked）在事务内还会复查
-    同一判定——这里只把注定失败的提交挡在 LLM 分析之前。
+    提交入口（JobService._raise_if_maintenance_blocked）在事务内还会复查
+    同一判定——这里先挡住注定失败的提交，避免在其上消耗一次 LLM 分析。
     """
     if job_service.wiki_write_in_flight() > 0:
         return "写 wiki 的任务有在途，等当前批到终态后再执行。"
@@ -83,13 +82,13 @@ async def run_maintain(
 
 
 class MaintenancePlannerImpl:
-    """实现 jobs.MaintenancePlanner——维护批的领域校验与波及面规划。"""
+    """实现 jobs.MaintenancePlanner：维护批的单元校验与批尾补链规划。"""
 
     def plan_maintenance(self, units: list[dict], wiki_dir: Path) -> MaintenancePlan:
-        """消解规则对当前盘面重跑一遍：解析→校验→算批尾补链目标。
+        """基于 wiki 当前内容重跑消解规则：解析→校验→算批尾补链目标。
 
-        损坏声明与违例单元都抛 UnitError（提交口拒绝绕过消解的清单）；
-        波及面 = 全部产出页 ∪ 消失页的入链页（盘面静止时集合确定）。
+        损坏声明与违例单元都抛 UnitError（提交入口拒绝绕过消解的清单）；
+        补链目标 = 全部产出页 ∪ 消失页的入链页（wiki 内容不变时该集合确定）。
         """
         try:
             parsed = [Unit.from_dict(raw) for raw in units]
@@ -108,7 +107,7 @@ class MaintenancePlannerImpl:
         )
 
     def resolve_link_targets(self, slugs: list[str] | None, wiki_dir: Path) -> list[str]:
-        """发现型补链目标：None=全库内容页；给定 slug 不在名册抛 ValueError。"""
+        """全库扫描的补链目标：None=全部内容页；给定 slug 不在内容页列表则抛 ValueError。"""
         roster = all_content_slugs(wiki_dir)
         if slugs is None:
             return list(roster)

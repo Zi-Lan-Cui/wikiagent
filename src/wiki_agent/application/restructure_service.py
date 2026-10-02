@@ -64,7 +64,7 @@ class MaintenanceOutcome:
     dropped: list[tuple[Unit, str]] = field(default_factory=list)  # 消解拒绝
     effective: list[Unit] = field(default_factory=list)  # 消解后、可入队
     accepted: list[Unit] = field(default_factory=list)  # confirm 回调过滤后
-    healthy: bool = False  # 无建议或复核全部放弃——结构无需动手
+    healthy: bool = False  # 无建议或复核全部放弃——无需结构调整
     # 注意区分：消解全部拒绝时 healthy 为 False（代码否掉的，不是"结构好"）
 
 

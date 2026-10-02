@@ -35,7 +35,7 @@ def resolve_correction_issue(
     issue_id: str,
     action: str,
 ) -> IssueCard:
-    """Apply one correction decision; CAS on open/blocked makes double-decide fail loudly."""
+    """执行一条纠错裁决。状态转换以 CAS 限定 open/blocked，重复裁决会报错。"""
     record = service.store.require(issue_id)
     if record.kind != IssueKind.CONTENT_CORRECTION:
         raise ValueError("该问题不是纠错类型")
@@ -72,11 +72,11 @@ def resolve_correction_issue(
 
 
 class IssueActionExecutor:
-    """Execute only actions advertised by the current issue projection.
+    """只执行当前 issue 投影中声明可用的操作。
 
-    retry 不在这里——三个入口（web 问题页、CLI /queue retry、
-    scripts/retry_failures.py）统一直投 submit_issue_retry，
-    本执行器只承接同步裁决与 rescan。
+    retry 不经过这里——三个入口（web 问题页、CLI /queue retry、
+    scripts/retry_failures.py）都直接调用 submit_issue_retry；
+    本执行器只处理同步裁决与 rescan。
     """
 
     def __init__(self, runtime: AppRuntime):
@@ -204,10 +204,10 @@ class IssueActionExecutor:
         raise ValueError(f"尚未实现操作: {action}")
 
     def validate(self, issue_id: str, action: str) -> None:
-        """在建立后台任务前验证操作对当前投影可用。
+        """在创建后台任务前验证操作对当前投影可用。
 
-        retry 的资格判定已收口到提交口（JobService.submit_issue_retry_batch），
-        本方法只服务其余动作——投影里的 retry 条目仍用于界面展示。
+        retry 的资格校验统一在提交入口做（JobService.submit_issue_retry_batch），
+        本方法只校验其余动作——投影里的 retry 条目仍用于界面展示。
         """
         record = self.store.require(issue_id)
         allowed = {item.id for item in available_actions(record) if not item.disabled_reason}
@@ -220,12 +220,12 @@ class IssueActionExecutor:
         *,
         progress: Callable[[str], None] | None = None,
     ) -> tuple[IssueCard, JsonObject]:
-        """复扫全库、同步质量问题账——只产出裁决依据，不写 issue 终态。
+        """复扫全库、同步质量问题记录，只产出裁决依据，不写 issue 终态。
 
-        still_present 由复扫前后的 occurrences 对比得出（入账器按指纹合并，
-        仍在=计数前进）。终态写入统一在 JobOutcomeHandler 的 job 终态事务
+        still_present 由复扫前后的 occurrences 对比得出（质量问题按指纹合并，
+        仍存在时计数递增）。终态写入统一在 JobOutcomeHandler 的 job 终态事务
         （CAS：expected={open,blocked}），扫描期间的人工裁决不被覆盖。
-        防重复由承载它的 issue_action job 保证：同 issue 的在途行被幂等键收敛。
+        防重复由承载它的 issue_action job 保证：同 issue 的在途行被幂等键合并。
         """
         before = self.store.require(issue_id)
         if progress is not None:
@@ -251,8 +251,8 @@ class IssueActionExecutor:
 class IssueActionJobHandler:
     """issue_action job 的执行体（经 register_job_handlers 进 JobWorker，适配器只做入口映射）。
 
-    业务拒绝（来源丢失/动作非法/未实现）是终态——返回无联动语义的
-    failed 结果，问题账本不因被拒绝的动作而新增记录。rescan 的 issue
+    业务拒绝（来源丢失/动作非法/未实现）是终态：返回无联动语义的
+    failed 结果，不因被拒绝的动作新增 issue 记录。rescan 的 issue
     终态不在这里写：job_effect 只产出判断依据，终态统一由 outcome 在
     job 终态事务写入。
     """
@@ -278,5 +278,5 @@ class IssueActionJobHandler:
 
 
 def register_job_handlers(worker: JobWorker, executor: IssueActionExecutor) -> None:
-    """声明 issue_action 的认领——执行体是 IssueActionJobHandler，业务本体在 executor。"""
+    """注册 issue_action 的执行：执行体是 IssueActionJobHandler，业务逻辑在 executor。"""
     worker.register(Kind.ISSUE_ACTION, IssueActionJobHandler(executor))
