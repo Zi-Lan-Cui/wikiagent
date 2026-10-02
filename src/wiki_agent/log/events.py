@@ -1,15 +1,13 @@
-"""结构化事件日志——JSON lines 落文件，机器可消费。
+"""结构化事件日志，JSON lines 落文件。
 
-设计边界:
 - 只记录事件（谁、何时、做了什么、结果、耗时），不存业务数据
 - 不阻塞主流程
 - 可被 jq 等 JSONL 工具直接消费
 
 事件格式::
 
-    {"ts": "...", "trace_id": "...", "span": "llm_call", "dur_ms": 1234,
-     "model": "deepseek-v4-flash", "tokens": {"prompt": 1000, "completion": 200},
-     "status": "ok"}
+    {"ts": "...", "trace_id": "...", "event": "llm_call",
+     "dur_ms": 1234, "status": "ok", ...}
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ from wiki_agent.log.tracer import current_trace_id
 
 logger = get_logger("EVENTS")
 
-# 模块级单例——进程内唯一事件日志
+# 进程内唯一事件日志实例
 _event_log: EventLog | None = None
 
 
@@ -46,12 +44,12 @@ class EventLog:
     def emit(self, event: str, **fields: Any) -> None:
         """记录一条事件。
 
-        trace_id 自动从 contextvars 取；写盘失败不抛异常，只计数
-        （日志不得使主流程崩溃）。
+        trace_id 自动从 contextvars 取；写盘失败只计数不抛异常，
+        避免影响主流程。
 
         Args:
             event: 事件名（如 "llm_call"）。
-            **fields: 附加字段（模型/耗时/token 等，随记录写入）。
+            **fields: 附加字段，随记录写入。
         """
         record: dict[str, Any] = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
@@ -63,8 +61,8 @@ class EventLog:
             with open(self._path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception:
-            # 日志不得使主流程崩溃——失败静默但计数：
-            # 机器通道丢事件必须可见（run 结束有 WARNING 汇总）
+            # 写盘失败只计数不抛出，避免影响主流程；
+            # 计数由 run 结束的 WARNING 汇总暴露
             self.dropped += 1
             if self.dropped % 10 == 1:  # 每 10 条警告一次，不刷屏
                 logger.warning("事件写盘失败（已丢 %d 条）: %s", self.dropped, self._path)
@@ -81,7 +79,7 @@ def setup_event_log(path: str | Path | None) -> None:
 
 
 def emit_event(event: str, **fields: Any) -> None:
-    """记录结构化事件（未 setup 时 no-op）。
+    """记录结构化事件；未 setup 时不做任何事。
 
     Args:
         event: 事件名。

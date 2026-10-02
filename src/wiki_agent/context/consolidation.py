@@ -31,10 +31,7 @@ class ArchiveResult:
 
 @dataclass
 class ConsolidationResult:
-    """一次压缩流程的汇总结果。
-
-    调用方通过 ``changed/status`` 判断结果，并从字段读取诊断指标。
-    """
+    """一次压缩流程的汇总结果，含边界与诊断指标。"""
 
     changed: bool = False
     status: str = "not_needed"  # not_needed/succeeded/partial/failed
@@ -67,11 +64,9 @@ class ConsolidationResult:
 
 
 class Consolidator:
-    """
-    该模块负责使用LLM的压缩逻辑的实现，该模块只负责生产压缩结果，不负责将结果写入任何地方
-    """
+    """基于 LLM 的会话压缩；只产出压缩结果，不负责持久化。"""
 
-    _SAFETY_BUFFER = 1024  # 留给token估计错误的安全余量
+    _SAFETY_BUFFER = 1024  # token 估算误差的安全余量
     _MAX_CONSOLIDATE_LOOP = 5
 
     _CONSOLIDATOR_PROMPT = """
@@ -127,16 +122,14 @@ class Consolidator:
             result.failure_reason = "empty_messages"
             return result
 
-        # 输入进LLM之前，要确保内容合法，确保内容在上下文窗口之内，如果超出
-        # 需要用轻量化的方式截取，不宜堆叠调用LLM
+        # 输入须落在上下文窗口内，超出时轻量截断，不再追加 LLM 调用
         try:
-            # 保持消息为基本单元不好进行截断，所以要先进行转换，把消息转换为文本
-            # 这里采用逆序，避免截断时丢失最近的信息
+            # 消息单元不便截断，先转文本；逆序拼接，截断时保留最近信息
             text = "\n".join([m.text_schema for m in reversed(messages)])
             budget = self._input_token_budget(context_windows, max_tokens)
             truncate_text = self._maybe_truncate(text, budget)
 
-            # 当上下文有剩余时加入已有摘要；没有空余则跳过。
+            # 预算有余量时并入已有摘要
             truncated_summary = None
             if last_summary and truncate_text:
                 text_cost = estimate_text_tokens(truncate_text)
@@ -204,8 +197,8 @@ class Consolidator:
         if len(messages) - last_consolidate <= replay_max_messages:
             return None
 
-        # 找到压缩的end_idx，这里不需要保证要压缩的会话对api合法，也不需要保证剩余对api合法
-        # build阶段会在剩下的replay_max_messages消息中寻找合法部分
+        # 此处切片不发给 API，无需保证调用配对合法；
+        # 保留的 replay 窗口由构造请求时另行修复
         end_idx = len(messages) - replay_max_messages
         need_cosolidate_meesages = messages[last_consolidate:end_idx]
 
@@ -221,9 +214,9 @@ class Consolidator:
     def _estimate_session_prompt_tokens(
         self, session: Session, context_builder: ContextBuilder, replay_max_messages: int
     ) -> int:
-        # 只计算窗口内的元素
+        # 只估算 replay 窗口内的消息
         if replay_max_messages > 0:
-            # 只取窗口的未压缩历史，保证与外部创建的inital_message获取一致
+            # 取窗口的未压缩历史，与外部构造请求时一致
             unconsolidate_history = session.get_history(max_messages_length=replay_max_messages)
         else:
             unconsolidate_history = []
@@ -232,7 +225,7 @@ class Consolidator:
         initial_messages = context_builder.build_messages(
             session=session,
             history=unconsolidate_history,
-            # 传递current_message 过于麻烦且破坏结构，这里使用占位符替代
+            # 用占位消息代替 current_message，仅用于估长
             current_message=Message(role="user", content="[token probe]"),
             last_summary=last_summary,
         )
@@ -258,7 +251,7 @@ class Consolidator:
         """
         start = session.last_consolidated
 
-        # 没有可压缩的，包括tokens不对和已经全被压缩两种情况
+        # 无内容可压：目标非正数，或未压缩部分已为空
         if tokens_to_remove <= 0 or start >= len(session.history):
             return None
 
@@ -266,7 +259,6 @@ class Consolidator:
         for idx in range(start, len(session.history)):
             message_tokens = estimate_text_tokens(session.history[idx].text_schema)
             removed_tokens += message_tokens
-            # 切分点在user上，避免切开工具调用
             if session.history[idx].role == "user" and removed_tokens >= tokens_to_remove:
                 return idx + 1
 
@@ -316,12 +308,9 @@ class Consolidator:
             metrics.duration_ms = (time.perf_counter() - started) * 1000
             return metrics
 
-        # 压缩掉超出窗口的未压缩消息，这些消息对LLM已经不可见
-        # 不应该把replay_max_messages设置过小，这个不应该被频繁触发
-        # 否则压缩一条又来一条
-        # 这个裁剪没有考虑是否能够合法的截断，因为这些消息本身也不会再被传给api
-        # 但是被截断后的replay窗口内的消息，应该保持获取时的合法性
-        # archive 内部有 truncate 兜底——超预算输入被截断后调用仍合法
+        # 策略 1：压缩超出 replay 窗口的消息。这些消息不再发给 API，
+        # 切分无需保证合法；replay_max_messages 过小会导致频繁触发，
+        # 超预算输入由 archive 内部截断后再调用
         result = await self._consolidate_replay_overflow(
             llm=llm,
             messages=session.history,
@@ -346,11 +335,9 @@ class Consolidator:
                     session.last_consolidated,
                 )
         try:
-            # 尝试将整个窗口内未压缩的历史消息都放入messages，如果超出上下文窗口，对窗口内未压缩的消息进行压缩
-            # 这里和nanobot靠上面的压缩来获取所有窗口内未压缩历史不同，这里直接传递真实窗口长度
-            # 避免取的窗口和外部真实窗口不一致，导致估计错误
-            # 这个内部的截断位置，是会被传递给api的，所以这里的截断应该慎重考虑位置
-            # 或者让get_history的时候保证开始是合法的
+            # 策略 2：按真实 replay 窗口长度估算，与外部构造请求一致，
+            # 避免窗口不一致导致估计偏差；这部分消息会发给 API，
+            # 合法性由 get_history 与 Governor 保证
             estimate_tokens = self._estimate_session_prompt_tokens(
                 session=session,
                 context_builder=context_builder,
@@ -416,7 +403,6 @@ class Consolidator:
             if estimate_tokens >= target_tokens:
                 logger.warning("压缩后仍然超出预算")
 
-        # 更新session的窗口token
         session.current_window_tokens = estimate_tokens
         metrics.changed = session.last_consolidated > old_consolidated
         metrics.boundary = session.last_consolidated

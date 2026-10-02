@@ -12,11 +12,9 @@ class ToolCall(BaseModel):
 
 
 class ThinkingSegment(BaseModel):
-    """UI 思考折叠块的分段——随消息持久化，不回发给 LLM。
+    """UI 折叠块的有序分段，随消息持久化，不回发给 LLM。
 
-    kind=think 时取 text（模型思考段或工具回合旁的过程旁白）；
-    kind=tool 时取 name/arguments/ms/error，历史重放与实时折叠块
-    渲染同一套行结构。
+    kind=think 时使用 text；kind=tool 时使用 name/arguments/ms/error。
     """
 
     kind: Literal["think", "tool"]
@@ -28,16 +26,13 @@ class ThinkingSegment(BaseModel):
 
 
 class MessageMeta(BaseModel):
-    """消息元数据——系统侧信息，不进 LLM 内容。
+    """消息元数据，不进 LLM 内容。
 
-    time_stamp 是创建时刻——TTL 驱逐按它算年龄；checkpoint 持久化
-    保留原始值（恢复会话不重算，旧工具结果不会被误判为新鲜）。
+    time_stamp 是创建时刻，TTL 驱逐按它算年龄；checkpoint 保留原始值，
+    恢复会话不重算，旧工具结果不会被当作新鲜。
 
-    LLM 不需要消息时间: 绝对时间戳对语义无价值（相对顺序靠上下文），
-    估计文本（text_schema）与真实发送内容（openai_schema）同形
-    才有可靠的 token 估计。时间是系统元数据，消费者经 created_at
-    显式取用——LLM 需要"现在几点"时未来给 GetTime 工具（按需查），
-    而不是每条消息塞时间戳。
+    绝对时间对 LLM 无语义价值，估计文本与发送内容都不含时间；
+    系统消费者经 created_at 显式取用。
     """
 
     time_stamp: str = Field(default_factory=lambda: datetime.now().isoformat())
@@ -49,21 +44,17 @@ class Message(BaseModel):
     images: list[str] = Field(default_factory=list)  # base64 图片（不带 data: 前缀）
     tool_calls: list[ToolCall] = Field(default_factory=list)
     tool_call_id: str = ""
-    tool_name: str = ""  # tool 消息携带工具名，供 governor 按工具豁免截断
+    tool_name: str = ""  # tool 消息携带工具名，供 governor 按工具处理
     thinking: list[ThinkingSegment] = Field(default_factory=list)
-    # 思考折叠块的有序分段（思考文字+工具动作行）——持久化给 UI；
-    # openai_schema/text_schema 都不含它，不回发给 LLM、不参与 token 估计
+    # 仅持久化给 UI；openai_schema/text_schema 均不含，不回发、不计 token
     metadata: MessageMeta = Field(default_factory=MessageMeta)
 
     @property
     def created_at(self) -> datetime | None:
-        """返回创建时刻——时间戳的查询接口。
-
-        TTL 驱逐等系统消费者用。解析失败返回 None（消费者自行
-        降级——时间是元数据，不应因它崩溃）。
+        """读取元数据时间戳，供 TTL 驱逐等系统消费者使用。
 
         Returns:
-            消息创建时刻；元数据时间戳非法时返回 None。
+            消息创建时刻；时间戳缺失或非法时返回 None，由调用方处理。
         """
         try:
             return datetime.fromisoformat(self.metadata.time_stamp)
@@ -72,12 +63,10 @@ class Message(BaseModel):
 
     @property
     def text_schema(self):
-        """返回 token 估计/压缩用的文本形态。
+        """token 估计与压缩用的文本形态。
 
-        与 openai_schema 内容对齐，不含时间戳/图片等元数据——
-        估计文本与真实发送内容同形，否则 token 估计系统性偏差
-        （时间戳每条消息都变，还会让内容相同时间不同的消息产生
-        不同估计）。
+        与 openai_schema 内容对齐，不含时间戳和图片，
+        保证估计文本与发送内容一致，token 估计才准确。
 
         Returns:
             该消息的纯文本表示（按 role 拼接）。
@@ -151,26 +140,24 @@ class LLMResponse(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
     finish_reason: str = ""
     usage: dict = Field(default_factory=dict)
-    reasoning_content: str = ""  # reasoning 模型思考段（编译流水线应禁用 thinking）
-    check_ok: bool = True  # 输出校验结果——retry 层填充（无 check 时恒 True）
+    reasoning_content: str = ""  # reasoning 模型的思考内容
+    check_ok: bool = True  # 输出校验结果，由 retry 层填充
     check_reason: str = ""  # 校验失败原因（check_ok=False 时非空）
 
 
 def find_first_legal_idx(messages: list[Message], extend_to_user: bool = True):
-    """找到消息列表的合法起始下标——保证历史截断后 API 请求合法。
+    """找到截断后仍能保证 API 请求合法的起始下标。
 
-    规则（消息领域逻辑——从 utils 移入本模块）:
-    - 孤儿 tool 结果（无对应调用）之后的位置是合法起点
-      （截断不能从孤儿结果开始——API 会拒绝）
-    - extend_to_user=True 时首个 user 消息即返回
-      （对话窗口应以 user 提问开头）
+    规则:
+    - 孤儿 tool 结果（无对应调用）不能作为起点，起点取其之后
+    - extend_to_user=True 时返回首个 user 消息的下标
 
     Args:
-        messages: 消息列表（一般已被截取为窗口）。
+        messages: 消息列表（一般为已截取的窗口）。
         extend_to_user: 为 True 时返回首个 user 消息的下标。
 
     Returns:
-        合法的起始下标（可在该处截断）。
+        合法的起始下标。
     """
     start = 0
     called = set()
@@ -180,7 +167,7 @@ def find_first_legal_idx(messages: list[Message], extend_to_user: bool = True):
                 called.add(tool.id)
         if message.role == "tool" and message.tool_call_id not in called:
             start = idx + 1
-            # 清除所有标记（把这里当做新的开始）
+            # 把孤儿结果之后作为新起点，清空调用记录
             called.clear()
         if extend_to_user and message.role == "user":
             return idx

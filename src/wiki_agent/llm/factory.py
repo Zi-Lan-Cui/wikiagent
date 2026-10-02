@@ -42,7 +42,7 @@ def create_llm(cfg: LLMConfig, retry_config: RetryConfig | None = None) -> LLMCl
         cfg: LLM 配置。
 
     Returns:
-        可用的 LLMClient 实例。
+        LLMClient 实例。
     """
     client = LLMClient(cfg, retry_config, _process_limiter("llm", cfg))
     logger.info("LLM 客户端创建: model=%s, base_url=%s", cfg.model_id, cfg.base_url)
@@ -52,14 +52,14 @@ def create_llm(cfg: LLMConfig, retry_config: RetryConfig | None = None) -> LLMCl
 def create_vlm(cfg: VLMConfig, retry_config: RetryConfig | None = None) -> LLMClient:
     """从 VLMConfig 创建多模态 VLM 客户端。
 
-    返回的是同一个 ``LLMClient`` 类型——
-    多模态能力通过 ``Message(images=[...])`` 驱动，客户端本身不区分。
+    返回同一个 LLMClient 类型，多模态能力由 Message(images=[...]) 驱动，
+    客户端本身不区分。
 
     Args:
         cfg: VLM 配置（继承 LLMConfig）。
 
     Returns:
-        可用的 LLMClient 实例（构造上等价于 LLM 客户端）。
+        LLMClient 实例。
     """
     client = LLMClient(
         cfg,
