@@ -1,8 +1,4 @@
-"""转换器分发层。
-
-按注入顺序遍历 converter，首个 ``accepts()`` 返回 True 的负责处理。
-每个 ``BaseConverter`` 子类是一套完整的文件→文本实现，内部自己处理各模态。
-"""
+"""转换器分发层：按注入顺序取首个 ``accepts()`` 为 True 的 converter。"""
 
 from __future__ import annotations
 
@@ -17,8 +13,7 @@ logger = get_logger("CONVERTER")
 class Converter:
     """文件 → 文本 的分发器。
 
-    注入 converter 列表，按顺序匹配，首个 ``accepts()`` 返回 True 的获胜。
-    默认注册 MinerUConverter。
+    默认注册 MinerUConverter；每个 converter 是一套完整的文件→文本实现。
     """
 
     def __init__(self, converters: list[BaseConverter] | None = None):

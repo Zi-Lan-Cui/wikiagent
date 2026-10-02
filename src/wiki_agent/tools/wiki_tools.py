@@ -1,9 +1,8 @@
 """Wiki 知识库导航工具。
 
-三个基础原语覆盖 wiki 探索的全部需求：
-- ReadFile  — 读取页面全文
-- ListDir   — 浏览目录结构
-- Grep      — 全文搜索定位页面
+- ReadFile：读取页面全文
+- ListDir：浏览目录结构
+- Grep：全文搜索定位页面
 """
 
 from __future__ import annotations
@@ -16,13 +15,8 @@ from wiki_agent.wiki.paths import HIDDEN_DIRS, safe_resolve
 
 logger = get_logger("WIKI_TOOLS")
 
-# Internal build artifacts and source provenance are implementation details,
-# not part of the user-facing knowledge base.  Keep these out of all three
-# navigation primitives so the model cannot accidentally treat logs/source
-# snapshots as facts.
-
-
-# 路径安全校验（三个工具共享）
+# 内部构建产物与源文件不属于 wiki 知识内容，三个工具都通过
+# HIDDEN_DIRS 将其排除，避免模型误将其当作页面读取
 
 
 class ReadFile(BaseTool):
@@ -51,12 +45,11 @@ class ReadFile(BaseTool):
 
     def __init__(self, root: str | Path, workspace: str | Path | None = None):
         self._root = Path(root).resolve()
-        # tmp/ 前缀的转存路径解析到 workspace 下，其余相对路径解析到 wiki 下
         self._workspace = Path(workspace).resolve() if workspace else None
 
     @property
     def root(self) -> Path:
-        """wiki 根——跨模块定位知识库路径的公开口（命令层取 wiki_dir 用）。"""
+        """返回 wiki 根目录，供外部代码取 wiki_dir。"""
         return self._root
 
     def _resolve(self, file_path: str) -> Path | None:
@@ -294,7 +287,7 @@ class Grep(BaseTool):
         if not results:
             return f"在 {in_dir or 'wiki/'} 中未找到匹配 '{pattern}' 的内容"
 
-        deduped = list(dict.fromkeys(results))  # 保持顺序去重
+        deduped = list(dict.fromkeys(results))
         shown = deduped[:max_results]
         out = [f"# 搜索 '{pattern}' — 找到 {len(deduped)} 条匹配"]
         out.extend(shown)

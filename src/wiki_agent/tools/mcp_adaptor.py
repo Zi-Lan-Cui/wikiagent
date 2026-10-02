@@ -18,8 +18,10 @@ logger = get_logger("MCP")
 
 
 class MCPConnection:
-    """
-    给任务外部提供关闭连接的接口。因为stdio要求关闭任务的和连接的task要在一个task之内，所以需要使用这种方式包装owner
+    """对任务外部提供关闭连接的接口。
+
+    stdio 要求关闭连接栈必须发生在持有连接的 task 内，
+    因此外部只通过本对象向该 task 发信号。
     """
 
     def __init__(
@@ -42,14 +44,11 @@ class MCPConnection:
     async def aclose(self):
         """请求关闭连接并等待 owner 退出。
 
-        shield 保证清理链接时 _owner 本身不被取消，
-        避免清理到一半中止。owner 因自身异常已死亡时
-        （finally 已尽力清理）异常不传播——调用方（CLI 收尾）
-        不需要替 MCP 连接的旧伤买单。
+        shield 保证清理过程不被取消打断；owner 因自身异常退出时
+        （finally 已清理）异常不传播。
         """
         self._close_requsted.set()
         try:
-            # shield保证在清理链接的时候_owner本身不被取消，造成清理一半中止
             await asyncio.shield(self._owner)
         except asyncio.CancelledError:
             if not self._owner.cancelled():
@@ -64,19 +63,16 @@ async def connect_mcp_servers(
     """连接配置中的所有 MCP server 并把工具注册进 registry。
 
     Args:
-        mcp_servers: server 名 → McpServerConfig（transport 在
-            cfg.transport，need_resources/need_prompts 是 server 级开关）。
+        mcp_servers: server 名到 McpServerConfig 的映射，transport 在
+            cfg.transport，need_resources 与 need_prompts 是 server 级开关。
         tool_registry: 工具注册表（工具注册进这里）。
 
     Returns:
-        server 名 → MCPConnection 映射；单个 server 连接失败
-        记录日志后跳过（不影响其他 server）。
+        server 名到 MCPConnection 的映射；单个 server 连接失败时
+        记录日志后跳过，不影响其他 server。
     """
 
     async def open_single_server(name, cfg):
-        # cfg 是 McpServerConfig——传输细节在 cfg.transport，
-        # need_resources/need_prompts 是 server 级开关
-        # （曾直接从 transport 读，AttributeError 导致 SSE 必失败）
         transport = cfg.transport
         server_stack = AsyncExitStack()
         await server_stack.__aenter__()
@@ -89,10 +85,8 @@ async def connect_mcp_servers(
                 read, write = await server_stack.enter_async_context(stdio_client(server_params))
 
             elif transport.type == "sse":
-                # mcp 1.x 的 sse_client 使用 httpx + httpx-sse 的
-                # aconnect_sse；项目已锁定 mcp<2，因此统一返回普通
-                # httpx.AsyncClient。升级 MCP 主版本时需单独验证关闭语义。
-                # 根据 client 的类型标识，工厂必须保留这些参数。
+                # 工厂签名由 sse_client 约定，参数必须保留；返回普通
+                # httpx.AsyncClient。升级 MCP 主版本时需重新验证关闭语义。
                 def httpx_client_factory(
                     headers: dict[str, str] | None = None,
                     timeout: Any | None = None,
@@ -103,14 +97,14 @@ async def connect_mcp_servers(
                         **(headers or {}),
                         **(
                             transport.headers or {}
-                        ),  # headers是client自己调用时注入，这个是自己配置输入
+                        ),  # headers 为 client 调用时注入，transport.headers 是配置项
                     }
 
                     return httpx.AsyncClient(
                         headers=merged_headers,
                         timeout=timeout,
                         auth=auth,
-                        trust_env=False,  # 不使用环境
+                        trust_env=False,  # 不读取环境变量中的代理配置
                     )
 
                 read, write = await server_stack.enter_async_context(
@@ -118,16 +112,15 @@ async def connect_mcp_servers(
                 )
 
             elif transport.type == "streamable":
-                # Streamable HTTP（MCP 2025-06 规范新传输，逐步取代 SSE）
-                # 该 client 返回 3 元组（read, write, get_session_id）——
-                # get_session_id 供会话头管理，ClientSession 只用前两个，显式丢弃
+                # 该 client 返回 3 元组，第三个 get_session_id 供会话头管理；
+                # ClientSession 只用前两个，显式丢弃
                 read, write, _get_session_id = await server_stack.enter_async_context(
                     streamable_http_client(transport.url)
                 )
 
             else:
-                # 判别联合保证 type 合法，但配置可能被外部 JSON 直改——
-                # else 显式抛错，避免 read/write 未定义的 NameError 误导排查
+                # 配置可能被外部 JSON 直接修改，显式抛错
+                # 避免 read/write 未定义产生的 NameError
                 raise ValueError(f"MCP server '{name}' 未知传输类型: {transport.type!r}")
 
             session = await server_stack.enter_async_context(ClientSession(read, write))
@@ -162,10 +155,8 @@ async def connect_mcp_servers(
             return name, session, server_stack, registered
 
         except BaseException:
-            # 连接阶段失败——当场清理全部 context。泄漏给 GC 的
-            # async generator 会在事件循环关闭时被跨 task athrow，
-            # anyio cancel scope 拒绝跨 task 退出，打印 RuntimeError
-            # 噪音（"generator didn't stop after athrow" 那类报错）
+            # 连接阶段失败时当场清理 context：async generator 泄漏给 GC 后，
+            # 事件循环关闭时会跨 task athrow，anyio 拒绝跨 task 退出
             try:
                 await server_stack.aclose()
             except Exception:
@@ -173,12 +164,11 @@ async def connect_mcp_servers(
             raise
 
     async def connect_single_server(name, cfg):
-        # get_running_loop——本函数在 async 上下文内，
-        # get_event_loop 无当前 loop 时行为有坑（可能新建/报错）
+        # 用 get_running_loop：get_event_loop 无当前 loop 时行为不确定
         loop = asyncio.get_running_loop()
         ready = loop.create_future()
         close_requested = asyncio.Event()
-        dead = asyncio.Event()  # 健康检查失败 = 连接假死
+        dead = asyncio.Event()
 
         async def own_connection():
             stack: AsyncExitStack | None = None
@@ -191,9 +181,9 @@ async def connect_mcp_servers(
                 if stack is None:
                     return
 
-                # 健康监督: 定期 ping，失败判定连接假死
-                # 断开的异常发生在 SDK 内部后台 reader task，
-                # 不会冒到本 task——只能靠主动探测发现。
+                # 健康监督：定期 ping，失败判定连接假死。
+                # 断连异常发生在 SDK 内部后台 reader task，不冒到本 task，
+                # 只能靠主动探测发现。
                 async def health_watch():
                     while not close_requested.is_set():
                         await asyncio.sleep(10)
@@ -206,10 +196,7 @@ async def connect_mcp_servers(
                             return
 
                 watcher = asyncio.create_task(health_watch())
-                # asyncio.wait 在 3.13 禁止传 coroutine
-                # （"Passing coroutines is forbidden"）——Event.wait()
-                # 必须先包成 task。否则连接成功走到这里立即 TypeError，
-                # owner 死亡且 coroutine 泄漏（"was never awaited" 警告）
+                # asyncio.wait 在 3.13 禁止传 coroutine，Event.wait() 须先包成 task
                 close_task = asyncio.create_task(close_requested.wait())
                 dead_task = asyncio.create_task(dead.wait())
                 try:
@@ -237,8 +224,7 @@ async def connect_mcp_servers(
                         # AsyncExitStack 关闭 ClientSession 在先、sse_client 在后，
                         # sse_reader 后台任务可能往已关闭的流写入，触发 BrokenResourceError，属于无害关闭噪音
                         pass
-                # 连接生命周期结束（假死或正常关闭）即摘除该 server 的
-                # 工具——留下的只会让模型对着死连接撞熔断
+                # 连接结束（假死或正常关闭）即摘除该 server 的工具
                 for tool_name in registered:
                     tool_registry.unregister(tool_name)
 
@@ -249,11 +235,9 @@ async def connect_mcp_servers(
         try:
             connected = await ready
         except BaseException:
-            # 不 cancel owner——cancel 会打断 finally 里的
-            # stack.aclose()（CancelledError 是 BaseException，
-            # except Exception 接不住），sse_client 生成器泄漏给
-            # GC，事件循环关闭时跨 task athrow 打印 RuntimeError
-            # 噪音。dead.set() 让 owner 的 wait 自然返回走完整清理
+            # 不 cancel owner：cancel 会打断 finally 里的 stack.aclose()
+            # （CancelledError 不被 except Exception 接住），导致生成器泄漏给 GC。
+            # dead.set() 让 owner 的 wait 自然返回，走完整清理
             close_requested.set()
             dead.set()
             with suppress(BaseException):
@@ -293,7 +277,7 @@ def _extract_nullable_branch(options: list[dict]):
             continue
         non_null.append(option)
 
-    # 只处理恰好一个null，一个非null的情况
+    # 只处理恰好一个 null 加一个非 null 的情况
     if has_null and len(non_null) == 1:
         return non_null[0], True
     return None
@@ -308,18 +292,16 @@ def normlize_schema_for_openai(raw_schema):
         raw_schema: MCP 工具 inputSchema。
 
     Returns:
-        规范化后的 schema dict（非 dict 输入返回空 object 兜底）。
+        规范化后的 schema dict；输入非 dict 时返回空 object 结构。
     """
     if not isinstance(raw_schema, dict):
         return {"type": "object", "properties": {}}
 
-    # 复制一份schema
     dict_schema = dict(raw_schema)
 
     raw_type = dict_schema.get("type")
     if isinstance(raw_type, list):
-        # 只处理一个null，一个非null的情况，对于多个类型加null的情况，不处理
-        # 等待报错后，交给用户自己处理，openai不支持这种格式
+        # 多个非 null 类型（OpenAI 不支持）不做处理，留待调用方报错
         non_null = [item for item in raw_type if item != "null"]
         if "null" in raw_type and len(non_null) == 1:
             dict_schema["type"] = non_null[0]
@@ -330,10 +312,9 @@ def normlize_schema_for_openai(raw_schema):
         if not branches:
             continue
         nullable_branch = _extract_nullable_branch(branches)
-        # 返回值可能是None，或者两个返回值，所以不能直接解包
         if nullable_branch:
             branch, _ = nullable_branch
-            # 删除key，并且将branch添加进去,这里使用了创建新对像，然后拷贝的做法
+            # 去掉该 key 后合入 branch（构造新 dict，不改原对象）
             merged = {k: v for k, v in dict_schema.items() if k != key}
             merged.update(branch)
             dict_schema = merged
@@ -342,20 +323,18 @@ def normlize_schema_for_openai(raw_schema):
             break
 
     if "properties" in dict_schema and isinstance(dict_schema["properties"], dict):
-        # 对properties中嵌套的字典进行处理
         dict_schema["properties"] = {
             name: normlize_schema_for_openai(prop) if isinstance(prop, dict) else prop
             for name, prop in dict_schema["properties"].items()
         }
 
     if "items" in dict_schema and isinstance(dict_schema["items"], dict):
-        # 对items同样处理
         dict_schema["items"] = normlize_schema_for_openai(dict_schema["items"])
 
     if dict_schema.get("type") != "object":
         return dict_schema
 
-    # 对含有object属性的字典，初始化dict_schema默认值，包括初始最上层和可能的嵌套情况
+    # object 类型补齐 properties、required 默认值（顶层与嵌套同样处理）
     dict_schema.setdefault("properties", {})
     dict_schema.setdefault("required", [])
     return dict_schema
@@ -369,13 +348,11 @@ def _sanitize_tool_name(name: str) -> str:
     """把 MCP 工具名规范化为 OpenAI 兼容的函数名。
 
     规则:
-    1. 非法字符 → 下划线（中文等整体剔除）
-    2. 连续下划线折叠
-    3. 首尾 _ - 去除
-    4. 全空 → 兜底名 mcp_tool
-    5. 超 64 截断
-    6. 纯非 ASCII 名（如"天气查询"）→ 附 8 位稳定 hash，
-       保证不同中文工具名不互相覆盖（weather_8f3a2b1c）
+    1. 非法字符替换为下划线，连续下划线折叠，首尾 _ - 去除
+    2. 结果为空时用 mcp_tool
+    3. 超长截断到 64 字符
+    4. 原名含非 ASCII 字符时附 8 位稳定 hash，
+       避免不同非 ASCII 名清理后互相覆盖
 
     原始名保存在 MCPToolWrapper.original_name，调用时用原名。
     """
@@ -385,7 +362,6 @@ def _sanitize_tool_name(name: str) -> str:
     if not result:
         result = "mcp_tool"
     if re.fullmatch(r"[a-zA-Z0-9_-]+", name) is None:
-        # 原名含非 ASCII（如中文）——hash 保证区分度
         digest = hashlib.md5(name.encode("utf-8")).hexdigest()[:8]
         result = f"{result}_{digest}"
     return result[:_MAX_TOOL_NAME_LEN].rstrip("_-")
@@ -394,8 +370,7 @@ def _sanitize_tool_name(name: str) -> str:
 class MCPToolWrapper(BaseTool):
     """将 MCP 工具适配为统一的 ToolRegistry 执行协议。"""
 
-    # 外部 MCP 工具的副作用未知；除非将来由 MCP 元数据明确声明幂等性，
-    # 不能自动重试可能已成功的远端写操作。
+    # 外部 MCP 工具的副作用未知，不能自动重试可能已成功的远端写操作
     side_effect = "irreversible"
 
     def __init__(self, session, server_name, tool_def, tool_timeout: int = 30):
@@ -406,15 +381,14 @@ class MCPToolWrapper(BaseTool):
         self.timeout_seconds = tool_timeout
         self.original_name = tool_def.name
 
-        # 有些 MCP 提供者的函数名是中文/以数字开头等，不符合 OpenAI 规范，需要重命名。
-        # server 名做前缀（自己配置的、可控），不同 server 的同名工具天然不冲突，
-        # LLM 也能从名字看出工具归属（如 weather_search / filesystem_search）。
+        # 工具名可能不符合 OpenAI 规范，先 sanitize 再加 server 名前缀，
+        # 区分不同 server 的同名工具
         self.name = f"{server_name}_{_sanitize_tool_name(tool_def.name)}"
         self.description = tool_def.description
         self.parameters = normlize_schema_for_openai(self.raw_schema)
 
     async def execute_once(self, **kwargs):
-        """调用 MCP 工具一次（必须传原名，不是 sanitize 后的名字）。
+        """调用 MCP 工具一次；请求 session 时使用 original_name。
 
         timeout、取消和异常分类由 ``ToolRegistry`` 统一处理。
         """
@@ -422,7 +396,7 @@ class MCPToolWrapper(BaseTool):
         return self._render_call_result(result.content, kwargs)
 
     def _render_call_result(self, content, arguments):
-        """渲染 MCP 调用结果——可能包含图片，暂时只提取文本。
+        """渲染 MCP 调用结果；content 可能包含图片，当前只提取文本。
 
         Args:
             content: MCP 返回的 content 块列表。

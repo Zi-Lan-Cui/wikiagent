@@ -45,25 +45,21 @@ def format_tool_error(
 
 
 class BaseTool(ABC):
-    # name/description/parameters 是实例级元数据：静态工具在类体赋默认值即可
-    # （`name: str = "ReadFile"`），动态工具（MCPToolWrapper，从 server 发现）
-    # 必须在 __init__ 逐实例赋值——故不能是 ClassVar（ClassVar 禁止 self 赋值）。
+    # 实例级元数据：静态工具在类体赋默认值，MCPToolWrapper 在 __init__
+    # 逐实例赋值，故不能声明为 ClassVar（ClassVar 禁止 self 赋值）
     name: str
     description: str
-    # schema 是嵌套 dict（type/properties/required）——不是 str。
-    # 旧 property description 已删: 与子类同名的 property 是死代码 + 递归陷阱
-    # （property 体内访问 self.description）；现役工具只在子类赋类级默认。
+    # 嵌套 dict（type、properties、required），不是字符串
     parameters: dict
 
-    # 工具的副作用等级是重试策略的输入，不是工具名称的约定。
-    # 默认只读：没有声明写入副作用的工具可以安全地被重试。
+    # 默认只读：未声明写入副作用的工具可安全重试
     side_effect: ClassVar[ToolSideEffect] = "read_only"
-    # 总尝试次数（包含首次调用）。只读工具默认最多 2 次；写工具
-    # 只有在显式声明参数名并收到 key 时才允许进入同一重试路径。
+    # 总尝试次数（含首次）。写工具须声明 idempotency_key_param 并在
+    # 调用时传入该 key 才允许重试
     retry_attempts: ClassVar[int] = 2
     idempotency_key_param: ClassVar[str | None] = None
     retry_base_delay: ClassVar[float] = 0.2
-    timeout_seconds: float = 30.0  # 实例级（MCP 逐 server 配超时），静态工具用类级默认
+    timeout_seconds: float = 30.0  # 实例级，MCP 按 server 配置；静态工具用默认值
     breaker_failure_threshold: ClassVar[int] = 5
     breaker_recovery_seconds: ClassVar[float] = 30.0
     breaker_key: ClassVar[str | None] = None
@@ -73,8 +69,7 @@ class BaseTool(ABC):
         return ToolResiliencePolicy(
             side_effect=self.side_effect,
             timeout_seconds=self.timeout_seconds,
-            # 是否允许本次重试依赖调用参数（尤其是幂等 key），由
-            # Registry 在拿到 params 后再判断；这里仅返回工具上限。
+            # 是否重试由 Registry 结合调用参数判断，这里只给出上限
             max_attempts=max(1, self.retry_attempts),
             base_delay_seconds=max(0.0, self.retry_base_delay),
             failure_threshold=max(1, self.breaker_failure_threshold),
@@ -101,9 +96,8 @@ class BaseTool(ABC):
     ) -> str:
         """生成给 LLM 的可行动错误结果。
 
-        工具的业务错误应调用此方法，而不是各自拼接 ``Error: ...``。
-        日志仍由边界负责记录；这里的内容只包含 LLM 能据此采取行动的
-        安全信息，不包含堆栈和内部路径。
+        工具的业务错误统一走此方法；内容只含 LLM 可据以行动的安全信息，
+        不含堆栈与内部路径，日志由调用边界记录。
         """
         return format_tool_error(
             self.name,

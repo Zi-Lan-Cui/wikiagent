@@ -1,7 +1,7 @@
 """工具调用的熔断状态机。
 
-只管理"下游是否暂时可用"，不决定某个工具的业务 fallback；
-重试次数与 timeout 由工具 resilience 配置提供。
+只管理下游是否暂时可用，不做业务层的失败处理；
+重试次数与 timeout 由工具的 resilience 配置提供。
 """
 
 from __future__ import annotations

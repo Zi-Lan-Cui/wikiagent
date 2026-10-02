@@ -1,4 +1,4 @@
-"""Loading, converting and chunking user-provided documents."""
+"""用户文档的加载、转换与切块。"""
 
 from wiki_agent.documents.chunkers import (
     BaseChunker,

@@ -8,7 +8,7 @@ class GitManagerError(RuntimeError):
 
 
 class GitScopeError(GitManagerError):
-    """操作试图越过允许的 Wiki 范围。"""
+    """操作对象超出允许的 Wiki 范围。"""
 
 
 class GitCommitError(GitManagerError):

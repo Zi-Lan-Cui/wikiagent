@@ -22,8 +22,10 @@ class ToolRegistry:
         self._breakers: dict[str, CircuitBreaker] = {}
 
     def unregister(self, name: str) -> None:
-        """摘除工具——MCP 断连清理：假死的工具不该留在 schema 清单里
-        让模型反复调用撞熔断。未注册的名字静默忽略。"""
+        """移除工具（MCP 断连清理，避免模型继续调用已断连的工具）。
+
+        未注册的名字静默忽略。
+        """
         self._tools.pop(name, None)
 
     def register(self, tool: BaseTool) -> None:
@@ -80,9 +82,8 @@ class ToolRegistry:
                 retryable=True,
             )
 
-        # 参数预检：模型常把它用惯了的参数（如给 ReadFile 传 offset/limit）
-        # 混进调用，直接 **params 展开会炸成 TypeError、再被包成不可重试的
-        # internal_error——模型从错误里看不出该删什么，只能放弃或瞎试。
+        # 参数预检：模型常传入 schema 外的参数，**params 展开产生的
+        # TypeError 会被包装成不可重试的 internal_error，无法提示修正
         props = (getattr(tool, "parameters", None) or {}).get("properties")
         if isinstance(props, dict) and props:
             unknown = [k for k in params if k not in props]
@@ -105,8 +106,7 @@ class ToolRegistry:
                 result = await asyncio.wait_for(
                     tool.execute_once(**params), timeout=policy.timeout_seconds
                 )
-                # 之前的瞬态失败只代表前一次 attempt；成功后必须清掉，
-                # 否则循环结束会把旧错误误报给 LLM。
+                # 成功后必须清除旧错误，否则循环结束会误报给 LLM
                 last_error = None
                 break
             except asyncio.CancelledError:
@@ -144,7 +144,7 @@ class ToolRegistry:
             return result
 
         opened = False
-        # 只把瞬态基础设施故障计入熔断；参数、权限和业务错误不应熔断。
+        # 只把瞬态基础设施故障计入熔断；参数、权限和业务错误不熔断。
         if isinstance(last_error, RetryableError):
             opened = await breaker.record_failure()
         else:
@@ -193,7 +193,6 @@ class ToolRegistry:
                     },
                 }
             )
-        # Tool parameters are intentionally stored as JSON-schema dictionaries in
-        # BaseTool.  This adapter is the single boundary where they become the
-        # OpenAI SDK's TypedDict-based request type.
+        # parameters 在 BaseTool 中按 JSON-schema dict 保存，
+        # 此处是转换为 OpenAI SDK TypedDict 的唯一边界
         return cast(list[ChatCompletionToolParam], all_schema)

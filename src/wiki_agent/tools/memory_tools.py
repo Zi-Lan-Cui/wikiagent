@@ -1,4 +1,4 @@
-"""Agent tools for recording user corrections."""
+"""记录用户纠错的 Agent 工具。"""
 
 from __future__ import annotations
 
@@ -10,10 +10,9 @@ from wiki_agent.tools.base import BaseTool
 
 
 class RecordCorrection(BaseTool):
-    """把用户指出的 wiki 错误记进待修清单。
+    """把用户指出的 wiki 错误记入问题中心。
 
-    LLM 在对话中发现用户指出 wiki 页面内容错误、过时或缺失时
-    主动调用——纠错是知识库演化的信号，不能丢在对话里。
+    LLM 在对话中发现用户指出页面内容错误、过时或缺失时主动调用。
     """
 
     name: str = "RecordCorrection"
@@ -43,7 +42,7 @@ class RecordCorrection(BaseTool):
         self._issue_service = issue_service
 
     async def execute_once(self, page: str = "", issue: str = "") -> str:
-        """记录纠错进待修清单。
+        """把纠错记入问题中心。
 
         Args:
             page: 出错页面的相对路径（可为空）。

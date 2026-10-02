@@ -12,11 +12,11 @@ logger = get_logger("DATALOADER")
 class FileModality(StrEnum):
     TEXT = "text"
     IMAGE = "image"
-    RICH = "rich"  # 多模态/富文档（PDF、docx 等）
+    RICH = "rich"  # 富文档（PDF、docx 等）
 
 
 class RawFileProperties(BaseModel):
-    """单个文件的原始属性，等待送入 chunker。"""
+    """单个文件的原始属性，供转换器与切块器使用。"""
 
     name: str
     ext: str  # 不含点，如 "txt"
@@ -29,7 +29,7 @@ class RawFileProperties(BaseModel):
 
 
 class LoadSummary(BaseModel):
-    """一次加载操作的汇总——已加载 & 被跳过的文件。"""
+    """一次加载操作的汇总：已加载与被跳过的文件。"""
 
     files: list[RawFileProperties] = Field(default_factory=list)
     skipped: list[dict[str, str]] = Field(default_factory=list)
@@ -40,7 +40,7 @@ class LoadSummary(BaseModel):
 class DataLoader:
     """文件发现 → 属性提取 → 文本内容读取。
 
-    不负责 chunk——只产出 ``RawFileProperties``，由 Processor/Chunker 消费。
+    只产出 ``RawFileProperties``，不做转换与切块。
     """
 
     # 扩展名 → 模态
@@ -83,8 +83,6 @@ class DataLoader:
 
     _TEXT_ENCODINGS: tuple[str, ...] = ("utf-8", "gbk", "gb2312", "latin-1")
 
-    # 公开 API
-
     def load(
         self,
         files: list[str | Path],
@@ -97,7 +95,7 @@ class DataLoader:
             base_path: 基准目录。
 
         Returns:
-            汇总（含已加载 & 跳过）。
+            汇总，含已加载与被跳过的文件。
         """
         base = Path(base_path)
         paths = [base / Path(f) for f in files]
@@ -129,8 +127,8 @@ class DataLoader:
             summary: 汇总（跳过时记录原因）。
 
         Returns:
-            RawFileProperties；文件不存在/非文件/不支持扩展名/
-            空内容时返回 None。
+            RawFileProperties；文件不存在、非文件、扩展名不支持
+            或内容为空时返回 None。
         """
         if not file.exists():
             self._skip(file, "文件不存在", summary)
@@ -151,7 +149,6 @@ class DataLoader:
         content, encoding = "", None
         if modality == FileModality.TEXT:
             content, encoding = self._read_text(file)
-            # 空内容拦截: 0 字节 / 纯空白 / JSON 空容器（[]、{}）
             if self._is_empty_content(content):
                 self._skip(file, f"空文件（{size}B，无有效内容）", summary)
                 emit_event("file_skipped", file=file.name, reason="empty", size_bytes=size)
@@ -175,7 +172,7 @@ class DataLoader:
             file: 文件路径。
 
         Returns:
-            (content, encoding)；全失败时用 utf-8 replace 兜底。
+            (content, encoding)；全部失败时以 utf-8 加 errors=replace 解码。
         """
         for enc in self._TEXT_ENCODINGS:
             try:
@@ -191,11 +188,10 @@ class DataLoader:
             summary.skipped.append({"name": file.name, "path": str(file), "reason": reason})
 
     def _is_empty_content(self, content: str) -> bool:
-        """判断文本内容是否"语义为空"。
+        """判断文本内容是否语义为空。
 
-        - 空串 / 纯空白
-        - JSON 空容器: []、{}、[ ]、{ }（如 conversations.json = []）
-        - 其他格式的空骨架（空列表/空字典）
+        - 空串或纯空白
+        - JSON 空容器：[]、{} 及含空白的变体
 
         Args:
             content: 文本内容。
@@ -206,7 +202,6 @@ class DataLoader:
         stripped = content.strip()
         if not stripped:
             return True
-        # JSON 空容器检测（兼容前后空白）
         if stripped in ("[]", "{}"):
             return True
         try:

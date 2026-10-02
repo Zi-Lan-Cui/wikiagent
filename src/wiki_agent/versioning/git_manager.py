@@ -1,13 +1,14 @@
-"""Wiki 版本管理——"HEAD = 最近已结算状态"模型的 Git 原语层。
+"""Wiki 版本管理：Git 原语层。
 
-wiki 是机器管理的：人禁止直接改动生成页，工作区的未提交内容都出自执行。因此不存在需要保护的脏状态——restore 到 HEAD 始终安全，这也是没有锁、没有运行容器、没有 dirty 检查的原因：逐 job
-协议（pre-reset → 执行 → 成功 commit / 失败 restore）保证每个 job 边界
-收敛，崩溃留下的未提交改动由下一次 pre-reset 清除。
+wiki 由程序管理，工作区未提交内容都出自 job 执行，没有需要保护的脏
+状态，restore 到 HEAD 始终安全，因此不加锁、不做 dirty 检查。每个 job
+按 pre-reset → 执行 → 成功 commit 或失败 restore 进行，未提交改动由
+下一次 pre-reset 清除。
 
-- 一切写 wiki 的 job 逐笔提交：compile `sync: <文件>`（retry 用
-  `retry:`）、delete `sync: delete <文件>`。body 携带 `Batch: <快照id>` 尾注。
-  撤销一整批 = 按尾注在历史中选段 revert，纯历史操作，不回退账本。
-- 运行留痕 = commit 历史本身；失败的未提交改动在 restore 前导出 patch 存档。
+- 写 wiki 的 job 逐笔提交：compile 用 `sync: <文件>`（retry 用 `retry:`），
+  delete 用 `sync: delete <文件>`，commit body 带 `Batch: <快照id>`。
+  撤销整批即 revert 带该标记的提交，只影响历史。
+- 失败产生的未提交改动在 restore 前导出 patch 存档。
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ _ADD_CHUNK = 50
 
 
 class WikiGitManager:
-    """Wiki scope 的 Git 原语：restore / commit / revert / history。"""
+    """Wiki scope 的 Git 操作：restore、commit、revert、history。"""
 
     def __init__(self, wiki_dir: str | Path):
         self.wiki_dir = Path(wiki_dir).resolve()
@@ -36,11 +37,10 @@ class WikiGitManager:
             raise GitScopeError(f"Wiki 目录不在 Git 仓库内: {self.wiki_dir}") from exc
 
     def _resolve_repository(self) -> Path:
-        """Reuse a repository that owns the Wiki, or initialize one locally.
+        """复用已有仓库，或在 wiki 目录内初始化新仓库。
 
-        A parent repository does not own an ignored, entirely untracked Wiki.
-        In that case a nested repository keeps private knowledge history
-        independent from the application source repository.
+        父仓库若忽略了 wiki 且不跟踪其中任何内容，视为不拥有 wiki，
+        用嵌套仓库使知识历史与代码仓库互相独立。
         """
         discovered = self._git(
             "rev-parse", "--show-toplevel", check=False, cwd=self.wiki_dir
@@ -78,8 +78,6 @@ class WikiGitManager:
                 continue
             self._git("config", key, value, cwd=self.wiki_dir)
 
-    # Git 基础
-
     def _git(
         self,
         *args: str,
@@ -87,13 +85,13 @@ class WikiGitManager:
         cwd: Path | None = None,
         timeout: float = 60,
     ) -> subprocess.CompletedProcess[str]:
-        """全部 git 子进程的唯一内核：带 timeout，异常归类 GitManagerError。
+        """所有 git 子进程调用的统一入口：带 timeout，失败抛 GitManagerError。
 
-        index.lock 竞争、钩子挂死等场景下无限等待会卡停调用方（worker
-        泵在事件循环里）；超时按失败抛出，行为与 returncode 非零一致。
+        index.lock 竞争、钩子挂死等场景下无限等待会卡住事件循环中的
+        worker；超时按失败抛出，与 returncode 非零处理一致。
         """
         try:
-            # core.quotePath=false：diff/show 输出原始 UTF-8 路径，中文页面不被八进制转义污染
+            # core.quotePath=false：输出原始 UTF-8 路径，中文文件名不被八进制转义
             result = subprocess.run(
                 ["git", "-c", "core.quotePath=false", *args],
                 cwd=cwd or self.repo_root,
@@ -117,9 +115,8 @@ class WikiGitManager:
         result = self._git(
             "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", self._scope_arg()
         )
-        # -z 返回原始 UTF-8 路径，避免 Git 默认的 C 风格引号/八进制
-        # 转义污染中文路径。rename/copy 的第二个路径是旧路径，状态
-        # 展示和变更清单只保留最终路径。
+        # -z 返回原始 UTF-8 路径，避免默认的 C 风格引号和八进制转义
+        # 影响中文路径。rename、copy 记录的第二个路径是旧路径，跳过。
         records = [item for item in result.stdout.split("\0") if item]
         lines: list[str] = []
         index = 0
@@ -143,14 +140,12 @@ class WikiGitManager:
             if path
         ]
 
-    # 查询
-
     def head(self) -> str:
         """当前 HEAD commit。"""
         return self._head()
 
     def status(self) -> list[str]:
-        """Wiki scope 内的未提交状态——协议下应恒为空，非空即执行遗留。"""
+        """Wiki scope 内的未提交状态。协议下应恒为空，非空表示有未收敛的执行遗留。"""
         return self._status()
 
     def is_clean(self) -> bool:
@@ -217,18 +212,16 @@ class WikiGitManager:
             paths.sort()
         return summary
 
-    # 结算原语
-
     def restore(self) -> None:
         """工作区恢复到 HEAD：还原跟踪文件、删除 scope 内未跟踪文件。
 
-        pre-reset 与失败撤销共用。只删文件不调用无范围 git clean；
-        NUL 分隔避免中文路径被 core.quotePath 转义后无法定位。
+        pre-reset 与失败撤销共用。只删文件，不调用无范围 git clean；
+        NUL 分隔避免中文路径被转义后无法定位。
         """
         had_changes = bool(self._status())
         if had_changes:
-            # 空仓库/全部内容未跟踪场景：scope 内没有跟踪文件时 restore 会因
-            # pathspec 不匹配报错——此时只有未跟踪内容可清
+            # scope 内无跟踪文件时 restore 会因 pathspec 不匹配报错，
+            # 此时只有未跟踪内容需要清理
             if self._git("ls-files", "--", self._scope_arg()).stdout.strip():
                 self._git("restore", "--staged", "--worktree", "--", self._scope_arg())
             for path in self._untracked():
@@ -251,9 +244,9 @@ class WikiGitManager:
                 pass  # 非空目录自然失败
 
     def working_patch(self) -> str:
-        """未提交改动的完整 diff（restore 前存档用；新文件以 intent-to-add 纳入）。
+        """未提交改动的完整 diff，restore 前存档用；新文件以 intent-to-add 纳入。
 
-        add -N 只改 index、restore 收尾时统一撤掉，不改工作区内容。
+        add -N 只改 index，结束时用 reset 撤掉，不改工作区内容。
         """
         untracked = self._untracked()
         for i in range(0, len(untracked), _ADD_CHUNK):
@@ -264,10 +257,9 @@ class WikiGitManager:
         return diff
 
     def commit_all(self, subject: str, *, body: str = "") -> str | None:
-        """提交 Wiki scope 的全部变更；无变更返回 None（noop 成功不产生 commit）。
+        """提交 Wiki scope 的全部变更；无变更返回 None。
 
-        pathspec 形式的 commit 只覆盖 scope 路径——仓库中其他位置即使
-        有暂存内容也不会被带入。
+        commit 带 pathspec，只覆盖 scope 路径，仓库其他位置的暂存内容不会被带入。
         """
         self._git("add", "-A", "--", self._scope_arg())
         # --quiet: 返回码 0=无变更、1=有变更
@@ -285,10 +277,8 @@ class WikiGitManager:
         emit_event("wiki_committed", commit=commit[:8], subject=subject)
         return commit
 
-    # 历史回撤
-
     def batch_commits(self, batch_id: str) -> list[str]:
-        """一次快照批的全部 commit（新→旧）。"""
+        """一次快照批的全部 commit，按时间从新到旧。"""
         return [
             line
             for line in self._git(
@@ -303,14 +293,14 @@ class WikiGitManager:
         ]
 
     def revert_commit(self, commit: str) -> str:
-        """回撤单个已提交版本，生成反向提交。"""
+        """撤销单个已提交版本，生成反向提交。"""
         return self._revert([commit], f"revert: {commit[:8]}")
 
     def revert_batch(self, batch_id: str) -> str:
-        """撤销一整批：revert 该批全部 commit（新→旧），生成一笔反向提交。
+        """撤销一整批：revert 该批全部 commit（从新到旧），生成一笔反向提交。
 
-        纯历史操作——sync 完成账不随之回退（账本记的是"当时确实编译过"），
-        回撤后要让内容重新进 wiki 就再点一次 sync。
+        只改历史，不修改 sync 记录；revert 后要让内容重新进 wiki，
+        需再次执行 sync。
         """
         commits = self.batch_commits(batch_id)
         if not commits:
@@ -318,7 +308,7 @@ class WikiGitManager:
         return self._revert(commits, f"revert: batch {batch_id}")
 
     def _revert(self, commits: list[str], subject: str) -> str:
-        # 先收敛到 HEAD——revert 要求干净工作区，而这里的"脏"只可能出自执行
+        # revert 要求干净工作区，先 restore 掉执行遗留的未提交改动
         self.restore()
         result = self._git("revert", "-n", *commits, check=False)
         if result.returncode:
