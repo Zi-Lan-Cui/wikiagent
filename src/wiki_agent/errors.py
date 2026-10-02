@@ -9,11 +9,11 @@ logger = get_logger("ERRORS")
 
 
 class WikiAgentError(Exception):
-    """所有可预期错误的基类——未分类的异常不继承它。"""
+    """可预期错误的基类；未分类异常不继承此类。"""
 
 
 class RetryableError(WikiAgentError):
-    """限流、超时、网络抖动——幂等场景下指数退避重试。"""
+    """限流、超时、网络故障等临时错误；幂等操作可按指数退避重试。"""
 
     def __init__(self, message: str = "", *, cause: Exception | None = None):
         super().__init__(message)
@@ -21,7 +21,7 @@ class RetryableError(WikiAgentError):
 
 
 class FatalError(WikiAgentError):
-    """配置错误、编程错误、鉴权失败——重试一万次也没用。"""
+    """配置错误、编程错误、鉴权失败；重试无法恢复。"""
 
     def __init__(self, message: str = "", *, cause: Exception | None = None):
         super().__init__(message)
@@ -29,7 +29,7 @@ class FatalError(WikiAgentError):
 
 
 class IngestStage(StrEnum):
-    """编译链路各阶段的统一命名。"""
+    """编译流程各阶段名称。"""
 
     LOAD = "load"  # 文件发现
     CONVERT = "convert"  # 格式转换
@@ -41,7 +41,7 @@ class IngestStage(StrEnum):
 
 
 class IngestError(WikiAgentError):
-    """编译链路统一异常——既是流水线内的失败信号，也是汇总的失败记录。"""
+    """编译流程统一异常，携带阶段、来源与重试分类信息。"""
 
     def __init__(
         self,
@@ -76,7 +76,7 @@ class IngestError(WikiAgentError):
 
 
 def translate_openai_error(exc: Exception) -> WikiAgentError:
-    """把 OpenAI SDK 异常翻译成三分类。"""
+    """把 OpenAI SDK 异常映射为 RetryableError 或 FatalError。"""
     import openai
 
     if isinstance(
@@ -105,7 +105,7 @@ def translate_openai_error(exc: Exception) -> WikiAgentError:
 
 
 def translate_generic_error(exc: Exception, context: str = "") -> WikiAgentError:
-    """把非 OpenAI 的通用异常翻译成三分类。"""
+    """把通用异常映射为 RetryableError 或 FatalError；已是 WikiAgentError 的原样返回。"""
     if isinstance(exc, WikiAgentError):
         return exc
 
@@ -117,14 +117,14 @@ def translate_generic_error(exc: Exception, context: str = "") -> WikiAgentError
     return FatalError(f"{prefix}未知异常 {type(exc).__name__}: {exc}", cause=exc)
 
 
-# 错误文本进有界字段的唯一口径：jobs.error/issue.summary/last_error 是
-# 账本级，detail 是现场级，日志与 evidence 键是摘要级。
+# 错误文本写入受限字段时的截断长度：SUMMARY 用于 jobs.error、
+# issue.summary、last_error 等列，DETAIL 用于 detail，TRACE 用于日志与 evidence。
 ERROR_SUMMARY_LIMIT = 500
 ERROR_DETAIL_LIMIT = 1000
 ERROR_TRACE_LIMIT = 200
 
 
 def summarize_error(text: object, limit: int) -> str:
-    """错误文本折成单行并截到 limit——账本小列的唯一写入口径。"""
+    """把错误文本压成单行并截断到 limit。"""
     collapsed = " ".join(str(text).split())
     return collapsed[:limit]

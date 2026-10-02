@@ -1,4 +1,4 @@
-"""通用工具——路径 + token 估计。"""
+"""通用工具：路径与 token 估计。"""
 
 from functools import lru_cache
 from pathlib import Path
@@ -8,8 +8,8 @@ import tiktoken
 
 @lru_cache(maxsize=1)
 def _encoder():
-    """tiktoken 编码器单例——get_encoding 每次调用有创建成本
-    （首次 ~50ms，之后从内部缓存拿），高频估计路径不值得重复付。"""
+    """tiktoken 编码器缓存单例：get_encoding 每次调用有开销，
+    高频估计路径经 lru_cache 复用。"""
     return tiktoken.get_encoding("cl100k_base")
 
 
@@ -20,8 +20,7 @@ def ensure_dir(path: Path):
         path: 要创建的目录路径。
 
     Returns:
-        创建成功的目录路径；路径已被文件占位时返回 None
-        （调用方短路）。
+        创建成功的目录路径；路径已被文件占用时返回 None。
     """
     try:
         path.mkdir(parents=True, exist_ok=True)
@@ -49,11 +48,9 @@ def truncate_text_by_tokens(text: str, max_tokens: int):
 
     try:
         tokens = enc.encode(text)
-        # encode返回的是list[int]，int表示token号,需要用len做比较
         if len(tokens) <= max_tokens:
             return text
 
-        # 截断操作之前应该添加截断标志字符
         suffix_tokens = enc.encode(_TRUNCATED_SUFFIX)
         suffix_count = len(suffix_tokens)
 
@@ -62,7 +59,7 @@ def truncate_text_by_tokens(text: str, max_tokens: int):
         body_tokens = tokens[: max_tokens - suffix_count]
         return enc.decode(body_tokens) + _TRUNCATED_SUFFIX
     except Exception:
-        # 返回最简单的保守估计
+        # 编码失败时退回字符数粗估
         max_char = max_tokens * 2
         suffix_char = len(_TRUNCATED_SUFFIX)
         if suffix_char >= max_char:
@@ -86,5 +83,4 @@ def estimate_text_tokens(text: str):
         tokens = enc.encode(text)
         return len(tokens)
     except Exception:
-        # 返回保守估计，一个字符两个token
         return len(text) * 2

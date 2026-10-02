@@ -1,4 +1,4 @@
-"""Shared SQLite connection and transaction ownership."""
+"""SQLite 连接与事务所有权。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 class Database:
-    """Own ``workspace/state.db`` and provide consistent SQLite settings."""
+    """持有 ``workspace/state.db``，统一提供 SQLite 连接设置与事务。"""
 
     def __init__(self, workspace: str | Path):
         self.workspace = Path(workspace)

@@ -1,14 +1,12 @@
-"""执行锁：同一份 workspace 同时只允许一个 wiki 写者（管理者）。
+"""执行锁：同一 workspace 同时只允许一个 wiki 写者。
 
-wiki 写协议（pre-reset/commit/restore）隐含前提是工作树写者唯一：两个泵
-并发执行不同 job 时，`commit_all` 会把对方的在途页面卷进自己的提交、
-失败路径的 restore 会抹掉对方的半成品。跨进程唯一性不靠约定，靠这把
-flock——进程死亡内核自动释放，没有判活、没有 stale 清理入口（与被退役
-的 run 容器的 O_EXCL 锁本质不同）。
+wiki 写协议（pre-reset/commit/restore）要求写者唯一：两个任务并发执行时，
+`commit_all` 会把对方未提交的页面带进自己的提交，失败路径的 restore 会覆盖
+对方写到一半的文件。跨进程唯一性由 flock 保证：进程退出时内核自动释放，
+无需检测持有进程存活，也没有过期锁需要清理。
 
-持有者 = 一切会泵队列的宿主：web runtime.start()、各批处理脚本
-（自泵到空）。同进程按引用计数重入：runtime.start() 已持有的宿主里
-再执行 /compile 不会自锁。
+持有者为所有驱动任务队列的进程：web 的 runtime.start()、批处理脚本。
+同进程按引用计数重入：已持有锁的进程内再次获取不会自锁。
 """
 
 from __future__ import annotations
@@ -19,14 +17,14 @@ import os
 from pathlib import Path
 
 _LOCK_NAME = "exec.lock"
-# 进程级登记表：flock 的持有与打开文件描述绑定，跨 fd 的重复加锁会
-# 与自身冲突——同进程复用同一 fd 并计数
+# flock 与打开的文件描述符绑定，同进程再次 open 加锁会与自身冲突，
+# 故按路径复用同一 fd 并计数
 _HOLDER: dict[Path, int] = {}
 _REFCOUNT: dict[Path, int] = {}
 
 
 class ExecutionBusy(RuntimeError):
-    """workspace 已被另一个执行进程持有。"""
+    """workspace 的执行锁已被另一个进程持有。"""
 
 
 def execution_lock_path(workspace: str | Path) -> Path:
@@ -34,7 +32,7 @@ def execution_lock_path(workspace: str | Path) -> Path:
 
 
 def acquire_execution_lock(workspace: str | Path) -> None:
-    """持有执行锁（同进程重入计数）。已被他进程持有时抛 ExecutionBusy。"""
+    """获取执行锁；同进程重入时累加计数。锁被他进程持有时抛 ExecutionBusy。"""
     path = execution_lock_path(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path in _HOLDER:
@@ -63,7 +61,7 @@ def acquire_execution_lock(workspace: str | Path) -> None:
 
 
 def release_execution_lock(workspace: str | Path) -> None:
-    """释放一次持有；引用归零时真正解锁。未持有时为 no-op。"""
+    """释放一次持有；引用计数归零时真正解锁。未持有时不做任何事。"""
     path = execution_lock_path(workspace)
     fd = _HOLDER.get(path)
     if fd is None:

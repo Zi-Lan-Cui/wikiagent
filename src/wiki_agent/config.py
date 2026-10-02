@@ -1,13 +1,8 @@
-"""配置根——单一加载入口。
+"""配置模块：单一入口 load_config。
 
-设计:
-- 分层优先级: 构造参数 > 环境变量 > .env 文件 > 默认值（12-Factor）
-- frozen: 加载后不可变，配置是契约不是状态
-- fail-fast: 坏配置启动即报错，带明确提示
-
-用法::
-
-    cfg = load_config(project_root=Path("."))
+- 优先级: 构造参数 > 环境变量 > .env 文件 > 默认值
+- 配置对象 frozen，加载后不可变
+- 配置错误在加载时立即报错，提示明确
 """
 
 from __future__ import annotations
@@ -32,8 +27,8 @@ class LLMConfig(BaseSettings):
     model_id: str = ""
     thinking: Literal["enabled", "disabled"] = "enabled"
     """是否启用模型 reasoning；通过 ``LLM_THINKING`` 控制。"""
-    # 单次请求超时（秒）——reasoning 模型思考段长，
-    # 120s 对 deepseek 思考链不够（两次 chunk 间隔超限即 ReadTimeout）
+    # 单次请求超时（秒）。思考模型两次数据块之间的间隔可能超过 120 秒
+    # 导致 ReadTimeout，故默认放宽到 300
     timeout: float = 300.0
     max_concurrency: int = 4
     requests_per_minute: int = 60
@@ -56,23 +51,22 @@ class LLMConfig(BaseSettings):
 class VLMConfig(LLMConfig):
     """多模态 VLM 配置（env 前缀 VLM_），用于图片 caption。
 
-    继承 LLMConfig——字段完全一致（多模态能力由 Message(images=)
-    驱动而非客户端配置），只覆盖 env 前缀。LLMClient(cfg) 接受的
-    是结构化子类型而非鸭子类型同名字段。
+    字段与 LLMConfig 完全一致，只覆盖 env 前缀；多模态能力由调用时的
+    Message(images=) 决定，而非客户端配置。
     """
 
     model_config = SettingsConfigDict(env_prefix="VLM_", frozen=True, extra="ignore")
 
 
 class AgentConfig(BaseSettings):
-    """Agent 生成与治理参数（env 前缀 AGENT_）。
+    """Agent 生成与上下文治理参数（env 前缀 AGENT_）。
 
-    agent 生成与治理参数——唯一配置来源（react/governor/consolidator 直接读本类）。
+    react/governor/consolidator 直接读取本类。
 
     治理参数:
-    - 工具结果 TTL: 可重复获得工具的驱逐时限——wiki 经 compile
-      变化，跨轮旧读取会失真；30 分钟是经验值
-    - 转存/紧凑化/snip: 窗口维度治理的阈值——与 context_windows 配套调
+    - 工具结果 TTL: 可随时重新获取的工具结果的保留时限；wiki 内容随编译
+      变化，跨轮的旧读取会失真。30 分钟是经验值
+    - 转存/紧凑化/snip: 上下文窗口超限时的处理阈值，与 context_windows 配套调整
     """
 
     model_config = SettingsConfigDict(env_prefix="AGENT_", frozen=True, extra="ignore")
@@ -87,12 +81,12 @@ class AgentConfig(BaseSettings):
     session_tail_messages: int = 6
     dream_poll_interval: int = 60
     # 治理参数
-    tool_result_ttl_minutes: int = 30  # 可重复获得工具（导航三件套）驱逐时限
+    tool_result_ttl_minutes: int = 30  # 可随时重新获取的工具结果的保留时限
     tool_persist_length: int = 8_000  # 工具结果转存阈值（超限写文件）
     snip_safe_buffer: int = 1024  # token 估计安全余量
-    inflight_target_ratio: float = 0.85  # 窗口紧凑化目标水位
-    inflight_compact_min_chars: int = 500  # 紧凑化最小长度（短结果不值得）
-    snip_ratio: float = 0.5  # snip 截断力度（保预算的比例）
+    inflight_target_ratio: float = 0.85  # 窗口紧凑化的目标占用比例
+    inflight_compact_min_chars: int = 500  # 短于此长度的结果不做紧凑化
+    snip_ratio: float = 0.5  # snip 截断后保留的预算比例
     wiki_index_chars: int = 4_000  # system prompt 的 index 地图截断
     corrections_chars: int = 2_000  # system prompt 的纠错清单截断
 
@@ -130,9 +124,9 @@ class AgentConfig(BaseSettings):
 
 
 class RetryConfig(BaseSettings):
-    """远程 LLM 调用的重试策略（env 前缀 ``RETRY_``）。
+    """LLM 调用重试策略（env 前缀 ``RETRY_``）。
 
-    只管 LLM 层——source 级失败不排程（手动重试模型），故无 source_* 字段。
+    仅覆盖 LLM 层；源文件级失败需手动重试，不经此配置排程，故无 source_* 字段。
     """
 
     model_config = SettingsConfigDict(env_prefix="RETRY_", frozen=True, extra="ignore")
@@ -152,9 +146,8 @@ class RetryConfig(BaseSettings):
 class CompileConfig(BaseSettings):
     """编译阶段预算与吞吐参数（env 前缀 COMPILE_）。
 
-    ``context_window`` 是模型能力上限；Extractor 会扣除 system、输出和
-    安全缓冲后得到阶段输入预算，不再由各层分别维护 60k/120k 两个语义
-    不同的默认值。
+    ``context_window`` 是模型能力上限；Extractor 扣除 system、输出和
+    安全缓冲后得到各阶段输入预算。
     """
 
     model_config = SettingsConfigDict(env_prefix="COMPILE_", frozen=True, extra="ignore")
@@ -196,22 +189,19 @@ class LoggingConfig(BaseSettings):
 
 
 def source_records_dir_for(workspace: str | Path) -> Path:
-    """workspace 内的来源档案目录——内部布局，只有 workspace 本身可配置。"""
+    """workspace 内的来源记录目录；内部布局，只有 workspace 本身可配置。"""
     return Path(workspace) / "provenance" / "sources"
 
 
 def sync_state_path_for(workspace: str | Path) -> Path:
-    """workspace 内的 sync 完成账路径——内部布局（目录名 watch 是历史名）。"""
+    """workspace 内的 sync 完成状态文件路径；内部布局，目录名 watch 沿用既有名称。"""
     return Path(workspace) / "watch" / "state.json"
 
 
 class PathsConfig(BaseSettings):
     """项目路径（env 前缀 WIKI_）。
 
-    env 不覆盖时按项目根推导——入口传入 project_root 即可。
-
-    ``load_config`` 与其他 Settings 一样传入 `_env_file`，因此
-    ``WIKI_WIKI_DIR`` 等字段遵循统一优先级。
+    env 未配置时按 project_root 推导，入口传入 project_root 即可。
     """
 
     model_config = SettingsConfigDict(env_prefix="WIKI_", frozen=True, extra="ignore")
@@ -240,36 +230,34 @@ class PathsConfig(BaseSettings):
         return self
 
     def resolved_materials_dir(self) -> Path:
-        """返回用户原始资料根目录，默认与 wiki/workspace 平级。"""
+        """用户原始资料根目录，默认与 wiki/workspace 平级。"""
         return self._resolve(self.materials_dir, "materials")
 
     def resolved_wiki_dir(self) -> Path:
-        """返回解析后的 wiki 目录。
+        """解析后的 wiki 目录。
 
         Returns:
-            显式配置的 wiki_dir；未配置时按 project_root/wiki 推导。
-
-            相对路径始终相对于 ``project_root``，这样从任意工作目录
-            启动（例如 ``uvicorn`` 或服务管理器）都使用同一份数据目录。
+            显式配置的 wiki_dir；未配置时为 project_root/wiki。相对
+            路径始终相对 project_root 解析，从任意工作目录启动都指向
+            同一份数据。
         """
         return self._resolve(self.wiki_dir, "wiki")
 
     def resolved_workspace_dir(self) -> Path:
-        """返回解析后的工作区目录。
+        """解析后的工作区目录。
 
         Returns:
-            显式配置的 workspace_dir；未配置时按
-            project_root/workspace 推导。相对路径始终相对于
-            ``project_root``。
+            显式配置的 workspace_dir；未配置时为 project_root/workspace。
+            相对路径始终相对 project_root 解析。
         """
         return self._resolve(self.workspace_dir, "workspace")
 
     def resolved_source_records_dir(self) -> Path:
-        """返回系统生成的来源摘要存档目录。"""
+        """系统生成的来源摘要存档目录。"""
         return source_records_dir_for(self.resolved_workspace_dir())
 
     def resolved_sync_state_path(self) -> Path:
-        """返回 sync 完成账文件路径。"""
+        """sync 完成状态文件路径。"""
         return sync_state_path_for(self.resolved_workspace_dir())
 
     def _resolve(self, configured: Path | None, default_name: str) -> Path:
@@ -277,7 +265,7 @@ class PathsConfig(BaseSettings):
         return path if path.is_absolute() else self.project_root / path
 
 
-# MCP 配置——独立 mcp.json，判别联合按 type 校验
+# MCP 配置：来自独立 mcp.json，transport 按 type 字段判别
 
 
 class StdioMcpTransport(BaseModel):
@@ -298,18 +286,17 @@ class SseMcpTransport(BaseModel):
 
 
 class StreamableHttpTransport(BaseModel):
-    """Streamable HTTP 传输（MCP 2025-06 规范，逐步取代 SSE）。"""
+    """Streamable HTTP 传输（MCP 2025-06 规范，SSE 的后续替代）。"""
 
     type: Literal["streamable"]
     url: str
 
 
 class McpServerConfig(BaseModel):
-    """单个 MCP server 配置。transport 按 type 判别。
+    """单个 MCP server 配置，transport 按 type 判别。
 
-    need_resources / need_prompts 是 server 级开关——transport
-    子配置上没有（adaptor 曾从 transport 读这两个字段，
-    AttributeError 导致 SSE server 连接必失败）。
+    need_resources / need_prompts 是 server 级开关，transport 子配置
+    不包含这两个字段，只能从这里读。
     """
 
     name: str = ""
@@ -321,18 +308,16 @@ class McpServerConfig(BaseModel):
 
 
 class McpConfig(BaseModel):
-    """MCP 服务器集合——独立文件 env/mcp.json 加载。
+    """MCP 服务器集合，从独立文件 env/mcp.json 加载。
 
-    和 .env 分离的考量:
-    - MCP server 清单是"基础设施结构"，不是密钥
-    - JSON 语法高亮、可结构化、好 diff
+    与 .env 分离：这里是结构化清单而非密钥，JSON 格式便于校验与 diff。
     """
 
     servers: dict[str, McpServerConfig] = Field(default_factory=dict)
 
 
 class RootConfig(BaseSettings):
-    """应用根配置——顶层字段对应各子系统。"""
+    """应用根配置，顶层字段对应各子系统。"""
 
     model_config = SettingsConfigDict(frozen=True, extra="ignore")
 
@@ -347,7 +332,7 @@ class RootConfig(BaseSettings):
 
     @model_validator(mode="after")
     def _check_required(self) -> RootConfig:
-        """fail-fast 校验——缺关键配置启动即报错。
+        """校验关键配置，缺失时立即报错。
 
         Returns:
             校验通过后的自身。
@@ -363,10 +348,9 @@ class RootConfig(BaseSettings):
 
 
 def default_project_root() -> Path:
-    """入口未显式指定项目根时的约定：进程当前目录。
+    """未显式指定项目根时的默认值：当前工作目录。
 
-    这条策略只有这一个持有者；宿主工厂与入口都经它取值，不在各处
-    手写 Path.cwd()。
+    各入口统一经此取值，不在各处各自调用 Path.cwd()。
     """
     return Path.cwd()
 
@@ -377,26 +361,25 @@ def load_config(
     project_root: str | Path | None = None,
     overrides: dict | None = None,
 ) -> RootConfig:
-    """加载配置的唯一入口。
+    """加载配置。
 
     Args:
-        env_file: .env 文件路径。默认 project_root/env/.env
+        env_file: .env 文件路径，默认 project_root/env/.env
         project_root: 项目根目录，用于推导 wiki/workspace 路径
-        overrides: CLI 参数等最高优先级覆盖，如 {"logging": {"debug": True}}
+        overrides: 最高优先级覆盖（如 CLI 参数），如 {"logging": {"debug": True}}
 
     Returns:
-        校验过的 frozen RootConfig
+        校验通过的 frozen RootConfig
 
     Raises:
-        ValidationError: 配置缺失/类型错误——启动即报错，带明确提示
+        ValidationError: 配置缺失或类型错误
     """
     root = Path(project_root) if project_root else Path(__file__).resolve().parents[3]
     env = Path(env_file) if env_file else (root / "env" / ".env")
 
-    # pydantic-settings 用带下划线的 `_env_file` 指定加载哪个 .env（刻意加下
-    # 划线以免与字段名冲突）。frozen 模型下 pyright 按字段合成 __init__ 签名、
-    # 看不到继承来的该参数；经 dict[str, Any] 解包传入即可绕开该假阳性——运行时
-    # 命中的仍是 BaseSettings.__init__ 的同名参数，行为完全不变。
+    # pydantic-settings 用保留参数 `_env_file` 指定加载哪个 .env。frozen 模型
+    # 合成的 __init__ 签名不含继承来的该参数，类型检查会误报；经 dict 解包传入
+    # 绕开误报，运行时行为不变。
     env_source: dict[str, Any] = {"_env_file": env}
 
     paths = PathsConfig(**env_source, project_root=root, env_file=env)
@@ -407,7 +390,7 @@ def load_config(
     logging_cfg = LoggingConfig(**env_source)
     retry_cfg = RetryConfig(**env_source)
 
-    # MCP: 独立 env/mcp.json（存在才加载）——结构与密钥分离
+    # MCP 服务器配置来自 env/mcp.json，文件存在才加载
     mcp_cfg = McpConfig()
     mcp_file = root / "env" / "mcp.json"
     if mcp_file.exists():
@@ -424,9 +407,8 @@ def load_config(
         mcp=mcp_cfg,
     )
     if overrides:
-        # dump 成 dict 树 → 深合并 overrides → 整体重新 validate。
-        # model_validate 天然把嵌套 dict 转回子配置对象，
-        # 且 fail-fast 校验（缺 API key）在合并后重新执行。
+        # 转 dict 深合并 overrides 后整体重新校验；model_validate 会把
+        # 嵌套 dict 转回子配置对象，必填项校验在合并后再次执行。
         cfg = RootConfig.model_validate(_deep_merge(cfg.model_dump(), overrides))
     return cfg
 
