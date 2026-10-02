@@ -1,9 +1,7 @@
-"""内容页面目录模型——目录/类型映射与页面身份原语的唯一来源（无 LLM，底层）。
+"""内容页面目录模型：目录/类型映射与页面身份换算的唯一来源（无 LLM，底层）。
 
-wiki 层的检查、compile 的路由校验、维护的名册与装配共用这一份定义；
-新增内容目录只改 PAGE_TYPE_BY_DIR。slug/path 换算与 index 行格式也归
-这里——此前各处手写 `.replace("wiki/", "")` 口径漂移（嵌套页丢中间
-目录、`.md` 段被错切），页面存在性判定可能给出相反答案。
+wiki 检查、compile 路由校验、维护装配共用这份定义；新增内容目录只改
+PAGE_TYPE_BY_DIR。slug/path 换算与 index 行格式也在此定义。
 """
 
 from __future__ import annotations
