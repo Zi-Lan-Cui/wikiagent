@@ -200,11 +200,11 @@ class Consolidator:
         # 此处切片不发给 API，无需保证调用配对合法；
         # 保留的 replay 窗口由构造请求时另行修复
         end_idx = len(messages) - replay_max_messages
-        need_cosolidate_meesages = messages[last_consolidate:end_idx]
+        messages_to_consolidate = messages[last_consolidate:end_idx]
 
         archive_result = await self.archive(
             llm=llm,
-            messages=need_cosolidate_meesages,
+            messages=messages_to_consolidate,
             context_windows=context_windows,
             max_tokens=max_tokens,
             last_summary=last_summary,

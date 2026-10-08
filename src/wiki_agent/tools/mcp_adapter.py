@@ -27,18 +27,18 @@ class MCPConnection:
     def __init__(
         self,
         owner: asyncio.Task[None],
-        close_requsted: asyncio.Event,
+        close_requested: asyncio.Event,
         dead: asyncio.Event | None = None,
     ) -> None:
         """包装连接生命周期。
 
         Args:
             owner: 持有连接栈的后台任务。
-            close_requsted: 关闭请求信号。
+            close_requested: 关闭请求信号。
             dead: 健康检查失败信号（连接假死）。
         """
         self._owner = owner
-        self._close_requsted = close_requsted
+        self._close_requested = close_requested
         self._dead = dead or asyncio.Event()
 
     async def aclose(self):
@@ -47,7 +47,7 @@ class MCPConnection:
         shield 保证清理过程不被取消打断；owner 因自身异常退出时
         （finally 已清理）异常不传播。
         """
-        self._close_requsted.set()
+        self._close_requested.set()
         try:
             await asyncio.shield(self._owner)
         except asyncio.CancelledError:
@@ -131,9 +131,9 @@ async def connect_mcp_servers(
 
             registered: list[str] = []
             for tool in tools.tools:
-                wrappered_tool = MCPToolWrapper(session, name, tool)
-                tool_registry.register(wrappered_tool)
-                registered.append(wrappered_tool.name)
+                wrapper = MCPToolWrapper(session, name, tool)
+                tool_registry.register(wrapper)
+                registered.append(wrapper.name)
 
             if cfg.need_resources:
                 # Resources 支持未实现，只探测记录、不注册
@@ -283,7 +283,7 @@ def _extract_nullable_branch(options: list[dict]):
     return None
 
 
-def normlize_schema_for_openai(raw_schema):
+def normalize_schema_for_openai(raw_schema):
     """把 MCP schema 规范化为 OpenAI 兼容格式。
 
     去除 OpenAI 不支持的 null / anyOf / oneOf 以及多参数类型形式。
@@ -324,12 +324,12 @@ def normlize_schema_for_openai(raw_schema):
 
     if "properties" in dict_schema and isinstance(dict_schema["properties"], dict):
         dict_schema["properties"] = {
-            name: normlize_schema_for_openai(prop) if isinstance(prop, dict) else prop
+            name: normalize_schema_for_openai(prop) if isinstance(prop, dict) else prop
             for name, prop in dict_schema["properties"].items()
         }
 
     if "items" in dict_schema and isinstance(dict_schema["items"], dict):
-        dict_schema["items"] = normlize_schema_for_openai(dict_schema["items"])
+        dict_schema["items"] = normalize_schema_for_openai(dict_schema["items"])
 
     if dict_schema.get("type") != "object":
         return dict_schema
@@ -385,7 +385,7 @@ class MCPToolWrapper(BaseTool):
         # 区分不同 server 的同名工具
         self.name = f"{server_name}_{_sanitize_tool_name(tool_def.name)}"
         self.description = tool_def.description
-        self.parameters = normlize_schema_for_openai(self.raw_schema)
+        self.parameters = normalize_schema_for_openai(self.raw_schema)
 
     async def execute_once(self, **kwargs):
         """调用 MCP 工具一次；请求 session 时使用 original_name。

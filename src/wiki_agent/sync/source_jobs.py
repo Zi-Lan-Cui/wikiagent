@@ -8,7 +8,7 @@
 源文件的业务失败。业务身份（resource、页面和档案页引用的名字、状态键）
 始终是原始路径。
 
-每个 compile/delete job 走同一 git 协议（jobs.wiki_session，上下文管理器）：
+每个 compile/delete job 走同一 git 协议（jobs.wiki_write，上下文管理器）：
 
     with session.open(job) as write: 执行 → 成功 write.commit() /
     业务失败 write.abort_export()；离开上下文时工作区回到 HEAD
@@ -44,7 +44,7 @@ from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job, JobResult, Kind, Settlement
-from wiki_agent.jobs.wiki_session import (
+from wiki_agent.jobs.wiki_write import (
     Subject,
     WikiWrite,
     WikiWriteSession,

@@ -680,12 +680,12 @@ class ReActAgent(BaseAgent):
             history=history,
             last_summary=session.last_summary,
         )
-        initail_message_count = len(messages)
+        initial_message_count = len(messages)
 
         await self._runner.run_loop(session, messages, stream, run_ctx)
 
         get_skip_count = self._get_skip_count(
-            initial_message_count=initail_message_count,
+            initial_message_count=initial_message_count,
         )
 
         session.add_messages(messages[get_skip_count:])  # 纯内存操作，不必经线程

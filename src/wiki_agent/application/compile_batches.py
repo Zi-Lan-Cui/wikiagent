@@ -133,13 +133,13 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
     async def execute(batch_dir: Path) -> int:
         from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
         from wiki_agent.compiler.workflows.ingest import CompilePipeline
+        from wiki_agent.database import Database
         from wiki_agent.issues import IssueStore
         from wiki_agent.jobs import JobStore
         from wiki_agent.jobs.outcomes import JobOutcomeHandler
         from wiki_agent.jobs.service import JobService
         from wiki_agent.jobs.worker import JobWorker
         from wiki_agent.log import setup_event_log
-        from wiki_agent.persistence import Database
         from wiki_agent.snapshots import SnapshotStore
         from wiki_agent.sync.source_jobs import SourceJobHandler
         from wiki_agent.sync.state import SyncState
@@ -151,7 +151,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             setup_event_log(workspace / "logs" / "compile-batches-events.jsonl")
             source_records_dir = source_records_dir_for(workspace)
             state = SyncState(sync_state_path_for(workspace))
-            # 沙箱独立组装根：Database → store → JobService
+            # 沙箱独立装配根：Database → store → JobService
             database = Database(workspace)
             issue_store = IssueStore(database)
             service = JobService(

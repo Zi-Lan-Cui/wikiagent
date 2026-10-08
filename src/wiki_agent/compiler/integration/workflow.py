@@ -19,7 +19,7 @@ from wiki_agent.compiler.models import (
     SearchResult,
 )
 from wiki_agent.compiler.prompts import compile as compile_prompts
-from wiki_agent.llm.llm import LLMClient
+from wiki_agent.llm.client import LLMClient
 
 
 class Integrator:

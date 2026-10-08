@@ -20,7 +20,7 @@ from openai.types.chat.completion_create_params import ResponseFormat
 from wiki_agent.config import RetryConfig
 from wiki_agent.conversation import LLMResponse, Message
 from wiki_agent.errors import FatalError, RetryableError
-from wiki_agent.llm.llm import LLMClient
+from wiki_agent.llm.client import LLMClient
 from wiki_agent.log import get_logger, span
 
 logger = get_logger("LLM_RETRY")

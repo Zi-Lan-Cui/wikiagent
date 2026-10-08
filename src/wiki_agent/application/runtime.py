@@ -1,4 +1,4 @@
-"""Wiki Agent 进程的唯一组装根。
+"""Wiki Agent 进程的唯一装配根。
 
 执行模型的组装点：Job 队列与 Worker（唯一的执行后台循环）在这里装配。
 崩溃恢复不依赖常驻调度器：取得执行锁后由 recover_stale 回收上次进程遗留的
@@ -25,6 +25,7 @@ from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, default_project_root, load_config
 from wiki_agent.conversation import SessionManager
+from wiki_agent.database import Database
 from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
@@ -34,7 +35,6 @@ from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.llm.factory import create_llm, create_vlm
-from wiki_agent.persistence import Database
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
 from wiki_agent.sync.source_jobs import SourceJobHandler
@@ -52,7 +52,7 @@ class AppRuntime:
         self.workspace = config.paths.resolved_workspace_dir()
         self.wiki_dir = config.paths.resolved_wiki_dir()
         self.source_records_dir = config.paths.resolved_source_records_dir()
-        # 装配顺序：Database → store → JobService；构造只发生在组合根
+        # 装配顺序：Database → store → JobService；构造只发生在装配根
         database = Database(self.workspace)
         self.issue_store = IssueStore(database)
         self.issue_service = IssueService(self.issue_store)
@@ -87,7 +87,7 @@ class AppRuntime:
         self.tool_registry.register(ListDir(self.wiki_dir))
         self.tool_registry.register(Grep(self.wiki_dir))
         self.session_manager = SessionManager(workspace=self.workspace)
-        # 命令 router 在组合根装配：agent 原生命令 + 应用驱动命令
+        # 命令 router 在装配根装配：agent 原生命令 + 应用驱动命令
         # （maintain/link/resolve）。命令层不反向 import application，环因此断开。
         command_router = create_command_router()
         for cmd in create_application_commands():
@@ -188,7 +188,7 @@ class AppRuntime:
         self._exec_lock_held = True
         self.job_service.recover_stale()  # 取得执行锁后才允许回收遗留的 running 行
         if self.config.mcp.servers:
-            from wiki_agent.tools.mcp_adaptor import connect_mcp_servers
+            from wiki_agent.tools.mcp_adapter import connect_mcp_servers
 
             self._mcp_connections = await connect_mcp_servers(
                 self.config.mcp.servers,

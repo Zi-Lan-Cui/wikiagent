@@ -1,7 +1,7 @@
 """restructure / link 执行体，与 SourceJobHandler 使用同一 wiki 写协议。
 
 with session.open(job) as write: 执行，成功 write.commit()，
-业务失败 write.abort_export()（jobs.wiki_session 的出口不变量）。
+业务失败 write.abort_export()（jobs.wiki_write 的出口不变量）。
 两类 job 与 sync job 在同一队列串行执行；提交层的互斥与基线检查保证
 执行时 wiki 当前状态与提交时的声明依据一致。
 
@@ -30,7 +30,7 @@ from wiki_agent.compiler.restructure import (
     rewrite_unit_page,
 )
 from wiki_agent.jobs import Job, JobResult, Kind, Settlement
-from wiki_agent.jobs.wiki_session import (
+from wiki_agent.jobs.wiki_write import (
     Subject,
     WikiWriteSession,
     commit_subject,

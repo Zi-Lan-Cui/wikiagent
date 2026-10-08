@@ -4,7 +4,7 @@
 并格式化其结果类型（MaintainFlow/MaintenanceOutcome），属于编排层，因此
 放在 application；若放在 agent.commands，agent 包会反向 import application，
 构成包级导入环。命令框架（Command/CommandContext/CommandResult）与只依赖
-agent+infra 的原生命令仍在 agent.commands；组装根把本模块的命令注册进
+agent+infra 的原生命令仍在 agent.commands；装配根把本模块的命令注册进
 同一个 router 注入 agent。
 """
 
@@ -173,5 +173,5 @@ class ResolveCommand(Command):
 
 
 def create_application_commands() -> list[Command]:
-    """应用驱动命令实例——由组合根注册进 agent 原生命令的同一 router。"""
+    """应用驱动命令实例——由装配根注册进 agent 原生命令的同一 router。"""
     return [MaintainCommand(), LinkCommand(), ResolveCommand()]

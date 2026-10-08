@@ -240,7 +240,7 @@ if __name__ == "__main__":
 def test_exit_invariant_converges_unsettled_changes(tmp_path: Path):
     """出口不变量：漏结算与异常通道离开上下文后，工作区都收敛回 HEAD。"""
     from wiki_agent.jobs.models import Job
-    from wiki_agent.jobs.wiki_session import WikiWriteSession
+    from wiki_agent.jobs.wiki_write import WikiWriteSession
 
     wiki = tmp_path / "wiki"
     wiki.mkdir()

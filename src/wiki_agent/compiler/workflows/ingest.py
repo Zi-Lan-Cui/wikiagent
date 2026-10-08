@@ -27,7 +27,7 @@ from wiki_agent.documents.chunkers import Chunker, StructuredChunker, TextChunke
 from wiki_agent.documents.converters import Converter, MinerUConverter
 from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.errors import IngestError, IngestStage, WikiAgentError
-from wiki_agent.llm.llm import LLMClient
+from wiki_agent.llm.client import LLMClient
 from wiki_agent.log import get_logger, span
 from wiki_agent.wiki.pages import index_line, slug_from_ref
 

@@ -11,6 +11,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from wiki_agent.database import Database
 from wiki_agent.errors import ERROR_SUMMARY_LIMIT, summarize_error
 from wiki_agent.issues.models import (
     ALLOWED_STATUS_TRANSITIONS,
@@ -24,7 +25,6 @@ from wiki_agent.issues.models import (
     IssueStatus,
     JsonObject,
 )
-from wiki_agent.persistence import Database
 
 _SCHEMA_VERSION = "4"
 

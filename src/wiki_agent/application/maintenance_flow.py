@@ -5,7 +5,7 @@
 
 另实现 jobs.MaintenancePlanner 协议：单元校验与批尾补链目标计算需要读
 wiki 当前内容与 restructure 声明模型（compiler），属于 compiler 的知识，
-不放在通用的 jobs 提交入口。组装根把本实现注入 JobService，jobs 不 import compiler。
+不放在通用的 jobs 提交入口。装配根把本实现注入 JobService，jobs 不 import compiler。
 """
 
 from __future__ import annotations

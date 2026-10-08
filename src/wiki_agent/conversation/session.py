@@ -141,7 +141,7 @@ class SessionManager:
         """返回当前进程已加载的会话，供 idle watcher 检查。"""
         return list(self._cached_session.values())
 
-    def _prase_checkpoint(self, file_path: Path):
+    def _parse_checkpoint(self, file_path: Path):
         metadata: dict = {}
         history = []
         with open(file_path) as f:
@@ -196,7 +196,7 @@ class SessionManager:
         if not file_path.exists():
             return None
         else:
-            meta_data, history = self._prase_checkpoint(file_path)
+            meta_data, history = self._parse_checkpoint(file_path)
             meta_path = self.sessions_dir / f"{session_key}.meta.json"
             if meta_path.is_file():
                 try:

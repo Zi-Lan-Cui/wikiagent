@@ -12,7 +12,7 @@ from rich.text import Text
 from wiki_agent.application import AppRuntime
 from wiki_agent.errors import RetryableError
 from wiki_agent.log.logger import configure_logging
-from wiki_agent.render import TerminalRenderer
+from wiki_agent.terminal_render import TerminalRenderer
 
 console = Console()
 

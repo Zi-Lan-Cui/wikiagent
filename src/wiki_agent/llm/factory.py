@@ -3,7 +3,7 @@
 from threading import Lock
 
 from wiki_agent.config import LLMConfig, RetryConfig, VLMConfig
-from wiki_agent.llm.llm import LLMClient
+from wiki_agent.llm.client import LLMClient
 from wiki_agent.llm.rate_limit import RequestLimiter
 from wiki_agent.log import get_logger
 

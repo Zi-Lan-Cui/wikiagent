@@ -10,7 +10,7 @@ from wiki_agent.compiler.integration.parse import parse_analysis
 from wiki_agent.compiler.models import NO_THINKING, AnalysisResult, ExtractResult, SearchResult
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestStage
-from wiki_agent.llm.llm import LLMClient
+from wiki_agent.llm.client import LLMClient
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.pages import index_line, slug_from_ref

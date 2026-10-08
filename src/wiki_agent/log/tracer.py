@@ -91,7 +91,7 @@ class span:
         self._prev_span_id = _span_id_var.get()
         self._token = _span_id_var.set(self._span_id)
 
-        from wiki_agent.log.events import emit_event
+        from wiki_agent.log.event_log import emit_event
 
         emit_event(
             "span_started",
@@ -115,7 +115,7 @@ class span:
             self._status = "error"
             self._error = f"{exc_type.__name__}: {exc}"
 
-        from wiki_agent.log.events import emit_event
+        from wiki_agent.log.event_log import emit_event
 
         emit_event(
             self._event,

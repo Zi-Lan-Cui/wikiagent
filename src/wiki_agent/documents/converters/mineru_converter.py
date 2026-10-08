@@ -18,7 +18,7 @@ from pathlib import Path
 from wiki_agent.conversation import Message
 from wiki_agent.documents.converters.base import BaseConverter, ConvertedFile
 from wiki_agent.documents.loader import RawFileProperties
-from wiki_agent.llm.llm import LLMClient
+from wiki_agent.llm.client import LLMClient
 from wiki_agent.log import get_logger
 
 logger = get_logger("MINERU_CONVERTER")

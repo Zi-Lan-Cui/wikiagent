@@ -17,9 +17,9 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from wiki_agent.database import Database
 from wiki_agent.jobs.errors import DuplicateInFlightJob
 from wiki_agent.jobs.models import Detail, Job
-from wiki_agent.persistence import Database
 
 # 在途 = queued + running，查询与唯一索引共用此片段
 _IN_FLIGHT_SQL = "status IN ('queued', 'running')"

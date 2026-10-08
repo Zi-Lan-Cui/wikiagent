@@ -70,7 +70,7 @@ _SESSION_TITLE_MAX_LENGTH = 40
 
 
 class SessionService:
-    """会话用例；依赖（agent 执行、会话持久化、事件订阅）由组合根注入。"""
+    """会话用例；依赖（agent 执行、会话持久化、事件订阅）由装配根注入。"""
 
     def __init__(
         self,

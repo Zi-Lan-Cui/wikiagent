@@ -19,7 +19,7 @@ from wiki_agent.compiler.models import (
 )
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.llm.llm import LLMClient
+from wiki_agent.llm.client import LLMClient
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.normalize import extract_related, fix_wikilinks, normalize_page
