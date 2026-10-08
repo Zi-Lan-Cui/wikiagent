@@ -1,4 +1,4 @@
-"""Problem-center HTTP adapter integration tests."""
+"""问题中心的 HTTP 适配层集成测试。"""
 
 from __future__ import annotations
 

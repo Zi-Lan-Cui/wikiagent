@@ -115,7 +115,6 @@ class JobService:
         maintenance: MaintenancePlanner | None = None,
         wiki_dir: str | Path | None = None,
     ):
-        # 依赖由组合根注入；存储只经 store 端口访问
         self.store = store
         self.issues = issues
         self.snapshots = snapshots
@@ -137,8 +136,6 @@ class JobService:
         """
         self.recovered_jobs = self.store.recover_stale()
         return self.recovered_jobs
-
-    # 互斥与基线判定的 helper
 
     def _in_flight_wiki_write_counts(
         self, _conn: sqlite3.Connection | None = None
@@ -316,8 +313,6 @@ class JobService:
             issue_id=issue_id,
         )
 
-    # sync 快照
-
     def sync_status(self, source_dir: str | Path) -> dict[str, int]:
         """只读统计 dirty/removed 与在途数，不提交。"""
         if self.baseline is None:
@@ -432,8 +427,6 @@ class JobService:
                 )
                 closed += 1
         return closed
-
-    # 维护批（restructure 单元 + 批尾 link）
 
     def submit_maintenance(self, units: list[dict]) -> list[Job]:
         """已确认的单元清单整批入队：一单元一 job，批尾自动跟受影响页补链。
@@ -625,8 +618,6 @@ class JobService:
         提交时未改 issue 状态，取消无需回转任何关联记录。
         """
         self.store.try_finalize(job.id, status="cancelled", stage="cancelled")
-
-    # 读取（store 仅在此处被调用）
 
     def list(self, *, limit: int = 100) -> list[Job]:
         return self.store.list(limit=limit)

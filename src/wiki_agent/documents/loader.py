@@ -45,7 +45,6 @@ class DataLoader:
 
     # 扩展名 → 模态
     ext_to_modality: dict[str, FileModality] = {
-        # 纯文本
         ".txt": FileModality.TEXT,
         ".py": FileModality.TEXT,
         ".js": FileModality.TEXT,
@@ -63,7 +62,6 @@ class DataLoader:
         ".ini": FileModality.TEXT,
         ".env": FileModality.TEXT,
         ".rst": FileModality.TEXT,
-        # 图片
         ".jpg": FileModality.IMAGE,
         ".jpeg": FileModality.IMAGE,
         ".png": FileModality.IMAGE,
@@ -71,7 +69,6 @@ class DataLoader:
         ".webp": FileModality.IMAGE,
         ".svg": FileModality.IMAGE,
         ".bmp": FileModality.IMAGE,
-        # 多模态/富文档
         ".md": FileModality.RICH,
         ".markdown": FileModality.RICH,
         ".pdf": FileModality.RICH,

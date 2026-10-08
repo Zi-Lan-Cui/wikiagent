@@ -13,9 +13,6 @@ from pathlib import Path
 def split_frontmatter(content: str) -> tuple[dict, str]:
     """切分 frontmatter——返回 (字段 dict, 正文)。
 
-    正文不 strip：调用方各自决定尾部处理
-    （拼接场景要保留原文形态）。
-
     简单解析语义: 逐行 partition(": ")——不做完整 YAML
     （嵌套/列表/引号转义超出 wiki 页面的 frontmatter 需求）。
 
@@ -62,7 +59,7 @@ def set_fields(content: str, updates: Mapping[str, object]) -> str:
     已有 key 原位替换（保持行序），缺失 key 追加在 frontmatter 末尾；
     值支持 str 与 list[str]（渲染为行内列表）。content 没有完整
     frontmatter 时原样返回——是否合成由调用方决定。
-    各处需要改 frontmatter 的都走这里，不再各自做行手术。
+    各处修改 frontmatter 都经由本函数，不在调用方做行级改写。
     """
     if not content.startswith("---"):
         return content

@@ -1,4 +1,4 @@
-"""Wiki Agent 进程的唯一组装根（composition root）。
+"""Wiki Agent 进程的唯一组装根。
 
 执行模型的组装点：Job 队列与 Worker（唯一的执行后台循环）在这里装配。
 崩溃恢复不依赖常驻调度器：取得执行锁后由 recover_stale 回收上次进程遗留的

@@ -73,7 +73,6 @@ def create_app(
     # runtime 装配、异常处理注册、worker 循环都在 AppRuntime 完成；
     # 本模块只做 HTTP 映射
     app_runtime = runtime or AppRuntime.from_project_root(project_root)
-    # 依赖的服务实例统一取自 AppRuntime
     session_service = app_runtime.session
     browser = app_runtime.wiki_browser
     issue_service = app_runtime.issue_service

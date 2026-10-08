@@ -18,7 +18,7 @@ class Kind(StrEnum):
     MAINTENANCE_PREVIEW = "maintenance_preview"  # 整理结构分析：提议→复核→消解，不写 wiki
 
 
-# 写 wiki 的任务集合，提交互斥、sync_status 与 /wiki revert 前检查共用
+# 提交互斥、sync_status 与 /wiki revert 前检查共用
 WIKI_WRITE_KINDS: tuple[Kind, ...] = (
     Kind.COMPILE,
     Kind.DELETE,
@@ -44,12 +44,12 @@ class Settlement(StrEnum):
     RESCAN_STILL_PRESENT = "rescan_still_present"  # 复扫确认问题仍在
     RESCAN_CLEARED = "rescan_cleared"  # 复扫确认问题已消失
 
-Detail = dict[str, object]  # 执行结果明细，值类型比 issues.JsonObject 宽（json.dumps 落库）
+Detail = dict[str, object]  # 执行结果明细，值类型比 issues.JsonObject 宽，经 json.dumps 落库
 
 
 @dataclass(frozen=True, slots=True)
 class Job:
-    """A persisted unit of background work."""
+    """持久化的后台任务行。"""
 
     id: str
     kind: str

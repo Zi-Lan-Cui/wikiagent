@@ -63,7 +63,6 @@ def configure_logging(
     console.setFormatter(ColorFormatter(fmt, use_color=use_color))
     root.addHandler(console)
 
-    # 文件 handler
     if file_path:
         fh = logging.FileHandler(file_path, encoding="utf-8")
         fh.setLevel(file_level)

@@ -18,9 +18,6 @@ _UPDATE_SUMMARY_CHARS = 10_000  # update: 新信息截断长度
 DIGEST_TARGET_TOKENS = 1_500
 
 
-# extract 阶段
-
-
 def chunk_system() -> str:
     """chunk 摘要的固定段：角色与输出要求。
 
@@ -162,9 +159,6 @@ def rolling_user(
             f"## 当前片段 {pos}{head}，来自 {chunk.source_name}\n{chunk.content}",
         ]
     )
-
-
-# integrate 阶段
 
 
 def search_system() -> str:
@@ -578,9 +572,6 @@ def update_user(target: PageTarget, existing: str, extract: ExtractResult) -> st
             "## ⚠️ 重申: 不要写任何前言。直接从 `---` 开始。",
         ]
     )
-
-
-# prompt 格式化辅助
 
 
 def _truncate_index_by_entries(index: str, max_chars: int) -> str:

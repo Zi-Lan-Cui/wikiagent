@@ -70,7 +70,7 @@ class JobWorker:
             # 进程取消：先置 cancelled 终态，再继续传播
             self.service.cancel_terminal(job)
             raise
-        except Exception as exc:  # noqa: BLE001 - handler 异常按代码错误处理：记日志与事件
+        except Exception as exc:  # noqa: BLE001
             logger.exception("job %s handler 崩溃: %s", job.id, f"{type(exc).__name__}: {exc}")
             emit_event(
                 "job_handler_crash",

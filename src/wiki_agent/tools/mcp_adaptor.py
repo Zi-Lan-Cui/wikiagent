@@ -86,7 +86,7 @@ async def connect_mcp_servers(
 
             elif transport.type == "sse":
                 # 工厂签名由 sse_client 约定，参数必须保留；返回普通
-                # httpx.AsyncClient。升级 MCP 主版本时需重新验证关闭语义。
+                # httpx.AsyncClient。
                 def httpx_client_factory(
                     headers: dict[str, str] | None = None,
                     timeout: Any | None = None,
@@ -301,7 +301,7 @@ def normlize_schema_for_openai(raw_schema):
 
     raw_type = dict_schema.get("type")
     if isinstance(raw_type, list):
-        # 多个非 null 类型（OpenAI 不支持）不做处理，留待调用方报错
+        # 多个非 null 类型 OpenAI 不支持，不做处理，留待调用方报错
         non_null = [item for item in raw_type if item != "null"]
         if "null" in raw_type and len(non_null) == 1:
             dict_schema["type"] = non_null[0]

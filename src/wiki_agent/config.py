@@ -81,8 +81,8 @@ class AgentConfig(BaseSettings):
     session_tail_messages: int = 6
     dream_poll_interval: int = 60
     # 治理参数
-    tool_result_ttl_minutes: int = 30  # 可随时重新获取的工具结果的保留时限
-    tool_persist_length: int = 8_000  # 工具结果转存阈值（超限写文件）
+    tool_result_ttl_minutes: int = 30
+    tool_persist_length: int = 8_000  # 工具结果转存阈值，超限写文件
     snip_safe_buffer: int = 1024  # token 估计安全余量
     inflight_target_ratio: float = 0.85  # 窗口紧凑化的目标占用比例
     inflight_compact_min_chars: int = 500  # 短于此长度的结果不做紧凑化
@@ -265,9 +265,6 @@ class PathsConfig(BaseSettings):
         return path if path.is_absolute() else self.project_root / path
 
 
-# MCP 配置：来自独立 mcp.json，transport 按 type 字段判别
-
-
 class StdioMcpTransport(BaseModel):
     """stdio 传输——本地命令。"""
 
@@ -390,7 +387,6 @@ def load_config(
     logging_cfg = LoggingConfig(**env_source)
     retry_cfg = RetryConfig(**env_source)
 
-    # MCP 服务器配置来自 env/mcp.json，文件存在才加载
     mcp_cfg = McpConfig()
     mcp_file = root / "env" / "mcp.json"
     if mcp_file.exists():

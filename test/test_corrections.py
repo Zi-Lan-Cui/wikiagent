@@ -1,4 +1,4 @@
-"""Content corrections live exclusively in the issue database."""
+"""内容纠错只存于 issue 数据库。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Contracts for seeded-baseline corpora, run evidence, and judgement cases."""
+"""评测语料的契约模型：baseline 声明、语料清单、Wiki 快照与判词题集。"""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class CorpusManifest(BaseModel):
 
 
 class WikiFileEntry(BaseModel):
-    """One file visible in a baseline or candidate Wiki snapshot."""
+    """baseline 或 candidate Wiki 快照中可见的单个文件。"""
 
     path: str
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -61,7 +61,7 @@ class WikiSnapshot(BaseModel):
 
 
 class JudgementCase(BaseModel):
-    """One binary judgement question (v2 format).
+    """单道二元判定题，v2 格式。
 
     View 记录编译期视角——compiler 编译该 source 那一刻真实可见的
     文件清单，判定纪律见 evals/corpora/reference-v1/verdicts/README.md。

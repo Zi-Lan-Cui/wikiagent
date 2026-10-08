@@ -19,33 +19,33 @@ class RunContext:
     """单回合上下文，随回合创建，传给该回合的全部 hook 回调；hook 可读写。"""
 
     session_key: str
-    """The session this turn belongs to."""
+    """本回合所属的会话。"""
 
     run_id: str = ""
-    """Unique identifier for this Agent turn."""
+    """本次 Agent 回合的唯一标识。"""
 
     sequence: int = 0
-    """Monotonic event sequence, incremented by event publishers."""
+    """事件序号，由事件发布方递增。"""
 
     def next_sequence(self) -> int:
-        """Return the next event sequence number for this run."""
+        """返回本回合的下一个事件序号。"""
         self.sequence += 1
         return self.sequence
 
     final_content: str | None = None
-    """Last assistant text response, if any."""
+    """最后一条助手文本回复，可能为空。"""
 
     tools_used: list[str] = field(default_factory=list)
-    """Distinct tool names called during the turn."""
+    """本回合调用过的去重工具名。"""
 
     stop_reason: str | None = None
-    """Reason the turn ended."""
+    """回合结束的原因。"""
 
     error: str | None = None
-    """Fatal error that terminated the turn, if any."""
+    """终止回合的致命错误描述，可能为空。"""
 
     exception: BaseException | None = None
-    """The underlying exception when ``error`` is set."""
+    """error 有值时对应的底层异常对象。"""
 
 
 @dataclass(slots=True)

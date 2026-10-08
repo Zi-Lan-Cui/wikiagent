@@ -36,6 +36,8 @@ def _age_label(age_seconds: float) -> str:
 
 
 class ContextGovernor:
+    """请求前的消息治理：合并同角色、修复调用配对、工具结果转存与驱逐、按预算截断。"""
+
     _MERGEABLE_ROLES = {"user", "assistant"}
     # ReadFile/Grep/ListDir 输出量已由工具自身限制，不转存，
     # 模型需要完整结果决定下一步
@@ -179,8 +181,6 @@ class ContextGovernor:
         idx = find_first_legal_idx(saved_messages, extend_to_user=True)
         return system_messages + saved_messages[idx:]
 
-    # inflight 紧凑化：空间不够时丢弃可重取的工具结果
-
     def _total_tokens(self, messages: list[Message]) -> int:
         return sum(estimate_text_tokens(m.text_schema) for m in messages)
 
@@ -274,7 +274,6 @@ class ContextGovernor:
         return f"tmp/{safe_key}/{file.name}"
 
     def _maybe_persist_tool_result(self, session: Session, message: Message):
-        # 探索类工具（ReadFile/Grep/ListDir）不转存，模型需要完整结果
         if message.tool_name in self._PERSIST_EXEMPT_TOOLS:
             return
         content_length = len(message.content)
@@ -356,7 +355,6 @@ class ContextGovernor:
             reason = self._stale_result_reason(message)
             if reason is None:
                 continue
-            # 已是占位文本则跳过，保证重复调用不二次替换
             if "已过期" in message.content:
                 continue
             logger.info(
@@ -378,9 +376,6 @@ class ContextGovernor:
         messages = _repair_orphan_tool_call(messages=messages)
         messages = _remove_orphan_tool_result(messages=messages)
         return messages
-
-
-# 历史修复工具（模块级函数）
 
 
 def _get_orphan_tool_call_ids(messages: list[Message]) -> set[str]:

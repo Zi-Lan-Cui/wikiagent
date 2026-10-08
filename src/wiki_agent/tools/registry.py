@@ -17,6 +17,8 @@ logger = get_logger("ToolRegistry")
 
 
 class ToolRegistry:
+    """工具注册表；``execute`` 为工具调用统一处理超时、重试、熔断与错误渲染。"""
+
     def __init__(self):
         self._tools = {}
         self._breakers: dict[str, CircuitBreaker] = {}

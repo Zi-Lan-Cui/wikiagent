@@ -106,7 +106,7 @@ async def judge_claims(
     verdict_map: dict[str, Any] = {}
     for item in data["judgements"]:
         value = item.get("verdict")
-        # unknown 归一为 None（与金标的 bool 区分开，不计入一致率分母）
+        # unknown 归一为 None，与金标的 bool 区分开，不计入一致率分母
         verdict_map[item["id"]] = None if value in ("unknown", None) else bool(value)
     return {
         "verdicts": verdict_map,

@@ -27,9 +27,6 @@ NO_THINKING = {"thinking": {"type": "disabled"}}
 JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
 
 
-# 提取阶段输入——来自 Chunker 的结构化 chunk
-
-
 @dataclass
 class SourceChunk:
     """单个 chunk 及其在源文件中的位置元信息，Extract 阶段用于构造 prompt。"""
@@ -50,7 +47,7 @@ class SourceChunk:
     """源文件名，如 ``吴恩达深度学习笔记.md``——chunk 级摘要 prompt 的出处标注。"""
 
     # 不设 chunk_overlap/prev_head/next_head：编译全量消费每个 chunk，
-    # 跨边界语义由 digest 与 synthesis 覆盖；检索场景需要时再加在消费端。
+    # 跨边界语义由 digest 与 synthesis 覆盖。
 
 
 @dataclass
@@ -77,11 +74,10 @@ class SourceDocument:
         return len(self.chunks)
 
 
-# 提取阶段输出
-
-
 @dataclass
 class ChunkSummary:
+    """chunk 级摘要，提取阶段输出。"""
+
     chunk_index: int
     heading_path: str = ""
     text: str = ""
@@ -107,9 +103,6 @@ class ExtractResult:
     document_summary: str = ""
     source_page: SourcePage | None = None
     """档案页构造结果（compile/sync 模式才有），由调用方在终态写入。"""
-
-
-# 集成阶段输出
 
 
 @dataclass
@@ -179,4 +172,4 @@ class AnalysisResult:
 class IntegrationPlan:
     page_targets: list[PageTarget] = field(default_factory=list)
     raw: str = ""
-    """LLM 原始输出——解析前的现场，供审计/失败排查（替代 .debug_plan.json）。"""
+    """LLM 原始输出——解析前的现场，供审计与失败排查。"""

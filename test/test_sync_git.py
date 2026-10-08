@@ -185,7 +185,7 @@ def test_delete_settles_archive_unlink_and_commits_wiki(tmp_path: Path):
 
 
 def test_quality_gate_failure_restores_and_records(tmp_path: Path):
-    """单 source 局部质量闸门（批壳迁入）：坏产出 = 业务失败，
+    """单 source 局部质量闸门：坏产出 = 业务失败，
     restore 未提交改动、不进 commit/档案，保持脏并记账等人。"""
     src, wiki, records, git, state, service, worker = _env(tmp_path, bad_names=("a.md",))
     baseline = git.head()

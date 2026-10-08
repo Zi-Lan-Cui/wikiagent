@@ -1,4 +1,4 @@
-"""source 失败记账测试（手动重试模型版）。
+"""source 失败记账测试（手动重试模型）。
 
 记账唯一通路：handler 业务失败 → JobResult(ingest_error) →
 JobOutcomeHandler 终态联动入账；失败只记账不排程——retry 快照
@@ -20,7 +20,7 @@ from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_s
 
 
 def _reported_failure(tmp_path: Path, *, error: IngestError | None = None):
-    """经队列跑一次业务失败并记账（原 SourceFailureHandler 内联通路已退役）。"""
+    """经队列跑一次业务失败并记账。"""
     err = error or IngestError(
         IngestStage.PLAN,
         "plan 输出校验失败",

@@ -4,8 +4,6 @@ from pathlib import Path
 
 from wiki_agent.utils import ensure_dir, truncate_text_by_tokens
 
-# truncate_text_by_tokens
-
 
 class TestTruncateTextByTokens:
     def test_empty_text(self):
@@ -40,7 +38,6 @@ class TestTruncateTextByTokens:
         """截断后的 token 数 ≤ max_tokens"""
         long_text = "hello world " * 500
         result = truncate_text_by_tokens(long_text, max_tokens=20)
-        # 至少比原文本短
         assert len(result) < len(long_text)
 
     def test_suffix_only_when_truncation_needed(self):
@@ -64,9 +61,6 @@ class TestTruncateTextByTokens:
         assert result.endswith("\n... (truncated)") or len(result) > 0
 
 
-# ensure_dir
-
-
 class TestEnsureDir:
     def test_creates_directory(self, tmp_path: Path):
         """创建不存在的目录"""
@@ -80,7 +74,7 @@ class TestEnsureDir:
         """目录已存在不报错"""
         new_dir = tmp_path / "exists"
         new_dir.mkdir()
-        result = ensure_dir(new_dir)  # 不抛异常
+        result = ensure_dir(new_dir)
         assert result == new_dir
 
     def test_returns_path(self, tmp_path: Path):
@@ -88,7 +82,3 @@ class TestEnsureDir:
         d = tmp_path / "return_test"
         result = ensure_dir(d)
         assert result == d
-
-
-# 运行方式: pytest test/test_helpers.py -v
-# 只跑某个类: pytest test/test_helpers.py::TestTruncateTextByTokens -v

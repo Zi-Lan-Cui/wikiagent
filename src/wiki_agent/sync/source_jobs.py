@@ -112,7 +112,7 @@ class SourceJobHandler:
         self._wiki_dir = Path(wiki_dir)
         self._snapshots = snapshots
         self._source_records_dir = Path(source_records_dir)
-        # git=None 仅用于离线单测（无仓库环境）
+        # git=None 仅用于无仓库环境的离线单测
         self._session = WikiWriteSession(git, debris_dir=debris_dir_for(self._source_records_dir))
 
     def register_jobs(self, worker: JobWorker) -> None:
@@ -133,8 +133,6 @@ class SourceJobHandler:
             if job.kind != Kind.COMPILE:
                 raise ValueError(f"unsupported source job: {job.kind}")
             return await self._handle_compile(job, progress, write)
-
-    # delete
 
     def _handle_delete(self, job: Job, write: WikiWrite) -> JobResult:
         """删除任务：决定来自快照的 removed 差集，执行时不重新读磁盘。
@@ -199,11 +197,9 @@ class SourceJobHandler:
             emit_event("sync_source_deleted", file=name, action=action)
         return ops
 
-    # compile
-
     async def _handle_compile(self, job: Job, progress, write: WikiWrite) -> JobResult:
         """ingest 一个源文件；输入只认提交时保存的快照副本。"""
-        path = Path(job.resource)  # 业务身份：resource、事件名、状态键
+        path = Path(job.resource)
         batch = str(job.payload.get("batch") or "")
         rel = str(job.payload.get("rel_path") or "")
         if not batch or not rel:

@@ -27,20 +27,12 @@ _span_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 
 
 def current_trace_id() -> str | None:
-    """返回当前 context 的 trace_id。
-
-    Returns:
-        当前 trace_id；未开启 trace 时返回 None。
-    """
+    """返回当前 context 的 trace_id；未开启 trace 时返回 None。"""
     return _trace_id_var.get()
 
 
 def current_span_id() -> str | None:
-    """返回当前 context 的 span_id。
-
-    Returns:
-        当前 span_id；不在 span 内时返回 None。
-    """
+    """返回当前 context 的 span_id；不在 span 内时返回 None。"""
     return _span_id_var.get()
 
 
@@ -83,12 +75,7 @@ class span:
     )
 
     def __init__(self, event: str, **attrs: Any):
-        """初始化 span。
-
-        Args:
-            event: 事件名（退出时以此名 emit）。
-            **attrs: 随事件记录的静态属性。
-        """
+        """事件名 event 于退出时 emit，attrs 作为静态属性随事件记录。"""
         self._event = event
         self._attrs = attrs
         self._started = 0.0
@@ -115,20 +102,11 @@ class span:
         return self
 
     def set_attr(self, key: str, value: Any) -> None:
-        """向退出事件中追加观测属性。
-
-        Args:
-            key: 属性名。
-            value: 属性值。
-        """
+        """向退出事件中追加观测属性。"""
         self._attrs[key] = value
 
     def mark_failure(self, reason: str) -> None:
-        """标记非异常失败（空响应/校验失败等）。
-
-        Args:
-            reason: 失败原因描述。
-        """
+        """标记非异常失败（空响应/校验失败等）。"""
         self._attrs["failure"] = reason
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -151,5 +129,4 @@ class span:
             _span_id_var.reset(self._token)
         if self._prev_span_id is not None:
             _span_id_var.set(self._prev_span_id)
-        # 返回 None，不吞异常
         return

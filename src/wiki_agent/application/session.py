@@ -221,7 +221,7 @@ class SessionService:
                     task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 raise
-        # 仅在 stop_reason 为 None 的正常结束时才生成标题；取消/出错回合不发起调用
+        # 只在回合正常结束时发起标题生成；取消或出错的回合不发起调用
         if is_first_turn and stop_reason not in ("cancelled", "error"):
             self._schedule_session_title(session, text)
 

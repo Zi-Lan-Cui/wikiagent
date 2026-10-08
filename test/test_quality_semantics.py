@@ -164,7 +164,7 @@ goal: 页面目标
 
 
 def test_compile_command_enqueues_one_snapshot_sync(tmp_path: Path):
-    """批编译入口已并入 sync：/compile = submit_sync，写 wiki 只剩队列一条路。"""
+    """写 wiki 的唯一路径是队列：/compile 即 submit_sync，入队一次快照同步。"""
     source = tmp_path / "sources"
     source.mkdir()
     called = {}

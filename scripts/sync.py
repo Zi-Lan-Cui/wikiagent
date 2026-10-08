@@ -54,8 +54,8 @@ async def main(source_dir: str | None = None) -> None:
         if pending:
             logger.info("仍有 %d 个任务未领取（再跑一次本脚本继续泵）", pending)
 
-        # 批尾全库质量收尾（原批编译的最后一步随入口合并搬进 sync 宿主）：
-        # 纯代码检查、按指纹合并进 issue 中心——web 侧对应"重新扫描"按钮。
+        # 批尾全库质量收尾：纯代码检查、按指纹合并进 issue 中心，
+        # web 侧对应"重新扫描"按钮。
         issues = scan_wiki(runtime.wiki_dir)
         report_quality_findings(
             runtime.issue_service,

@@ -47,7 +47,7 @@ def fix_markdown_fence(content: str) -> str:
         if first_fm >= 0:
             start = first_fm
         if first_fence >= 0 and (start < 0 or first_fence < start):
-            start = first_fence + 1  # include the newline before ```
+            start = first_fence + 1  # 跳过换行，从 ``` 起切
         if start > 0:
             content = content[start:].strip()
 
@@ -120,9 +120,8 @@ def fix_wikilinks(content: str, *, valid_slugs: set[str]) -> str:
 def extract_related(content: str, *, valid_slugs: set[str]) -> str:
     """从正文 wikilink 自动提取 related 字段——LLM 不写 related，代码生成。
 
-    动机: YAML 数组对 LLM 是高翻车区（裸名/引号/括号混合错误），
-    而正文 wikilink 它已经写得很顺（死链 0 条）。
-    用代码从正文提取，格式 100% 一致。
+    动机: YAML 数组对 LLM 是高频出错点（裸名/引号/括号混用），
+    正文 wikilink 的书写更稳定，用代码从正文提取可保证格式一致。
 
     规则:
     - 扫描正文所有 [[wikilink]]（去 .md 后缀）→ 去重
@@ -288,7 +287,7 @@ def normalize_page(
     """页面规范化——完整处理链的唯一入口。
 
     fix（修 LLM 脏）→ inject（系统权威）→ check（最后闸门）:
-    1. fix_markdown_fence → fix_wikilinks
+    1. fix_markdown_fence → fix_wikilinks → inject_title_from_h1
     2. inject_metadata（含 plan 决策的 page_type 覆盖）→ extract_related
     3. check_page_quality（quality 模块）
 
@@ -306,12 +305,10 @@ def normalize_page(
     Returns:
         (规范化后的 content, issues)。issues 含 error 时调用方拒绝落盘。
     """
-    # 1. 修复 LLM 输出
     content = fix_markdown_fence(content)
     content = fix_wikilinks(content, valid_slugs=valid_slugs)
     content = inject_title_from_h1(content)
 
-    # 2. 系统权威字段
     content = inject_metadata(
         content,
         source_identity=source_identity,
@@ -321,6 +318,5 @@ def normalize_page(
     )
     content = extract_related(content, valid_slugs=valid_slugs)
 
-    # 3. 质量检测
     issues = check_page_quality(content, path=path)
     return content, issues

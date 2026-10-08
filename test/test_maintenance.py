@@ -127,7 +127,7 @@ async def _fake_rewrite(llm, **kw):
     return _FM.format(type="concept", title="甲") + f"# 甲\n\n{draft}\n\n合并后的内容仍然足够长，可以通过质量检查。\n"
 
 
-# —— 提交口：批形状与闸 ——
+# 提交口：批形状与闸
 
 
 def test_submit_maintenance_enqueues_units_and_tail_links(tmp_path: Path):
@@ -202,7 +202,7 @@ def test_take_conservation_rejects_unplaceable_section(tmp_path: Path):
         asyncio.run(route_mod.route_unit(None, unit, sections))
 
 
-# —— 执行体：五段落盘 ——
+# 执行体：五段落盘
 
 
 def test_restructure_merge_end_to_end(tmp_path: Path, monkeypatch):
@@ -289,7 +289,7 @@ def test_delete_unit_end_to_end(tmp_path: Path, monkeypatch):
     assert "[[concepts/b]]" not in (wiki / "index.md").read_text(encoding="utf-8")
 
 
-# —— link 执行 ——
+# link 执行
 
 
 def test_handle_link_applies_valid_fixes(tmp_path: Path, monkeypatch):
@@ -341,7 +341,7 @@ def test_settlement_values_registered():
     assert Settlement.UNIT_MISSING == "unit_missing"
 
 
-# —— 成文形状校验与骨架兜底（真实模型跑出的两类失败） ——
+# 成文形状校验与骨架兜底（真实模型跑出的两类失败）
 
 
 def test_rewrite_links_for_vanished_strips_related(tmp_path: Path):

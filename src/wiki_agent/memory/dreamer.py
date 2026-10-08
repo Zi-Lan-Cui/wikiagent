@@ -12,6 +12,8 @@ logger = get_logger("MEMORY")
 
 
 class Dreamer:
+    """把未处理的会话历史交给 LLM，重写 memory.md 中的用户画像。"""
+
     _DREAM_PROMPT = """
         你是一名语言大师，擅长根据记录更新用户的画像，分析用户的爱好，价值观等能描述用户的信息，
         并根据已有的记录信息，对记录进行完整的重写，新的重写涵盖更丰富完整的用户描述。
@@ -36,6 +38,10 @@ class Dreamer:
         return self._DREAM_PROMPT.format(history=history, memory=memory)
 
     async def dream(self, llm: LLMClient):
+        """逐 session 调用 LLM 重写用户画像。
+
+        任一 session 失败则不推进 dream 游标，全部记录在下次 dream 重新处理。
+        """
         grouped_history = self.memory_store.get_unprocessed_history()
         memory = self.memory_store.get_memory_text()
         new_cursor = self.memory_store.get_cursor()
