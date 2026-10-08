@@ -1,4 +1,4 @@
-"""Global LLM/VLM request-limit regression tests."""
+"""LLM/VLM 全局请求限额的回归测试。"""
 
 from __future__ import annotations
 

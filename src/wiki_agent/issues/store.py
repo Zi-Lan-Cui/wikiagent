@@ -153,8 +153,8 @@ class IssueStore:
                 "CREATE INDEX IF NOT EXISTS idx_issues_resource_path ON issues(resource_path, status)"
             )
             # schema v3：在途与否由 jobs 表判断。issue_actions 表删除；
-            # processing 状态作废，存量行回落 open（新代码不再写 processing，
-            # 跑一次即稳定）。
+            # processing 状态作废，存量行回落 open；processing 已无写入方，
+            # 跑一次即稳定。
             connection.execute(
                 "UPDATE issues SET status = 'open', updated_at = ? WHERE status = 'processing'",
                 (utc_now(),),

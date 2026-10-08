@@ -106,7 +106,7 @@ def test_ignored_wiki_uses_a_nested_repository(tmp_path: Path):
 def test_commit_all_then_revert_restores_content(tmp_path: Path):
     repo, wiki = _repo(tmp_path)
     manager = WikiGitManager(wiki)
-    assert (repo / ".git" / "wiki-agent.lock").exists() is False  # 锁已随 run 容器退役
+    assert (repo / ".git" / "wiki-agent.lock").exists() is False  # WikiGitManager 不创建 wiki-agent.lock
     (wiki / "index.md").write_text("new\n", encoding="utf-8")
     (wiki / "concepts").mkdir()
     (wiki / "concepts" / "new.md").write_text("page\n", encoding="utf-8")

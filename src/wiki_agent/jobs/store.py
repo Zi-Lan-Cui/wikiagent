@@ -77,17 +77,17 @@ class JobStore:
                 );
                 """
             )
-            # schema v2：老库补列（幂等，OperationalError=duplicate column）
+            # 老库补列 issue_id：列已存在时抛 OperationalError，捕获后幂等
             try:
                 db.execute("ALTER TABLE jobs ADD COLUMN issue_id TEXT")
             except sqlite3.OperationalError:
                 pass
-            # v4：handler 结果明细随终态写入，供分析类 job 查看产出
+            # 老库补列 result_json：handler 结果明细随终态写入，供分析类 job 查看产出
             try:
                 db.execute("ALTER TABLE jobs ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'")
             except sqlite3.OperationalError:
                 pass
-            # v3：删除废弃的排程列 next_run_at（手动重试不再排程）
+            # 老库删列 next_run_at：任务没有自动排程
             try:
                 db.execute("ALTER TABLE jobs DROP COLUMN next_run_at")
             except sqlite3.OperationalError:
@@ -115,12 +115,10 @@ class JobStore:
                 -- 唯一在途约束：同一 resource 至多一个在途 job（数据库强制）
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_in_flight_resource
                     ON jobs(resource) WHERE {_IN_FLIGHT_SQL};
-                -- 索引改名的幂等迁移（旧名 active 不表达"在途"）
+                -- 删除老库以旧名建立的唯一索引
                 DROP INDEX IF EXISTS uq_jobs_active_resource;
                 """
             )
-
-    # 写入
 
     def enqueue(
         self,
@@ -299,8 +297,6 @@ class JobStore:
                     (_now(), job_id),
                 )
         return len(stale)
-
-    # 读取
 
     def get(self, job_id: str, *, _conn: sqlite3.Connection | None = None) -> Job:
         if _conn is not None:

@@ -1,8 +1,6 @@
-"""Test cases for wiki_agent.conversation — Message, ToolCall, LLMResponse, ChatHistory.
+"""wiki_agent.conversation 的用例：Message、ToolCall、LLMResponse 的构造与 schema 输出。
 
-Run:
-    cd /path/to/wiki-agent
-    uv run pytest test/test_messages.py -v
+直接运行:  .venv/bin/python -m pytest test/test_messages.py -v
 """
 
 from wiki_agent.conversation import (
@@ -10,8 +8,6 @@ from wiki_agent.conversation import (
     Message,
     ToolCall,
 )
-
-# ToolCall
 
 
 class TestToolCall:
@@ -24,9 +20,6 @@ class TestToolCall:
     def test_empty_arguments(self):
         tc = ToolCall(id="call_2", name="get_time", arguments={})
         assert tc.arguments == {}
-
-
-# Message — construction
 
 
 class TestMessageConstruction:
@@ -72,9 +65,6 @@ class TestMessageConstruction:
         assert msg.content == ""
 
 
-# Message — openai_schema
-
-
 class TestOpenAISchema:
     # 纯文本
 
@@ -112,8 +102,7 @@ class TestOpenAISchema:
     def test_images_are_ignored_for_non_user_role(self):
         """images 字段存在也不影响 tool/assistant/system 的 openai_schema。
 
-        目前 _build_content 对任意 role 都生效——文档约定 images 仅用于 user。
-        这个测试记录当前行为，如果未来加了 role 检查，更新此测试。
+        _build_content 对任意 role 都生效，按约定 images 仅用于 user。
         """
         msg = Message(role="assistant", content="done", images=["x"])
         schema = msg.openai_schema
@@ -211,9 +200,6 @@ class TestOpenAISchema:
         assert parts[1]["type"] == "image_url"
 
 
-# Message — text_schema
-
-
 class TestTextSchema:
     def test_user_text_structure(self):
         msg = Message(role="user", content="hello")
@@ -249,8 +235,7 @@ class TestTextSchema:
         assert "prompt" in text
 
     def test_text_schema_excludes_timestamp(self):
-        """text_schema 与 openai_schema 内容对齐——时间是元数据不进内容
-        （旧契约含时间戳已反转：估计文本与真实发送内容同形）。"""
+        """text_schema 与 openai_schema 内容对齐——时间是元数据，不进内容。"""
         msg = Message(role="user", content="hi")
         assert "T" not in msg.text_schema  # ISO datetime 分隔符不在内容里
         assert msg.text_schema == "user:hi\n"
@@ -266,9 +251,6 @@ class TestTextSchema:
         text = msg.text_schema
         assert "f1" in text
         assert "f2" in text
-
-
-# LLMResponse
 
 
 class TestLLMResponse:
@@ -295,7 +277,7 @@ class TestLLMResponse:
         assert resp.usage["total"] == 30
 
 
-# Integration — 模拟一次对话的完整 schema 流转
+# 集成：模拟一次对话的完整 schema 流转
 
 
 class TestFullConversationSchema:
@@ -313,13 +295,13 @@ class TestFullConversationSchema:
         # system
         assert messages[0].openai_schema["content"] == "You are a visual assistant."
 
-        # user (multimodal)
+        # user 多模态
         user_content = messages[1].openai_schema["content"]
         assert isinstance(user_content, list)
         assert user_content[0]["text"] == "这张图里有什么？"
         assert user_content[1]["type"] == "image_url"
 
-        # assistant (with tool_call)
+        # assistant 带 tool_calls
         messages.append(
             Message(
                 role="assistant",
@@ -331,7 +313,7 @@ class TestFullConversationSchema:
         assert asst_schema["role"] == "assistant"
         assert len(asst_schema["tool_calls"]) == 1
 
-        # tool result
+        # tool 结果
         messages.append(
             Message(
                 role="tool",

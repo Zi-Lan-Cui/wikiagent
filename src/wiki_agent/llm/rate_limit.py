@@ -91,6 +91,8 @@ class RequestLimiter:
             self._active += 1
 
     async def _acquire_async(self) -> None:
+        # 并发计数由 threading.Condition 守护，异步路径等待会阻塞事件循环，
+        # 改为短间隔轮询。
         while True:
             with self._concurrency:
                 if self._active < self.max_concurrency:

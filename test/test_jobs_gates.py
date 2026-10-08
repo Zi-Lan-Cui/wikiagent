@@ -1,6 +1,5 @@
 """提交闸口的家族守卫：流水线互斥（sync/retry 两入口）与同步基线判定。
 
-restructure/link 的提交口随其实现落地后把入口列补进本矩阵；这里先用
 store 直投在途行覆盖判定内核——异常家族（SyncBaselineLag 与 PipelineBusy
 分家）、收敛优先于闸、隔离区豁免、离线装配跳过。
 
@@ -46,7 +45,7 @@ def _dirty(tmp: Path, service: JobService, name: str = "new.md") -> Path:
     return f
 
 
-# —— 异常家族形状 ——
+# 异常家族形状
 
 
 def test_error_family_shape():
@@ -55,7 +54,7 @@ def test_error_family_shape():
     assert not issubclass(SyncBaselineLag, PipelineBusy)
 
 
-# —— sync 入口：同族与跨阶段分流 ——
+# sync 入口：同族与跨阶段分流
 
 
 @pytest.mark.parametrize("busy_kind", [Kind.COMPILE, Kind.DELETE])
@@ -83,7 +82,7 @@ def test_empty_sync_passes_while_anything_in_flight(tmp_path: Path):
     assert service.submit_sync(tmp_path / "materials") == []
 
 
-# —— retry：收敛优先于闸 ——
+# retry：收敛优先于闸
 
 
 def _failure_issue(service: JobService, source: Path):
@@ -118,7 +117,7 @@ def test_retry_blocked_by_unrelated_in_flight(tmp_path: Path):
         service.submit_issue_retry(issue.id)
 
 
-# —— 基线判定：公式与豁免 ——
+# 基线判定：公式与豁免
 
 
 def test_baseline_lag_formula_and_quarantine(tmp_path: Path):

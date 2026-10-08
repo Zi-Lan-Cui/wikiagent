@@ -67,7 +67,6 @@ def test_archive_failure_keeps_cursor_and_falls_back_to_governor():
         )
         # 失败不能宣称摘要覆盖了历史；游标必须保持不动。
         assert s.last_consolidated == 0
-        # 有调用发生
         assert calls[0] > 0
         # 本轮不再尝试第二种压缩策略，调用方继续走 Governor 截断。
         assert result.changed is False
@@ -150,7 +149,6 @@ def test_strategy1_replay_overflow_compresses_invisible():
             replay_max_messages=5,  # 只保留最近 5 条——前面 55 条是窗口外
         )
         assert s.last_consolidated > 0
-        # 摘要更新了
         assert s.last_summary == "旧对话摘要"
         assert mock_llm.async_invoke.call_count >= 1
 
@@ -180,7 +178,6 @@ def test_strategy2_water_level_triggers():
         )
         assert s.last_consolidated > 0
         assert mock_llm.async_invoke.call_count >= 1
-        # 窗口 token 已更新
         assert s.current_window_tokens > 0
 
     asyncio.run(run())

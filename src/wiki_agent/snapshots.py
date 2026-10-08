@@ -25,7 +25,6 @@ from wiki_agent.log import get_logger
 
 logger = get_logger("SNAPSHOTS")
 
-# 内容指纹算法，快照与 sync 状态记录共用
 def digest_file_text(path: str | Path) -> tuple[str, str] | None:
     """计算内容指纹：read_text(errors=replace) + sha256。
 
@@ -40,7 +39,7 @@ def digest_file_text(path: str | Path) -> tuple[str, str] | None:
     return hashlib.sha256(text.encode("utf-8")).hexdigest(), text
 
 
-# 快照根目录名：workspace 内部布局，不通过配置项暴露
+# workspace 内部布局，不通过配置项暴露
 SNAPSHOTS_DIRNAME = "snapshots"
 
 

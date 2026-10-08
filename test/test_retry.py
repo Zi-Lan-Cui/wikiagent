@@ -342,7 +342,7 @@ def test_single_attempt_rejected_returns_without_sleep():
 
 
 def test_empty_attempt_does_not_append_fixup():
-    """空响应重发同一请求；只有 check_failed 才追加修正消息（与旧实现一致）。"""
+    """空响应重发同一请求；只有 check_failed 才追加修正消息。"""
     client = _FlakyClient(
         [
             LLMResponse(content=""),  # 尝试1 空——不追加

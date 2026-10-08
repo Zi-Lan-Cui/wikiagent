@@ -70,7 +70,7 @@ class Issue:
         return f"  {icon} [{self.level.upper()}] {self.path}: {self.message}"
 
 
-# 页面级检测——判定复用 checks 的 check 回调，这里只组装 Issue
+# 页面级检测——判定复用 rules 的 check 回调，这里只组装 Issue
 
 
 def _semantic_frontmatter_issues(
@@ -329,7 +329,8 @@ def check_dead_links(content: str, *, path: str, valid_slugs: set[str]) -> list[
 
 
 def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
-    """全库扫描: 质量检测 + 死链检测。
+    """全库扫描：页面质检、related 完整性与矛盾标注、孤岛页、死链、
+    根目录与 index 一致性、非标准目录、重复页。
 
     Args:
         wiki_dir: wiki 根目录
@@ -347,7 +348,7 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
             pages.extend(sorted(d.rglob("*.md")))
     valid_slugs = {slug_from_path(wiki, page) for page in pages}
 
-    # 第一遍: 收集 slug + 质量检测 + related 完整性 + 矛盾标注
+    # 第一遍: 质量检测 + related 完整性 + 矛盾标注
     for page in pages:
         rel = str(page.relative_to(wiki))
         try:

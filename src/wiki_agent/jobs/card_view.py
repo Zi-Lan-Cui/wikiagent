@@ -15,7 +15,7 @@ from wiki_agent.jobs.models import Kind
 if TYPE_CHECKING:
     from wiki_agent.jobs.models import Job
 
-# kind 到界面显示名的映射；Job.kind 是 str，判定处用 Kind 常量。
+# Job.kind 是 str，判定处用 Kind 常量。
 _KIND_LABELS: dict[str, str] = {
     "compile": "编译",
     "delete": "删除",
@@ -25,7 +25,6 @@ _KIND_LABELS: dict[str, str] = {
     "maintenance_preview": "整理结构分析",
 }
 
-# 终态 stage 值到界面文案的映射
 _TERMINAL_STAGE_LABELS = {"done": "已完成", "cancelled": "已取消"}
 
 

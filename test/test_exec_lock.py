@@ -1,4 +1,4 @@
-"""执行锁与批门——跨进程互斥（flock 进程死自动释放）、同进程重入、在途拒绝。
+"""执行锁——跨进程互斥（flock 随进程死亡自动释放）、同进程重入、在途拒绝。
 
 直接运行:  .venv/bin/python test/test_exec_lock.py
 """
@@ -30,7 +30,7 @@ else:
 
 
 def _child_verdict(ws: Path) -> str:
-    """真实子进程尝试持锁并回报结果——flock 的作用域是进程，同进程测不了互斥。"""
+    """真实子进程尝试持锁并回报结果——flock 的作用域是进程，同进程内无法验证互斥。"""
     code = _CHILD.replace("sys_path_workspace", repr(str(ws)))
     proc = subprocess.Popen(
         [sys.executable, "-c", code],
@@ -68,7 +68,7 @@ def test_second_process_refused_then_auto_released(tmp_path: Path):
 def test_same_process_reentrant_with_refcount(tmp_path: Path):
     ws = tmp_path / "ws"
     ws.mkdir()
-    acquire_execution_lock(ws)  # runtime.start 已持有的宿主里再进批壳
+    acquire_execution_lock(ws)  # 宿主已持有执行锁（runtime.start 场景）
     acquire_execution_lock(ws)
     release_execution_lock(ws)  # 引用未归零：进程仍是持有者
     assert _child_verdict(ws) == "busy"

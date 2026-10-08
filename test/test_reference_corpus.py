@@ -1,4 +1,4 @@
-"""Seeded-baseline corpus contracts and repository fixtures."""
+"""种子基线语料的契约与仓库 fixture。"""
 
 from __future__ import annotations
 

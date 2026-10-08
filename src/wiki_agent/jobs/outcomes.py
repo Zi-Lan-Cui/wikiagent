@@ -110,8 +110,6 @@ class JobOutcomeHandler:
             self._on_ingest_error(job, result, conn)
         return post_commit
 
-    # settlement → issue 动作（规则表在模块顶部）
-
     def _apply_issue_rule(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
         raw = str(result.detail.get("settlement") or "")
         if not raw:
@@ -192,14 +190,12 @@ class JobOutcomeHandler:
                 "rescan 的 issue %s 已在扫描期间被人工裁决，终态保持人的结论", job.issue_id
             )
 
-    # 各结算分支
-
     def _on_succeeded(self, job: Job, result: JobResult) -> list[Callable[[], None]]:
         state = self._sync_state
         if state is None:
             return []
         if job.kind == Kind.DELETE:
-            # 删除结算（commit 后执行）：应用运行期只规划的档案清理清单 + 移除 state 条目
+            # 删除结算：应用运行期只规划的档案清理清单 + 移除 state 条目
             ops = result.detail.get("archive_ops")
 
             def settle_delete() -> None:
@@ -266,8 +262,6 @@ class JobOutcomeHandler:
             logger.warning(
                 "retry job %s 的失败合并到了新 issue %s（预期 %s）", job.id, issue.id, job.issue_id
             )
-
-    # issue draft 构造
 
     def _draft(self, job: Job, detail: dict) -> IssueDraft:
         source = str(detail.get("source") or Path(job.resource).name)

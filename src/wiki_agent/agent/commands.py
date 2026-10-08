@@ -127,8 +127,8 @@ class CommandResult:
     rerun_with: str | None = None
     """非空则 agent 以该文本作为新 user_input 继续完整流程。
 
-    /retry 用: 不清理历史，追加一条"不满意"指令走正常 build——
-    历史原封不动传给模型，模型自然知道如何重构。
+    /retry 用: 不清理历史，追加一条"不满意"指令走正常 build，
+    历史原封不动传给模型重新组织回答。
     """
 
     status: str = "succeeded"

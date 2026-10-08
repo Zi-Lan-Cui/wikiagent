@@ -29,7 +29,7 @@ def test_worker_claims_updates_stage_and_completes(tmp_path):
 
 
 def test_worker_with_no_registrations_claims_nothing(tmp_path):
-    """S1 契约：零注册 worker 不领任何活——排队行原样等待有资格的进程。"""
+    """契约：零注册 worker 不领任何活——排队行原样等待有资格的进程。"""
     service = make_job_service(tmp_path)
     job = service.submit(kind="unknown", resource="note.md", mode="test")
     assert asyncio.run(JobWorker(service).run_once()) is None

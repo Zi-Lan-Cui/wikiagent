@@ -133,8 +133,8 @@ def body_without_title(content: str) -> str:
 
 
 # wikilink 语法共享正则——group(1)=slug, group(2)=显示文本（无 | 时 None）。
-# 检测侧两个消费点共用（wikilink 说明文字检查 + 死链检测），避免正则漂移。
-# normalize 的 WIKILINK_RE 保留不动——fix 路径有自己的首字符约束。
+# wikilink 说明文字检查与死链检测共用，避免正则漂移；
+# normalize 的 WIKILINK_RE 另带首字符约束，两处是不同定义。
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]")
 
 
@@ -190,7 +190,7 @@ def check_page_frontmatter(
 
     Args:
         content: 页面内容。
-        required: 必填字段集——goal 是页面使命锚，缺失时 LLM
+        required: 必填字段集——goal 是页面使命字段，缺失时 LLM
             重试补写。
 
     Returns:
@@ -235,8 +235,6 @@ def _check_wikilink_has_text(content: str) -> tuple[bool, str]:
             f"每个 [[wikilink]] 必须写成 [[slug|显示文本]] 格式。"
         )
 
-    # 代码块闭合——括号配对语义（带标记 ```python = 左括号，裸 ``` = 右括号）。
-    # 旧奇数计数假阴性: 两个 ```python（2 开 0 闭）被误判已闭合，标题被吞。
     unclosed = count_unclosed_fences(body)
     if unclosed:
         return False, (

@@ -1,4 +1,4 @@
-"""Wiki document rules, normalization, quality checks, and navigation."""
+"""Wiki 页面规则、规范化、质检与导航。"""
 
 from wiki_agent.wiki.navigation import (
     WikiPage,

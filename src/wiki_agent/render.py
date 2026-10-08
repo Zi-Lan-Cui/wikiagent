@@ -24,7 +24,6 @@ from rich.text import Text
 
 from wiki_agent.events import AgentHook, CommandProgress, RunContext
 
-# 样式
 TOOL_ICONS: dict[str, str] = {
     "ReadFile": "📖",
     "ListDir": "📂",
@@ -37,9 +36,6 @@ OK_STYLE = "green"
 ERR_STYLE = "bold red"
 DETAIL_STYLE = "dim"
 ARG_STYLE = "bright_black"
-
-
-# 工具行渲染辅助（纯函数）
 
 
 def _trunc(s: str, max_len: int = 80) -> str:
@@ -82,13 +78,13 @@ def _fmt_args(args: dict[str, Any]) -> str:
 
 
 def _key_params(args: dict[str, Any]) -> list[str]:
-    """按预设优先级提取最重要的参数名。
+    """按预设优先级排列全部参数名，关键参数在前、其余参数在后。
 
     Args:
         args: 工具参数字典。
 
     Returns:
-        参数名列表。
+        排序后的参数名列表。
     """
     order = ["file_path", "dir_path", "pattern", "query", "collection_name"]
     keys = [k for k in order if k in args]
@@ -149,8 +145,6 @@ class TerminalRenderer(AgentHook):
         self._fence_buf: list[str] = []
         self._timers: dict[str, float] = {}
 
-    # 流式缓冲：累积增量，完整行即时打印
-
     def _stream_delta(self, delta: str) -> None:
         """把增量文本累积到缓冲，凑成完整行立即打印。
 
@@ -175,7 +169,6 @@ class TerminalRenderer(AgentHook):
         stripped = line.strip()
         if self._in_fence:
             self._fence_buf.append(line)
-            # 同字符三连（``` 或 ~~~）闭合 fence——整块渲染
             if stripped.startswith("```") or stripped.startswith("~~~"):
                 self._close_fence()
             return
@@ -215,8 +208,6 @@ class TerminalRenderer(AgentHook):
     def _finish_stream(self) -> None:
         """回合结束时打印未闭合的最后一行；此前内容已按到达顺序打印。"""
         self._flush_stream()
-
-    # hook 事件（渲染入口）
 
     async def on_run_start(self, context: RunContext) -> None:
         # 复位缓冲与 fence 状态（跨 turn 复用渲染器实例）

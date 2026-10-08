@@ -49,7 +49,7 @@ async def main(selected: str | None = None) -> None:
         while service.count_in_flight() > 0:
             job = await worker.run_once()
             if job is None:
-                break  # 在途行都是本进程未注册 handler 的 kind（如 issue_action）
+                break  # 在途行都是本进程未注册 handler 的 kind，如 issue_action
             outcomes[_issue_of(job.id, service)] = job.status
         if service.count_in_flight() > 0:
             logger.info(

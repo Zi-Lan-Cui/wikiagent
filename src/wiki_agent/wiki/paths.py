@@ -1,4 +1,4 @@
-"""Path safety primitives shared by Wiki navigation and Wiki tools."""
+"""Wiki 导航与 Wiki 工具共用的路径安全原语。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ HIDDEN_DIRS = frozenset({".git", ".logs", "sources"})
 
 
 def safe_resolve(base: Path, relative: str, *, allow_root: bool = False) -> Path | None:
-    """Resolve a relative path under ``base`` without escaping or exposing internals."""
+    """在 base 下解析相对路径，阻止越界访问与内部目录暴露。"""
     path = Path(relative)
     if path.is_absolute():
         return None

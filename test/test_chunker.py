@@ -1,8 +1,6 @@
-"""Test chunker dispatch and semantic chunking.
+"""chunker 分派与语义切分测试。
 
-Run:
-    cd /path/to/wiki-agent
-    .venv/bin/python -m pytest test/test_chunker.py -v
+直接运行:  .venv/bin/python -m pytest test/test_chunker.py -v
 """
 
 from wiki_agent.documents.chunkers import (
@@ -11,8 +9,6 @@ from wiki_agent.documents.chunkers import (
     TextChunker,
 )
 from wiki_agent.documents.converters.base import ConvertedFile
-
-# 工厂
 
 
 def _make_file(ext: str, content: str, **kwargs) -> ConvertedFile:
@@ -23,9 +19,6 @@ def _make_file(ext: str, content: str, **kwargs) -> ConvertedFile:
         path=f"/tmp/test.{ext}",
         modality=kwargs.get("modality", "text"),
     )
-
-
-# Dispatcher
 
 
 class TestDispatcher:
@@ -130,9 +123,6 @@ class TestTextChunker:
         file = _make_file("txt", "   \n  \n  ")
         chunks = ck.chunk(file)
         assert chunks == []
-
-
-# StructuredChunker
 
 
 class TestStructuredChunker:

@@ -222,7 +222,7 @@ def check_paths_json(content: str) -> tuple[bool, str]:
     """校验 search 阶段输出：{"paths": ["entities/x.md", ...]}。
 
     对象与顶层数组两种格式都接受：调用已开 json_object，但兼容端点
-    可能静默忽略 response_format，顶层数组是旧契约。
+    可能静默忽略 response_format 而输出顶层数组。
 
     Args:
         content: LLM 原始输出。

@@ -1,4 +1,4 @@
-"""Unified issue models, persistence, projection tests."""
+"""统一的 issue 模型、持久化与投影测试。"""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def test_issue_store_filters_and_transitions(tmp_path: Path):
 
 
 def test_transition_cas_guards_expected_state(tmp_path: Path):
-    """expected CAS 取代旧 claim 原子性：状态不符的操作方大声失败。"""
+    """transition 以 expected CAS 保证原子性：状态与预期不符时抛错，不静默覆盖。"""
     store = make_issue_store(tmp_path)
     issue = store.report(_draft())
 
@@ -261,7 +261,7 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
     assert updated.status == IssueStatus.OPEN, "同源失败合并后保持 open 等人处理"
 
 
-# ---- rescan：判断依据在执行体产出、终态统一由 outcome 事务写入（唯一写入方） ----
+# rescan：判断依据在执行体产出，终态只由 outcome 事务写入
 
 
 def _dead_link_wiki(tmp_path: Path) -> Path:

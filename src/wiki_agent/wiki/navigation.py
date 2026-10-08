@@ -1,4 +1,4 @@
-"""Safe page resolution and search for CLI/Web Wiki navigation."""
+"""CLI/Web Wiki 导航的安全页面解析与检索。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from wiki_agent.wiki.paths import safe_resolve
 
 
 class WikiPageNotFound(FileNotFoundError):
-    """The requested page is missing or outside the public Wiki scope."""
+    """页面不存在或超出公开 Wiki 范围。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +24,7 @@ class WikiPage:
 
 
 def _frontmatter(content: str) -> dict[str, object]:
-    """Parse the deliberately small YAML subset used by generated pages."""
+    """解析生成页面使用的精简 YAML 子集。"""
     lines = content.replace("\r\n", "\n").split("\n")
     if not lines or lines[0].strip() != "---":
         return {}
@@ -57,6 +57,7 @@ def _normalize(path: str) -> str:
 
 
 def read_page(root: Path, path: str) -> WikiPage:
+    """读取单个 Wiki 页面；路径越界、非 .md 或不存在时抛 WikiPageNotFound。"""
     relative = _normalize(path)
     target = safe_resolve(root.resolve(), relative)
     if target is None or target.suffix.lower() != ".md" or not target.is_file():
@@ -72,7 +73,7 @@ def read_page(root: Path, path: str) -> WikiPage:
 
 
 def read_source(source_records_root: Path, path: str) -> WikiPage:
-    """Read one generated source record through the dedicated read-only boundary."""
+    """通过专用只读边界读取单个来源记录。"""
     relative = _normalize(path.removeprefix("sources/"))
     source_root = source_records_root.resolve()
     target = safe_resolve(source_root, relative)
@@ -89,10 +90,10 @@ def read_source(source_records_root: Path, path: str) -> WikiPage:
 
 
 def read_authorized_source(path: Path, *, label: str = "") -> WikiPage:
-    """Read an exact source path already authorized by an application record.
+    """读取申请记录已授权的精确来源路径。
 
-    The path is never accepted from an HTTP route.  Callers must obtain it
-    from trusted server-side state, such as an issue's private context.
+    路径不接受 HTTP 路由传入，调用方必须从服务端可信状态获取，
+    如 issue 的私有上下文。
     """
     try:
         target = path.resolve(strict=True)
@@ -112,6 +113,7 @@ def read_authorized_source(path: Path, *, label: str = "") -> WikiPage:
 
 
 def search_pages(root: Path, query: str, *, limit: int = 30) -> list[WikiPage]:
+    """按关键词在页面路径与正文中检索，返回至多 limit 个页面，读取失败的跳过。"""
     needle = query.strip().casefold()
     if not needle:
         return []

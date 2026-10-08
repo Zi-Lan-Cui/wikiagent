@@ -29,7 +29,7 @@ def _default_gold() -> Path:
 
 
 def _load_files(root: Path, paths: list[str]) -> str:
-    """文件加载器——按 view 里的文件清单逐个读，拼成判定输入"""
+    """按 view 里的文件清单逐个读，拼成判定输入。"""
     parts: list[str] = []
     for relative in paths:
         path = (root / relative).resolve()
@@ -152,7 +152,7 @@ def main() -> int:
     gold_path = args.gold.resolve()
     gold = json.loads(gold_path.read_text(encoding="utf-8"))
     cases = gold["cases"]
-    # corpus root = verdicts/ 的上一级（gold 文件约定放在 corpora/reference-v1/verdicts/）
+    # corpus root = verdicts/ 的上一级，gold 文件按约定放在 corpora/reference-v1/verdicts/
     root = gold_path.parent.parent if gold_path.parent.name == "verdicts" else _CORPUS_ROOT
     client = create_llm(load_config(project_root=Path.cwd()).llm)
     summary = asyncio.run(_run(client, root, cases, repeats=args.repeats))

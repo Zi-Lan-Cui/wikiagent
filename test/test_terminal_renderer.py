@@ -36,12 +36,7 @@ def test_flush_drains_buffer():
 
 
 def test_finish_leaves_content_in_console():
-    """追加式：流式即最终——完整行即时落盘，无重渲染。
-
-    旧设计收尾段经 capture + sys.stdout 重渲染（依赖 transient
-    擦除消除预览帧），长回答下擦除失效会双渲染——追加式
-    无预览、无擦除、无重渲染，架构上不存在双渲染。
-    """
+    """追加式渲染：完整行即时落盘，无预览、无擦除、无重渲染，架构上不存在双渲染。"""
     tmp = Path(tempfile.mkdtemp()) / "out.txt"
     r = TerminalRenderer(Console(file=open(tmp, "w", encoding="utf-8")))
     asyncio.run(r.on_run_start(_ctx()))

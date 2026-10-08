@@ -38,16 +38,12 @@ def scan_disk(root: str | Path) -> dict[str, str]:
 class FileState:
     """单个文件的已知状态。"""
 
-    hash: str = ""  # 已处理内容的 sha256，只在 job 成功时写入
-    text: str | None = None  # 已编译内容的文本（None 表示从未编译）
+    hash: str = ""  # 已处理内容的 sha256
+    text: str | None = None  # 已编译内容的文本，None 表示从未编译
     last_ingested_at: str = ""
 
     def to_dict(self) -> dict:
-        """序列化为持久化格式。
-
-        Returns:
-            字段字典。
-        """
+        """序列化为持久化格式。"""
         return {
             "hash": self.hash,
             "text": self.text,
@@ -56,14 +52,7 @@ class FileState:
 
     @classmethod
     def from_dict(cls, d: dict) -> FileState:
-        """从字典构造（读盘）。
-
-        Args:
-            d: 持久化字典。
-
-        Returns:
-            FileState 实例（缺省字段取默认）。
-        """
+        """从持久化字典构造，缺省字段取默认。"""
         return cls(
             hash=d.get("hash", ""),
             text=d.get("text"),
@@ -79,42 +68,20 @@ class SyncState:
         self._entries: dict[str, FileState] = {}
         self._load()
 
-    # 访问
-
     def get(self, abs_path: str) -> FileState:
-        """获取文件状态；不存在返回空 FileState（视为新文件）。
-
-        Args:
-            abs_path: 文件绝对路径。
-
-        Returns:
-            状态对象。
-        """
+        """获取文件状态；不存在返回空 FileState，视为新文件。"""
         return self._entries.get(abs_path, FileState())
 
     def set(self, abs_path: str, state: FileState) -> None:
-        """写入/覆盖文件状态。
-
-        Args:
-            abs_path: 文件绝对路径。
-            state: 状态对象。
-        """
+        """写入/覆盖文件状态。"""
         self._entries[abs_path] = state
 
     def all_paths(self) -> list[str]:
-        """返回全部已记录路径。
-
-        Returns:
-            路径列表。
-        """
+        """返回全部已记录路径。"""
         return list(self._entries.keys())
 
     def drop(self, abs_path: str) -> None:
-        """移除条目（源文件被删除时清理）。
-
-        Args:
-            abs_path: 文件绝对路径。
-        """
+        """移除条目，源文件被删除时清理。"""
         self._entries.pop(abs_path, None)
 
     def diff(self, disk: dict[str, str]) -> tuple[list[tuple[str, str]], list[str]]:
@@ -136,8 +103,6 @@ class SyncState:
         ]
         return dirty, removed
 
-    # hash/text 的唯一写入口是 record，且只在 job 成功时调用
-
     def matches(self, abs_path: str, digest: str) -> bool:
         """该内容是否已处理（供幂等短路与扫描去重）。"""
         return (
@@ -154,8 +119,6 @@ class SyncState:
         st.last_ingested_at = datetime.now().isoformat()
         self._entries[abs_path] = st
         self.save()
-
-    # 持久化
 
     def save(self) -> None:
         """原子写: 先写临时文件再 rename——避免中途崩溃留半个 JSON。"""

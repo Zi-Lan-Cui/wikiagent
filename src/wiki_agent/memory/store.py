@@ -9,6 +9,8 @@ from wiki_agent.utils import ensure_dir
 
 
 class MemoryStore:
+    """会话记忆的文件存储：history.jsonl、游标文件与 memory.md 的读写。"""
+
     def __init__(self, workspace: Path):
         self.workspace = workspace
         memory_dir = ensure_dir(self.workspace / "memory_store")

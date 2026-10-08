@@ -235,8 +235,8 @@ async def async_invoke_with_retry(
         content = response.content
 
         if not content.strip():
-            # reasoning 模型思考耗尽 max_tokens 时 content 为空
-            # （finish_reason=length + reasoning_content 非空）
+            # reasoning 模型思考耗尽 max_tokens 时 content 为空，
+            # 表现为 finish_reason=length 且 reasoning_content 非空
             rc_len = len(response.reasoning_content or "")
             logger.warning(
                 "空响应 %d/%d (finish=%s, reasoning=%d chars)",

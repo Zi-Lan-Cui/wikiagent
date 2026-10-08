@@ -22,7 +22,7 @@ class IssueKind(StrEnum):
 class IssueStatus(StrEnum):
     """问题的持久化状态。
 
-    没有 processing 状态——是否在处理由 jobs 表（该 issue 是否有在途 job）
+    没有 processing 状态——是否在处理由 jobs 表中该 issue 是否有在途 job
     派生，此处只表达问题本身的生命周期。
     """
 

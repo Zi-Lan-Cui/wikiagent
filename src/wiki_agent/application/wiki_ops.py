@@ -96,16 +96,12 @@ class WikiOpsHandler:
         worker.register(Kind.LINK, self.handle_link)
         worker.register(Kind.MAINTENANCE_PREVIEW, self.handle_preview)
 
-    # 整理结构分析——只读提议，结果随 job 落库供事后查看
-
     async def handle_preview(self, job: Job, progress) -> JobResult:
         """跑一遍提议流程并把建议清单写进任务结果；不碰任何文件。"""
         from wiki_agent.application.restructure_service import preview_payload, propose_maintenance
 
         outcome = await propose_maintenance(self._llm, self._wiki_dir, progress=progress)
         return JobResult(status="succeeded", detail={"preview": preview_payload(outcome)})
-
-    # restructure——一个单元一个任务一笔提交
 
     async def handle_restructure(self, job: Job, progress) -> JobResult:
         """执行一个重组单元：核对 → 路由 → 装配 → 逐页成文 → 落盘 → 质量扫描。
@@ -206,8 +202,6 @@ class WikiOpsHandler:
             if commit:
                 detail["commit"] = commit
             return JobResult(status="succeeded", detail=detail)
-
-    # link——一页一个任务，各页独立，互不影响
 
     async def handle_link(self, job: Job, progress) -> JobResult:
         """维护一页的出链：LLM 出替换清单，代码校验后应用；无可补即空操作。"""

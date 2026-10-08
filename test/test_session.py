@@ -51,12 +51,8 @@ def test_get_history_window_and_legal_start():
                 Message(role="assistant", content=f"a{i}"),
             ]
         )
-    # 窗口 3 条：取最近 3 = [a4? 不对——序列 q0 a0 q1 a1 ...，最近3 = a4 之后？]
-    # 序列: q0 a0 q1 a1 q2 a2 q3 a3 q4 a4；最近3 = q4? 不——[a3, q4, a4]? 直接验证语义:
     result = s.get_history(max_messages_length=3)
-    # 起始必须 user：最近的 3 条是 [a3, q4, a4]？——不，最近3 = [q4, a4]...
-    # 实现: unconsolidated[-3:] = [a3, q4, a4]；find_first_legal_idx 从 a3 开始
-    # 前移到 q4。所以 result = [q4, a4]。
+    # 最近 3 条 = [a3, q4, a4]，起始非 user；find_first_legal_idx 前移到 q4 → [q4, a4]
     assert [m.role for m in result] == ["user", "assistant"]
     assert result[0].content == "q4"
 

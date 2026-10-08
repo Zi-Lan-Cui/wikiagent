@@ -30,16 +30,11 @@ class EventLog:
     """JSON lines 事件日志。"""
 
     def __init__(self, path: Path):
-        """初始化事件日志。
-
-        Args:
-            path: events.jsonl 文件路径（父目录自动创建）。
-        """
+        """path 指向 events.jsonl 文件，父目录自动创建。"""
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self.dropped = 0
-        """写盘失败的计数——机器通道丢事件的可观测性（终端 run 后
-        日志最后一行会打 WARNING 汇总，静默丢失变成可见信号）。"""
+        """写盘失败被丢弃的事件计数。"""
 
     def emit(self, event: str, **fields: Any) -> None:
         """记录一条事件。
@@ -61,8 +56,6 @@ class EventLog:
             with open(self._path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception:
-            # 写盘失败只计数不抛出，避免影响主流程；
-            # 计数由 run 结束的 WARNING 汇总暴露
             self.dropped += 1
             if self.dropped % 10 == 1:  # 每 10 条警告一次，不刷屏
                 logger.warning("事件写盘失败（已丢 %d 条）: %s", self.dropped, self._path)

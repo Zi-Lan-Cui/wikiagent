@@ -32,7 +32,7 @@ def _long_msgs(n_rounds: int) -> list[Message]:
 
 
 def test_snip_preserves_chronological_order():
-    """A1 回归: snip 后的消息保持时间顺序（旧代码逆序输出）。"""
+    """snip 后的消息保持时间顺序，不得逆序输出。"""
     gov = _gov()
     msgs = _long_msgs(40)
     out = gov._snip_by_tokens(msgs, _cfg(20000, 2000))

@@ -33,7 +33,7 @@ logger = get_logger("RESTRUCTURE_WIKI")
 
 
 async def _interactive_confirm(units):
-    """逐条 y/N；返回被接受的子集（面向操作者的交互提示，属 stdout UX）。"""
+    """逐条 y/N 确认，返回被接受的子集；交互提示面向操作者，走 stdout。"""
     accepted = []
     for unit in units:
         pair = f"{'+'.join(unit.in_pages)} → {'+'.join(unit.out_slugs) or '（删除）'}"
@@ -50,13 +50,13 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
 
     service = runtime.job_service
     if not dry_run:
-        # 本进程要执行 restructure/link job，因此持执行锁（dry-run 纯预览不触库）
+        # 本进程要执行 restructure/link job，需持执行锁；dry-run 纯预览不触库，不持锁
         acquire_execution_lock(runtime.workspace)
     try:
         if not dry_run:
             # 提议必须基于静止的 wiki：崩溃遗留的在途任务先泵空再开始分析
             await drain_queue(service, runtime.job_worker)
-        # 主闸在 LLM 分析之前（dry-run 同样被闸）：基线落后的提议没有执行价值
+        # 主闸在 LLM 分析之前，dry-run 同样被闸：基线落后的提议没有执行价值
         lag = service.sync_baseline_lag()
         if lag:
             preview = "、".join(sorted(lag)[:3])

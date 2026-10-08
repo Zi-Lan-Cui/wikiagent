@@ -167,7 +167,6 @@ def find_first_legal_idx(messages: list[Message], extend_to_user: bool = True):
                 called.add(tool.id)
         if message.role == "tool" and message.tool_call_id not in called:
             start = idx + 1
-            # 把孤儿结果之后作为新起点，清空调用记录
             called.clear()
         if extend_to_user and message.role == "user":
             return idx

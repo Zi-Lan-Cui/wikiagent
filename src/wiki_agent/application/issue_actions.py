@@ -1,4 +1,4 @@
-"""Application use cases for actions on persisted Issue records."""
+"""对持久化 Issue 记录执行操作的应用用例。"""
 
 from __future__ import annotations
 

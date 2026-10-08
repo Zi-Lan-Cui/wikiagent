@@ -253,8 +253,6 @@ class ReActRunner:
 
         return True
 
-    # 内部：流式调用
-
     async def _stream(
         self,
         session: Session,
@@ -313,8 +311,8 @@ class ReActRunner:
                 s.set_attr("tokens", response.usage)
             if not (response.content and response.content.strip()) and not response.tool_calls:
                 s.set_attr("empty_response", True)
-            # finish=length 表示生成被 max_tokens 截断（reasoning 模型
-            # 思考占用预算后正文中断）——span 记录现场供诊断
+            # finish=length 表示生成被 max_tokens 截断，reasoning 模型的
+            # 思考占用预算后正文中断；span 记录现场供诊断
             if response.finish_reason == "length":
                 s.set_attr("truncated", True)
                 s.set_attr("reasoning_len", len(response.reasoning_content or ""))
@@ -414,8 +412,8 @@ class ReActAgent(BaseAgent):
         commands: CommandRouter | None = None,
     ):
         super().__init__(name=name, workspace=workspace)
-        # 依赖由调用方注入：job_service 可缺席（纯问答会话无任务队列），
-        # issue_service 必备（RecordCorrection 工具依赖）。
+        # 依赖由调用方注入：job_service 可缺席，纯问答会话无任务队列；
+        # issue_service 必备，RecordCorrection 工具依赖它。
         self.job_service = job_service
         self.llm = llm
         # wiki/materials 路径由调用方注入，命令层从这里读取

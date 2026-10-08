@@ -50,7 +50,7 @@ def test_issue_retry_creates_job(tmp_path: Path):
 
 
 def test_double_retry_click_single_job(tmp_path: Path):
-    """双击 retry 的等价性证明：提交点收敛为"同一 job、至多一个在途"。"""
+    """双击 retry 收敛为"同一 job、至多一个在途"。"""
     service = make_job_service(tmp_path)
     source = tmp_path / "note.md"
     source.write_text("重试内容", encoding="utf-8")
