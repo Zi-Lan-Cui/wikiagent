@@ -22,6 +22,7 @@ from wiki_agent.queue import Job, Kind, RestructureInProgress
 from wiki_agent.queue.queue import JobQueue
 
 if TYPE_CHECKING:
+    from wiki_agent.maintenance.models import Proposal
     from wiki_agent.maintenance.store import ProposalStore
     from wiki_agent.sync.baseline import SyncBaseline
 
@@ -102,14 +103,21 @@ class MaintenanceCoordinator:
         单元声明先经 plan_restructure 校验与影响范围计算；一个事务内入队全部
         单元与批尾 link 任务。payload 只带声明，章节归属由执行时路由计算。
 
-        带 proposal_id 时同事务把该提议置 submitted 并记产生的任务行——
-        同一提议重复提交被 CAS 拒绝；单元清单为空时不入队也不处置账本。
+        带 proposal_id 时提交清单必须是提议 effective 的子集（按 in_pages 与
+        out 判等）——部分采纳合法，提议之外的单元拒绝；同事务把该提议置
+        submitted，记采纳单元与产生的任务行，同一提议重复提交被 CAS 拒绝。
+        单元清单为空时不入队也不处置账本。
         """
         if self.wiki_dir is None:
             raise RuntimeError("submit_restructure 需要 wiki_dir")
         plan = self.plan_restructure(units, self.wiki_dir)
         if not plan.units:
             return []
+        accepted: list[dict] | None = None
+        if proposal_id:
+            if self.proposals is None:
+                raise RuntimeError("submit_restructure 带 proposal_id 需要账本注入")
+            accepted = self._match_proposal(self.proposals.require(proposal_id), plan.units)
         batch = f"restructure_{uuid4().hex}"
         jobs: list[Job] = []
         with self.queue.store.transaction(immediate=True) as conn:
@@ -137,10 +145,41 @@ class MaintenanceCoordinator:
                     )
                 )
             if proposal_id:
-                if self.proposals is None:
-                    raise RuntimeError("submit_restructure 带 proposal_id 需要账本注入")
-                self.proposals.mark_submitted(proposal_id, [job.id for job in jobs], _conn=conn)
+                assert accepted is not None
+                self.proposals.mark_submitted(
+                    proposal_id, [job.id for job in jobs], accepted=accepted, _conn=conn
+                )
         return jobs
+
+    @staticmethod
+    def _unit_key(unit: dict) -> tuple[frozenset[str], tuple[str, ...]]:
+        """单元身份：输入页集合 + 输出页 slug 序列，提议与提交两侧同式判等。"""
+        return (
+            frozenset(str(s) for s in unit.get("in_pages") or []),
+            tuple(str(p.get("slug") or "") for p in unit.get("out") or []),
+        )
+
+    @classmethod
+    def _match_proposal(cls, proposal: Proposal, units: list[dict]) -> list[dict]:
+        """提交清单逐条要求在提议 effective 内；返回采纳单元的标识。"""
+        raw = proposal.payload.get("effective")
+        pool = {
+            cls._unit_key(entry): entry
+            for entry in raw
+            if isinstance(entry, dict)
+        } if isinstance(raw, list) else {}
+        accepted: list[dict] = []
+        for unit in units:
+            entry = pool.get(cls._unit_key(unit))
+            if entry is None:
+                raise ValueError(f"提交的单元不在提议之内: {sorted(unit.get('in_pages') or [])}")
+            accepted.append(
+                {
+                    "in_pages": sorted(str(s) for s in entry.get("in_pages") or []),
+                    "out": [str(p.get("slug") or "") for p in entry.get("out") or []],
+                }
+            )
+        return accepted
 
     def submit_link_batch(self, slugs: list[str] | None = None) -> list[Job]:
         """发现型补链：指定页（默认全库内容页）逐页入队，一页一 job 一提交。

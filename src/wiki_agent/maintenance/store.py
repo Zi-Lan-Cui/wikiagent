@@ -270,16 +270,24 @@ class ProposalStore:
         proposal_id: str,
         job_ids: list[str],
         *,
+        accepted: list[dict] | None = None,
         _conn: sqlite3.Connection | None = None,
     ) -> Proposal:
-        """提议采纳入队：记由此产生的任务行，随提交事务写入。"""
+        """提议采纳入队：记由此产生的任务行，随提交事务写入。
+
+        accepted 为实际采纳的单元标识（in_pages + out），子集采纳时
+        审计链据此对得上提议原文。
+        """
+        disposition: Disposition = {"by": "submitted", "job_ids": job_ids}
+        if accepted is not None:
+            disposition["accepted"] = accepted
         with self._tx(_conn) as connection:
             current = self._require_with(connection, proposal_id)
             return self._transition(
                 connection,
                 current,
                 Resolution.SUBMITTED,
-                {"by": "submitted", "job_ids": job_ids},
+                disposition,
                 "submitted",
             )
 
