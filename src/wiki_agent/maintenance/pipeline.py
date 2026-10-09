@@ -2,7 +2,7 @@
 
 流程：初步建议（全库大纲）→ 逐组二次确认 → 冲突消解（一页只进一个
 单元，代码规则）。本模块只产出可入队的单元清单与放弃明细；入队与执行
-在 jobs 层（JobService.submit_maintenance）——提议与确认发生在提交侧，
+在 jobs 层（JobService.submit_restructure）——提议与确认发生在提交侧，
 job 只做执行。
 """
 

@@ -97,8 +97,7 @@ class SessionService:
     def list_sessions(self) -> list[SessionInfo]:
         """按更新时间倒序列出持久化会话。"""
         return [
-            self.get_session(session_id)
-            for session_id in self._session_manager.list_session_keys()
+            self.get_session(session_id) for session_id in self._session_manager.list_session_keys()
         ]
 
     def get_session(self, session_id: str) -> SessionInfo:
@@ -225,9 +224,7 @@ class SessionService:
         if is_first_turn and stop_reason not in ("cancelled", "error"):
             self._schedule_session_title(session, text)
 
-    def _schedule_session_title(
-        self, session: Session, question: str
-    ) -> asyncio.Task[None]:
+    def _schedule_session_title(self, session: Session, question: str) -> asyncio.Task[None]:
         """后台一次性生成标题：LLM 成功用其结果，失败改用截断标题。
 
         标题只在这一次落盘；期间用户手动改过名（已非"未命名"）则放弃。

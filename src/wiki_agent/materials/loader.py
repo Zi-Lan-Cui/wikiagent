@@ -210,4 +210,3 @@ class DataLoader:
         except (json.JSONDecodeError, ValueError):
             pass
         return False
-

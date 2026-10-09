@@ -6,7 +6,7 @@
 
 每批维护（sync/重组）的 link 范围只覆盖波及面（产出页与消失页的入链
 页面）；老页该链新页这类发现型需求由本脚本的全库扫承接。一页一个
-job、一页一笔提交；执行体在 application.wiki_ops.handle_link。
+job、一页一笔提交；执行体在 maintenance.jobs.handle_link。
 本脚本持执行锁，驱动队列到空。
 """
 
@@ -17,7 +17,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-from wiki_agent.application.pump import drain_queue
+from wiki_agent.application.queue_pump import drain_queue
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock

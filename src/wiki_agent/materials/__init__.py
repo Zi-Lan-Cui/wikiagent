@@ -1,17 +1,17 @@
-"""用户文档的加载、转换与切块。"""
+"""用户资料的加载、转换与切块；生成页在 wiki 包。"""
 
-from wiki_agent.documents.chunkers import (
+from wiki_agent.materials.chunkers import (
     BaseChunker,
     ChunkedFileProperties,
     TextChunker,
 )
-from wiki_agent.documents.converters import (
+from wiki_agent.materials.converters import (
     BaseConverter,
     ConvertedFile,
     Converter,
     MinerUConverter,
 )
-from wiki_agent.documents.loader import (
+from wiki_agent.materials.loader import (
     DataLoader,
     FileModality,
     LoadSummary,

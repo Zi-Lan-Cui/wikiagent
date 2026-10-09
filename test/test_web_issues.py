@@ -14,7 +14,7 @@ from helpers import make_issue_store, make_job_service
 from wiki_agent.agent import ReActAgent
 from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.application.runtime import AppRuntime
-from wiki_agent.application.session import SessionService
+from wiki_agent.application.session_service import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
 from wiki_agent.conversation import SessionManager
 from wiki_agent.events import EventPublisher

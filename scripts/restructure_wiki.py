@@ -8,7 +8,7 @@
 分工与 sync 快照同构：提议阶段（初步建议→二次确认→消解）在提交侧同步跑、
 含交互确认；确认后整批入队——一单元一个 job、一单元一笔提交，link 任务
 自动排在批尾（范围 = 全部产出页 ∪ 消失页的入链页面）。执行体在
-application.wiki_ops——核对→路由→装配→逐页成文→落盘收尾→扫描闸门→
+maintenance.jobs——核对→路由→装配→逐页成文→落盘收尾→扫描闸门→
 提交本单元；失败只撤本单元。批尾注支持 ``/wiki revert-batch`` 整批回撤。
 本脚本持执行锁，驱动队列到空。
 """
@@ -20,13 +20,13 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-from wiki_agent.application.pump import drain_queue
-from wiki_agent.application.restructure_service import propose_maintenance
+from wiki_agent.application.queue_pump import drain_queue
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.jobs import PipelineBusy, RestructureInProgress, SyncBaselineLag
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
+from wiki_agent.maintenance.pipeline import propose_maintenance
 from wiki_agent.wiki.quality import format_scan_report, scan_wiki
 
 logger = get_logger("RESTRUCTURE_WIKI")
@@ -94,7 +94,7 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
             return 0
 
         try:
-            jobs = service.submit_maintenance([u.to_dict() for u in outcome.accepted])
+            jobs = service.submit_restructure([u.to_dict() for u in outcome.accepted])
         except (PipelineBusy, RestructureInProgress, SyncBaselineLag) as exc:
             logger.error("提交暂拒: %s", exc)
             return 1
@@ -103,9 +103,7 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
             return 1
         batch = str(jobs[0].payload["batch"])
         n_units = sum(1 for j in jobs if j.kind == "restructure")
-        logger.info(
-            "已入队: %d 个单元 + %d 个补链（批 %s）", n_units, len(jobs) - n_units, batch
-        )
+        logger.info("已入队: %d 个单元 + %d 个补链（批 %s）", n_units, len(jobs) - n_units, batch)
         await drain_queue(service, runtime.job_worker)
         rows = [service.get(job.id) for job in jobs]
         failed = [row for row in rows if row.status != "succeeded"]

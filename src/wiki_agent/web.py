@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -29,6 +29,7 @@ from wiki_agent.jobs import DuplicateInFlightJob, PipelineBusy, SyncBaselineLag
 from wiki_agent.jobs.card_view import task_card
 from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import get_logger, setup_event_log
+from wiki_agent.maintenance import ProposalAlreadyResolvedError, ProposalNotFoundError
 from wiki_agent.snapshots import SnapshotError
 from wiki_agent.wiki import WikiPageNotFound
 
@@ -49,14 +50,12 @@ class IssueActionRequest(BaseModel):
 
 class MaintenanceSubmitRequest(BaseModel):
     units: list[dict[str, Any]] = Field(default_factory=list)
+    # 提议账本行 id：带上则同事务把该提议置 submitted，重复提交被 CAS 拒绝
+    proposal_id: str = ""
 
 
 class LinkBatchRequest(BaseModel):
     slugs: list[str] | None = None
-
-
-class PreviewResolveRequest(BaseModel):
-    by: Literal["dismissed", "submitted"]
 
 
 def create_app(
@@ -125,6 +124,8 @@ def create_app(
         (IssueAlreadyClaimedError, 409),
         (IssueActionConflict, 409),
         (InvalidIssueTransitionError, 409),  # 与其他状态冲突同样返回 409
+        (ProposalNotFoundError, 404),
+        (ProposalAlreadyResolvedError, 409),  # 提议已处置或并发变更
         (DuplicateInFlightJob, 409),  # 提交时该 issue 已有在途任务
         (SourceUnavailableError, 409),
         (PipelineBusy, 409),
@@ -142,6 +143,7 @@ def create_app(
                 # 5xx 的 detail 只发给客户端，服务端必须记录日志
                 logger.error("HTTP %d: %s", code, detail, exc_info=exc)
             return JSONResponse(status_code=code, content={"detail": detail})
+
         return handler
 
     for _exc_type, _code in _status_map:
@@ -220,17 +222,31 @@ def create_app(
         提交处判重：已有分析在途、写任务在途或基线落后时返回 409，
         基于已变化 wiki 的提议没有执行价值。
         """
-        return {"task": _task(job_service.submit_maintenance_preview())}
+        return {"task": _task(job_service.submit_restructure_preview())}
 
-    @app.post("/api/maintenance/preview/{job_id}/resolve")
-    async def maintenance_preview_resolve(job_id: str, request: PreviewResolveRequest) -> dict[str, Any]:
-        """标记一次分析结果为 dismissed（否决）或 submitted（已提交），移除对应建议。"""
-        return {"task": _task(job_service.resolve_maintenance_preview(job_id, by=request.by))}
+    @app.get("/api/maintenance/proposals")
+    async def maintenance_proposals() -> dict[str, Any]:
+        """未处置的整理提议，账本保证至多一条；payload 为建议清单。"""
+        proposals = job_service.proposals
+        if proposals is None:
+            raise ServiceError("维护账本未装配")
+        return {"proposals": [asdict(p) for p in proposals.list_pending()]}
+
+    @app.post("/api/maintenance/proposals/{proposal_id}/dismiss")
+    async def maintenance_proposal_dismiss(proposal_id: str) -> dict[str, Any]:
+        """否决一条提议；已处置过的返回 409。"""
+        proposals = job_service.proposals
+        if proposals is None:
+            raise ServiceError("维护账本未装配")
+        return {"proposal": asdict(proposals.dismiss(proposal_id))}
 
     @app.post("/api/maintenance", status_code=202)
     async def maintenance_submit(request: MaintenanceSubmitRequest) -> dict[str, Any]:
-        """将确认后的整理单元整批入队，同批共用一个 batch；批尾自动追加受影响页面的链接补全任务。"""
-        jobs = job_service.submit_maintenance(request.units)
+        """将确认后的整理单元整批入队，同批共用一个 batch；批尾自动追加受影响页面的链接补全任务。
+
+        带 proposal_id 时同一事务把该提议置 submitted，重复提交被拒。
+        """
+        jobs = job_service.submit_restructure(request.units, request.proposal_id)
         if not jobs:
             raise HTTPException(status_code=400, detail="单元清单为空")
         return {
@@ -261,7 +277,9 @@ def create_app(
             return JSONResponse(status_code=202, content=submit_retry_job(issue_id))
         if action == "rescan":
             issue_actions.validate(issue_id, action)
-            return JSONResponse(status_code=202, content=submit_issue_job(issue_id, action, request.payload))
+            return JSONResponse(
+                status_code=202, content=submit_issue_job(issue_id, action, request.payload)
+            )
         return asdict(issue_actions.execute(issue_id, action, request.payload))
 
     @app.get("/api/issue-tasks/{task_id}")

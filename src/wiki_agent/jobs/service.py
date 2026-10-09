@@ -19,11 +19,10 @@ PipelineBusy 各表一种原因与补救。提交口先查互斥、再查基线�
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 from wiki_agent.errors import ERROR_SUMMARY_LIMIT, summarize_error
@@ -48,6 +47,9 @@ from wiki_agent.jobs import (
 from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
+
+if TYPE_CHECKING:
+    from wiki_agent.maintenance import ProposalStore
 
 # detail 中的大字段：仅供 outcomes 同事务内消费（写完成记录、issue 记账、档案页
 # 落盘），不持久化进 jobs 行——否则 state.db 随每轮 sync 膨胀、list() 反复反序列化大对象
@@ -74,8 +76,8 @@ class Baseline(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class MaintenancePlan:
-    """维护提交的入队素材：校验后的单元声明（已序列化）与批尾补链目标。
+class RestructurePlan:
+    """重组批的入队素材：校验后的单元声明（已序列化）与批尾补链目标。
 
     units 顺序即入队顺序；link_slugs 为批尾补链页。
     """
@@ -85,14 +87,14 @@ class MaintenancePlan:
 
 
 class MaintenancePlanner(Protocol):
-    """维护批的领域规划面——实现住 application/compiler，按协议注入提交口。
+    """维护线共用的规划面：重组批规划与独立补链目标判定。
 
-    校验单元声明、算批尾补链波及面要读 wiki 盘面与 restructure 声明模型，
-    是业务知识；jobs 提交口只保留事务、幂等键与互斥。方法体不 import
-    compiler/application，装配根注入（与 Baseline 同构，断 jobs→compiler 边）。
+    实现在 maintenance 包，按协议注入提交口（与 Baseline 同构，断
+    jobs→compiler 边）：校验单元声明、算批尾补链波及面要读 wiki 盘面与
+    restructure 声明模型，是领域知识；jobs 提交口只保留事务、幂等键与互斥。
     """
 
-    def plan_maintenance(self, units: list[dict], wiki_dir: Path) -> MaintenancePlan:
+    def plan_restructure(self, units: list[dict], wiki_dir: Path) -> RestructurePlan:
         """消解规则对当前盘面重跑一遍，违例抛领域异常拒绝（UnitError 等）。"""
         ...
 
@@ -114,6 +116,7 @@ class JobService:
         baseline: Baseline | None = None,
         maintenance: MaintenancePlanner | None = None,
         wiki_dir: str | Path | None = None,
+        proposals: ProposalStore | None = None,
     ):
         self.store = store
         self.issues = issues
@@ -123,6 +126,8 @@ class JobService:
         self.baseline = baseline
         # 维护规划面由装配根注入；离线/纯 sync 可为 None
         self.maintenance = maintenance
+        # 维护提议账本由装配根注入；带 proposal_id 的提交与 web 处置口需要
+        self.proposals = proposals
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
         self.recovered_jobs = 0
         # 清扫崩溃遗留的无引用快照目录，保留非终态任务引用的批
@@ -202,7 +207,7 @@ class JobService:
         if issue.kind != IssueKind.INGESTION_FAILURE:
             raise IssueActionConflict(f"不是编译失败账，不能重试: {issue.kind}")
         if issue.status in {IssueStatus.RESOLVED, IssueStatus.DISMISSED}:
-            raise IssueActionConflict("问题已终态——先重新打开再重试")
+            raise IssueActionConflict("问题已终态，先重新打开再重试")
 
     def submit_issue_retry(self, issue_id: str) -> Job:
         """单发重试即一批——资格、收敛、互斥的语义见 submit_issue_retry_batch。"""
@@ -234,9 +239,9 @@ class JobService:
                     resource = str(Path(resolve_retry_source(issue)).resolve())
                     batch = f"retry_{uuid4().hex}"
                     fresh_batches.append(batch)
-                    digest = self.snapshots.capture(
-                        batch, Path(resource).parent, [resource]
-                    )[resource]
+                    digest = self.snapshots.capture(batch, Path(resource).parent, [resource])[
+                        resource
+                    ]
                 except (SourceUnavailableError, SnapshotError) as exc:
                     reason = str(exc)
                     self.mark_retry_unavailable(issue_id, reason)
@@ -254,9 +259,7 @@ class JobService:
                     occupant = self.store.in_flight_by_resource(resource, _conn=conn)
                     if occupant is not None:
                         if not occupant.issue_id:
-                            occupant = self.store.attach_issue(
-                                occupant.id, issue_id, _conn=conn
-                            )
+                            occupant = self.store.attach_issue(occupant.id, issue_id, _conn=conn)
                         jobs.append(occupant)
                         continue
                     if external_busy:
@@ -428,19 +431,22 @@ class JobService:
                 closed += 1
         return closed
 
-    def submit_maintenance(self, units: list[dict]) -> list[Job]:
+    def submit_restructure(self, units: list[dict], proposal_id: str = "") -> list[Job]:
         """已确认的单元清单整批入队：一单元一 job，批尾自动跟受影响页补链。
 
         单元声明经 MaintenancePlanner 校验与影响范围计算；一个事务内先入队全部
         单元再入队 link 任务。互斥与基线检查：已有 restructure 在途抛
         RestructureInProgress，其他写在途抛 PipelineBusy，未同步源抛
         SyncBaselineLag。payload 只带声明，章节归属由执行时路由计算。
+
+        带 proposal_id 时同事务把该提议置 submitted 并记产生的任务行——
+        同一提议重复提交被 CAS 拒绝；单元清单为空时不入队也不处置账本。
         """
         if self.wiki_dir is None:
-            raise RuntimeError("submit_maintenance 需要 wiki_dir")
+            raise RuntimeError("submit_restructure 需要 wiki_dir")
         if self.maintenance is None:
-            raise RuntimeError("submit_maintenance 需要注入维护规划面")
-        plan = self.maintenance.plan_maintenance(units, self.wiki_dir)
+            raise RuntimeError("submit_restructure 需要注入维护规划面")
+        plan = self.maintenance.plan_restructure(units, self.wiki_dir)
         if not plan.units:
             return []
         batch = f"restructure_{uuid4().hex}"
@@ -469,13 +475,17 @@ class JobService:
                         _conn=conn,
                     )
                 )
+            if proposal_id:
+                if self.proposals is None:
+                    raise RuntimeError("submit_restructure 带 proposal_id 需要账本注入")
+                self.proposals.mark_submitted(proposal_id, [job.id for job in jobs], _conn=conn)
         return jobs
 
     def submit_link_batch(self, slugs: list[str] | None = None) -> list[Job]:
         """发现型补链：指定页（默认全库内容页）逐页入队，一页一 job 一提交。
 
         slug 经 MaintenancePlanner 按内容页白名单校验（不存在即 ValueError）；
-        互斥与基线检查同维护批。
+        互斥与基线检查同重组提交口（维护线共闸）。
         """
         if self.wiki_dir is None:
             raise RuntimeError("submit_link_batch 需要 wiki_dir")
@@ -501,18 +511,18 @@ class JobService:
                 )
         return jobs
 
-    def submit_maintenance_preview(self) -> Job:
+    def submit_restructure_preview(self) -> Job:
         """整理结构分析入队（提议→复核→消解）：只产建议清单，不写 wiki。
 
         提交前互斥与基线判定同维护口：有写在途或基线落后即拒——基于执行中
         wiki 的提议没有执行价值。resource 与幂等键固定，重复发起收敛为同一在途分析。
+        上一轮提议在新一轮结果入账的 PREVIEWED 联动时作废，分析失败不动账本。
         """
         with self.store.transaction(immediate=True) as conn:
             busy = self._in_flight_wiki_write_counts(_conn=conn)
             if busy:
                 raise self._pipeline_busy(busy)
             self._raise_if_baseline_lagging()
-            self._supersede_settled_previews(conn)
             return self.store.enqueue(
                 kind=Kind.MAINTENANCE_PREVIEW,
                 resource="maintenance:preview",
@@ -521,47 +531,6 @@ class JobService:
                 idempotency_key="maintenance:preview",
                 _conn=conn,
             )
-
-    @staticmethod
-    def _supersede_settled_previews(conn: sqlite3.Connection) -> None:
-        """发起新分析前，把上一轮未处置的终态分析标记为 superseded。
-
-        不变量：未处置的终态分析行 ≤ 1。处置记录仍随各行持久，读侧无需判断
-        哪条最新。
-        """
-        rows = conn.execute(
-            "SELECT id, result_json FROM jobs"
-            " WHERE kind = ? AND status IN ('succeeded', 'failed')",
-            (Kind.MAINTENANCE_PREVIEW,),
-        ).fetchall()
-        for row in rows:
-            result: dict[str, object] = json.loads(row["result_json"] or "{}")
-            raw = result.get("preview")
-            preview: dict[str, object] = dict(raw) if isinstance(raw, dict) else {}
-            if "resolved_by" in preview:
-                continue
-            preview["resolved_by"] = "superseded"
-            result["preview"] = preview
-            conn.execute(
-                "UPDATE jobs SET result_json = ? WHERE id = ?",
-                (json.dumps(result, ensure_ascii=False), row["id"]),
-            )
-
-    def resolve_maintenance_preview(self, job_id: str, *, by: str) -> Job:
-        """记录一次分析结果的终态处置（dismissed 否决 / submitted 已入队执行）。
-
-        处置过的建议行不再出现在待办队列，避免重复入队；任务行保留处置记录。
-        新一轮分析产新结果，不受旧处置影响。非分析类任务拒绝。
-        """
-        if by not in ("dismissed", "submitted"):
-            raise ValueError(f"未知的处置方式: {by}")
-        job = self.store.get(job_id)
-        if job.kind != Kind.MAINTENANCE_PREVIEW:
-            raise ValueError(f"只能处置整理结构分析结果: {job.kind}")
-        raw = job.result.get("preview")
-        preview: dict[str, object] = dict(raw) if isinstance(raw, dict) else {}
-        preview["resolved_by"] = by
-        return self.store.set_result(job_id, {**job.result, "preview": preview})
 
     def _raise_if_maintenance_blocked(self, _conn: sqlite3.Connection | None = None) -> None:
         """维护类提交的共用闸：已有 restructure 在途抛专门异常，其余在途抛 PipelineBusy。"""

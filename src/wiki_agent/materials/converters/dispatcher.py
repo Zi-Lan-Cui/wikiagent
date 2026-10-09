@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from wiki_agent.documents.converters.base import BaseConverter, ConvertedFile
-from wiki_agent.documents.converters.mineru_converter import MinerUConverter
-from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.log import get_logger
+from wiki_agent.materials.converters.base import BaseConverter, ConvertedFile
+from wiki_agent.materials.converters.mineru_converter import MinerUConverter
+from wiki_agent.materials.loader import RawFileProperties
 
 logger = get_logger("CONVERTER")
 

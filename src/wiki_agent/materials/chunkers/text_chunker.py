@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from wiki_agent.documents.chunkers.base import BaseChunker, ChunkedFileProperties
-from wiki_agent.documents.converters.base import ConvertedFile
 from wiki_agent.log import get_logger
+from wiki_agent.materials.chunkers.base import BaseChunker, ChunkedFileProperties
+from wiki_agent.materials.converters.base import ConvertedFile
 
 logger = get_logger("TEXT_CHUNKER")
 

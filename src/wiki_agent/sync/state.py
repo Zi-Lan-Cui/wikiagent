@@ -20,7 +20,7 @@ def scan_disk(root: str | Path) -> dict[str, str]:
 
     读不到的文件（权限/竞态消失）跳过，下轮扫描会再见到。
     """
-    from wiki_agent.documents.loader import DataLoader
+    from wiki_agent.materials.loader import DataLoader
 
     supported = DataLoader.ext_to_modality
     base = Path(root).resolve()

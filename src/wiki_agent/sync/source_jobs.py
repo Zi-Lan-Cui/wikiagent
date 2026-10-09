@@ -41,7 +41,6 @@ from typing import TYPE_CHECKING
 
 from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
-from wiki_agent.documents.loader import DataLoader
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.jobs import Job, JobResult, Kind, Settlement
 from wiki_agent.jobs.wiki_write import (
@@ -52,6 +51,7 @@ from wiki_agent.jobs.wiki_write import (
     debris_dir_for,
 )
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.materials.loader import DataLoader
 from wiki_agent.snapshots import SnapshotStore, digest_file_text
 from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
@@ -266,7 +266,11 @@ class SourceJobHandler:
         # 先 commit 后写状态，崩溃时只会重做、不会丢内容。
         prefix = Subject.RETRY if job.mode == "issue_retry" else Subject.SYNC
         commit = write.commit(commit_subject(prefix, path.name))
-        detail: dict[str, object] = {"settlement": Settlement.INGESTED, "digest": digest, "text": text}
+        detail: dict[str, object] = {
+            "settlement": Settlement.INGESTED,
+            "digest": digest,
+            "text": text,
+        }
         if commit:
             detail["commit"] = commit
         if page is not None:

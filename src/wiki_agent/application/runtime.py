@@ -17,10 +17,8 @@ from wiki_agent.agent import ReActAgent
 from wiki_agent.agent.commands import create_command_router
 from wiki_agent.application.commands import create_application_commands
 from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
-from wiki_agent.application.maintenance_flow import MaintenancePlannerImpl
-from wiki_agent.application.session import SessionService
+from wiki_agent.application.session_service import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
-from wiki_agent.application.wiki_ops import WikiOpsHandler
 from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.config import RootConfig, default_project_root, load_config
@@ -35,6 +33,9 @@ from wiki_agent.jobs.outcomes import JobOutcomeHandler
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.llm.factory import create_llm, create_vlm
+from wiki_agent.maintenance import ProposalStore
+from wiki_agent.maintenance.flow import MaintenancePlannerImpl
+from wiki_agent.maintenance.jobs import MaintenanceJobHandler
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
 from wiki_agent.sync.source_jobs import SourceJobHandler
@@ -56,6 +57,8 @@ class AppRuntime:
         database = Database(self.workspace)
         self.issue_store = IssueStore(database)
         self.issue_service = IssueService(self.issue_store)
+        # 维护提议账本：整理分析的产出与人工处置，与 issues 平行
+        self.proposal_store = ProposalStore(database)
         self.sync_state = SyncState(config.paths.resolved_sync_state_path())
         # wiki git 版本：HEAD 即最近已结算状态，sync/retry 的逐 job 提交由 consumer 执行
         self.git_manager = WikiGitManager(self.wiki_dir)
@@ -73,12 +76,14 @@ class AppRuntime:
                 sync_state=self.sync_state,
                 source_records_dir=self.source_records_dir,
                 source_writer=ExtractionSourcePageWriter(),
+                proposals=self.proposal_store,
             ),
             baseline=self.baseline,
             # 维护规划注入提交入口：单元校验与批尾补链计算依赖 compiler，
             # 由协议注入避免 jobs 直接 import compiler
             maintenance=MaintenancePlannerImpl(),
             wiki_dir=self.wiki_dir,
+            proposals=self.proposal_store,
         )
         self.event_publisher = EventPublisher()
         self.issue_reporter = IssueReporterHook(self.issue_service)
@@ -132,7 +137,7 @@ class AppRuntime:
             source_records_dir=self.source_records_dir,
             compile_config=config.compile,
         )
-        self.wiki_ops = WikiOpsHandler(
+        self.maintenance_jobs = MaintenanceJobHandler(
             self.agent.llm,
             wiki_dir=self.wiki_dir,
             source_records_dir=self.source_records_dir,
@@ -151,7 +156,7 @@ class AppRuntime:
         # 认领哪些 kind 由各执行体自己声明，装配根只接线
         self.job_worker = JobWorker(self.job_service)
         self.source_jobs.register_jobs(self.job_worker)
-        self.wiki_ops.register_jobs(self.job_worker)
+        self.maintenance_jobs.register_jobs(self.job_worker)
         register_job_handlers(self.job_worker, self.issue_actions)
         # 启动核对（与 recover_stale、快照清扫同一类）：把重试输入
         # 已丢失的记录标记 unavailable，使 issue 记录与磁盘一致

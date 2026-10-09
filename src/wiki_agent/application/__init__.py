@@ -1,6 +1,6 @@
 """应用层：组装与用例边界。
 
-只放应用服务（session.SessionService 会话用例、wiki_browser 只读查询）、
+只放应用服务（session_service.SessionService 会话用例、wiki_browser 只读查询）、
 用例（issue_actions/compile_*…）与装配根。issue 读由适配器直接使用 issue_service。
 执行引擎在 `wiki_agent.jobs`，快照与 sync 在 `wiki_agent.sync`。
 
@@ -11,7 +11,7 @@ consumer→application→runtime→consumer 的导入环，是否报错取决于
 
 from typing import TYPE_CHECKING
 
-from wiki_agent.application.session import (
+from wiki_agent.application.session_service import (
     InvalidInputError,
     MessageResult,
     ServiceError,

@@ -8,7 +8,12 @@ from typing import Literal
 
 
 class Kind(StrEnum):
-    """job 类型：worker 按它分派 handler，提交互斥与撤销检查按它统计在途行。"""
+    """job 类型：worker 按它分派 handler，提交互斥与撤销检查按它统计在途行。
+
+    这里是执行分类不是领域层级：同 kind 可能来自多条路径，LINK 既是重组批尾
+    mode=tail、也是独立体检 mode=manual；批成员关系由 payload.batch 表达，
+    整批撤销与折叠显示都按它聚合。领域的认领关系见各执行体的 register_jobs。
+    """
 
     COMPILE = "compile"  # 编译一个源文件（sync 批与 issue retry 共用）
     DELETE = "delete"  # 清理一个已删除来源
@@ -43,6 +48,8 @@ class Settlement(StrEnum):
     LINKED = "linked"  # 该页出链核对完成（applied 计数在 detail，可为 0）
     RESCAN_STILL_PRESENT = "rescan_still_present"  # 复扫确认问题仍在
     RESCAN_CLEARED = "rescan_cleared"  # 复扫确认问题已消失
+    PREVIEWED = "previewed"  # 结构分析成功；建议写入维护提议账本，不动 issue
+
 
 Detail = dict[str, object]  # 执行结果明细，值类型比 issues.JsonObject 宽，经 json.dumps 落库
 

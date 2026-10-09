@@ -14,7 +14,7 @@
 进入时 pre-reset、离开时回退由上下文保证，handler 只需选择 commit 或
 abort_export——commit 表示质量检查已通过、这批改动应成为 HEAD。
 
-SourceJobHandler（compile/delete）与 WikiOpsHandler（restructure/link）共用此
+SourceJobHandler（compile/delete）与 MaintenanceJobHandler（restructure/link）共用此
 协议。commit subject 带操作前缀（sync:/retry:/sync: delete/restructure:/link:），
 commit body 记 batch，按批撤销时据此定位。失败导出的 patch 与 commit 记录不随
 wiki 回退删除。
@@ -67,9 +67,7 @@ def _restore(git: WikiGitManager | None) -> None:
 class WikiWrite:
     """open() 交给 handler 的句柄：commit/abort 两个决策 + 是否已结算。"""
 
-    def __init__(
-        self, git: WikiGitManager | None, debris_dir: Path | None, job: Job
-    ) -> None:
+    def __init__(self, git: WikiGitManager | None, debris_dir: Path | None, job: Job) -> None:
         self._git = git
         self._debris_dir = debris_dir
         self._job = job

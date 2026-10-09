@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, Field
 
-from wiki_agent.documents.converters.base import ConvertedFile
+from wiki_agent.materials.converters.base import ConvertedFile
 
 
 class ChunkedFileProperties(BaseModel):

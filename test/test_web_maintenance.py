@@ -16,9 +16,8 @@ from helpers import make_issue_store, make_job_service
 
 from wiki_agent.agent import ReActAgent
 from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
-from wiki_agent.application.restructure_service import MaintenanceOutcome
 from wiki_agent.application.runtime import AppRuntime
-from wiki_agent.application.session import SessionService
+from wiki_agent.application.session_service import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
 from wiki_agent.compiler.restructure import Unit
 from wiki_agent.conversation import SessionManager
@@ -26,12 +25,13 @@ from wiki_agent.events import EventPublisher
 from wiki_agent.issues import IssueService
 from wiki_agent.jobs import Kind
 from wiki_agent.jobs.worker import JobWorker
+from wiki_agent.maintenance.pipeline import MaintenanceOutcome
 from wiki_agent.sync.state import SyncState
 from wiki_agent.web import create_app
 
 _FM = (
-    "---\ntype: concept\ntitle: \"{title}\"\nsummary: \"一个足够长的摘要信息\"\n"
-    "goal: \"说明该页要解决的问题\"\nrelated: []\nsources: []\n---\n"
+    '---\ntype: concept\ntitle: "{title}"\nsummary: "一个足够长的摘要信息"\n'
+    'goal: "说明该页要解决的问题"\nrelated: []\nsources: []\n---\n'
 )
 
 
@@ -45,7 +45,8 @@ class _Runtime:
             d.mkdir(parents=True)
         for slug, title in (("a", "甲"), ("b", "乙")):
             (self.wiki_dir / "concepts" / f"{slug}.md").write_text(
-                _FM.format(title=title) + f"# {title}\n\n## {title}主题\n\n内容足够长供维护使用。\n",
+                _FM.format(title=title)
+                + f"# {title}\n\n## {title}主题\n\n内容足够长供维护使用。\n",
                 encoding="utf-8",
             )
         self.issue_store = make_issue_store(self.workspace)
@@ -102,9 +103,15 @@ def test_maintenance_submit_returns_batch_with_readable_titles(tmp_path: Path):
     async def fn(client):
         r = await client.post(
             "/api/maintenance",
-            json={"units": [{"in_pages": ["concepts/a", "concepts/b"],
-                             "out": [{"slug": "concepts/a", "intent": "合并页", "polish": True}],
-                             "reason": "重复主题"}]},
+            json={
+                "units": [
+                    {
+                        "in_pages": ["concepts/a", "concepts/b"],
+                        "out": [{"slug": "concepts/a", "intent": "合并页", "polish": True}],
+                        "reason": "重复主题",
+                    }
+                ]
+            },
         )
         assert r.status_code == 202, r.text
         body = r.json()
@@ -183,8 +190,8 @@ def test_maintenance_preview_enqueue_converge_and_gate(tmp_path: Path):
 
 def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
     """handler 走三阶段 progress、建议清单进 JobResult；service 把结果落库。"""
-    import wiki_agent.application.restructure_service as svc_mod
-    from wiki_agent.application.wiki_ops import WikiOpsHandler
+    import wiki_agent.maintenance.pipeline as svc_mod
+    from wiki_agent.maintenance.jobs import MaintenanceJobHandler
 
     runtime = _Runtime(tmp_path)
     unit = Unit(in_pages=["concepts/a", "concepts/b"], out=[], reason="整体清理")
@@ -201,10 +208,10 @@ def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(svc_mod, "propose_maintenance", fake_propose)
 
-    handler = WikiOpsHandler(
+    handler = MaintenanceJobHandler(
         None, wiki_dir=runtime.wiki_dir, source_records_dir=runtime.workspace / "provenance"
     )
-    job = runtime.job_service.submit_maintenance_preview()
+    job = runtime.job_service.submit_restructure_preview()
 
     async def main():
         result = await handler.handle_preview(job, seen_stages.append)
@@ -222,74 +229,87 @@ def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
         assert done.stage == "done"
         assert done.result["preview"]["effective"][0]["reason"] == "整体清理"
         assert done.result["preview"]["healthy"] is False
+        # PREVIEWED 结算与终态同事务写入维护账本
+        pending = runtime.job_service.proposals.list_pending()
+        assert len(pending) == 1 and pending[0].job_id == job.id
+        assert pending[0].title == "1 条整理提议"
+        assert pending[0].payload["effective"][0]["in_pages"] == ["concepts/a", "concepts/b"]
 
     asyncio.run(main())
     assert seen_stages == ["初步建议", "二次复核", "冲突消解"]
 
 
-def test_maintenance_preview_resolve_flow(tmp_path: Path):
-    """处置（否决/已入队）标记持久化；非法对象与非法方式拒绝、未知任务 404。"""
-    from wiki_agent.jobs import JobResult
-    from wiki_agent.jobs import Kind as JKind
+def test_maintenance_proposal_dismiss_flow(tmp_path: Path):
+    """待处置提议可查、可否决；重复否决拒绝、未知 id 404、任务行 result 不被改写。"""
+    from wiki_agent.jobs import JobResult, Kind, Settlement
 
     runtime = _Runtime(tmp_path)
 
     async def fn(client):
-        job = runtime.job_service.submit_maintenance_preview()
-        claimed = runtime.job_service.claim_next(kinds={JKind.MAINTENANCE_PREVIEW})
+        job = runtime.job_service.submit_restructure_preview()
+        claimed = runtime.job_service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
         assert claimed is not None
         runtime.job_service.complete_with_outcome(
             claimed,
-            JobResult(status="succeeded", detail={"preview": {"healthy": False, "effective": []}}),
+            JobResult(
+                status="succeeded",
+                detail={
+                    "settlement": Settlement.PREVIEWED,
+                    "preview": {"healthy": False, "effective": []},
+                },
+            ),
         )
 
-        other = runtime.job_service.submit(kind=JKind.DELETE, resource="/x", mode="sync")
-        r = await client.post(
-            f"/api/maintenance/preview/{other.id}/resolve", json={"by": "dismissed"}
-        )
-        assert r.status_code == 400  # 只能处置分析结果
+        r = await client.get("/api/maintenance/proposals")
+        assert r.status_code == 200
+        proposals = r.json()["proposals"]
+        assert len(proposals) == 1 and proposals[0]["job_id"] == job.id
+        proposal_id = proposals[0]["id"]
 
-        r = await client.post(
-            f"/api/maintenance/preview/{job.id}/resolve", json={"by": "unknown_way"}
-        )
-        assert r.status_code in (400, 422)  # 枚举外的处置方式（pydantic 422/service 400）
+        r = await client.post(f"/api/maintenance/proposals/{proposal_id}/dismiss")
+        assert r.status_code == 200, r.text
+        assert r.json()["proposal"]["resolution"] == "dismissed"
 
-        r = await client.post(
-            "/api/maintenance/preview/no_such_job/resolve", json={"by": "dismissed"}
-        )
+        r = await client.post(f"/api/maintenance/proposals/{proposal_id}/dismiss")
+        assert r.status_code == 409  # 已处置的不再处置
+
+        r = await client.post("/api/maintenance/proposals/no_such/dismiss")
         assert r.status_code == 404
 
-        r = await client.post(
-            f"/api/maintenance/preview/{job.id}/resolve", json={"by": "submitted"}
-        )
-        assert r.status_code == 200, r.text
-        assert r.json()["task"]["result"]["preview"]["resolved_by"] == "submitted"
-        # 标记随 job 行持久：重新读取仍是已处置
-        again = runtime.job_service.get(job.id)
-        assert again.result["preview"]["resolved_by"] == "submitted"
-        assert again.status == "succeeded"  # 状态不动，只改结果标记（completed 是 HTTP 层文案）
+        r = await client.get("/api/maintenance/proposals")
+        assert r.json()["proposals"] == []
+        # 提议处置不回写任务行：result 保持分析原样，账本是唯一处置记录
+        assert "resolved_by" not in (runtime.job_service.get(job.id).result.get("preview") or {})
 
     asyncio.run(_client(runtime, tmp_path)(fn))
 
 
-def test_new_preview_supersedes_previous_settled(tmp_path: Path):
-    """不变量：发起新一轮即作废上一轮——未处置的终态分析行 ≤1。
+def test_new_preview_supersedes_previous_pending(tmp_path: Path):
+    """不变量：提议表 pending ≤1——新一轮结果入账时作废上一轮。
 
-    界面结果行读侧不需要"哪条算最新"判断的底气来自这里；历史轮的
-    处置记录（superseded）随各行持久，可审计。作废只扫 preview 的
-    终态行，不碰其他 kind。
+    发起新一轮不提前作废（分析失败旧提议仍在）；作废只发生在成功入账
+    时刻，处置记录随各行留痕可审计；其他 kind 不受账本操作影响。
     """
-    from wiki_agent.jobs import JobResult, Kind
+    from wiki_agent.jobs import JobResult, Kind, Settlement
 
     runtime = _Runtime(tmp_path)
-    first = runtime.job_service.submit_maintenance_preview()
+    first = runtime.job_service.submit_restructure_preview()
     claimed = runtime.job_service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
     assert claimed is not None and claimed.id == first.id
     runtime.job_service.complete_with_outcome(
         claimed,
-        JobResult(status="succeeded", detail={"preview": {"healthy": False, "effective": []}}),
+        JobResult(
+            status="succeeded",
+            detail={
+                "settlement": Settlement.PREVIEWED,
+                "preview": {"healthy": False, "effective": []},
+            },
+        ),
     )
-    # 非 preview 的终态行不能被作废扫到——先推到终态（在途会触发写在途闸）
+    pending = runtime.job_service.proposals.list_pending()
+    assert [p.job_id for p in pending] == [first.id]
+
+    # 非 preview 的终态行照常结算，账本不碰
     other = runtime.job_service.submit(kind=Kind.DELETE, resource="/d", mode="sync")
     claimed_delete = runtime.job_service.claim_next(kinds={Kind.DELETE})
     assert claimed_delete is not None and claimed_delete.id == other.id
@@ -297,10 +317,35 @@ def test_new_preview_supersedes_previous_settled(tmp_path: Path):
         claimed_delete, JobResult(status="failed", detail={"error": "x"})
     )
 
-    second = runtime.job_service.submit_maintenance_preview()
+    # 发起第二轮：旧 pending 不动；失败入账也不动账本
+    second = runtime.job_service.submit_restructure_preview()
+    assert [p.job_id for p in runtime.job_service.proposals.list_pending()] == [first.id]
+    claimed2 = runtime.job_service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
+    assert claimed2 is not None and claimed2.id == second.id
+    runtime.job_service.complete_with_outcome(
+        claimed2, JobResult(status="failed", detail={"error": "分析失败"})
+    )
+    assert [p.job_id for p in runtime.job_service.proposals.list_pending()] == [first.id]
 
-    again = runtime.job_service.get(first.id)
-    assert again.result["preview"]["resolved_by"] == "superseded"
-    fresh = runtime.job_service.get(second.id)
-    assert "resolved_by" not in (fresh.result.get("preview") or {})
-    assert runtime.job_service.get(other.id).result == {"error": "x"}
+    # 第二轮成功结果入账：旧 pending 置 superseded，pending ≤1
+    retry = runtime.job_service.submit_restructure_preview()
+    claimed3 = runtime.job_service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
+    assert claimed3 is not None and claimed3.id == retry.id
+    runtime.job_service.complete_with_outcome(
+        claimed3,
+        JobResult(
+            status="succeeded",
+            detail={
+                "settlement": Settlement.PREVIEWED,
+                "preview": {"healthy": True, "effective": []},
+            },
+        ),
+    )
+    pending = runtime.job_service.proposals.list_pending()
+    assert [p.job_id for p in pending] == [retry.id]
+    assert pending[0].title == "结构健康（无整理提议）"
+    # 旧提议的作废留痕
+    from wiki_agent.maintenance import Resolution
+
+    old = [p for p in runtime.job_service.proposals.list_all() if p.job_id == first.id]
+    assert len(old) == 1 and old[0].resolution is Resolution.SUPERSEDED

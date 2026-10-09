@@ -14,8 +14,6 @@ from types import SimpleNamespace
 import pytest
 from helpers import make_job_service
 
-from wiki_agent.application import wiki_ops as wiki_ops_mod
-from wiki_agent.application.wiki_ops import WikiOpsHandler
 from wiki_agent.compiler import restructure as rs
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.compiler.link import apply_link_fixes
@@ -32,14 +30,16 @@ from wiki_agent.jobs import (
 )
 from wiki_agent.jobs.service import JobService
 from wiki_agent.jobs.worker import JobWorker
+from wiki_agent.maintenance import jobs as maintenance_jobs_mod
+from wiki_agent.maintenance.jobs import MaintenanceJobHandler
 from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.rules import count_unclosed_fences
 from wiki_agent.wiki.sections import Section, page_sections
 
 _FM = (
-    "---\ntype: {type}\ntitle: \"{title}\"\nsummary: \"一个足够长的摘要信息\"\n"
-    "goal: \"说明该页要解决的问题\"\nrelated: []\n---\n"
+    '---\ntype: {type}\ntitle: "{title}"\nsummary: "一个足够长的摘要信息"\n'
+    'goal: "说明该页要解决的问题"\nrelated: []\n---\n'
 )
 _TYPE = {"concepts": "concept", "entities": "entity", "topics": "topic"}
 
@@ -77,7 +77,12 @@ def _seed_wiki(tmp: Path) -> Path:
     wiki.mkdir(exist_ok=True)
     _page(wiki, "concepts/a", "甲", "## 甲主题\n\n甲的内容足够长，描述一个明确的主题，供合并使用。")
     _page(wiki, "concepts/b", "乙", "## 乙主题\n\n乙的内容足够长，与甲相邻但独立成页，应当合并。")
-    _page(wiki, "concepts/c", "丙", "丙先讨论一些别的事情，然后引用了 [[concepts/b|乙]] 这一页的内容展开。")
+    _page(
+        wiki,
+        "concepts/c",
+        "丙",
+        "丙先讨论一些别的事情，然后引用了 [[concepts/b|乙]] 这一页的内容展开。",
+    )
     (wiki / "index.md").write_text(
         "- [[concepts/a]] — [concept] concepts/a.md — 甲 — s\n"
         "- [[concepts/b]] — [concept] concepts/b.md — 乙 — s\n"
@@ -97,7 +102,7 @@ def _env(tmp: Path) -> tuple[JobService, JobWorker, Path]:
         sync_state=SyncState(tmp / "ws" / "watch" / "state.json"),
         materials_dir=materials,
     )
-    handler = WikiOpsHandler(None, wiki_dir=wiki, source_records_dir=tmp / "prov", git=None)
+    handler = MaintenanceJobHandler(None, wiki_dir=wiki, source_records_dir=tmp / "prov", git=None)
     worker = JobWorker(service)
     handler.register_jobs(worker)
     return service, worker, wiki
@@ -124,15 +129,18 @@ def _all_to_first(unit, sections):
 
 async def _fake_rewrite(llm, **kw):
     draft = kw["draft"]
-    return _FM.format(type="concept", title="甲") + f"# 甲\n\n{draft}\n\n合并后的内容仍然足够长，可以通过质量检查。\n"
+    return (
+        _FM.format(type="concept", title="甲")
+        + f"# 甲\n\n{draft}\n\n合并后的内容仍然足够长，可以通过质量检查。\n"
+    )
 
 
 # 提交口：批形状与闸
 
 
-def test_submit_maintenance_enqueues_units_and_tail_links(tmp_path: Path):
+def test_submit_restructure_enqueues_units_and_tail_links(tmp_path: Path):
     service, _worker, _wiki = _env(tmp_path)
-    jobs = service.submit_maintenance([_merge_unit()])
+    jobs = service.submit_restructure([_merge_unit()])
     kinds = [j.kind for j in jobs]
     assert kinds[0] == Kind.RESTRUCTURE and kinds.count(Kind.LINK) == 2
     # 批尾范围 = 产出页(a) ∪ 消失页(b)的入链页(c)
@@ -140,25 +148,25 @@ def test_submit_maintenance_enqueues_units_and_tail_links(tmp_path: Path):
     assert len({j.payload["batch"] for j in jobs}) == 1, "整批同一 batch，revert-batch 一笔撤"
 
 
-def test_submit_maintenance_blocked_by_other_writes(tmp_path: Path):
+def test_submit_restructure_blocked_by_other_writes(tmp_path: Path):
     service, _worker, _wiki = _env(tmp_path)
     service.submit(kind=Kind.COMPILE, resource="/x", mode="sync")
     with pytest.raises(PipelineBusy):
-        service.submit_maintenance([_merge_unit()])
+        service.submit_restructure([_merge_unit()])
 
 
 def test_restructure_self_clash_raises_dedicated_error(tmp_path: Path):
     service, _worker, _wiki = _env(tmp_path)
     service.submit(kind=Kind.RESTRUCTURE, resource="restructure:b1:0", mode="manual")
     with pytest.raises(RestructureInProgress):
-        service.submit_maintenance([_merge_unit()])
+        service.submit_restructure([_merge_unit()])
 
 
-def test_submit_maintenance_blocked_by_baseline_lag(tmp_path: Path):
+def test_submit_restructure_blocked_by_baseline_lag(tmp_path: Path):
     service, _worker, _wiki = _env(tmp_path)
     (tmp_path / "materials" / "new.md").write_text("未同步" * 10, encoding="utf-8")
     with pytest.raises(SyncBaselineLag):
-        service.submit_maintenance([_merge_unit()])
+        service.submit_restructure([_merge_unit()])
 
 
 def test_submit_rejects_unit_conflicting_with_disk(tmp_path: Path):
@@ -169,7 +177,7 @@ def test_submit_rejects_unit_conflicting_with_disk(tmp_path: Path):
         "reason": "x",
     }
     with pytest.raises(rs.UnitError):
-        service.submit_maintenance([bad])
+        service.submit_restructure([bad])
 
 
 def test_submit_link_batch_validates_roster(tmp_path: Path):
@@ -183,7 +191,9 @@ def test_submit_link_batch_validates_roster(tmp_path: Path):
 def test_resolve_drops_unit_sharing_page(tmp_path: Path):
     wiki = _seed_wiki(tmp_path)
     existing = set(all_content_slugs(wiki))
-    u1 = rs.Unit(in_pages=["concepts/a", "concepts/b"], out=[rs.OutPage(slug="concepts/a", intent="合并")])
+    u1 = rs.Unit(
+        in_pages=["concepts/a", "concepts/b"], out=[rs.OutPage(slug="concepts/a", intent="合并")]
+    )
     u2 = rs.Unit(in_pages=["concepts/b"], out=[])  # b 已被 u1 消费
     clean, dropped = rs.resolve_unit_conflicts([u1, u2], existing)
     assert clean == [u1] and dropped and dropped[0][0] == u2
@@ -196,7 +206,11 @@ def test_take_conservation_rejects_unplaceable_section(tmp_path: Path):
     assert len(sections) == 2, "页首 + 乙主题"
     unit = rs.Unit(
         in_pages=["concepts/b"],
-        out=[rs.OutPage(slug="concepts/b", take=[rs.Take(from_slug="concepts/b", sections=["乙主题"])])],
+        out=[
+            rs.OutPage(
+                slug="concepts/b", take=[rs.Take(from_slug="concepts/b", sections=["乙主题"])]
+            )
+        ],
     )
     with pytest.raises(rs.RouteError, match="无处安放"):
         asyncio.run(route_mod.route_unit(None, unit, sections))
@@ -208,13 +222,13 @@ def test_take_conservation_rejects_unplaceable_section(tmp_path: Path):
 def test_restructure_merge_end_to_end(tmp_path: Path, monkeypatch):
     service, worker, wiki = _env(tmp_path)
     monkeypatch.setattr(plan_mod, "route_unit", _fake_route(_all_to_first))
-    monkeypatch.setattr(wiki_ops_mod, "rewrite_unit_page", _fake_rewrite)
+    monkeypatch.setattr(maintenance_jobs_mod, "rewrite_unit_page", _fake_rewrite)
 
     async def empty_plan(llm, wiki_dir, slug):
         return []
 
-    monkeypatch.setattr(wiki_ops_mod, "plan_link_fixes", empty_plan)
-    jobs = service.submit_maintenance([_merge_unit()])
+    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", empty_plan)
+    jobs = service.submit_restructure([_merge_unit()])
 
     def pump(n: int):
         for _ in range(n):
@@ -247,7 +261,7 @@ def test_restructure_route_violation_fails_without_disk_change(tmp_path: Path, m
         return await route_mod.route_unit(_LLM(payload), unit, sections)
 
     monkeypatch.setattr(plan_mod, "route_unit", dropping_route)
-    jobs = service.submit_maintenance([_merge_unit()])
+    jobs = service.submit_restructure([_merge_unit()])
     asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)
     assert row.status == "failed" and "分配" in row.error
@@ -262,7 +276,7 @@ def test_single_page_rewrite_missing_settles_unit_missing(tmp_path: Path, monkey
         "out": [{"slug": "concepts/b", "intent": "改写", "polish": True}],
         "reason": "改写",
     }
-    jobs = service.submit_maintenance([unit])
+    jobs = service.submit_restructure([unit])
     (wiki / "concepts/b.md").unlink()  # 排队期间消失
     asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)
@@ -276,9 +290,9 @@ def test_delete_unit_end_to_end(tmp_path: Path, monkeypatch):
     async def empty_plan(llm, wiki_dir, slug):
         return []
 
-    monkeypatch.setattr(wiki_ops_mod, "plan_link_fixes", empty_plan)
+    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", empty_plan)
     unit = {"in_pages": ["concepts/b"], "out": [], "reason": "空壳页删除"}
-    jobs = service.submit_maintenance([unit])
+    jobs = service.submit_restructure([unit])
     while service.count_in_flight() > 0:
         asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)
@@ -298,7 +312,7 @@ def test_handle_link_applies_valid_fixes(tmp_path: Path, monkeypatch):
     async def fake_plan(llm, wiki_dir, slug):
         return [{"find": "这一页的内容展开", "replace": "并参见 [[concepts/a|甲]] 的合并后内容"}]
 
-    monkeypatch.setattr(wiki_ops_mod, "plan_link_fixes", fake_plan)
+    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", fake_plan)
     jobs = service.submit_link_batch(slugs=["concepts/c"])
     asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)
@@ -312,7 +326,7 @@ def test_handle_link_noop_settles_linked(tmp_path: Path, monkeypatch):
     async def empty_plan(llm, wiki_dir, slug):
         return []
 
-    monkeypatch.setattr(wiki_ops_mod, "plan_link_fixes", empty_plan)
+    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", empty_plan)
     before = (wiki / "concepts/c.md").read_text(encoding="utf-8")
     jobs = service.submit_link_batch(slugs=["concepts/c"])
     asyncio.run(worker.run_once())
@@ -378,10 +392,12 @@ def test_fix_fence_closes_trailing_open_block():
 
 def test_fill_frontmatter_synthesizes_when_absent():
     """拆分新页模型常返回纯正文片段：整页 frontmatter 由骨架合成。"""
-    from wiki_agent.application.wiki_ops import _fill_frontmatter
+    from wiki_agent.maintenance.jobs import _fill_frontmatter
 
     body = "# 标题\n\n正文足够长可以过质量检查的要求，描述明确主题。\n"
-    out = _fill_frontmatter(body, {"type": "topic", "title": "T", "summary": "摘要", "goal": "目标"})
+    out = _fill_frontmatter(
+        body, {"type": "topic", "title": "T", "summary": "摘要", "goal": "目标"}
+    )
     fm, rest = split_frontmatter(out)
     assert fm["type"] == "topic" and fm["title"] == "T" and fm["summary"] == "摘要"
     assert rest == body
@@ -398,14 +414,17 @@ def test_gist_skips_code_blocks_and_takes_two_paragraphs():
 
 
 def test_gist_top_includes_lead_prose():
-    sec = Section(slug="concepts/x", heading="", body="# 标题\n\n导语一句定调。\n\n导语第二句展开。")
+    sec = Section(
+        slug="concepts/x", heading="", body="# 标题\n\n导语一句定调。\n\n导语第二句展开。"
+    )
     g = sec.gist(160)
     assert g.startswith("导语一句") and "导语第二句" in g
 
 
 def test_route_outline_degrades_beyond_threshold():
     sections = [
-        Section(slug=f"concepts/p{i}", heading="节", body="甲" * 200 + "\n\n" + "乙" * 200) for i in range(21)
+        Section(slug=f"concepts/p{i}", heading="节", body="甲" * 200 + "\n\n" + "乙" * 200)
+        for i in range(21)
     ]
     lines = prompts.route_outline(sections).splitlines()
     assert len(lines) == 21
@@ -416,22 +435,24 @@ def test_route_outline_degrades_beyond_threshold():
     assert any(len(ln.split(" | ")[-1]) > 100 for ln in normal.splitlines())
     good = _FM.format(type="concept", title="甲") + "# 甲\n\n正文\n\n```python\nx = 1\n```\n"
     assert prompts.check_rewrite_page(good) == (True, "")
-    no_summary = "---\ntype: concept\ntitle: \"甲\"\ngoal: \"g\"\n---\n# 甲\n\n正文\n"
+    no_summary = '---\ntype: concept\ntitle: "甲"\ngoal: "g"\n---\n# 甲\n\n正文\n'
     ok, reason = prompts.check_rewrite_page(no_summary)
     assert not ok and "summary" in reason
     open_fence = _FM.format(type="concept", title="甲") + "# 甲\n\n```python\nx = 1\n"
     ok, reason = prompts.check_rewrite_page(open_fence)
     assert not ok and "代码块未闭合" in reason
     # 双开零闭：奇偶计数判"已闭合"的假阴性形态，括号配对判据必须抓住
-    two_opens = _FM.format(type="concept", title="甲") + "# 甲\n\n```python\nx = 1\n```python\ny = 2\n"
+    two_opens = (
+        _FM.format(type="concept", title="甲") + "# 甲\n\n```python\nx = 1\n```python\ny = 2\n"
+    )
     ok, _ = prompts.check_rewrite_page(two_opens)
     assert not ok
 
 
 def test_fill_frontmatter_backfills_skeleton_without_overwrite():
-    from wiki_agent.application.wiki_ops import _fill_frontmatter
+    from wiki_agent.maintenance.jobs import _fill_frontmatter
 
-    text = "---\ntype: concept\ntitle: \"甲\"\nsummary: \"\"\nrelated: []\n---\n# 甲\n"
+    text = '---\ntype: concept\ntitle: "甲"\nsummary: ""\nrelated: []\n---\n# 甲\n'
     out = _fill_frontmatter(text, {"summary": "骨架摘要", "goal": "骨架目标", "title": "不该用"})
     fm, _ = split_frontmatter(out)
     assert fm["summary"] == "骨架摘要" and fm["goal"] == "骨架目标"

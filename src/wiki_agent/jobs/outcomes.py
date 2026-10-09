@@ -7,7 +7,8 @@
 
 issue 变更只由成功结果的 settlement 决定：handler 申报完成的业务事实类型，本模块
 按 ISSUE_RULES 决定动作；没有"成功即一律 resolve"的通用规则，handler 也不直接改
-issue。未申报或表中无此类别时不改 issue。
+issue。未申报或表中无此类别时不改 issue。PREVIEWED 结算在终态事务内写维护提议
+账本，不动 issue。
 
 失败只记 issue（停在 open，更新 attempts 与 last_error），不自动排程：环境修好后
 再次 sync 即重试，issue 的 retry 按钮走 submit_issue_retry 发起单次尝试。
@@ -40,6 +41,7 @@ from wiki_agent.jobs import Job, JobResult, Kind, Settlement
 from wiki_agent.log import emit_event, get_logger
 
 if TYPE_CHECKING:
+    from wiki_agent.maintenance import ProposalStore
     from wiki_agent.sync.state import SyncState
 
 logger = get_logger("JOB_OUTCOMES")
@@ -63,9 +65,7 @@ ISSUE_RULES: dict[Settlement, IssueEffect] = {
     Settlement.INGESTED: IssueEffect("resolve_source"),
     Settlement.ALREADY_INGESTED: IssueEffect("resolve_source"),
     Settlement.DELETE_APPLIED: IssueEffect("resolve_source", cause="source_deleted"),
-    Settlement.RESCAN_STILL_PRESENT: IssueEffect(
-        "transition_linked", target=IssueStatus.BLOCKED
-    ),
+    Settlement.RESCAN_STILL_PRESENT: IssueEffect("transition_linked", target=IssueStatus.BLOCKED),
     Settlement.RESCAN_CLEARED: IssueEffect("transition_linked", target=IssueStatus.RESOLVED),
 }
 
@@ -89,11 +89,13 @@ class JobOutcomeHandler:
         sync_state: SyncState | None = None,
         source_records_dir: str | Path | None = None,
         source_writer: SourcePageWriter | None = None,
+        proposals: ProposalStore | None = None,
     ):
         self._issues = issue_store
         self._sync_state = sync_state
         self._records_dir = Path(source_records_dir) if source_records_dir is not None else None
         self._source_writer = source_writer
+        self._proposals = proposals
 
     def apply(
         self, job: Job, result: JobResult, conn: sqlite3.Connection
@@ -106,9 +108,26 @@ class JobOutcomeHandler:
         if result.status == "succeeded":
             post_commit += self._on_succeeded(job, result)
             self._apply_issue_rule(job, result, conn)
+            self._record_proposal(job, result, conn)
         elif result.error_type == "ingest_error":
             self._on_ingest_error(job, result, conn)
         return post_commit
+
+    def _record_proposal(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
+        """PREVIEWED 结算：建议清单写入维护账本，与终态同事务。
+
+        未注入账本或建议清单缺失都不影响任务终态，只写警告日志。
+        """
+        if str(result.detail.get("settlement") or "") != Settlement.PREVIEWED:
+            return
+        payload = result.detail.get("preview")
+        if not isinstance(payload, dict):
+            logger.warning("job %s 申报 PREVIEWED 但无 preview 载荷，账本未记", job.id)
+            return
+        if self._proposals is None:
+            logger.warning("job %s 的 PREVIEWED 结算缺账本注入，账本未记", job.id)
+            return
+        self._proposals.record(job.id, payload, _conn=conn)
 
     def _apply_issue_rule(self, job: Job, result: JobResult, conn: sqlite3.Connection) -> None:
         raw = str(result.detail.get("settlement") or "")
@@ -186,9 +205,7 @@ class JobOutcomeHandler:
                 _conn=conn,
             )
         except (InvalidIssueTransitionError, IssueAlreadyClaimedError):
-            logger.info(
-                "rescan 的 issue %s 已在扫描期间被人工裁决，终态保持人的结论", job.issue_id
-            )
+            logger.info("rescan 的 issue %s 已在扫描期间被人工裁决，终态保持人的结论", job.issue_id)
 
     def _on_succeeded(self, job: Job, result: JobResult) -> list[Callable[[], None]]:
         state = self._sync_state
@@ -214,7 +231,9 @@ class JobOutcomeHandler:
         def settle_compile() -> None:
             if isinstance(page, dict) and page.get("slug") and page.get("content"):
                 if self._records_dir is None or self._source_writer is None:
-                    logger.warning("缺 source_records_dir/source_writer，档案页未落盘: %s", job.resource)
+                    logger.warning(
+                        "缺 source_records_dir/source_writer，档案页未落盘: %s", job.resource
+                    )
                 else:
                     self._source_writer.write(
                         self._records_dir, str(page["slug"]), str(page["content"])

@@ -4,7 +4,7 @@
 输出文案由命令处理。
 
 另实现 jobs.MaintenancePlanner 协议：单元校验与批尾补链目标计算需要读
-wiki 当前内容与 restructure 声明模型（compiler），属于 compiler 的知识，
+wiki 当前内容与 restructure 声明模型，属于 compiler 的知识，
 不放在通用的 jobs 提交入口。装配根把本实现注入 JobService，jobs 不 import compiler。
 """
 
@@ -13,10 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.application.restructure_service import (
-    MaintenanceOutcome,
-    propose_maintenance,
-)
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.compiler.restructure import (
     Unit,
@@ -25,7 +21,11 @@ from wiki_agent.compiler.restructure import (
     pages_linking_to,
 )
 from wiki_agent.jobs import Job, PipelineBusy, SyncBaselineLag
-from wiki_agent.jobs.service import MaintenancePlan
+from wiki_agent.jobs.service import RestructurePlan
+from wiki_agent.maintenance.pipeline import (
+    MaintenanceOutcome,
+    propose_maintenance,
+)
 
 
 def gate_text(job_service: Any) -> str | None:
@@ -72,19 +72,19 @@ async def run_maintain(
     if dry_run or outcome.healthy or not outcome.effective:
         return flow
     try:
-        flow.jobs = job_service.submit_maintenance([u.to_dict() for u in outcome.accepted])
+        flow.jobs = job_service.submit_restructure([u.to_dict() for u in outcome.accepted])
     except UnitError as exc:
-        flow.submit_rejected = f"入队拒绝——单元与盘面不符: {exc}"
+        flow.submit_rejected = f"入队拒绝：单元与盘面不符 {exc}"
     except (PipelineBusy, SyncBaselineLag) as exc:
         # RestructureInProgress/SyncInProgress 是 PipelineBusy 子类，不必点名
-        flow.submit_rejected = f"提交暂拒——{exc}。"
+        flow.submit_rejected = f"提交暂拒：{exc}"
     return flow
 
 
 class MaintenancePlannerImpl:
-    """实现 jobs.MaintenancePlanner：维护批的单元校验与批尾补链规划。"""
+    """实现 jobs.MaintenancePlanner：重组批的单元校验与批尾补链规划。"""
 
-    def plan_maintenance(self, units: list[dict], wiki_dir: Path) -> MaintenancePlan:
+    def plan_restructure(self, units: list[dict], wiki_dir: Path) -> RestructurePlan:
         """基于 wiki 当前内容重跑消解规则：解析→校验→算批尾补链目标。
 
         损坏声明与违例单元都抛 UnitError（提交入口拒绝绕过消解的清单）；
@@ -96,15 +96,13 @@ class MaintenancePlannerImpl:
             raise UnitError(f"单元声明损坏: {exc}") from exc
         assert_units_valid(parsed, set(all_content_slugs(wiki_dir)))
         if not parsed:
-            return MaintenancePlan(units=[], link_slugs=[])
+            return RestructurePlan(units=[], link_slugs=[])
         vanished = sorted({s for unit in parsed for s in unit.vanished})
         link_slugs = sorted(
             {p for unit in parsed for p in unit.out_slugs}
             | set(pages_linking_to(wiki_dir, vanished))
         )
-        return MaintenancePlan(
-            units=[unit.to_dict() for unit in parsed], link_slugs=link_slugs
-        )
+        return RestructurePlan(units=[unit.to_dict() for unit in parsed], link_slugs=link_slugs)
 
     def resolve_link_targets(self, slugs: list[str] | None, wiki_dir: Path) -> list[str]:
         """全库扫描的补链目标：None=全部内容页；给定 slug 不在内容页列表则抛 ValueError。"""

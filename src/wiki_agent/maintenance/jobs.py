@@ -1,9 +1,10 @@
-"""restructure / link 执行体，与 SourceJobHandler 使用同一 wiki 写协议。
+"""维护线三类 job（restructure / link / 整理分析）的执行体。
 
+重组与补链和 SourceJobHandler 使用同一 wiki 写协议：
 with session.open(job) as write: 执行，成功 write.commit()，
 业务失败 write.abort_export()（jobs.wiki_write 的出口不变量）。
-两类 job 与 sync job 在同一队列串行执行；提交层的互斥与基线检查保证
-执行时 wiki 当前状态与提交时的声明依据一致。
+维护线 job 与 sync job 在同一队列串行执行；提交层的互斥与基线检查保证
+执行时 wiki 当前状态与提交时的声明依据一致。整理分析不写文件。
 
 职责划分：restructure 修改页面集合与内容（结构调整 + 触及页逐页成文），
 link 只修改出链（字面替换清单经代码校验后应用，不重写正文）。失败只体现为
@@ -75,8 +76,8 @@ def _fill_frontmatter(text: str, skeleton: dict) -> str:
     return render_frontmatter(fields) + text
 
 
-class WikiOpsHandler:
-    """restructure/link 两类 job 的执行体（经 register_jobs 认领）。"""
+class MaintenanceJobHandler:
+    """维护线三类 job（重组/补链/整理分析）的执行体，经 register_jobs 认领。"""
 
     def __init__(
         self,
@@ -91,17 +92,24 @@ class WikiOpsHandler:
         self._session = WikiWriteSession(git, debris_dir=debris_dir_for(source_records_dir))
 
     def register_jobs(self, worker: JobWorker) -> None:
-        """声明认领的 kind——restructure 与 link 的执行体都在本类。"""
+        """声明认领的 kind——维护线三类 job 的执行体都在本类。"""
         worker.register(Kind.RESTRUCTURE, self.handle_restructure)
         worker.register(Kind.LINK, self.handle_link)
         worker.register(Kind.MAINTENANCE_PREVIEW, self.handle_preview)
 
     async def handle_preview(self, job: Job, progress) -> JobResult:
-        """跑一遍提议流程并把建议清单写进任务结果；不碰任何文件。"""
-        from wiki_agent.application.restructure_service import preview_payload, propose_maintenance
+        """跑一遍提议流程并把建议清单写进任务结果；不碰任何文件。
+
+        申报 PREVIEWED 结算，建议清单由 JobOutcomeHandler 在终态事务内
+        写入维护提议账本，任务行的 result 只作归档回看。
+        """
+        from wiki_agent.maintenance.pipeline import preview_payload, propose_maintenance
 
         outcome = await propose_maintenance(self._llm, self._wiki_dir, progress=progress)
-        return JobResult(status="succeeded", detail={"preview": preview_payload(outcome)})
+        return JobResult(
+            status="succeeded",
+            detail={"settlement": Settlement.PREVIEWED, "preview": preview_payload(outcome)},
+        )
 
     async def handle_restructure(self, job: Job, progress) -> JobResult:
         """执行一个重组单元：核对 → 路由 → 装配 → 逐页成文 → 落盘 → 质量扫描。
@@ -120,14 +128,16 @@ class WikiOpsHandler:
             except UnitMismatchError as exc:
                 # 单页改写（A→A）的目标页消失：排队期间被删，按正常结束处理
                 if len(unit.in_pages) == 1 and unit.in_pages == unit.out_slugs:
-                    emit_event("restructure_skipped", unit=str(unit.in_pages), reason="unit_missing")
+                    emit_event(
+                        "restructure_skipped", unit=str(unit.in_pages), reason="unit_missing"
+                    )
                     return JobResult(
                         status="succeeded", detail={"settlement": Settlement.UNIT_MISSING}
                     )
                 emit_event("restructure_mismatch", job_id=job.id, detail=str(exc))
                 return JobResult(
                     status="failed",
-                    detail={"error": f"核对不过（{exc}）——声明落不上当前盘面，请重新分析"},
+                    detail={"error": f"核对不过（{exc}），声明与盘面不符，请重新分析"},
                 )
             except RouteError as exc:
                 emit_event("restructure_reverted", job_id=job.id, reason="route", detail=str(exc))
@@ -170,7 +180,12 @@ class WikiOpsHandler:
                     continue
                 contents[page.slug] = normalized
             if failures:  # 落盘未开始，整单元直接失败
-                emit_event("restructure_reverted", job_id=job.id, reason="rewrite", detail="; ".join(failures)[:300])
+                emit_event(
+                    "restructure_reverted",
+                    job_id=job.id,
+                    reason="rewrite",
+                    detail="; ".join(failures)[:300],
+                )
                 return JobResult(status="failed", detail={"error": "; ".join(failures)[:500]})
 
             progress("写入落盘")
@@ -181,7 +196,9 @@ class WikiOpsHandler:
             if errors:
                 write.abort_export()
                 reason = "; ".join(str(issue) for issue in errors[:3])
-                emit_event("restructure_reverted", job_id=job.id, reason="scan_gate", detail=reason[:300])
+                emit_event(
+                    "restructure_reverted", job_id=job.id, reason="scan_gate", detail=reason[:300]
+                )
                 logger.error("  扫描闸门不过，单元撤销: %s", reason)
                 return JobResult(status="failed", detail={"error": f"扫描闸门不过: {reason}"[:500]})
 
@@ -211,9 +228,7 @@ class WikiOpsHandler:
             if not slug or not page.is_file():
                 # 排队期间被重组删除——link 结果只取决于当前状态，页不存在即按正常结束处理
                 emit_event("link_skipped", slug=slug, reason="gone_after_submit")
-                return JobResult(
-                    status="succeeded", detail={"settlement": Settlement.UNIT_MISSING}
-                )
+                return JobResult(status="succeeded", detail={"settlement": Settlement.UNIT_MISSING})
             progress("核对出链")
             try:
                 replacements = await plan_link_fixes(self._llm, self._wiki_dir, slug)
@@ -249,7 +264,9 @@ class WikiOpsHandler:
                 reason = "; ".join(str(issue) for issue in errors[:3])
                 emit_event("link_reverted", slug=slug, errors=reason[:300])
                 logger.error("  link 撤销 %s: %s", slug, reason)
-                return JobResult(status="failed", detail={"error": f"link 规范化不过: {reason}"[:500]})
+                return JobResult(
+                    status="failed", detail={"error": f"link 规范化不过: {reason}"[:500]}
+                )
             page.write_text(normalized, encoding="utf-8")
             commit = write.commit(commit_subject(Subject.LINK, slug))
             emit_event("link_applied", slug=slug, applied=len(applied), skipped=len(skipped))

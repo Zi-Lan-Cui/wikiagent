@@ -16,10 +16,10 @@ import tempfile
 from pathlib import Path
 
 from wiki_agent.conversation import Message
-from wiki_agent.documents.converters.base import BaseConverter, ConvertedFile
-from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.llm.client import LLMClient
 from wiki_agent.log import get_logger
+from wiki_agent.materials.converters.base import BaseConverter, ConvertedFile
+from wiki_agent.materials.loader import RawFileProperties
 
 logger = get_logger("MINERU_CONVERTER")
 
@@ -155,7 +155,7 @@ class MinerUConverter(BaseConverter):
         Returns:
             转换后的 Markdown。
         """
-        # 延迟 import：documents 包被导入时不应连带加载 mineru
+        # 延迟 import：materials 包被导入时不应连带加载 mineru
         from mineru.cli.common import do_parse, read_fn
 
         pdf_bytes = read_fn(file_path)

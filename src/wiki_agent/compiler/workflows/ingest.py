@@ -23,12 +23,12 @@ from wiki_agent.compiler.models import (
     SourceDocument,
 )
 from wiki_agent.config import CompileConfig
-from wiki_agent.documents.chunkers import Chunker, StructuredChunker, TextChunker
-from wiki_agent.documents.converters import Converter, MinerUConverter
-from wiki_agent.documents.loader import RawFileProperties
 from wiki_agent.errors import IngestError, IngestStage, WikiAgentError
 from wiki_agent.llm.client import LLMClient
 from wiki_agent.log import get_logger, span
+from wiki_agent.materials.chunkers import Chunker, StructuredChunker, TextChunker
+from wiki_agent.materials.converters import Converter, MinerUConverter
+from wiki_agent.materials.loader import RawFileProperties
 from wiki_agent.wiki.pages import index_line, slug_from_ref
 
 T = TypeVar("T")
@@ -159,7 +159,9 @@ class CompilePipeline:
         outcome = IngestOutcome(source=raw_file.name)
 
         # 1. Convert
-        cf = await self._stage(IngestStage.CONVERT, raw_file.name, self._converter.convert, raw_file)
+        cf = await self._stage(
+            IngestStage.CONVERT, raw_file.name, self._converter.convert, raw_file
+        )
         outcome.converted_chars = len(cf.content)
         logger.info("  [%s] → %d chars, %d 图片", cf.ext, len(cf.content), cf.content.count("!["))
 
@@ -211,14 +213,20 @@ class CompilePipeline:
         # 契约: ingest_one 只抛 IngestError。search/analyze/plan 的未预期
         # 异常经 _stage 包装，IngestError 原样透传（保留 stage）
         search_result = await self._stage(
-            IngestStage.SEARCH, raw_file.name, self._integrator.search,
-            outcome.extract, index_content,
+            IngestStage.SEARCH,
+            raw_file.name,
+            self._integrator.search,
+            outcome.extract,
+            index_content,
         )
         logger.info("  search: %d 个候选", len(search_result.rel_paths))
         outcome.search = search_result
         outcome.analysis = await self._stage(
-            IngestStage.ANALYZE, raw_file.name, self._integrator.analyze,
-            outcome.extract, search_result,
+            IngestStage.ANALYZE,
+            raw_file.name,
+            self._integrator.analyze,
+            outcome.extract,
+            search_result,
         )
         outcome.plan = await self._stage(
             IngestStage.PLAN,
@@ -239,12 +247,14 @@ class CompilePipeline:
             return outcome
         try:
             executed = await self._stage(
-                IngestStage.EXECUTE, raw_file.name, self._integrator.execute,
-                outcome.plan, outcome.extract,
+                IngestStage.EXECUTE,
+                raw_file.name,
+                self._integrator.execute,
+                outcome.plan,
+                outcome.extract,
             )
             outcome.pages_written = [
-                t.wiki_path for t in executed
-                if (self._wiki_dir / _normalize(t.wiki_path)).exists()
+                t.wiki_path for t in executed if (self._wiki_dir / _normalize(t.wiki_path)).exists()
             ]
         except IngestError:
             # execute 部分成功时，已落盘页面仍要进 index：否则磁盘有页、

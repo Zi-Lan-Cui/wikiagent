@@ -3,12 +3,12 @@
 直接运行:  .venv/bin/python -m pytest test/test_chunker.py -v
 """
 
-from wiki_agent.documents.chunkers import (
+from wiki_agent.materials.chunkers import (
     Chunker,
     StructuredChunker,
     TextChunker,
 )
-from wiki_agent.documents.converters.base import ConvertedFile
+from wiki_agent.materials.converters.base import ConvertedFile
 
 
 def _make_file(ext: str, content: str, **kwargs) -> ConvertedFile:

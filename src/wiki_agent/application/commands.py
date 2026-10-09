@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from wiki_agent.agent.commands import Command, CommandContext, CommandResult, wiki_root
 from wiki_agent.application.issue_actions import resolve_correction_issue
-from wiki_agent.application.maintenance_flow import gate_text, run_maintain
 from wiki_agent.issues import IssueKind, IssueStatus
 from wiki_agent.jobs import Kind, PipelineBusy, SyncBaselineLag
+from wiki_agent.maintenance.flow import gate_text, run_maintain
 
 
 class MaintainCommand(Command):
@@ -76,7 +76,7 @@ class MaintainCommand(Command):
         n_units = sum(1 for j in flow.jobs if j.kind == Kind.RESTRUCTURE)
         lines.append(
             f"\n已入队: {n_units} 个单元 + {len(flow.jobs) - n_units} 个补链"
-            f"（批 {batch}；某单元核对不过只撤该单元；整批回撤: /wiki revert-batch {batch}）"
+            f"（批 {batch}；某单元核对不过只撤该单元；整批撤销：/wiki revert-batch {batch}）"
         )
         return CommandResult(text="\n".join(lines))
 
@@ -103,9 +103,7 @@ class LinkCommand(Command):
         tokens = ctx.args.split()
         flags = [t for t in tokens if t.startswith("-")]
         if flags:
-            return CommandResult(
-                text=f"# /link 参数不识别: {flags}\n\n用法: `/link [页slug...]`"
-            )
+            return CommandResult(text=f"# /link 参数不识别: {flags}\n\n用法: `/link [页slug...]`")
         blocked = gate_text(job_service)
         if blocked:
             return CommandResult(text=f"# /link 提交暂拒\n\n{blocked}")

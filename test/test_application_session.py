@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from wiki_agent.application.session import SessionService
+from wiki_agent.application.session_service import SessionService
 from wiki_agent.conversation import Message, Session, SessionManager, ThinkingSegment, ToolCall
 from wiki_agent.events import AgentEvent
 
