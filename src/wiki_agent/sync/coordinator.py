@@ -1,17 +1,18 @@
-"""sync 线提交入口：以快照为准的整批入队、状态统计与消失源收口。
+"""sync 线提交入口：以快照为准的整批入队与状态统计。
 
 互斥闸：写 wiki 的四类任务任一在途即拒——遇在途 compile/delete 抛
 SyncInProgress，遇 restructure/link 抛 PipelineBusy；无脏无删的空跑不入队、
 不受此限。闸判定与入队同一 IMMEDIATE 事务，在途计数在事务开始时取定。
+消失源失败记录经 issues 线的 close_vanished_failures 在同一提交事务内收口，
+resolution 形状由 issues 单点维护。
 """
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
-from wiki_agent.issues import IssueKind, IssueStatus, IssueStore
+from wiki_agent.issues import IssueStore
 from wiki_agent.queue import WIKI_WRITE_KINDS, Job, Kind, PipelineBusy, SyncInProgress
 from wiki_agent.queue.queue import JobQueue
 from wiki_agent.snapshots import SnapshotStore
@@ -59,7 +60,9 @@ class SyncCoordinator:
         if not dirty and not removed:
             # 无任务时也要检查：源已消失的失败记录只依赖磁盘与完成记录判定
             with self.queue.store.transaction(immediate=True) as conn:
-                self._close_vanished_failures(disk, conn)
+                self.issues.close_vanished_failures(
+                    disk, self.baseline.recorded_hashes(), _conn=conn
+                )
             return []
         busy = self.queue.in_flight_wiki_write_counts()
         if busy:
@@ -107,7 +110,9 @@ class SyncCoordinator:
                             _conn=conn,
                         )
                     )
-                self._close_vanished_failures(disk, conn)
+                self.issues.close_vanished_failures(
+                    disk, self.baseline.recorded_hashes(), _conn=conn
+                )
         except BaseException:
             self.snapshots.drop_batch(batch)
             raise
@@ -122,27 +127,3 @@ class SyncCoordinator:
             "in_flight": self.queue.store.in_flight_for_kinds(WIKI_WRITE_KINDS),
         }
 
-    def _close_vanished_failures(
-        self, disk: dict[str, str], _conn: sqlite3.Connection | None = None
-    ) -> int:
-        """关闭源已不存在的活动失败记录：source 既不在磁盘也不在完成记录里，
-        不会再出现在任何任务，据实关闭并记录事件。
-        """
-        hashed = self.baseline.recorded_hashes()
-        closed = 0
-        for record in self.issues.list(
-            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
-            kinds={IssueKind.INGESTION_FAILURE},
-            limit=1000,
-        ):
-            src = str(record.context.get("source_path") or "")
-            if src and src not in disk and src not in hashed:
-                self.issues.transition(
-                    record.id,
-                    IssueStatus.RESOLVED,
-                    resolution={"cause": "source_deleted", "closed_by": "submit_sync"},
-                    event="issue_source_vanished",
-                    _conn=_conn,
-                )
-                closed += 1
-        return closed

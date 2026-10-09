@@ -308,6 +308,37 @@ class IssueStore:
             replace(draft, retry=self.next_retry_snapshot(draft, error)), _conn=_conn
         )
 
+    def close_vanished_failures(
+        self,
+        disk: dict[str, str] | set[str],
+        recorded_hashes: set[str],
+        *,
+        _conn: sqlite3.Connection | None = None,
+    ) -> int:
+        """关闭源已消失的活动编译失败记录，返回关闭数。
+
+        source 既不在磁盘扫描结果也不在完成记录里，不会再出现在任何任务——
+        这是结算申报之外唯一被允许的账本出口，供 sync 提交口在提交事务内
+        调用；resolution 字段与事件名由本线单点维护。
+        """
+        closed = 0
+        for record in self.list(
+            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
+            kinds={IssueKind.INGESTION_FAILURE},
+            limit=1000,
+        ):
+            src = str(record.context.get("source_path") or "")
+            if src and src not in disk and src not in recorded_hashes:
+                self.transition(
+                    record.id,
+                    IssueStatus.RESOLVED,
+                    resolution={"cause": "source_deleted", "closed_by": "submit_sync"},
+                    event="issue_source_vanished",
+                    _conn=_conn,
+                )
+                closed += 1
+        return closed
+
     def require(self, issue_id: str) -> IssueRecord:
         record = self.get(issue_id)
         if record is None:
