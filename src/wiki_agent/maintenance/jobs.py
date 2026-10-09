@@ -1,10 +1,10 @@
-"""维护线三类 job（restructure / link / 整理分析）的执行体。
+"""维护线三类 job（restructure / link / 结构分析）的执行体。
 
 重组与补链和 SourceJobHandler 使用同一 wiki 写协议：
 with session.open(job) as write: 执行，成功 write.commit()，
 业务失败 write.abort_export()（jobs.wiki_write 的出口不变量）。
 维护线 job 与 sync job 在同一队列串行执行；提交层的互斥与基线检查保证
-执行时 wiki 当前状态与提交时的声明依据一致。整理分析不写文件。
+执行时 wiki 当前状态与提交时的声明依据一致。结构分析不写文件。
 
 职责划分：restructure 修改页面集合与内容（结构调整 + 触及页逐页成文），
 link 只修改出链（字面替换清单经代码校验后应用，不重写正文）。失败只体现为
@@ -77,7 +77,7 @@ def _fill_frontmatter(text: str, skeleton: dict) -> str:
 
 
 class MaintenanceJobHandler:
-    """维护线三类 job（重组/补链/整理分析）的执行体，经 register_jobs 认领。"""
+    """维护线三类 job（重组/补链/结构分析）的执行体，经 register_jobs 认领。"""
 
     def __init__(
         self,
@@ -103,9 +103,9 @@ class MaintenanceJobHandler:
         申报 PREVIEWED 结算，建议清单由 JobOutcomeHandler 在终态事务内
         写入维护提议账本，任务行的 result 只作归档回看。
         """
-        from wiki_agent.maintenance.pipeline import preview_payload, propose_maintenance
+        from wiki_agent.maintenance.pipeline import preview_payload, propose_restructure
 
-        outcome = await propose_maintenance(self._llm, self._wiki_dir, progress=progress)
+        outcome = await propose_restructure(self._llm, self._wiki_dir, progress=progress)
         return JobResult(
             status="succeeded",
             detail={"settlement": Settlement.PREVIEWED, "preview": preview_payload(outcome)},
@@ -129,10 +129,10 @@ class MaintenanceJobHandler:
                 # 单页改写（A→A）的目标页消失：排队期间被删，按正常结束处理
                 if len(unit.in_pages) == 1 and unit.in_pages == unit.out_slugs:
                     emit_event(
-                        "restructure_skipped", unit=str(unit.in_pages), reason="unit_missing"
+                        "restructure_skipped", unit=str(unit.in_pages), reason="target_missing"
                     )
                     return JobResult(
-                        status="succeeded", detail={"settlement": Settlement.UNIT_MISSING}
+                        status="succeeded", detail={"settlement": Settlement.TARGET_MISSING}
                     )
                 emit_event("restructure_mismatch", job_id=job.id, detail=str(exc))
                 return JobResult(
@@ -226,7 +226,7 @@ class MaintenanceJobHandler:
             if not slug or not page.is_file():
                 # 排队期间被重组删除——link 结果只取决于当前状态，页不存在即按正常结束处理
                 emit_event("link_skipped", slug=slug, reason="gone_after_submit")
-                return JobResult(status="succeeded", detail={"settlement": Settlement.UNIT_MISSING})
+                return JobResult(status="succeeded", detail={"settlement": Settlement.TARGET_MISSING})
             progress("核对出链")
             try:
                 replacements = await plan_link_fixes(self._llm, self._wiki_dir, slug)

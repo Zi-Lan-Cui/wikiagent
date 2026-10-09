@@ -216,7 +216,7 @@ def create_app(
 
     @app.post("/api/maintenance/preview", status_code=202)
     async def maintenance_preview() -> dict[str, Any]:
-        """提交结构整理分析任务：生成整理提议并复核，结果供查看确认。
+        """提交结构分析任务：生成维护提议并复核，结果供查看确认。
 
         分析需要一到几分钟，入队异步执行，不在请求内等待。
         提交处判重：已有分析在途、写任务在途或基线落后时返回 409，
@@ -226,7 +226,7 @@ def create_app(
 
     @app.get("/api/maintenance/proposals")
     async def maintenance_proposals() -> dict[str, Any]:
-        """未处置的整理提议，账本保证至多一条；payload 为建议清单。"""
+        """未处置的维护提议，账本保证至多一条；payload 为建议清单。"""
         return {"proposals": [asdict(p) for p in app_runtime.proposal_store.list_pending()]}
 
     @app.post("/api/maintenance/proposals/{proposal_id}/dismiss")
@@ -236,7 +236,7 @@ def create_app(
 
     @app.post("/api/maintenance", status_code=202)
     async def maintenance_submit(request: MaintenanceSubmitRequest) -> dict[str, Any]:
-        """将确认后的整理单元整批入队，同批共用一个 batch；批尾自动追加受影响页面的链接补全任务。
+        """将确认后的重组单元整批入队，同批共用一个 batch；批尾自动追加受影响页面的链接补全任务。
 
         带 proposal_id 时同一事务把该提议置 submitted，重复提交被拒。
         """

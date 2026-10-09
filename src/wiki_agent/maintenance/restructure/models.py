@@ -1,4 +1,4 @@
-"""维护单元的声明模型：in 页集合 → out 页清单。
+"""重组单元的声明模型：in 页集合 → out 页清单。
 
 提议、确认、入队、执行、撤销都以 Unit 为粒度；payload 只带声明
 （章节归属在运行时计算，全文与分配表不进 payload）。合并/拆分/新建/
@@ -44,7 +44,7 @@ class OutPage:
 
 @dataclass(frozen=True, slots=True)
 class Unit:
-    """一个维护单元：in 页被整体消费，产出 out 页清单（空=删除）。"""
+    """一个重组单元：in 页被整体消费，产出 out 页清单（空=删除）。"""
 
     in_pages: list[str]
     out: list[OutPage]

@@ -1,4 +1,4 @@
-"""结构维护流程编排：调用 LLM 前的预检、提议、整批入队。
+"""restructure 执行线流程编排：调用 LLM 前的预检、提议、整批入队。
 
 命令层只做参数解析与结果格式化；流程在本模块，返回结构化结果，
 输出文案由命令处理。提交口的闸与单元校验在 coordinator，同域。
@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from wiki_agent.maintenance.pipeline import (
-    MaintenanceOutcome,
-    propose_maintenance,
+    RestructureOutcome,
+    propose_restructure,
 )
 from wiki_agent.maintenance.restructure import UnitError
 from wiki_agent.queue import Job, PipelineBusy, SyncBaselineLag
@@ -20,8 +20,8 @@ from wiki_agent.queue import Job, PipelineBusy, SyncBaselineLag
 def gate_text(job_service: Any) -> str | None:
     """/maintain 与 /link 共用的预检：有在途任务或基线落后时返回暂拒文案。
 
-    提交入口（JobService._raise_if_maintenance_blocked）在事务内还会复查
-    同一判定——这里先挡住注定失败的提交，避免在其上消耗一次 LLM 分析。
+    提交闸（MaintenanceCoordinator._raise_if_blocked）在事务内还会复查
+    同一判定——这里先挡住会被闸拒下的提交，避免在其上消耗一次 LLM 分析。
     """
     if job_service.wiki_write_in_flight() > 0:
         return "写 wiki 的任务有在途，等当前批到终态后再执行。"
@@ -36,7 +36,7 @@ class MaintainFlow:
     """run_maintain 的结构化结果——命令按字段格式化。"""
 
     def __init__(self) -> None:
-        self.outcome: MaintenanceOutcome | None = None
+        self.outcome: RestructureOutcome | None = None
         self.jobs: list[Job] = []
         self.blocked: str | None = None
         self.error: str | None = None
@@ -53,7 +53,7 @@ async def run_maintain(
         flow.blocked = blocked
         return flow
     try:
-        flow.outcome = await propose_maintenance(llm, wiki_dir)
+        flow.outcome = await propose_restructure(llm, wiki_dir)
     except Exception as exc:
         flow.error = f"{type(exc).__name__}: {str(exc)[:200]}"
         return flow

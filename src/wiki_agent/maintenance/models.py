@@ -35,7 +35,7 @@ class ProposalAlreadyResolvedError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class Proposal:
-    """一条持久化的整理提议；一次分析产出一条，payload 为建议清单。"""
+    """一条持久化的维护提议；一次分析产出一条，payload 为建议清单。"""
 
     id: str
     job_id: str

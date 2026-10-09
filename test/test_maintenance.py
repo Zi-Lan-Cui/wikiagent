@@ -269,7 +269,7 @@ def test_restructure_route_violation_fails_without_disk_change(tmp_path: Path, m
     assert (wiki / "concepts/b.md").exists(), "落盘前失败：盘面原样"
 
 
-def test_single_page_rewrite_missing_settles_unit_missing(tmp_path: Path, monkeypatch):
+def test_single_page_rewrite_missing_settles_target_missing(tmp_path: Path, monkeypatch):
     service, worker, wiki = _env(tmp_path)
     monkeypatch.setattr(plan_mod, "route_unit", _fake_route(_all_to_first))
     unit = {
@@ -353,7 +353,7 @@ def test_apply_link_fixes_rejects_bad_items():
 def test_settlement_values_registered():
     assert Settlement.APPLIED == "applied"
     assert Settlement.LINKED == "linked"
-    assert Settlement.UNIT_MISSING == "unit_missing"
+    assert Settlement.TARGET_MISSING == "target_missing"
 
 
 # 成文形状校验与骨架兜底（真实模型跑出的两类失败）

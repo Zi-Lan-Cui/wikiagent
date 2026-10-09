@@ -1,7 +1,7 @@
 """应用驱动的斜杠命令。
 
 这三条命令调用应用用例（run_maintain/gate_text/resolve_correction_issue）
-并格式化其结果类型（MaintainFlow/MaintenanceOutcome），属于编排层，因此
+并格式化其结果类型（MaintainFlow/RestructureOutcome），属于编排层，因此
 放在 application；若放在 agent.commands，agent 包会反向 import application，
 构成包级导入环。命令框架（Command/CommandContext/CommandResult）与只依赖
 agent+infra 的原生命令仍在 agent.commands；装配根把本模块的命令注册进

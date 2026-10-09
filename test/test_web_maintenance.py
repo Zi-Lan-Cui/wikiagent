@@ -22,7 +22,7 @@ from wiki_agent.conversation import SessionManager
 from wiki_agent.events import EventPublisher
 from wiki_agent.issues import IssueService
 from wiki_agent.issues.actions import IssueActionExecutor, register_job_handlers
-from wiki_agent.maintenance.pipeline import MaintenanceOutcome
+from wiki_agent.maintenance.pipeline import RestructureOutcome
 from wiki_agent.maintenance.restructure import Unit
 from wiki_agent.queue import Kind
 from wiki_agent.queue.worker import JobWorker
@@ -183,7 +183,7 @@ def test_maintenance_preview_enqueue_converge_and_gate(tmp_path: Path):
         assert r.status_code == 202, r.text
         task = r.json()["task"]
         assert task["kind"] == "restructure_preview"
-        assert task["title"] == "整理结构分析"
+        assert task["title"] == "结构分析"
         assert task["status"] == "queued"
 
         r2 = await client.post("/api/maintenance/preview")
@@ -204,7 +204,7 @@ def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
 
     runtime = _Runtime(tmp_path)
     unit = Unit(in_pages=["concepts/a", "concepts/b"], out=[], reason="整体清理")
-    outcome = MaintenanceOutcome(
+    outcome = RestructureOutcome(
         proposed=[unit], confirmed=[unit], effective=[unit], rejected=[(unit, "示例放弃")]
     )
     seen_stages: list[str] = []
@@ -215,7 +215,7 @@ def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
                 progress(stage)
         return outcome
 
-    monkeypatch.setattr(svc_mod, "propose_maintenance", fake_propose)
+    monkeypatch.setattr(svc_mod, "propose_restructure", fake_propose)
 
     handler = MaintenanceJobHandler(
         None, wiki_dir=runtime.wiki_dir, source_records_dir=runtime.workspace / "provenance"

@@ -1,11 +1,10 @@
 """维护线提交入口：重组批、发现型补链、结构分析，共用一条线闸。
 
-闸在提交事务内取在途计数（queue.in_flight_wiki_write_counts）：已有
-restructure 在途抛 RestructureInProgress，其余写在途抛 PipelineBusy，再查
-基线落后抛 SyncBaselineLag。整理分析不是写任务，但结论基于 wiki 现状，
+闸在提交事务内取在途计数（queue.in_flight_wiki_write_counts）后判基线，
+异常口径见 _raise_if_blocked。结构分析不是写任务，但结论基于 wiki 现状，
 同样被写在途与基线挡住——基于执行中 wiki 的提议没有执行价值。
 
-单元校验与批尾补链目标要读 wiki 盘面与 restructure 声明模型，同在本包内；提议账本与提交同事务挂账，重复提交被 CAS 拒绝。
+单元校验与批尾补链目标要读 wiki 盘面与 restructure 声明模型，同在本包内。
 """
 
 from __future__ import annotations
@@ -210,7 +209,7 @@ class MaintenanceCoordinator:
         return jobs
 
     def submit_restructure_preview(self) -> Job:
-        """整理结构分析入队（提议→复核→冲突消解）：只产建议清单，不写 wiki。
+        """结构分析入队（提议→复核→冲突消解）：只产建议清单，不写 wiki。
 
         resource 与幂等键固定，重复发起收敛为同一在途分析。上一轮提议在新
         一轮结果入账的 PREVIEWED 联动时作废，分析失败不动账本。

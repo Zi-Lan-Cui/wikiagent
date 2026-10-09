@@ -23,7 +23,7 @@ _KIND_LABELS: dict[str, str] = {
     "restructure": "重组",
     "link": "补链",
     "issue_action": "问题处理",
-    "restructure_preview": "整理结构分析",
+    "restructure_preview": "结构分析",
 }
 
 _TERMINAL_STAGE_LABELS = {"done": "已完成", "cancelled": "已取消"}
@@ -76,7 +76,7 @@ def task_card(job: Job, issue_lookup: Callable[[str], Any]) -> dict[str, Any]:
         item["title"] = f"补链 {job.payload.get('slug') or job.resource}"
         item["resource"] = str(job.payload.get("slug") or job.resource)
     elif job.kind == Kind.RESTRUCTURE_PREVIEW:
-        item["title"] = "整理结构分析"
+        item["title"] = "结构分析"
         item["resource"] = ""
     if item["status"] == "succeeded":
         item["status"] = "completed"

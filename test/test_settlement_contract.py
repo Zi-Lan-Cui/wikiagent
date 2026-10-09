@@ -15,7 +15,7 @@ from wiki_agent.queue.models import Settlement
 NO_ISSUE_LEDGER: set[Settlement] = {
     Settlement.APPLIED,  # 批操作结果不是"源材料等人修"的待办
     Settlement.LINKED,
-    Settlement.UNIT_MISSING,
+    Settlement.TARGET_MISSING,
     Settlement.PREVIEWED,  # 动作是写维护提议账本，见 maintenance/outcomes 的注册
 }
 

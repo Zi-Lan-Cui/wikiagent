@@ -1,8 +1,8 @@
-"""维护单元的提议编排——脚本与命令共用的提议流程。
+"""restructure 单元的提议编排——脚本与命令共用的提议流程。
 
 流程：初步建议（全库大纲）→ 逐组二次确认 → 冲突消解（一页只进一个
 单元，代码规则）。本模块只产出可入队的单元清单与放弃明细；入队与执行
-在 coordinator 与 job 执行体——提议与确认发生在提交侧，job 只做执行。
+在 coordinator 与 job 执行体——重组 job 不做提议，落盘的是提交前已定案的清单。
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ ConfirmCallback = Callable[[list[Unit]], Awaitable[list[Unit]]]
 ProgressCallback = Callable[[str], None]
 
 
-def preview_payload(outcome: MaintenanceOutcome) -> dict[str, Any]:
+def preview_payload(outcome: RestructureOutcome) -> dict[str, Any]:
     """分析结果的传输形态——job result 落库与建议对话框共用的同一结构。
 
     effective 用 Unit.to_dict 原样序列化：账本里的提议可经 Unit.from_dict
@@ -50,7 +50,7 @@ def preview_payload(outcome: MaintenanceOutcome) -> dict[str, Any]:
 
 
 @dataclass
-class MaintenanceOutcome:
+class RestructureOutcome:
     proposed: list[Unit] = field(default_factory=list)
     confirmed: list[Unit] = field(default_factory=list)
     rejected: list[tuple[Unit, str]] = field(default_factory=list)  # 二次确认放弃
@@ -61,20 +61,20 @@ class MaintenanceOutcome:
     # 注意区分：消解全部拒绝时 healthy 为 False（代码否掉的，不是"结构好"）
 
 
-async def propose_maintenance(
+async def propose_restructure(
     llm: Any,
     wiki_dir: str | Path,
     *,
     confirm: ConfirmCallback | None = None,
     progress: ProgressCallback | None = None,
-) -> MaintenanceOutcome:
+) -> RestructureOutcome:
     """跑一遍提议流程。返回结构化结果；调用方据此渲染并提交入队。
 
     progress 报告三阶段（初步建议/二次复核/冲突消解）——job 化执行时
     写进任务行，队列卡片按它显示分析进展。
     """
     wiki_dir = Path(wiki_dir)
-    out = MaintenanceOutcome()
+    out = RestructureOutcome()
 
     if progress:
         progress("初步建议")

@@ -60,7 +60,7 @@ class AppRuntime:
         database = Database(self.workspace)
         self.issue_store = IssueStore(database)
         self.issue_service = IssueService(self.issue_store)
-        # 维护提议账本：整理分析的产出与人工处置，与 issues 平行
+        # 维护提议账本：结构分析的产出与人工处置，与 issues 平行
         self.proposal_store = ProposalStore(database)
         self.sync_state = SyncState(config.paths.resolved_sync_state_path())
         # wiki git 版本：HEAD 即最近已结算状态，sync/retry 的逐 job 提交由 consumer 执行

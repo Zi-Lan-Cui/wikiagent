@@ -25,7 +25,7 @@ from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
-from wiki_agent.maintenance.pipeline import propose_maintenance
+from wiki_agent.maintenance.pipeline import propose_restructure
 from wiki_agent.queue import PipelineBusy, RestructureInProgress, SyncBaselineLag
 from wiki_agent.wiki.quality import format_scan_report, scan_wiki
 
@@ -67,7 +67,7 @@ async def main(dry_run: bool = False, yes: bool = False) -> int:
             )
             return 1
         confirm = None if (yes or dry_run) else _interactive_confirm
-        outcome = await propose_maintenance(runtime.agent.llm, wiki_dir, confirm=confirm)
+        outcome = await propose_restructure(runtime.agent.llm, wiki_dir, confirm=confirm)
         if outcome.healthy:
             logger.info("结构健康——无需重组。")
         else:

@@ -20,7 +20,7 @@ class Kind(StrEnum):
     RESTRUCTURE = "restructure"  # 重组单元：结构调整 + 触及页的逐页成文
     LINK = "link"  # 单页出链维护（只改链接，不重写内容）
     ISSUE_ACTION = "issue_action"  # issue 动作（rescan 等）
-    RESTRUCTURE_PREVIEW = "restructure_preview"  # 结构重组分析：提议→复核→冲突消解，不写 wiki
+    RESTRUCTURE_PREVIEW = "restructure_preview"  # 结构分析：提议→复核→冲突消解，不写 wiki
 
 
 # 提交互斥、状态统计与 wiki revert 前检查共用
@@ -44,7 +44,7 @@ class Settlement(StrEnum):
     ALREADY_INGESTED = "already_ingested"  # 快照内容已在完成记录，重放时短路返回
     DELETE_APPLIED = "delete_applied"  # 删除清理完成
     APPLIED = "applied"  # 重组单元执行并通过质量检查
-    UNIT_MISSING = "unit_missing"  # 单页改写/补链的目标页在排队期间已消失
+    TARGET_MISSING = "target_missing"  # 改写/补链的目标页在排队期间已消失
     LINKED = "linked"  # 该页出链核对完成（applied 计数在 detail，可为 0）
     RESCAN_STILL_PRESENT = "rescan_still_present"  # 复扫确认问题仍在
     RESCAN_CLEARED = "rescan_cleared"  # 复扫确认问题已消失
@@ -72,7 +72,7 @@ class Job:
     # 可选关联的 issue id；联动动作由各线按申报的结算注册规则决定；"" = 无关联
     issue_id: str = ""
     # handler 的执行结果明细（JobResult.detail）随终态落库；
-    # 分析类 job 的产出（如整理建议清单）供 UI 事后回看
+    # 分析类 job 的产出（如结构分析建议清单）供 UI 事后回看
     result: Detail = field(default_factory=dict)
 
 
