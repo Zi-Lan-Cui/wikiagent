@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 from helpers import make_job_service
 
+from wiki_agent.application.job_service import JobService
 from wiki_agent.compiler import restructure as rs
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.compiler.link import apply_link_fixes
@@ -30,7 +31,6 @@ from wiki_agent.queue import (
     Settlement,
     SyncBaselineLag,
 )
-from wiki_agent.queue.service import JobService
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
@@ -103,7 +103,7 @@ def _env(tmp: Path) -> tuple[JobService, JobWorker, Path]:
         materials_dir=materials,
     )
     handler = MaintenanceJobHandler(None, wiki_dir=wiki, source_records_dir=tmp / "prov", git=None)
-    worker = JobWorker(service)
+    worker = JobWorker(service.queue)
     handler.register_jobs(worker)
     return service, worker, wiki
 

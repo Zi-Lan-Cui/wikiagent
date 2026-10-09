@@ -1,7 +1,8 @@
-"""业务线提交入口的过渡壳：所有线提交与机制都委托出去，壳只做同名转发。
+"""应用层命令统一入口：把命令与脚本调用按入口名转发到各线提交口与队列机制。
 
-三条线的提交规则住在各自领域包：sync/coordinator、maintenance/coordinator、
-issues/coordinator；行生命周期在 queue/queue。壳的存在只为兼容尚未改接的调用方。
+提交规则、闸与账本处置全在领域包（sync、maintenance、issues 各自的
+coordinator）与 queue/queue；本模块没有自己的判定逻辑。agent 命令与维护
+流程消费这个统一面；web 端点直连对应线入口。
 """
 
 from __future__ import annotations

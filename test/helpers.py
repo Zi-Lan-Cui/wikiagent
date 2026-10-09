@@ -5,6 +5,7 @@
 
 from pathlib import Path
 
+from wiki_agent.application.job_service import JobService
 from wiki_agent.application.outcome_registry import build_job_outcomes
 from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
 from wiki_agent.database import Database
@@ -15,7 +16,6 @@ from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
 from wiki_agent.queue import JobStore
 from wiki_agent.queue.outcomes import JobOutcomeHandler
 from wiki_agent.queue.queue import JobQueue
-from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
 from wiki_agent.sync.coordinator import SyncCoordinator

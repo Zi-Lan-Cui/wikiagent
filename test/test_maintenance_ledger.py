@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from helpers import make_job_service
 
+from wiki_agent.application.job_service import JobService
 from wiki_agent.application.outcome_registry import build_job_outcomes
 from wiki_agent.compiler.restructure import Unit
 from wiki_agent.database import Database
@@ -19,7 +20,6 @@ from wiki_agent.maintenance import (
 )
 from wiki_agent.queue import JobStore, Kind
 from wiki_agent.queue.queue import JobQueue
-from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import SnapshotStore
 
 _FM = (

@@ -61,7 +61,7 @@ class _Runtime:
         self.maintenance_coordinator = self.job_service.maintenance
         self.proposal_store = self.job_service.proposals
         self.issues_coordinator = self.job_service.issues_coordinator
-        self.job_worker = JobWorker(self.job_service)
+        self.job_worker = JobWorker(self.job_service.queue)
         self.agent = SimpleNamespace(llm=None)
         self.issue_actions = IssueActionExecutor(cast(AppRuntime, self))
         register_job_handlers(self.job_worker, self.issue_actions)

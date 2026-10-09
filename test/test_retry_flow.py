@@ -11,10 +11,10 @@ from pathlib import Path
 
 from helpers import make_issue_store, make_job_service
 
+from wiki_agent.application.job_service import JobService
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueActionConflict, IssueDraft, IssueKind, IssueStatus
 from wiki_agent.queue import JobResult, PipelineBusy
-from wiki_agent.queue.service import JobService
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.snapshots import digest_file_text
 from wiki_agent.sync.source_jobs import SourceJobHandler
@@ -174,7 +174,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
         source_records_dir=tmp_path / "provenance",
         snapshots=service.snapshots,
     )
-    worker = JobWorker(service)
+    worker = JobWorker(service.queue)
     handler.register_jobs(worker)
     jobs = service.submit_sync(src)
     assert len(jobs) == 1

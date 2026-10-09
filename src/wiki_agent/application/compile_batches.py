@@ -131,6 +131,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
     """
 
     async def execute(batch_dir: Path) -> int:
+        from wiki_agent.application.job_service import JobService
         from wiki_agent.application.outcome_registry import build_job_outcomes
         from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
         from wiki_agent.compiler.workflows.ingest import CompilePipeline
@@ -139,7 +140,6 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
         from wiki_agent.log import setup_event_log
         from wiki_agent.queue import JobStore
         from wiki_agent.queue.queue import JobQueue
-        from wiki_agent.queue.service import JobService
         from wiki_agent.queue.worker import JobWorker
         from wiki_agent.snapshots import SnapshotStore
         from wiki_agent.sync.baseline import SyncBaseline
@@ -193,7 +193,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
                 snapshots=service.snapshots,
                 git=WikiGitManager(wiki_dir),
             )
-            worker = JobWorker(service)
+            worker = JobWorker(queue)
             source_handler.register_jobs(worker)
             jobs = sync_coordinator.submit_sync(batch_dir)
             while service.store.count_in_flight() > 0:

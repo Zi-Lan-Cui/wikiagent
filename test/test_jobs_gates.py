@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from helpers import make_job_service
 
+from wiki_agent.application.job_service import JobService
 from wiki_agent.issues import IssueDraft, IssueKind
 from wiki_agent.queue import (
     Kind,
@@ -18,7 +19,6 @@ from wiki_agent.queue import (
     SyncBaselineLag,
     SyncInProgress,
 )
-from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import digest_file_text
 from wiki_agent.sync.state import SyncState
 

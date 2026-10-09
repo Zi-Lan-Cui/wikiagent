@@ -43,7 +43,7 @@ class _Runtime:
         )
         self.sync_coordinator = self.job_service.sync
         self.issues_coordinator = self.job_service.issues_coordinator
-        self.job_worker = JobWorker(self.job_service)
+        self.job_worker = JobWorker(self.job_service.queue)
         # 装配根契约镜像（AppRuntime.__init__ 同款三步）：executor、
         # issue_action 注册、启动核对
         self.issue_actions = IssueActionExecutor(cast(AppRuntime, self))

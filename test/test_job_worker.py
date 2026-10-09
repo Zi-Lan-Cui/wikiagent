@@ -11,7 +11,7 @@ from wiki_agent.queue.worker import JobWorker
 def test_worker_claims_updates_stage_and_completes(tmp_path):
     service = make_job_service(tmp_path)
     job = service.submit(kind="compile", resource="note.md", mode="sync")
-    worker = JobWorker(service)
+    worker = JobWorker(service.queue)
     stages: list[str] = []
 
     async def handle(current, progress):
@@ -32,7 +32,7 @@ def test_worker_with_no_registrations_claims_nothing(tmp_path):
     """契约：零注册 worker 不领任何活——排队行原样等待有资格的进程。"""
     service = make_job_service(tmp_path)
     job = service.submit(kind="unknown", resource="note.md", mode="test")
-    assert asyncio.run(JobWorker(service).run_once()) is None
+    assert asyncio.run(JobWorker(service.queue).run_once()) is None
     assert service.store.get(job.id).status == "queued"
 
 
@@ -69,7 +69,7 @@ def test_handler_exception_fails_job_without_issue(tmp_path):
 
     service = make_job_service(tmp_path)
     job = service.submit(kind="compile", resource="/x", mode="sync")
-    worker = JobWorker(service)
+    worker = JobWorker(service.queue)
 
     async def crash(current, progress):
         raise RuntimeError("boom")
@@ -87,7 +87,7 @@ def test_succeeded_writes_sync_state_after_commit(tmp_path):
     """成功 outcome：commit 后 record(digest/text)；delete 成功 drop+save。"""
     service, state = _service_with_state(tmp_path)
     service.submit(kind="compile", resource="/src/a.md", mode="sync")
-    worker = JobWorker(service)
+    worker = JobWorker(service.queue)
 
     async def ok(current, progress):
         from wiki_agent.queue import JobResult
@@ -99,7 +99,7 @@ def test_succeeded_writes_sync_state_after_commit(tmp_path):
     assert state.records == [("/src/a.md", "d1", "content-a")]
 
     service.submit(kind="delete", resource="/src/b.md", mode="sync")
-    worker2 = JobWorker(service)
+    worker2 = JobWorker(service.queue)
     worker2.register("delete", ok)
     asyncio.run(worker2.run_once())
     assert state.drops == ["/src/b.md"] and state.saved == 1
@@ -134,7 +134,7 @@ def test_worker_claims_only_registered_kinds(tmp_path):
     service = make_job_service(tmp_path)
     service.submit(kind="compile", resource="/mine", mode="sync")
     other = service.submit(kind="issue_action", resource="i1", mode="retry")
-    worker = JobWorker(service)
+    worker = JobWorker(service.queue)
 
     async def ok(current, progress):
         pass

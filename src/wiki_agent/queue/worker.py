@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable
 
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.queue import Job, JobResult
-from wiki_agent.queue.service import JobService
+from wiki_agent.queue.queue import JobQueue
 
 JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[JobResult]]
 
@@ -25,10 +25,10 @@ class JobWorker:
     领取以数据库为准；asyncio 循环只是本进程的轮询，重启后可重建。
     """
 
-    def __init__(self, service: JobService, *, poll_interval: float = 0.5):
+    def __init__(self, queue: JobQueue, *, poll_interval: float = 0.5):
         if poll_interval <= 0:
             raise ValueError("poll_interval 必须大于 0")
-        self.service = service
+        self.queue = queue
         self.poll_interval = poll_interval
         self._handlers: dict[str, JobHandler] = {}
         self._stopped = asyncio.Event()
@@ -46,13 +46,13 @@ class JobWorker:
 
     async def run_once(self) -> Job | None:
         # kinds 过滤使多进程共库时各进程只领自己注册了 handler 的类型
-        job = self.service.claim_next(kinds=self.registered_kinds)
+        job = self.queue.claim_next(kinds=self.registered_kinds)
         if job is None:
             return None
         handler = self._handlers.get(job.kind)
         if handler is None:
             # kinds 过滤下通常到不了这里；保留作显式 claim 的后备
-            self.service.complete_with_outcome(
+            self.queue.complete_with_outcome(
                 job,
                 JobResult(
                     status="failed",
@@ -62,13 +62,13 @@ class JobWorker:
             return job
 
         def progress(stage: str) -> None:
-            self.service.mark_stage(job.id, stage)
+            self.queue.mark_stage(job.id, stage)
 
         try:
             result = await handler(job, progress)
         except asyncio.CancelledError:
             # 进程取消：先置 cancelled 终态，再继续传播
-            self.service.cancel_terminal(job)
+            self.queue.cancel_terminal(job)
             raise
         except Exception as exc:  # noqa: BLE001
             logger.exception("job %s handler 崩溃: %s", job.id, f"{type(exc).__name__}: {exc}")
@@ -91,7 +91,7 @@ class JobWorker:
                 status="failed",
                 detail={"error": f"handler 返回了 {type(result).__name__}，应为 JobResult"},
             )
-        return self.service.complete_with_outcome(job, result)
+        return self.queue.complete_with_outcome(job, result)
 
     async def run(self) -> None:
         self._stopped.clear()

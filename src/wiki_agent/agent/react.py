@@ -24,7 +24,7 @@ from wiki_agent.tools import RecordCorrection, ToolRegistry
 
 if TYPE_CHECKING:
     # 仅类型检查期引用：application 组装 agent，运行时 import 会形成循环依赖
-    from wiki_agent.queue.service import JobService
+    from wiki_agent.application.job_service import JobService
 
 logger = get_logger("REACT_RUNNER")
 

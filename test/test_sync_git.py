@@ -84,7 +84,7 @@ def _env(tmp: Path, *, fail_names: tuple[str, ...] = (), bad_names: tuple[str, .
         snapshots=service.snapshots,
         git=git,
     )
-    worker = JobWorker(service)
+    worker = JobWorker(service.queue)
     handler.register_jobs(worker)
     return src, wiki, records, git, state, service, worker
 

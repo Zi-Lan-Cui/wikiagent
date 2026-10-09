@@ -17,6 +17,7 @@ from wiki_agent.agent import ReActAgent
 from wiki_agent.agent.commands import create_command_router
 from wiki_agent.application.commands import create_application_commands
 from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
+from wiki_agent.application.job_service import JobService
 from wiki_agent.application.outcome_registry import build_job_outcomes
 from wiki_agent.application.session_service import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
@@ -36,7 +37,6 @@ from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
 from wiki_agent.maintenance.jobs import MaintenanceJobHandler
 from wiki_agent.queue import JobStore
 from wiki_agent.queue.queue import JobQueue
-from wiki_agent.queue.service import JobService
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
@@ -174,7 +174,7 @@ class AppRuntime:
         # issue_action 用例：执行体与适配器解耦，web/脚本只映射入口
         self.issue_actions = IssueActionExecutor(self)
         # 认领哪些 kind 由各执行体自己声明，装配根只接线
-        self.job_worker = JobWorker(self.job_service)
+        self.job_worker = JobWorker(self.job_queue)
         self.source_jobs.register_jobs(self.job_worker)
         self.maintenance_jobs.register_jobs(self.job_worker)
         register_job_handlers(self.job_worker, self.issue_actions)

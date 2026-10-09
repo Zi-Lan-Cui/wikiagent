@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from wiki_agent.queue.service import JobService
+    from wiki_agent.application.job_service import JobService
     from wiki_agent.queue.worker import JobWorker
 
 
