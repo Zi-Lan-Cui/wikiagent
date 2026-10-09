@@ -57,6 +57,7 @@ class _Runtime:
             materials_dir=self.materials_dir,
             sync_state=SyncState(self.workspace / "watch" / "state.json"),
         )
+        self.sync_coordinator = self.job_service.sync
         self.job_worker = JobWorker(self.job_service)
         self.agent = SimpleNamespace(llm=None)
         self.issue_actions = IssueActionExecutor(cast(AppRuntime, self))

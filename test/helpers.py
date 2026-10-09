@@ -1,4 +1,4 @@
-"""测试装配根：按 Database → store → JobService 的次序装配。
+"""测试装配根：按 Database → store → JobQueue → 线 coordinator → 壳 的次序装配。
 
 代码各层不自建依赖；测试里等价于装配根的构造集中在这里。
 """
@@ -12,9 +12,11 @@ from wiki_agent.maintenance import ProposalStore
 from wiki_agent.maintenance.flow import MaintenancePlannerImpl
 from wiki_agent.queue import JobStore
 from wiki_agent.queue.outcomes import JobOutcomeHandler
+from wiki_agent.queue.queue import JobQueue
 from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
+from wiki_agent.sync.coordinator import SyncCoordinator
 from wiki_agent.sync.state import SyncState
 
 
@@ -43,10 +45,10 @@ def make_job_service(
     database = Database(workspace)
     issues = IssueStore(database)
     proposals = ProposalStore(database)
-    return JobService(
+    snapshots = SnapshotStore(workspace)
+    queue = JobQueue(
         store=JobStore(database),
-        issues=issues,
-        snapshots=SnapshotStore(workspace),
+        snapshots=snapshots,
         outcomes=outcomes
         or JobOutcomeHandler(
             issues,
@@ -55,12 +57,24 @@ def make_job_service(
             source_writer=ExtractionSourcePageWriter(),
             proposals=proposals,
         ),
-        # sync_state 给了就接基线面；materials_dir 仅 lagging 判定用，缺省占位
-        baseline=(
-            SyncBaseline(state=sync_state, issues=issues, materials_dir=materials_dir or workspace)
-            if sync_state is not None
+    )
+    # sync_state 给了就接基线面与 sync 线；materials_dir 仅 lagging 判定用，缺省占位
+    baseline = (
+        SyncBaseline(state=sync_state, issues=issues, materials_dir=materials_dir or workspace)
+        if sync_state is not None
+        else None
+    )
+    return JobService(
+        queue=queue,
+        issues=issues,
+        sync=(
+            SyncCoordinator(
+                queue=queue, issues=issues, snapshots=snapshots, baseline=baseline
+            )
+            if baseline is not None
             else None
         ),
+        baseline=baseline,
         # 维护规划面始终注入——提交口不再自带 compiler 校验
         maintenance=MaintenancePlannerImpl(),
         wiki_dir=wiki_dir,

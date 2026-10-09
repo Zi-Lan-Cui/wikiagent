@@ -138,9 +138,12 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
         from wiki_agent.log import setup_event_log
         from wiki_agent.queue import JobStore
         from wiki_agent.queue.outcomes import JobOutcomeHandler
+        from wiki_agent.queue.queue import JobQueue
         from wiki_agent.queue.service import JobService
         from wiki_agent.queue.worker import JobWorker
         from wiki_agent.snapshots import SnapshotStore
+        from wiki_agent.sync.baseline import SyncBaseline
+        from wiki_agent.sync.coordinator import SyncCoordinator
         from wiki_agent.sync.source_jobs import SourceJobHandler
         from wiki_agent.sync.state import SyncState
         from wiki_agent.versioning import WikiGitManager
@@ -151,13 +154,13 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             setup_event_log(workspace / "logs" / "compile-batches-events.jsonl")
             source_records_dir = source_records_dir_for(workspace)
             state = SyncState(sync_state_path_for(workspace))
-            # 沙箱独立装配根：Database → store → JobService
+            # 沙箱独立装配根：Database → store → JobQueue → SyncCoordinator
             database = Database(workspace)
             issue_store = IssueStore(database)
-            service = JobService(
+            snapshots = SnapshotStore(workspace)
+            queue = JobQueue(
                 store=JobStore(database),
-                issues=issue_store,
-                snapshots=SnapshotStore(workspace),
+                snapshots=snapshots,
                 outcomes=JobOutcomeHandler(
                     issue_store,
                     sync_state=state,
@@ -165,6 +168,12 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
                     source_writer=ExtractionSourcePageWriter(),
                 ),
             )
+            # submit_sync 需要基线判定磁盘与完成记录之差；缺了它沙箱批量编译不可用
+            baseline = SyncBaseline(state=state, issues=issue_store, materials_dir=batch_dir)
+            sync_coordinator = SyncCoordinator(
+                queue=queue, issues=issue_store, snapshots=snapshots, baseline=baseline
+            )
+            service = JobService(queue=queue, issues=issue_store, sync=sync_coordinator)
             from wiki_agent.llm.factory import create_llm, create_vlm
 
             pipeline = CompilePipeline(
@@ -184,7 +193,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             )
             worker = JobWorker(service)
             source_handler.register_jobs(worker)
-            jobs = service.submit_sync(batch_dir)
+            jobs = sync_coordinator.submit_sync(batch_dir)
             while service.store.count_in_flight() > 0:
                 if await worker.run_once() is None:
                     break

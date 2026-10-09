@@ -1,8 +1,7 @@
 """同步基线——磁盘与已处理状态的对比判定。
 
-jobs 提交口只经 Baseline 协议消费这里的结果（落后集合、快照差集），
-不 import sync 内部，避免 jobs 与 sync 包级互相依赖。
-接线由装配根（runtime/helpers）完成。
+落后判定由需要基线闸的提交口直接消费（sync 线同包；维护线经
+raise_if_lagging 复用同一判定）。
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from wiki_agent.issues import IssueKind, IssueStatus
+from wiki_agent.queue import SyncBaselineLag
 from wiki_agent.sync.state import SyncState, scan_disk
 
 if TYPE_CHECKING:
@@ -41,6 +41,16 @@ class SyncBaseline:
             )
         }
         return {str(Path(path).resolve()) for path, _digest in dirty} - quarantined
+
+    def raise_if_lagging(self) -> None:
+        """基线落后即抛 SyncBaselineLag 提示先 sync；未注入基线判定的一方不调这里。"""
+        lagging = self.lagging_sources()
+        if not lagging:
+            return
+        preview = "、".join(sorted(lagging)[:3])
+        raise SyncBaselineLag(
+            f"{len(lagging)} 个源未同步（{preview}）：请先 sync，基线追平后再提交"
+        )
 
     def recorded_hashes(self) -> set[str]:
         """有处理记录的绝对路径集合，供判定孤立的失败记录。"""

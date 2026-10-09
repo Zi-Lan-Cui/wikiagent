@@ -18,6 +18,7 @@ from wiki_agent.maintenance import (
 )
 from wiki_agent.queue import JobStore, Kind
 from wiki_agent.queue.outcomes import JobOutcomeHandler
+from wiki_agent.queue.queue import JobQueue
 from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import SnapshotStore
 
@@ -95,10 +96,12 @@ def test_legacy_preview_rows_migrate_into_ledger(tmp_path: Path):
     database = Database(workspace)
     issues = IssueStore(database)
     service = JobService(
-        store=JobStore(database),
+        queue=JobQueue(
+            store=JobStore(database),
+            snapshots=SnapshotStore(workspace),
+            outcomes=JobOutcomeHandler(issues),
+        ),
         issues=issues,
-        snapshots=SnapshotStore(workspace),
-        outcomes=JobOutcomeHandler(issues),
     )
 
     def settle_legacy(resolved_by: str) -> str:

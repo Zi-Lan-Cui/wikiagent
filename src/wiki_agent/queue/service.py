@@ -1,17 +1,19 @@
-"""业务线提交入口的过渡壳：判闸与入队在这里，行生命周期委托 JobQueue。
+"""业务线提交入口的过渡壳：尚未移入各线 coordinator 的提交口在这里。
+
+壳只保留三类闸与入队：issue retry 的幂等收敛、维护线共闸、基线闸转发。
+行生命周期委托 JobQueue，sync 提交委托注入的 SyncCoordinator。
 
 互斥：写 wiki 的任务（compile/delete/restructure/link，见 WIKI_WRITE_KINDS）有
-在途行时，写类提交抛 PipelineBusy；同族冲突用其子类 SyncInProgress（sync 遇在途
-compile/delete）、RestructureInProgress（restructure 遇在途批）。issue retry 提交
-先做幂等收敛——该 issue 已有在途行、或资源已被在途行占用时返回既有行，收敛不到
-且队列非空才拒。issue_action（rescan）不受互斥约束、也不计入互斥：它不写 wiki、
-不产生快照批，可穿插在写批之间执行，结论基于执行中的 wiki，写批结束后再 rescan
-即更新。在途判定只由 JobStore.in_flight_kinds 从 jobs 表得出，无内存状态。
+在途行时，写类提交抛 PipelineBusy；同族冲突用其子类 RestructureInProgress
+（restructure 遇在途批）。issue retry 提交先做幂等收敛——该 issue 已有在途行、
+或资源已被在途行占用时返回既有行，收敛不到且队列非空才拒。issue_action（rescan）
+不受互斥约束、也不计入互斥：它不写 wiki、不产生快照批，可穿插在写批之间执行，
+结论基于执行中的 wiki，写批结束后再 rescan 即更新。在途判定只由 JobStore.in_flight_kinds
+从 jobs 表得出，无内存状态。
 
-基线闸：restructure 与 link 基于 wiki 现状判断，wiki 落后源材料时结论过期。落后
-集合 = 脏源（scan_disk 与完成记录之差）减去对应 open/blocked 编译失败的源（失败
-源保持脏属正常，不因此阻塞批操作），非空则抛 SyncBaselineLag 提示先 sync。它与
-PipelineBusy 各表一种原因与补救。提交口先查互斥、再查基线。
+基线闸：restructure 与 link 基于 wiki 现状判断，wiki 落后源材料时结论过期，
+落后即抛 SyncBaselineLag 提示先 sync。它与 PipelineBusy 各表一种原因与补救。
+提交口先查互斥、再查基线。
 """
 
 from __future__ import annotations
@@ -29,24 +31,14 @@ from wiki_agent.issues import (
     IssueStatus,
     IssueStore,
 )
-from wiki_agent.queue import (
-    WIKI_WRITE_KINDS,
-    Job,
-    JobResult,
-    JobStore,
-    Kind,
-    PipelineBusy,
-    RestructureInProgress,
-    SyncBaselineLag,
-    SyncInProgress,
-)
-from wiki_agent.queue.outcomes import JobOutcomeHandler
+from wiki_agent.queue import Job, JobResult, Kind, RestructureInProgress
 from wiki_agent.queue.queue import JobQueue
 from wiki_agent.queue.retry_source import SourceUnavailableError, resolve_retry_source
-from wiki_agent.snapshots import SnapshotError, SnapshotStore
+from wiki_agent.snapshots import SnapshotError
 
 if TYPE_CHECKING:
     from wiki_agent.maintenance import ProposalStore
+    from wiki_agent.sync.coordinator import SyncCoordinator
 
 
 class Baseline(Protocol):
@@ -57,11 +49,7 @@ class Baseline(Protocol):
 
     def lagging_sources(self) -> set[str]: ...
 
-    def inspect(
-        self, source_dir: str | Path
-    ) -> tuple[dict[str, str], list[tuple[str, str]], list[str]]: ...
-
-    def recorded_hashes(self) -> set[str]: ...
+    def raise_if_lagging(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,9 +66,9 @@ class RestructurePlan:
 class MaintenancePlanner(Protocol):
     """维护线共用的规划面：重组批规划与独立补链目标判定。
 
-    实现在 maintenance 包，按协议注入提交口（与 Baseline 同构，断
-    提交口→compiler 边）：校验单元声明、算批尾补链波及面要读 wiki 盘面与
-    restructure 声明模型，是领域知识；提交口只保留事务、幂等键与互斥。
+    实现在 maintenance 包，按协议注入提交口：校验单元声明、算批尾补链波及面
+    要读 wiki 盘面与 restructure 声明模型，是领域知识；提交口只保留事务、
+    幂等键与互斥。
     """
 
     def plan_restructure(self, units: list[dict], wiki_dir: Path) -> RestructurePlan:
@@ -93,27 +81,27 @@ class MaintenancePlanner(Protocol):
 
 
 class JobService:
-    """一切可执行工作的提交口；机制部分委托 JobQueue。"""
+    """提交口壳：机制委托 JobQueue，sync 线委托 SyncCoordinator。"""
 
     def __init__(
         self,
         *,
-        store: JobStore,
+        queue: JobQueue,
         issues: IssueStore,
-        snapshots: SnapshotStore,
-        outcomes: JobOutcomeHandler,
+        sync: SyncCoordinator | None = None,
         baseline: Baseline | None = None,
         maintenance: MaintenancePlanner | None = None,
         wiki_dir: str | Path | None = None,
         proposals: ProposalStore | None = None,
     ):
-        self.queue = JobQueue(store=store, snapshots=snapshots, outcomes=outcomes)
+        self.queue = queue
         # 提交口与测试读模型共用同一份底层对象，壳只转发不另持引用
-        self.store = store
+        self.store = queue.store
+        self.snapshots = queue.snapshots
+        self.outcomes = queue.outcomes
         self.issues = issues
-        self.snapshots = snapshots
-        self.outcomes = outcomes
-        # 同步基线面由装配根注入；离线装配可为 None
+        self.sync = sync
+        # 同步基线面由装配根注入；维护线共闸在 coordinator 落位前经它判落后
         self.baseline = baseline
         # 维护规划面由装配根注入；离线/纯 sync 可为 None
         self.maintenance = maintenance
@@ -133,13 +121,6 @@ class JobService:
     ) -> dict[str, int]:
         return self.queue.in_flight_wiki_write_counts(_conn=_conn)
 
-    @staticmethod
-    def _sync_blocked(busy: dict[str, int]) -> PipelineBusy:
-        """sync 遇在途 compile/delete 抛 SyncInProgress，其余在途抛 PipelineBusy。"""
-        if Kind.COMPILE in busy or Kind.DELETE in busy:
-            return SyncInProgress()
-        return JobQueue.pipeline_busy(busy)
-
     def sync_baseline_lag(self) -> set[str]:
         """基线落后集合；未注入基线面时返回空集。"""
         if self.baseline is None:
@@ -147,13 +128,20 @@ class JobService:
         return self.baseline.lagging_sources()
 
     def _raise_if_baseline_lagging(self) -> None:
-        lagging = self.sync_baseline_lag()
-        if not lagging:
+        if self.baseline is None:
             return
-        preview = "、".join(sorted(lagging)[:3])
-        raise SyncBaselineLag(
-            f"{len(lagging)} 个源未同步（{preview}）：请先 sync，基线追平后再提交"
-        )
+        self.baseline.raise_if_lagging()
+
+    def submit_sync(self, source_dir: str | Path) -> list[Job]:
+        """委托 sync 线提交口；未注入即拒——快照与入队规则在 SyncCoordinator。"""
+        if self.sync is None:
+            raise RuntimeError("submit_sync 需要注入 sync coordinator")
+        return self.sync.submit_sync(source_dir)
+
+    def sync_status(self, source_dir: str | Path) -> dict[str, int]:
+        if self.sync is None:
+            raise RuntimeError("sync_status 需要注入 sync coordinator")
+        return self.sync.sync_status(source_dir)
 
     def submit(
         self,
@@ -294,121 +282,6 @@ class JobService:
             idempotency_key=f"issue-action:{issue_id}:{action}",
             issue_id=issue_id,
         )
-
-    def sync_status(self, source_dir: str | Path) -> dict[str, int]:
-        """只读统计 dirty/removed 与在途数，不提交。"""
-        if self.baseline is None:
-            raise RuntimeError("sync_status 需要注入同步基线面")
-        _disk, dirty, removed = self.baseline.inspect(source_dir)
-        return {
-            "dirty": len(dirty),
-            "removed": len(removed),
-            "in_flight": self.store.in_flight_for_kinds(WIKI_WRITE_KINDS),
-        }
-
-    def submit_sync(self, source_dir: str | Path) -> list[Job]:
-        """快照同步：以点击时的磁盘与完成记录之差为本批，脏文件复制为快照后整批入队。
-
-        - 互斥串行：写 wiki 的四类任务任一在途即拒——遇在途 compile/delete 抛
-          SyncInProgress，遇 restructure/link 抛 PipelineBusy；无脏无删的空跑
-          不入队、不受此限。
-        - 输入是点击时复制到 workspace/snapshots/<batch>/ 的副本；执行期间原件的
-          改动、删除、恢复都不影响本批，改动留到下一次 sync。payload.digest 取
-          副本的实际内容。
-        - 失败不写完成记录即保持脏，再次 sync 即重试；脏文件若有关联 open 失败
-          记录，入队时挂 issue_id，重试成功后一并解决。
-        - payload.batch 三个用途：快照目录名、wiki commit 批标识（按它定位整批
-          撤销）、批内最后一个任务终态时删除目录的分组键。
-
-        先复制后入队，保证任务存在则输入必在；入队失败或被拒时删除刚复制的目录，
-        崩溃遗留由构造期清扫。
-        """
-        if self.baseline is None:
-            raise RuntimeError("submit_sync 需要注入同步基线面")
-        root = Path(source_dir).resolve()
-        disk, dirty, removed = self.baseline.inspect(root)
-        if not dirty and not removed:
-            # 无任务时也要检查：源已消失的失败记录只依赖磁盘与完成记录判定
-            with self.store.transaction(immediate=True) as conn:
-                self._close_vanished_failures(disk, conn)
-            return []
-        busy = self._in_flight_wiki_write_counts()
-        if busy:
-            raise self._sync_blocked(busy)
-        batch = f"sync_{uuid4().hex}"
-        try:
-            digests = (
-                self.snapshots.capture(batch, root, [path for path, _ in dirty]) if dirty else {}
-            )
-            jobs: list[Job] = []
-            with self.store.transaction(immediate=True) as conn:
-                busy = self._in_flight_wiki_write_counts(_conn=conn)
-                if busy:
-                    raise self._sync_blocked(busy)
-                for path, _disk_digest in dirty:
-                    original = str(Path(path).resolve())
-                    pending = self.issues.find_pending_failures(original)
-                    jobs.append(
-                        self.store.enqueue(
-                            kind=Kind.COMPILE,
-                            resource=original,
-                            mode="sync",
-                            payload={
-                                "deleted": False,
-                                "digest": digests[original],
-                                "batch": batch,
-                                "rel_path": str(Path(original).relative_to(root)),
-                            },
-                            idempotency_key=f"{batch}:{original}",
-                            issue_id=pending[0].id if pending else "",
-                            _conn=conn,
-                        )
-                    )
-                for path in removed:
-                    # delete 同 compile：来源有关联的活动失败记录就挂 issue_id
-                    pending = self.issues.find_pending_failures(path)
-                    jobs.append(
-                        self.store.enqueue(
-                            kind=Kind.DELETE,
-                            resource=path,
-                            mode="sync",
-                            payload={"deleted": True, "digest": "", "batch": batch},
-                            idempotency_key=f"{batch}:{path}",
-                            issue_id=pending[0].id if pending else "",
-                            _conn=conn,
-                        )
-                    )
-                self._close_vanished_failures(disk, conn)
-        except BaseException:
-            self.snapshots.drop_batch(batch)
-            raise
-        return jobs
-
-    def _close_vanished_failures(
-        self, disk: dict[str, str], _conn: sqlite3.Connection | None = None
-    ) -> int:
-        """关闭源已不存在的活动失败记录：source 既不在磁盘也不在完成记录里，
-        不会再出现在任何任务，据实关闭并记录事件。
-        """
-        assert self.baseline is not None
-        hashed = self.baseline.recorded_hashes()
-        closed = 0
-        for record in self.issues.list(
-            statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
-            kinds={IssueKind.INGESTION_FAILURE},
-            limit=1000,
-        ):
-            src = str(record.context.get("source_path") or "")
-            if src and src not in disk and src not in hashed:
-                self.issues.transition(
-                    record.id,
-                    IssueStatus.RESOLVED,
-                    resolution={"cause": "source_deleted", "closed_by": "submit_sync"},
-                    event="issue_source_vanished",
-                    _conn=_conn,
-                )
-                closed += 1
-        return closed
 
     def submit_restructure(self, units: list[dict], proposal_id: str = "") -> list[Job]:
         """已确认的单元清单整批入队：一单元一 job，批尾自动跟受影响页补链。

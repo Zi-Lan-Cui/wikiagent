@@ -34,7 +34,7 @@ async def main(source_dir: str | None = None) -> None:
     try:
         service.recover_stale()  # 持锁后回收上次残留的 running
         try:
-            jobs = service.submit_sync(target)
+            jobs = runtime.sync_coordinator.submit_sync(target)
         except PipelineBusy as exc:
             logger.info("%s——本进程继续泵而不是拍新快照…", exc)
             jobs = []

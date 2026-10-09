@@ -34,10 +34,12 @@ from wiki_agent.maintenance.flow import MaintenancePlannerImpl
 from wiki_agent.maintenance.jobs import MaintenanceJobHandler
 from wiki_agent.queue import JobStore
 from wiki_agent.queue.outcomes import JobOutcomeHandler
+from wiki_agent.queue.queue import JobQueue
 from wiki_agent.queue.service import JobService
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
+from wiki_agent.sync.coordinator import SyncCoordinator
 from wiki_agent.sync.source_jobs import SourceJobHandler
 from wiki_agent.sync.state import SyncState
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
@@ -53,7 +55,7 @@ class AppRuntime:
         self.workspace = config.paths.resolved_workspace_dir()
         self.wiki_dir = config.paths.resolved_wiki_dir()
         self.source_records_dir = config.paths.resolved_source_records_dir()
-        # 装配顺序：Database → store → JobService；构造只发生在装配根
+        # 装配顺序：Database → store → JobQueue → 线 coordinator → 提交壳；构造只发生在装配根
         database = Database(self.workspace)
         self.issue_store = IssueStore(database)
         self.issue_service = IssueService(self.issue_store)
@@ -63,13 +65,11 @@ class AppRuntime:
         # wiki git 版本：HEAD 即最近已结算状态，sync/retry 的逐 job 提交由 consumer 执行
         self.git_manager = WikiGitManager(self.wiki_dir)
         self.snapshots = SnapshotStore(self.workspace)
-        # 同步基线由 sync 域维护，按协议注入 jobs 提交入口，避免 jobs 直接 import sync
         self.baseline = SyncBaseline(
             state=self.sync_state, issues=self.issue_store, materials_dir=self.materials_dir
         )
-        self.job_service = JobService(
+        self.job_queue = JobQueue(
             store=JobStore(database),
-            issues=self.issue_store,
             snapshots=self.snapshots,
             outcomes=JobOutcomeHandler(
                 self.issue_store,
@@ -78,6 +78,18 @@ class AppRuntime:
                 source_writer=ExtractionSourcePageWriter(),
                 proposals=self.proposal_store,
             ),
+        )
+        # 同步基线与 sync 线提交入口同域装配；其它线经 raise_if_lagging 复用判定
+        self.sync_coordinator = SyncCoordinator(
+            queue=self.job_queue,
+            issues=self.issue_store,
+            snapshots=self.snapshots,
+            baseline=self.baseline,
+        )
+        self.job_service = JobService(
+            queue=self.job_queue,
+            issues=self.issue_store,
+            sync=self.sync_coordinator,
             baseline=self.baseline,
             # 维护规划注入提交入口：单元校验与批尾补链计算依赖 compiler，
             # 由协议注入避免 jobs 直接 import compiler

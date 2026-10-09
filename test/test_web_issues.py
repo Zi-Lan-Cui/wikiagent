@@ -41,6 +41,7 @@ class _Runtime:
             self.workspace,
             sync_state=SyncState(self.workspace / "watch" / "state.json"),
         )
+        self.sync_coordinator = self.job_service.sync
         self.job_worker = JobWorker(self.job_service)
         # 装配根契约镜像（AppRuntime.__init__ 同款三步）：executor、
         # issue_action 注册、启动核对
