@@ -11,11 +11,14 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 from wiki_agent.errors import ERROR_SUMMARY_LIMIT, summarize_error
+from wiki_agent.log import emit_event, get_logger
 from wiki_agent.queue import WIKI_WRITE_KINDS, Job, JobResult, JobStore, PipelineBusy
 from wiki_agent.snapshots import SnapshotStore
 
 if TYPE_CHECKING:
     from wiki_agent.queue.outcomes import JobOutcomeHandler
+
+logger = get_logger("JOB_QUEUE")
 
 # detail 中的大字段：仅供 outcomes 同事务内消费（写完成记录、issue 记账、档案页
 # 落盘），不持久化进 jobs 行——否则 state.db 随每轮 sync 膨胀、list() 反复反序列化大对象
@@ -118,12 +121,21 @@ class JobQueue:
             if not won:
                 return self.store.get(job.id, _conn=conn)
             post_commit = self.outcomes.apply(job, result, conn)
+        # 文件动作逐条隔离：一条抛错不能带走其余动作，更不能击穿 worker 循环；
+        # 账不落由 recover_stale 与 digest 幂等重做收敛，故障必须可见
         for action in post_commit:
-            action()
+            try:
+                action()
+            except Exception as exc:  # noqa: BLE001
+                logger.error("job %s 的 post_commit 动作失败: %s", job.id, exc, exc_info=True)
+                emit_event("outcome_action_failed", job_id=job.id, error=str(exc)[:300])
         # 批内最后一个任务进终态后删除该批快照目录
         batch = str(job.payload.get("batch") or "")
         if batch and self.store.count_in_flight_for_batch(batch) == 0:
-            self.snapshots.drop_batch(batch)
+            try:
+                self.snapshots.drop_batch(batch)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("批 %s 快照目录清理失败: %s", batch, exc)
         return self.store.get(job.id)
 
     def cancel_terminal(self, job: Job) -> None:
