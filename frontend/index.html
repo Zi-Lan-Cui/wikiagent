@@ -4,36 +4,36 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=42" />
+    <link rel="stylesheet" href="/style.css?v=50" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
           <h1>wiki-agent</h1>
-          <button id="new-session" class="primary-button" type="button">＋ 新对话</button>
+          <button id="new-session" class="primary-button" type="button">新对话</button>
         </div>
         <p class="sidebar-heading">对话</p>
         <div id="session-list" class="session-list" aria-label="历史会话"></div>
         <details class="sidebar-section">
-          <summary><span>Wiki 文件</span><span class="summary-action"><b id="wiki-count" class="section-count">0</b><b class="section-chevron">›</b></span></summary>
+          <summary><span>Wiki 文件</span><span class="summary-action"><b id="wiki-count" class="section-count">0</b><b class="section-chevron" aria-hidden="true"></b></span></summary>
           <p class="wiki-managed-note">Wiki 由同步生成并纳入 Git 管理，手工修改会在下次同步时被覆盖。</p>
           <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
         </details>
         <button id="organize-open" class="sidebar-destination" type="button">
           <span><b>维护</b><small>同步笔记、整理结构、补链</small></span>
-          <span class="summary-action"><b id="organize-running" class="section-count">0</b><b class="section-chevron">›</b></span>
+          <span class="summary-action"><b id="organize-running" class="section-count">0</b><b class="section-chevron" aria-hidden="true"></b></span>
         </button>
         <button id="attention-open" class="sidebar-destination" type="button">
           <span><b>待处理</b><small>失败、纠错与质量提醒</small></span>
-          <span class="summary-action"><b id="queue-count" class="section-count">0</b><b class="section-chevron">›</b></span>
+          <span class="summary-action"><b id="queue-count" class="section-count">0</b><b class="section-chevron" aria-hidden="true"></b></span>
         </button>
       </aside>
 
       <main class="chat-panel">
         <header class="chat-header">
           <div>
-            <p class="eyebrow">本地知识库助手</p>
+            <p class="eyebrow">问答</p>
             <h2 id="session-title">选择一个会话</h2>
           </div>
         </header>
@@ -45,8 +45,8 @@
         <section id="wiki-viewer" class="wiki-viewer" hidden aria-live="polite">
           <div class="wiki-viewer-toolbar">
             <div class="wiki-history-controls" role="group" aria-label="Wiki 浏览历史">
-              <button id="wiki-history-back" class="wiki-nav-button" type="button" aria-label="后退" title="后退 (Alt+←)" disabled>←</button>
-              <button id="wiki-history-forward" class="wiki-nav-button" type="button" aria-label="前进" title="前进 (Alt+→)" disabled>→</button>
+              <button id="wiki-history-back" class="wiki-nav-button" type="button" aria-label="后退" title="后退 (Alt+←)" disabled>后退</button>
+              <button id="wiki-history-forward" class="wiki-nav-button" type="button" aria-label="前进" title="前进 (Alt+→)" disabled>前进</button>
             </div>
             <button id="wiki-close" class="wiki-close-button" type="button" title="直接返回当前会话 (Esc)">返回会话</button>
           </div>
@@ -84,7 +84,7 @@
               <section class="maintain-card">
                 <header><h3>整理结构</h3></header>
                 <p>通读全库，合并重复、拆分杂烩、删除空页；建议经确认后入队执行，波及页面的链接自动随批核对修正。分析需数分钟。</p>
-                <button id="maintain-preview" class="primary-button" type="button">分析库结构</button>
+                <button id="maintain-preview" class="primary-button" type="button">发起结构分析</button>
               </section>
               <section class="maintain-card">
                 <header><h3>补全链接</h3></header>
@@ -121,7 +121,7 @@
                 </select>
               </label>
               <button id="retry-eligible" class="bulk-retry" type="button" disabled>
-                一键重试 <span id="retry-eligible-count">0</span>
+                批量重试 <span id="retry-eligible-count">0</span>
               </button>
             </div>
             <div class="issue-workspace">
@@ -134,7 +134,7 @@
         </section>
 
         <form id="message-form" class="composer">
-          <textarea id="message-input" rows="2" placeholder="询问你的知识库……" disabled></textarea>
+          <textarea id="message-input" rows="2" placeholder="输入问题；回答附引用位置" disabled></textarea>
           <button id="send-button" class="primary-button" type="submit" disabled>发送</button>
         </form>
       </main>
@@ -142,16 +142,16 @@
 
     <dialog id="maintain-dialog" class="maintain-dialog">
       <header>
-        <h3>整理建议</h3>
+        <h3>结构维护提议</h3>
         <p id="maintain-summary" class="maintain-summary"></p>
       </header>
       <div id="maintain-units" class="maintain-units" aria-label="可执行单元"></div>
       <footer>
-        <button id="maintain-cancel" class="ghost-button" type="button">返回</button>
+        <button id="maintain-cancel" class="ghost-button" type="button">取消</button>
         <button id="maintain-submit" class="primary-button" type="button" disabled>入队执行</button>
       </footer>
     </dialog>
 
-    <script src="/app.js?v=61" defer></script>
+    <script src="/app.js?v=65" defer></script>
   </body>
 </html>

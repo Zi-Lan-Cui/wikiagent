@@ -11,7 +11,8 @@ const state = {
   activeIssue: null,
   issueTasks: [],
   centerView: "issues",
-  previewTask: null,  // 建议对话框的来源分析任务；入队成功后据此记处置
+  previewProposal: null,  // 待处置的整理提议；入队成功后据此记处置
+  maintainProposals: [],  // 账本中待处置的提议，服务端保证至多一条
 };
 
 const $ = (id) => document.getElementById(id);
@@ -68,7 +69,7 @@ function scrollToBottom(force = false) {
 const jumpToBottom = document.createElement("button");
 jumpToBottom.type = "button";
 jumpToBottom.className = "jump-to-bottom";
-jumpToBottom.textContent = "回到底部 ↓";
+jumpToBottom.textContent = "回到底部";
 jumpToBottom.hidden = true;
 jumpToBottom.addEventListener("click", () => scrollToBottom(true));
 chatPanel.appendChild(jumpToBottom);
@@ -320,6 +321,7 @@ function rememberWikiScroll() {
 
 function showWikiViewer() {
   state.view = "wiki";
+  jumpToBottom.hidden = true;
   chatHeader.hidden = true;
   messages.hidden = true;
   issueCenter.hidden = true;
@@ -341,6 +343,7 @@ function closeWikiPage(destination = state.wikiReturnView || "chat") {
 
 function restoreChatView() {
   state.view = "chat";
+  jumpToBottom.hidden = stickToBottom;
   wikiViewer.hidden = true;
   issueCenter.hidden = true;
   chatHeader.hidden = false;
@@ -357,12 +360,13 @@ const CENTER_COPY = {
   issues: {
     eyebrow: "知识库运行",
     title: "待处理",
-    sub: "资料处理失败、你提出的纠错、质量提醒——需要你逐条决定怎么处理的事。",
+    sub: "资料处理失败、你提出的纠错、质量提醒，需要逐条决定怎么处理。",
   },
 };
 
 function showCenterView(view) {
   state.view = view;
+  jumpToBottom.hidden = true;
   chatHeader.hidden = true;
   messages.hidden = true;
   wikiViewer.hidden = true;
@@ -410,12 +414,12 @@ async function loadWikiEntry(entry) {
   const requestId = ++state.wikiRequestId;
   const { path, kind } = entry;
   wikiViewerPath.textContent = path;
-  wikiPageTitle.textContent = "正在加载…";
+  wikiPageTitle.textContent = "正在加载";
   wikiMetadata.replaceChildren();
   wikiBasic.replaceChildren();
   wikiSummary.textContent = "";
-  wikiContent.innerHTML = "<p class=wiki-loading>正在加载页面……</p>";
-  setStatus("正在打开页面……");
+  wikiContent.innerHTML = "<p class=wiki-loading>正在加载页面</p>";
+  setStatus("正在打开页面");
   try {
     const url = kind === "issue-resource"
       ? `/api/issues/${encodeURIComponent(entry.issueId)}/resource`
@@ -886,14 +890,16 @@ function renderIssueTasks() {
   // 出终态后最近一次结果留在列表底部供回看
   const previews = state.issueTasks.filter((task) => task.kind === "maintenance_preview");
   const previewActive = previews.some((task) => ["queued", "running"].includes(task.status));
-  // 未处置的终态分析 ≤1 条由服务端提交口保证（新发起自动作废上一轮），
-  // 这里读现状即可，不需要"哪条算最新"的判断
-  const previewDone = previews.find(
-    (task) =>
-      ["completed", "failed"].includes(task.status) &&
-      !((task.result || {}).preview || {}).resolved_by,
-  );
-  maintainPreviewButton.textContent = previewActive ? "正在分析…" : "检查并给出整理建议";
+  // 待处置提议 ≤1 由账本的部分唯一索引强制；分析失败不产提议行，
+  // 无待处置提议时用最近一条失败任务行交代原因
+  const pendingProposal = state.maintainProposals[0] || null;
+  const previewFailed = previews.filter((task) => task.status === "failed").at(-1) || null;
+  const previewRow = pendingProposal
+    ? proposalRow(pendingProposal)
+    : previewFailed
+      ? previewFailedRow(previewFailed)
+      : null;
+  maintainPreviewButton.textContent = previewActive ? "分析进行中" : "发起结构分析";
   setBusy(maintainPreviewButton, previewActive);
   for (const partner of [syncButton, linkScanButton]) {
     if (previewActive) {
@@ -904,7 +910,7 @@ function renderIssueTasks() {
       partner.title = "";
     }
   }
-  if (!active.length && !previewDone) {
+  if (!active.length && !previewRow) {
     const empty = document.createElement("p");
     empty.className = "issue-task-empty";
     empty.textContent = "当前没有后台任务。";
@@ -947,7 +953,7 @@ function renderIssueTasks() {
     const main = document.createElement("div");
     main.className = "issue-task-main";
     const title = document.createElement("strong");
-    // 主文案用人话标题（重组 A+B → C / 补链 xxx / 编译 文件名）；
+    // 主文案用可读标题（重组 A+B → C / 补链 xxx / 编译 文件名）；
     // 原始 resource 只作悬停信息
     title.textContent = task.title || task.resource || "未命名任务";
     row.title = task.resource || "";
@@ -991,13 +997,17 @@ function renderIssueTasks() {
     }
     issueTaskList.appendChild(row);
   }
-  if (previewDone) issueTaskList.appendChild(previewResultRow(previewDone));
+  if (previewRow) issueTaskList.appendChild(previewRow);
 }
 
 async function refreshIssueTasks() {
   const response = await fetch("/api/jobs?limit=100");
   if (!response.ok) throw new Error("无法读取运行队列");
   state.issueTasks = await response.json();
+  const proposalsResponse = await fetch("/api/maintenance/proposals");
+  state.maintainProposals = proposalsResponse.ok
+    ? (await proposalsResponse.json()).proposals || []
+    : [];
   reconcileActiveIssue();
   renderIssueTasks();
   renderIssueList();
@@ -1042,7 +1052,7 @@ async function refreshIssues() {
 
 async function syncNow() {
   setBusy(syncButton, true);
-  setStatus("正在同步笔记……");
+  setStatus("正在同步");
   try {
     const response = await fetch("/api/sync", { method: "POST" });
     const payload = await response.json().catch(() => ({}));
@@ -1060,9 +1070,9 @@ async function syncNow() {
 async function retryEligibleIssues() {
   const count = Number(retryEligibleCount.textContent || 0);
   if (!count) return;
-  if (!window.confirm(`将 ${count} 个来源有效的失败项加入串行重试队列，是否继续？`)) return;
+  if (!window.confirm(`将 ${count} 个可重试失败项加入队列？`)) return;
   retryEligibleButton.disabled = true;
-  setStatus("正在提交重试……");
+  setStatus("正在提交重试");
   const response = await fetch("/api/issues/actions/retry-eligible", { method: "POST" });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || "无法创建批量重试任务");
@@ -1081,7 +1091,7 @@ async function openMaintenancePreview() {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || "无法发起整理结构分析");
     upsertIssueTask(payload.task);
-    setStatus("整理结构分析已开始");
+    setStatus("结构分析已入队");
   } catch (error) {
     setStatusError(error.message || "整理分析发起失败");
   } finally {
@@ -1090,25 +1100,72 @@ async function openMaintenancePreview() {
   }
 }
 
-// 处置一次分析结果：dismissed=否决（结果行上的唯一出口），
-// submitted=建议已勾选入队（防止同一批建议二次入队）。两者都让行消失
-async function resolveMaintenancePreview(task, by) {
-  const response = await fetch(`/api/maintenance/preview/${task.id}/resolve`, {
+// 否决一条提议：账本处置后该行消失；采纳走提交口（同事务记 submitted）
+async function dismissProposal(proposal) {
+  const response = await fetch(`/api/maintenance/proposals/${proposal.id}/dismiss`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ by }),
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || "无法处置分析结果");
-  upsertIssueTask(payload.task);
+  if (!response.ok) throw new Error(payload.detail || "无法处置提议");
   await refreshIssueTasks().catch(() => {});
 }
 
-// 最近一次分析任务的终态展示（成功给入口、健康给结论、失败给原因）。
+// 待处置提议行（维护账本 pending 条目）：给入口（查看提议/否决）。
 // 与普通任务行同构：marker + main + 操作 + 状态徽章，顺序不能乱
-function previewResultRow(task) {
+function proposalRow(proposal) {
+  const payload = proposal.payload || {};
   const row = document.createElement("article");
-  row.className = `issue-task task-${task.status}`;
+  row.className = "issue-task task-completed";
+  const marker = document.createElement("span");
+  marker.className = "issue-task-marker";
+  marker.setAttribute("aria-hidden", "true");
+  const main = document.createElement("div");
+  main.className = "issue-task-main";
+  const title = document.createElement("strong");
+  title.textContent = "整理提议";
+  const detail = document.createElement("span");
+  detail.textContent = payload.healthy
+    ? "结构健康"
+    : `${(payload.effective || []).length} 条整理提议`;
+  main.append(title, detail);
+  if (!payload.healthy && (payload.effective || []).length) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost-button";
+    button.textContent = "查看提议";
+    button.addEventListener("click", () => {
+      state.previewProposal = proposal;  // 提交时按它把提议记为已采纳
+      state.maintainUnits = payload.effective || [];
+      renderMaintainDialog(payload);
+      maintainDialog.showModal();
+    });
+    row.appendChild(button);
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "ghost-button danger";
+    dismiss.textContent = "否决";
+    dismiss.addEventListener("click", async () => {
+      try {
+        await dismissProposal(proposal);
+        setStatus("提议已否决");
+      } catch (error) {
+        setStatusError(error.message || "否决失败");
+      }
+    });
+    row.appendChild(dismiss);
+  }
+  const badge = document.createElement("span");
+  badge.className = "issue-task-status task-completed";
+  badge.textContent = "待处置";
+  row.prepend(marker, main);
+  row.appendChild(badge);
+  return row;
+}
+
+// 分析失败行：无待处置提议时交代最近一次分析的失败原因
+function previewFailedRow(task) {
+  const row = document.createElement("article");
+  row.className = "issue-task task-failed";
   const marker = document.createElement("span");
   marker.className = "issue-task-marker";
   marker.setAttribute("aria-hidden", "true");
@@ -1117,50 +1174,13 @@ function previewResultRow(task) {
   const title = document.createElement("strong");
   title.textContent = "整理结构分析";
   const detail = document.createElement("span");
-  const preview = (task.result || {}).preview || {};
-  let button = null;
-  if (task.status === "failed") {
-    detail.textContent = `失败：${task.error || "分析未完成"}`;
-    row.title = task.error || "";
-  } else {
-    detail.textContent = preview.healthy
-      ? "结构健康"
-      : `${(preview.effective || []).length} 条整理建议`;
-    if (!preview.healthy && (preview.effective || []).length) {
-      button = document.createElement("button");
-      button.type = "button";
-      button.className = "ghost-button";
-      button.textContent = "查看建议";
-      button.addEventListener("click", () => {
-        state.previewTask = task;  // 入队成功后按它把建议标记为已处置
-        state.maintainUnits = preview.effective || [];
-        renderMaintainDialog(preview);
-        maintainDialog.showModal();
-      });
-    }
-  }
+  detail.textContent = `失败：${task.error || "分析未完成"}`;
   main.append(title, detail);
+  row.title = task.error || "";
   const badge = document.createElement("span");
-  badge.className = `issue-task-status task-${task.status}`;
+  badge.className = "issue-task-status task-failed";
   badge.textContent = taskStatusLabels[task.status] || task.status;
-  row.append(marker, main);
-  if (button) row.appendChild(button);
-  if (task.status === "completed" && !preview.healthy && (preview.effective || []).length) {
-    const dismiss = document.createElement("button");
-    dismiss.type = "button";
-    dismiss.className = "ghost-button danger";
-    dismiss.textContent = "丢弃";
-    dismiss.addEventListener("click", async () => {
-      try {
-        await resolveMaintenancePreview(task, "dismissed");
-        setStatus("建议已丢弃");
-      } catch (error) {
-        setStatusError(error.message || "丢弃失败");
-      }
-    });
-    row.appendChild(dismiss);
-  }
-  row.appendChild(badge);
+  row.append(marker, main, badge);
   return row;
 }
 
@@ -1200,7 +1220,8 @@ async function submitMaintenance() {
   const response = await fetch("/api/maintenance", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ units }),
+    // 提交口在同一事务里把该提议记为 submitted，防止同一批建议二次入队
+    body: JSON.stringify({ units, proposal_id: state.previewProposal?.id || "" }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -1208,20 +1229,16 @@ async function submitMaintenance() {
     throw new Error(payload.detail || "维护入队失败");
   }
   maintainDialog.close();
-  // 建议的来源分析记为已处置：结果行撤下，杜绝同一批建议二次入队
-  if (state.previewTask) {
-    await resolveMaintenancePreview(state.previewTask, "submitted").catch(() => {});
-    state.previewTask = null;
-  }
+  state.previewProposal = null;
   for (const task of payload.tasks || []) upsertIssueTask(task);
   renderIssueTasks();
   showTaskProgress();
-  setStatus(`已入队 ${payload.count} 个任务，整批可回撤`);
+  setStatus(`已入队 ${payload.count} 个任务，整批可撤销`);
   await Promise.all([refreshIssues(), refreshIssueTasks()]);
 }
 
 async function linkScan() {
-  if (!window.confirm("对全库发起补链？按页提交，可逐页回退。")) return;
+  if (!window.confirm("对全部页面发起出链体检？按页提交，可逐页撤销。")) return;
   setBusy(linkScanButton, true);
   try {
     const response = await fetch("/api/link", {
@@ -1247,7 +1264,7 @@ async function executeIssueAction(issue, action) {
     return;
   }
   if (action.requires_confirmation && !window.confirm(`确定要“${action.label}”吗？`)) return;
-  setStatus(`正在${action.label}……`);
+  setStatus(`正在${action.label}`);
   const response = await fetch(`/api/issues/${issue.id}/actions/${action.id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1280,7 +1297,7 @@ async function waitForIssueTask(taskId, label) {
     if (["failed", "cancelled"].includes(task.status)) {
       throw new Error(task.error || `${label}失败`);
     }
-    setStatus(`${label}进行中……`);
+    setStatus(`${label}进行中`);
   }
 }
 
@@ -1316,7 +1333,7 @@ async function selectSession(id) {
     if (!history.length) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "会话已准备好，可以开始提问。";
+      empty.textContent = "创建或选择会话后开始提问。";
       messages.appendChild(empty);
     }
     for (const message of history) {
@@ -1417,7 +1434,7 @@ function renderLiveMarkdown(source) {
   return renderMarkdown(src);
 }
 
-// 把工具调用说人话：动作 + 它到底在找什么/读什么
+// 工具调用转为可读描述：动作 + 操作对象
 function toolAction(name, args) {
   const a = args || {};
   const hint = ["pattern", "query", "keyword", "path", "dir", "file"]
@@ -1442,7 +1459,7 @@ function thinkingBlock(segments) {
   const details = document.createElement("details");
   details.className = "agent-think";
   const summary = document.createElement("summary");
-  summary.innerHTML = '<span class="think-chev">▸</span><span class="think-label">思考过程</span>';
+  summary.innerHTML = '<span class="think-chev" aria-hidden="true"></span><span class="think-label">思考过程</span>';
   const flow = document.createElement("div");
   flow.className = "think-flow";
   for (const seg of segments) {
@@ -1501,7 +1518,7 @@ function createAssistantMessage() {
     details.className = "agent-think";
     details.open = true;
     const summary = document.createElement("summary");
-    summary.innerHTML = '<span class="think-chev">▸</span><span class="think-label">正在思考</span><span class="think-dots"><i></i><i></i><i></i></span>';
+    summary.innerHTML = '<span class="think-chev" aria-hidden="true"></span><span class="think-label">正在思考</span><span class="think-dots"><i></i><i></i><i></i></span>';
     // 单一时序列表：思考段与工具行按实际发生顺序穿插（想→查→再想）
     const flow = document.createElement("div");
     flow.className = "think-flow";
@@ -1542,7 +1559,7 @@ async function sendMessage(text) {
       view.body.innerHTML = renderLiveMarkdown(answerText);
     }, 180);
   };
-  setStatus("正在回答……");
+  setStatus("正在回答");
   try {
     const response = await fetch(`/api/sessions/${state.activeSession}/messages/stream`, {
       method: "POST",
