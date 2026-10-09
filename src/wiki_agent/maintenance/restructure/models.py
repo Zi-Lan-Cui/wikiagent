@@ -21,12 +21,15 @@ class Take:
 
 @dataclass(frozen=True, slots=True)
 class OutPage:
-    """输出页声明。intent 描述这一页将来讲什么（路由与重写的依据）。"""
+    """输出页声明。intent 描述这一页将来讲什么（路由与重写的依据）。
+
+    每个 out 页都经 LLM 成文——"装配草稿直接落盘"的形态已废除：草稿无
+    frontmatter，落盘必被质量闸门打回。
+    """
 
     slug: str
     intent: str = ""
     take: list[Take] = field(default_factory=list)
-    polish: bool = True  # False=take 装配结果即终稿，不过 LLM 成文
 
     @staticmethod
     def from_dict(raw: dict) -> OutPage:
@@ -36,8 +39,6 @@ class OutPage:
             slug=str(raw.get("slug") or ""),
             intent=intent,
             take=take,
-            # 有 take 才允许不过成文；无 take 的声明必须经 LLM 成文
-            polish=bool(raw.get("polish", True)) if take else True,
         )
 
 
@@ -64,7 +65,6 @@ class Unit:
                         {"from_slug": t.from_slug, "sections": list(t.sections)}
                         for t in p.take
                     ],
-                    "polish": p.polish,
                 }
                 for p in self.out
             ],

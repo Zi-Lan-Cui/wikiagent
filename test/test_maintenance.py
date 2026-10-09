@@ -15,10 +15,10 @@ import pytest
 from helpers import make_job_service
 
 from wiki_agent.application.job_service import JobService
-from wiki_agent.maintenance import restructure as rs
 from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.conversation import LLMResponse
 from wiki_agent.maintenance import jobs as maintenance_jobs_mod
+from wiki_agent.maintenance import restructure as rs
 from wiki_agent.maintenance.jobs import MaintenanceJobHandler
 from wiki_agent.maintenance.link import apply_link_fixes
 from wiki_agent.maintenance.restructure import plan as plan_mod
@@ -111,7 +111,7 @@ def _env(tmp: Path) -> tuple[JobService, JobWorker, Path]:
 def _merge_unit() -> dict:
     return {
         "in_pages": ["concepts/a", "concepts/b"],
-        "out": [{"slug": "concepts/a", "intent": "甲乙合并页", "polish": True}],
+        "out": [{"slug": "concepts/a", "intent": "甲乙合并页"}],
         "reason": "重复主题",
     }
 
@@ -273,7 +273,7 @@ def test_single_page_rewrite_missing_settles_unit_missing(tmp_path: Path, monkey
     monkeypatch.setattr(plan_mod, "route_unit", _fake_route(_all_to_first))
     unit = {
         "in_pages": ["concepts/b"],
-        "out": [{"slug": "concepts/b", "intent": "改写", "polish": True}],
+        "out": [{"slug": "concepts/b", "intent": "改写"}],
         "reason": "改写",
     }
     jobs = service.submit_restructure([unit])

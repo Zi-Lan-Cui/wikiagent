@@ -89,16 +89,21 @@ _LINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]")
 
 
 def apply_link_fixes(
-    content: str,
+    body: str,
     replacements: list[dict[str, str]],
     *,
     valid_slugs: set[str],
     self_slug: str,
 ) -> tuple[str, list[dict[str, str]], list[dict[str, str]]]:
-    """逐条应用：校验通过就地替换。返回 (新内容, 已应用, 跳过[含理由])。"""
+    """逐条应用：校验通过就地替换。返回 (新正文, 已应用, 跳过[含理由])。
+
+    入参与替换范围都是不含 frontmatter 的正文——与 prompt 的"正文中恰好
+    出现一次"契约和 plan 侧喂给模型的取材一致；作用全文会让 find 撞上
+    元数据里的同字面串，把 wikilink 写进 frontmatter。
+    """
     applied: list[dict[str, str]] = []
     skipped: list[dict[str, str]] = []
-    working = content
+    working = body
     for fix in replacements:
         find, replace = fix.get("find", ""), fix.get("replace", "")
         if not find or find not in working or working.count(find) > 1:

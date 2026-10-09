@@ -28,22 +28,16 @@ ProgressCallback = Callable[[str], None]
 
 
 def preview_payload(outcome: MaintenanceOutcome) -> dict[str, Any]:
-    """分析结果的传输形态——job result 落库与建议对话框共用的同一结构。"""
+    """分析结果的传输形态——job result 落库与建议对话框共用的同一结构。
+
+    effective 用 Unit.to_dict 原样序列化：账本里的提议可经 Unit.from_dict
+    重建，take 的章节限定不在"提议→确认→提交"闭环中丢失。
+    """
     return {
         "healthy": outcome.healthy,
         "proposed": len(outcome.proposed),
         "confirmed": len(outcome.confirmed),
-        "effective": [
-            {
-                "in_pages": list(u.in_pages),
-                "out": [
-                    {"slug": p.slug, "intent": p.intent, "take": len(p.take), "polish": p.polish}
-                    for p in u.out
-                ],
-                "reason": u.reason,
-            }
-            for u in outcome.effective
-        ],
+        "effective": [u.to_dict() for u in outcome.effective],
         "rejected": [
             {"in_pages": list(u.in_pages), "out": list(u.out_slugs), "reason": r}
             for u, r in outcome.rejected

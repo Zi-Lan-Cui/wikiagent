@@ -111,7 +111,7 @@ def test_maintenance_submit_returns_batch_with_readable_titles(tmp_path: Path):
                 "units": [
                     {
                         "in_pages": ["concepts/a", "concepts/b"],
-                        "out": [{"slug": "concepts/a", "intent": "合并页", "polish": True}],
+                        "out": [{"slug": "concepts/a", "intent": "合并页"}],
                         "reason": "重复主题",
                     }
                 ]

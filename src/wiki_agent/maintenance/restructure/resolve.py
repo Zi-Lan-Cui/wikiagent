@@ -29,6 +29,9 @@ def validate_unit(unit: Unit, existing: set[str]) -> str:
     for p in unit.out:
         if p.slug.split("/", 1)[0] not in PAGE_TYPE_BY_DIR:
             return f"输出页面目录不合法: {p.slug}——只能是 concepts/entities/topics"
+        # path_for 拼 wiki_dir/slug.md，段里藏 ../ 会写出库根；LLM 声明不可信
+        if any(seg in ("", ".", "..") for seg in p.slug.split("/")):
+            return f"输出页面路径含非法段: {p.slug}"
         if p.slug not in existing and p.slug in unit.in_pages:
             return f"输出页面 {p.slug} 被当作改写对象，但当前并不存在"
         for t in p.take:

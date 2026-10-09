@@ -147,8 +147,6 @@ class MaintenanceJobHandler:
             contents: dict[str, str] = {}
             failures: list[str] = []
             for page in unit.out:
-                if not page.polish:
-                    continue  # 装配草稿即成品
                 try:
                     text = await rewrite_unit_page(
                         self._llm,
@@ -237,19 +235,21 @@ class MaintenanceJobHandler:
                     status="failed", detail={"error": f"link 清单生成失败: {str(exc)[:300]}"}
                 )
             content = page.read_text(encoding="utf-8")
+            fm, body = split_frontmatter(content)
             valid_slugs = set(all_content_slugs(self._wiki_dir))
-            new_content, applied, skipped = apply_link_fixes(
-                content, replacements, valid_slugs=valid_slugs, self_slug=slug
+            new_body, applied, skipped = apply_link_fixes(
+                body, replacements, valid_slugs=valid_slugs, self_slug=slug
             )
             detail: dict[str, object] = {
                 "settlement": Settlement.LINKED,
                 "applied": len(applied),
                 "skipped": len(skipped),
             }
-            if new_content == content:
+            if new_body == body:
                 emit_event("link_noop", slug=slug, skipped=len(skipped))
                 return JobResult(status="succeeded", detail=detail)
-            fm, _ = split_frontmatter(content)
+            # 正文是 split_frontmatter 的连续后缀，按长度拼回即保留 frontmatter 原文
+            new_content = content[: len(content) - len(body)] + new_body
             normalized, issues = normalize_page(
                 new_content,
                 path=f"{slug}.md",
