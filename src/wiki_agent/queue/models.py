@@ -20,7 +20,7 @@ class Kind(StrEnum):
     RESTRUCTURE = "restructure"  # 重组单元：结构调整 + 触及页的逐页成文
     LINK = "link"  # 单页出链维护（只改链接，不重写内容）
     ISSUE_ACTION = "issue_action"  # issue 动作（rescan 等）
-    MAINTENANCE_PREVIEW = "maintenance_preview"  # 整理结构分析：提议→复核→消解，不写 wiki
+    RESTRUCTURE_PREVIEW = "restructure_preview"  # 结构重组分析：提议→复核→冲突消解，不写 wiki
 
 
 # 提交互斥、sync_status 与 /wiki revert 前检查共用

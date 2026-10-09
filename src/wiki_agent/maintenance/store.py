@@ -114,7 +114,8 @@ class ProposalStore:
             return
         rows = connection.execute(
             "SELECT id, result_json, updated_at FROM jobs"
-            " WHERE kind = 'maintenance_preview' AND status IN ('succeeded', 'failed')"
+            " WHERE kind IN ('maintenance_preview', 'restructure_preview')"
+            " AND status IN ('succeeded', 'failed')"
             " ORDER BY updated_at ASC, rowid ASC"
         ).fetchall()
         legacy: list[tuple[str, dict, str, str]] = []

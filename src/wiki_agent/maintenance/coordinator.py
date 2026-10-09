@@ -184,10 +184,10 @@ class MaintenanceCoordinator:
             if self.baseline is not None:
                 self.baseline.raise_if_lagging()
             return self.queue.submit(
-                kind=Kind.MAINTENANCE_PREVIEW,
-                resource="maintenance:preview",
+                kind=Kind.RESTRUCTURE_PREVIEW,
+                resource="restructure:preview",
                 mode="manual",
                 payload={},
-                idempotency_key="maintenance:preview",
+                idempotency_key="restructure:preview",
                 _conn=conn,
             )

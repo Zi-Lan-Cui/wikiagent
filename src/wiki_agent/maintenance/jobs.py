@@ -95,7 +95,7 @@ class MaintenanceJobHandler:
         """声明认领的 kind——维护线三类 job 的执行体都在本类。"""
         worker.register(Kind.RESTRUCTURE, self.handle_restructure)
         worker.register(Kind.LINK, self.handle_link)
-        worker.register(Kind.MAINTENANCE_PREVIEW, self.handle_preview)
+        worker.register(Kind.RESTRUCTURE_PREVIEW, self.handle_preview)
 
     async def handle_preview(self, job: Job, progress) -> JobResult:
         """跑一遍提议流程并把建议清单写进任务结果；不碰任何文件。

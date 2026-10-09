@@ -888,7 +888,7 @@ function renderIssueTasks() {
   issueTaskCount.classList.toggle("active", active.length > 0);
   // 整理结构分析的任务态：在途禁用三个动作（基线动了提议就没意义），
   // 出终态后最近一次结果留在列表底部供回看
-  const previews = state.issueTasks.filter((task) => task.kind === "maintenance_preview");
+  const previews = state.issueTasks.filter((task) => task.kind === "restructure_preview");
   const previewActive = previews.some((task) => ["queued", "running"].includes(task.status));
   // 待处置提议 ≤1 由账本的部分唯一索引强制；分析失败不产提议行，
   // 无待处置提议时用最近一条失败任务行交代原因

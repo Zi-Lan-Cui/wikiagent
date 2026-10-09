@@ -177,7 +177,7 @@ def test_maintenance_preview_enqueue_converge_and_gate(tmp_path: Path):
         r = await client.post("/api/maintenance/preview")
         assert r.status_code == 202, r.text
         task = r.json()["task"]
-        assert task["kind"] == "maintenance_preview"
+        assert task["kind"] == "restructure_preview"
         assert task["title"] == "整理结构分析"
         assert task["status"] == "queued"
 
@@ -226,7 +226,7 @@ def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
         assert preview["rejected"][0]["reason"] == "示例放弃"
 
         # 队列卡片阶段文本按 progress 更新；终态 result 随 job 持久化
-        claimed = runtime.job_service.claim_next(kinds={"maintenance_preview"})
+        claimed = runtime.job_service.claim_next(kinds={"restructure_preview"})
         assert claimed is not None and claimed.id == job.id
         runtime.job_service.mark_stage(job.id, "二次复核")
         done = runtime.job_service.complete_with_outcome(claimed, result)
@@ -251,7 +251,7 @@ def test_maintenance_proposal_dismiss_flow(tmp_path: Path):
 
     async def fn(client):
         job = runtime.job_service.submit_restructure_preview()
-        claimed = runtime.job_service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
+        claimed = runtime.job_service.claim_next(kinds={Kind.RESTRUCTURE_PREVIEW})
         assert claimed is not None
         runtime.job_service.complete_with_outcome(
             claimed,
@@ -298,7 +298,7 @@ def test_new_preview_supersedes_previous_pending(tmp_path: Path):
 
     runtime = _Runtime(tmp_path)
     first = runtime.job_service.submit_restructure_preview()
-    claimed = runtime.job_service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
+    claimed = runtime.job_service.claim_next(kinds={Kind.RESTRUCTURE_PREVIEW})
     assert claimed is not None and claimed.id == first.id
     runtime.job_service.complete_with_outcome(
         claimed,
@@ -324,7 +324,7 @@ def test_new_preview_supersedes_previous_pending(tmp_path: Path):
     # 发起第二轮：旧 pending 不动；失败入账也不动账本
     second = runtime.job_service.submit_restructure_preview()
     assert [p.job_id for p in runtime.job_service.proposals.list_pending()] == [first.id]
-    claimed2 = runtime.job_service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
+    claimed2 = runtime.job_service.claim_next(kinds={Kind.RESTRUCTURE_PREVIEW})
     assert claimed2 is not None and claimed2.id == second.id
     runtime.job_service.complete_with_outcome(
         claimed2, JobResult(status="failed", detail={"error": "分析失败"})
@@ -333,7 +333,7 @@ def test_new_preview_supersedes_previous_pending(tmp_path: Path):
 
     # 第二轮成功结果入账：旧 pending 置 superseded，pending ≤1
     retry = runtime.job_service.submit_restructure_preview()
-    claimed3 = runtime.job_service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
+    claimed3 = runtime.job_service.claim_next(kinds={Kind.RESTRUCTURE_PREVIEW})
     assert claimed3 is not None and claimed3.id == retry.id
     runtime.job_service.complete_with_outcome(
         claimed3,

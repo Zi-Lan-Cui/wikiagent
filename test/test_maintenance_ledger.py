@@ -106,13 +106,13 @@ def test_legacy_preview_rows_migrate_into_ledger(tmp_path: Path):
 
     def settle_legacy(resolved_by: str) -> str:
         service.store.enqueue(
-            kind=Kind.MAINTENANCE_PREVIEW,
+            kind=Kind.RESTRUCTURE_PREVIEW,
             resource="maintenance:preview",
             mode="manual",
             idempotency_key=f"legacy-{resolved_by or 'open'}",
         )
         # 终态 CAS 只对 running 生效：先领取再落终态，模拟完整执行
-        claimed = service.claim_next(kinds={Kind.MAINTENANCE_PREVIEW})
+        claimed = service.claim_next(kinds={Kind.RESTRUCTURE_PREVIEW})
         assert claimed is not None
         preview = {"healthy": False, "effective": []}
         if resolved_by:
