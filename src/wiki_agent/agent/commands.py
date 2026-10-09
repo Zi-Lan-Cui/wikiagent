@@ -403,7 +403,7 @@ class CompileCommand(Command):
             return CommandResult(
                 text=(
                     "# /compile\n\n用法: `/compile [source_dir]`\n"
-                    "省略目录时使用 WIKI_MATERIALS_DIR；路径包含空格时请使用引号。"
+                    "省略目录时使用 WIKI_INPUTS_DIR；路径包含空格时请使用引号。"
                 )
             )
         job_service = ctx.agent.job_service
@@ -412,8 +412,8 @@ class CompileCommand(Command):
 
         if args:
             target = Path(args[0]).expanduser().resolve()
-        elif ctx.agent.materials_dir is not None:
-            target = ctx.agent.materials_dir
+        elif ctx.agent.inputs_dir is not None:
+            target = ctx.agent.inputs_dir
         else:
             return CommandResult(text="# /compile\n\n当前进程未装配默认源目录，请显式传入路径。")
         if not target.is_dir():

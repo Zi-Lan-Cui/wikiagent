@@ -403,7 +403,7 @@ class ReActAgent(BaseAgent):
         issue_service: IssueService,
         session_manager: SessionManager | None = None,
         wiki_dir: str | Path | None = None,
-        materials_dir: str | Path | None = None,
+        inputs_dir: str | Path | None = None,
         hooks: list[AgentHook] | None = None,
         agent_config=None,
         compile_config: CompileConfig | None = None,
@@ -416,9 +416,9 @@ class ReActAgent(BaseAgent):
         # issue_service 必备，RecordCorrection 工具依赖它。
         self.job_service = job_service
         self.llm = llm
-        # wiki/materials 路径由调用方注入，命令层从这里读取
+        # wiki/inputs 路径由调用方注入，命令层从这里读取
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
-        self.materials_dir = Path(materials_dir) if materials_dir is not None else None
+        self.inputs_dir = Path(inputs_dir) if inputs_dir is not None else None
         # vlm 供编译类命令使用（CompilePipeline 需要）
         self.vlm = vlm
         self.agent_config = agent_config or AgentCfg()

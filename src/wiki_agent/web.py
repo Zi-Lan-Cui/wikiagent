@@ -204,13 +204,13 @@ def create_app(
 
     @app.post("/api/sync", status_code=202)
     async def trigger_sync() -> dict[str, Any]:
-        """对 materials 当前状态做快照并入队一批同步任务；上一批未结束则 409。"""
-        jobs = app_runtime.sync_coordinator.submit_sync(app_runtime.materials_dir)
+        """对 inputs 当前状态做快照并入队一批同步任务；上一批未结束则 409。"""
+        jobs = app_runtime.sync_coordinator.submit_sync(app_runtime.inputs_dir)
         return {"count": len(jobs), "tasks": [_task(job) for job in jobs]}
 
     @app.get("/api/sync/status")
     async def sync_status() -> dict[str, int]:
-        return app_runtime.sync_coordinator.sync_status(app_runtime.materials_dir)
+        return app_runtime.sync_coordinator.sync_status(app_runtime.inputs_dir)
 
     # 维护端点：结构重组预览/提交、关联扫描提交；执行走同一任务队列
 

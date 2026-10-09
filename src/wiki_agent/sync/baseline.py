@@ -20,17 +20,17 @@ if TYPE_CHECKING:
 class SyncBaseline:
     """磁盘与已处理状态的一致性判定；待处理失败记录（open/blocked）不算落后。"""
 
-    def __init__(self, *, state: SyncState, issues: IssueStore, materials_dir: str | Path):
+    def __init__(self, *, state: SyncState, issues: IssueStore, inputs_dir: str | Path):
         self.state = state  # 与装配根/测试共享同一实例，不要另建
         self._issues = issues
-        self._materials_dir = Path(materials_dir)
+        self._inputs_dir = Path(inputs_dir)
 
     def lagging_sources(self) -> set[str]:
         """落后集合 = 脏文件 − 已有待处理失败记录的文件，返回绝对路径。
 
         失败过的源已有 issue 记录待用户处理，不再阻塞批操作。
         """
-        disk = scan_disk(self._materials_dir)
+        disk = scan_disk(self._inputs_dir)
         dirty, _removed = self.state.diff(disk)
         quarantined = {
             str(record.context.get("source_path") or "")

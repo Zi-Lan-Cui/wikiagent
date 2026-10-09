@@ -169,7 +169,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
                 ),
             )
             # submit_sync 需要基线判定磁盘与完成记录之差；缺了它沙箱批量编译不可用
-            baseline = SyncBaseline(state=state, issues=issue_store, materials_dir=batch_dir)
+            baseline = SyncBaseline(state=state, issues=issue_store, inputs_dir=batch_dir)
             sync_coordinator = SyncCoordinator(
                 queue=queue, issues=issue_store, snapshots=snapshots, baseline=baseline
             )

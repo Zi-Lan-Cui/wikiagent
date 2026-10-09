@@ -13,7 +13,7 @@ from wiki_agent.snapshots import SnapshotError, SnapshotStore
 
 
 def _src(tmp: Path) -> Path:
-    root = tmp / "materials"
+    root = tmp / "inputs"
     (root / "sub").mkdir(parents=True)
     (root / "a.md").write_text("内容甲", encoding="utf-8")
     (root / "sub" / "b.md").write_text("内容乙", encoding="utf-8")

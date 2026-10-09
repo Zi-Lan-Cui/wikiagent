@@ -32,8 +32,8 @@ class _Runtime:
         self.workspace = root / "workspace"
         self.wiki_dir = root / "wiki"
         self.wiki_dir.mkdir()
-        self.materials_dir = root / "materials"
-        self.materials_dir.mkdir()
+        self.inputs_dir = root / "inputs"
+        self.inputs_dir.mkdir()
         self.issue_store = make_issue_store(self.workspace)
         self.issue_service = IssueService(self.issue_store)
         # 统一执行模型：web 装配从 runtime 拿 job_service/job_worker
@@ -293,7 +293,7 @@ def test_bulk_retry_enqueues_available_manual_sources(tmp_path: Path):
 def test_sync_endpoint_snapshots_and_mutex(tmp_path: Path):
     """POST /api/sync 快照入队 202；同批未跑完再点 409；status 如实报数。"""
     runtime = _Runtime(tmp_path)
-    (runtime.materials_dir / "a.md").write_text("同步内容" * 10, encoding="utf-8")
+    (runtime.inputs_dir / "a.md").write_text("同步内容" * 10, encoding="utf-8")
     app = create_app(project_root=tmp_path, runtime=cast(AppRuntime, runtime))
 
     async def run():

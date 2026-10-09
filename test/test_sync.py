@@ -14,7 +14,7 @@ from wiki_agent.sync.state import SyncState
 
 
 def _svc(tmp: Path):
-    src = tmp / "materials"
+    src = tmp / "inputs"
     src.mkdir(parents=True, exist_ok=True)
     wiki = tmp / "wiki"
     wiki.mkdir(exist_ok=True)

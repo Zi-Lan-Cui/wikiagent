@@ -27,13 +27,13 @@ def make_job_store(workspace: str | Path) -> JobStore:
 
 
 def make_gate_service(tmp: Path) -> JobService:
-    """闸测试装配：备好 wiki/materials 目录并接入同步基线。"""
+    """闸测试装配：备好 wiki/inputs 目录并接入同步基线。"""
     (tmp / "wiki").mkdir(exist_ok=True)
-    (tmp / "materials").mkdir(exist_ok=True)
+    (tmp / "inputs").mkdir(exist_ok=True)
     return make_job_service(
         tmp,
         sync_state=SyncState(tmp / "watch" / "state.json"),
-        materials_dir=tmp / "materials",
+        inputs_dir=tmp / "inputs",
     )
 
 
@@ -56,7 +56,7 @@ def make_job_service(
     sync_state: SyncState | None = None,
     source_records_dir: str | Path | None = None,
     outcomes: JobOutcomeHandler | None = None,
-    materials_dir: str | Path | None = None,
+    inputs_dir: str | Path | None = None,
     wiki_dir: str | Path | None = None,
 ) -> JobService:
     workspace = Path(workspace)
@@ -76,9 +76,9 @@ def make_job_service(
             proposals=proposals,
         ),
     )
-    # sync_state 给了就接基线面与 sync 线；materials_dir 仅 lagging 判定用，缺省占位
+    # sync_state 给了就接基线面与 sync 线；inputs_dir 仅 lagging 判定用，缺省占位
     baseline = (
-        SyncBaseline(state=sync_state, issues=issues, materials_dir=materials_dir or workspace)
+        SyncBaseline(state=sync_state, issues=issues, inputs_dir=inputs_dir or workspace)
         if sync_state is not None
         else None
     )

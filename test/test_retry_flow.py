@@ -157,7 +157,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
     """sync 快照下 ingest 失败：SyncState 无记录；issue 记账等人，不排程。"""
     state = SyncState(tmp_path / "watch" / "state.json")
     service = make_job_service(tmp_path, sync_state=state)
-    src = tmp_path / "materials"
+    src = tmp_path / "inputs"
     source = src / "note.md"
     source.parent.mkdir(parents=True)
     source.write_text("失败输入" * 20, encoding="utf-8")

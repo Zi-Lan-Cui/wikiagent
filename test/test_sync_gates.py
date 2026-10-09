@@ -18,7 +18,7 @@ from wiki_agent.sync.state import SyncState
 
 
 def _dirty(tmp: Path, service, name: str = "new.md") -> Path:
-    f = tmp / "materials" / name
+    f = tmp / "inputs" / name
     f.write_text("未同步的内容" * 10, encoding="utf-8")
     return f
 
@@ -35,7 +35,7 @@ def test_sync_blocked_by_same_family_raises_sync_in_progress(tmp_path: Path, bus
     _dirty(tmp_path, service)
     put_in_flight(service, busy_kind)
     with pytest.raises(SyncInProgress):
-        service.submit_sync(tmp_path / "materials")
+        service.submit_sync(tmp_path / "inputs")
 
 
 @pytest.mark.parametrize("busy_kind", [Kind.RESTRUCTURE, Kind.LINK])
@@ -44,14 +44,14 @@ def test_sync_blocked_by_maintenance_raises_pipeline_busy(tmp_path: Path, busy_k
     _dirty(tmp_path, service)
     put_in_flight(service, busy_kind)
     with pytest.raises(PipelineBusy) as exc:
-        service.submit_sync(tmp_path / "materials")
+        service.submit_sync(tmp_path / "inputs")
     assert not isinstance(exc.value, SyncInProgress)
 
 
 def test_empty_sync_passes_while_anything_in_flight(tmp_path: Path):
     service = make_gate_service(tmp_path)
     put_in_flight(service, Kind.RESTRUCTURE)
-    assert service.submit_sync(tmp_path / "materials") == []
+    assert service.submit_sync(tmp_path / "inputs") == []
 
 
 def test_baseline_lag_formula_and_quarantine(tmp_path: Path):
@@ -75,7 +75,7 @@ def test_baseline_lag_formula_and_quarantine(tmp_path: Path):
     assert service.sync_baseline_lag() == set()
 
 
-def test_baseline_gate_skipped_without_materials(tmp_path: Path):
+def test_baseline_gate_skipped_without_inputs(tmp_path: Path):
     service = make_job_service(tmp_path, sync_state=SyncState(tmp_path / "s.json"))
     assert service.sync_baseline_lag() == set()
     service.baseline.raise_if_lagging()  # 不抛即通过

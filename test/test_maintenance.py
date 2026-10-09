@@ -95,13 +95,13 @@ def _seed_wiki(tmp: Path) -> Path:
 
 def _env(tmp: Path, llm: Any = None) -> tuple[JobService, JobWorker, Path]:
     wiki = _seed_wiki(tmp)
-    materials = tmp / "materials"
-    materials.mkdir(exist_ok=True)
+    inputs = tmp / "inputs"
+    inputs.mkdir(exist_ok=True)
     service = make_job_service(
         tmp / "ws",
         wiki_dir=wiki,
         sync_state=SyncState(tmp / "ws" / "watch" / "state.json"),
-        materials_dir=materials,
+        inputs_dir=inputs,
     )
     handler = MaintenanceJobHandler(llm, wiki_dir=wiki, source_records_dir=tmp / "prov", git=None)
     worker = JobWorker(service.queue)
@@ -165,7 +165,7 @@ def test_restructure_self_clash_raises_dedicated_error(tmp_path: Path):
 
 def test_submit_restructure_blocked_by_baseline_lag(tmp_path: Path):
     service, _worker, _wiki = _env(tmp_path)
-    (tmp_path / "materials" / "new.md").write_text("未同步" * 10, encoding="utf-8")
+    (tmp_path / "inputs" / "new.md").write_text("未同步" * 10, encoding="utf-8")
     with pytest.raises(SyncBaselineLag):
         service.submit_restructure([_merge_unit()])
 

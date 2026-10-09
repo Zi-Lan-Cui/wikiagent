@@ -52,7 +52,7 @@ class AppRuntime:
 
     def __init__(self, config: RootConfig, *, hooks: list[AgentHook] | None = None) -> None:
         self.config = config
-        self.materials_dir = config.paths.resolved_materials_dir()
+        self.inputs_dir = config.paths.resolved_inputs_dir()
         self.workspace = config.paths.resolved_workspace_dir()
         self.wiki_dir = config.paths.resolved_wiki_dir()
         self.source_records_dir = config.paths.resolved_source_records_dir()
@@ -67,7 +67,7 @@ class AppRuntime:
         self.git_manager = WikiGitManager(self.wiki_dir)
         self.snapshots = SnapshotStore(self.workspace)
         self.baseline = SyncBaseline(
-            state=self.sync_state, issues=self.issue_store, materials_dir=self.materials_dir
+            state=self.sync_state, issues=self.issue_store, inputs_dir=self.inputs_dir
         )
         self.job_queue = JobQueue(
             store=JobStore(database),
@@ -126,7 +126,7 @@ class AppRuntime:
             issue_service=self.issue_service,
             session_manager=self.session_manager,
             wiki_dir=self.wiki_dir,
-            materials_dir=self.materials_dir,
+            inputs_dir=self.inputs_dir,
             agent_config=config.agent,
             compile_config=config.compile,
             retry_config=config.retry,

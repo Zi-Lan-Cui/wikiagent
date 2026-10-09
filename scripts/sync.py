@@ -1,7 +1,7 @@
-"""手动快照同步：拍 materials 现状入队，本进程充当 worker 泵到队列空。
+"""手动快照同步：拍 inputs 现状入队，本进程充当 worker 泵到队列空。
 
 用法:
-    uv run python scripts/sync.py            # 配置的 materials 目录
+    uv run python scripts/sync.py            # 配置的 inputs 目录
     uv run python scripts/sync.py <dir>      # 指定源目录
 """
 
@@ -26,7 +26,7 @@ async def main(source_dir: str | None = None) -> None:
     configure_logging(console_level=logging.INFO)
     runtime = AppRuntime.from_project_root()
     service = runtime.job_service
-    target = Path(source_dir).resolve() if source_dir else runtime.materials_dir
+    target = Path(source_dir).resolve() if source_dir else runtime.inputs_dir
     setup_event_log(runtime.workspace / "logs" / "sync-events.jsonl")
 
     # 本进程充当 worker 泵：执行锁保证与 web/批脚本不同时写 wiki

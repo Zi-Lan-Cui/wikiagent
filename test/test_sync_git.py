@@ -62,7 +62,7 @@ class _FakePipeline:
 
 
 def _env(tmp: Path, *, fail_names: tuple[str, ...] = (), bad_names: tuple[str, ...] = ()):
-    src = tmp / "materials"
+    src = tmp / "inputs"
     src.mkdir(parents=True, exist_ok=True)
     wiki = tmp / "wiki"
     wiki.mkdir(exist_ok=True)

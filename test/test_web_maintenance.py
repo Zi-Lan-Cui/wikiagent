@@ -40,8 +40,8 @@ class _Runtime:
         self.config = SimpleNamespace(paths=SimpleNamespace(project_root=root))
         self.workspace = root / "workspace"
         self.wiki_dir = root / "wiki"
-        self.materials_dir = root / "materials"
-        for d in (self.wiki_dir / "concepts", self.materials_dir):
+        self.inputs_dir = root / "inputs"
+        for d in (self.wiki_dir / "concepts", self.inputs_dir):
             d.mkdir(parents=True)
         for slug, title in (("a", "甲"), ("b", "乙")):
             (self.wiki_dir / "concepts" / f"{slug}.md").write_text(
@@ -54,7 +54,7 @@ class _Runtime:
         self.job_service = make_job_service(
             self.workspace,
             wiki_dir=self.wiki_dir,
-            materials_dir=self.materials_dir,
+            inputs_dir=self.inputs_dir,
             sync_state=SyncState(self.workspace / "watch" / "state.json"),
         )
         self.sync_coordinator = self.job_service.sync
