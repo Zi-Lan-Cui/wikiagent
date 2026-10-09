@@ -67,11 +67,15 @@ async def propose_units(llm: Any, wiki_dir: str | Path) -> list[Unit]:
     units: list[Unit] = []
     for raw in prompts.json_of(response.content)["units"]:
         in_pages = [str(s) for s in raw["in_pages"]]
-        out = [
-            OutPage.from_dict(p)
-            for p in raw["out"]
-            if isinstance(p, dict) and str(p.get("slug") or "")
+        # 畸形 out 条目整单元丢弃：静默过滤会把"合并"悄悄变成 out=[] 的删除声明，
+        # 真删除是模型显式给空清单，不该由解析失败冒充
+        malformed = [
+            p for p in raw.get("out") or [] if not isinstance(p, dict) or not str(p.get("slug") or "")
         ]
+        if malformed:
+            logger.info("  粗提含损坏的输出页声明，丢弃单元: %s", malformed[:3])
+            continue
+        out = [OutPage.from_dict(p) for p in raw.get("out") or []]
         unknown = [s for s in in_pages if s not in known]
         if unknown:
             logger.info("  粗提含未知页，丢弃单元: %s", unknown)
