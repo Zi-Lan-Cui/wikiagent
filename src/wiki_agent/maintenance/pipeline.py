@@ -13,13 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from wiki_agent.compiler.content_pages import all_content_slugs
-from wiki_agent.compiler.restructure import (
+from wiki_agent.log import get_logger
+from wiki_agent.maintenance.restructure import (
     Unit,
     propose_units,
     recheck_units,
     resolve_unit_conflicts,
 )
-from wiki_agent.log import get_logger
 
 logger = get_logger("MAINTENANCE")
 

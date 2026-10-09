@@ -19,11 +19,11 @@ from wiki_agent.application.issue_actions import IssueActionExecutor, register_j
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.application.session_service import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
-from wiki_agent.compiler.restructure import Unit
 from wiki_agent.conversation import SessionManager
 from wiki_agent.events import EventPublisher
 from wiki_agent.issues import IssueService
 from wiki_agent.maintenance.pipeline import MaintenanceOutcome
+from wiki_agent.maintenance.restructure import Unit
 from wiki_agent.queue import Kind
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.sync.state import SyncState

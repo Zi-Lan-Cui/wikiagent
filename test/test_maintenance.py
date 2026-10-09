@@ -15,15 +15,15 @@ import pytest
 from helpers import make_job_service
 
 from wiki_agent.application.job_service import JobService
-from wiki_agent.compiler import restructure as rs
+from wiki_agent.maintenance import restructure as rs
 from wiki_agent.compiler.content_pages import all_content_slugs
-from wiki_agent.compiler.link import apply_link_fixes
-from wiki_agent.compiler.restructure import plan as plan_mod
-from wiki_agent.compiler.restructure import prompts
-from wiki_agent.compiler.restructure import route as route_mod
 from wiki_agent.conversation import LLMResponse
 from wiki_agent.maintenance import jobs as maintenance_jobs_mod
 from wiki_agent.maintenance.jobs import MaintenanceJobHandler
+from wiki_agent.maintenance.link import apply_link_fixes
+from wiki_agent.maintenance.restructure import plan as plan_mod
+from wiki_agent.maintenance.restructure import prompts
+from wiki_agent.maintenance.restructure import route as route_mod
 from wiki_agent.queue import (
     Kind,
     PipelineBusy,
@@ -360,7 +360,7 @@ def test_settlement_values_registered():
 
 def test_rewrite_links_for_vanished_strips_related(tmp_path: Path):
     """related 指向消失页必须整项移除——转纯文本会留死残项（真实扫描闸抓到）。"""
-    from wiki_agent.compiler.restructure.apply import rewrite_links_for_vanished
+    from wiki_agent.maintenance.restructure.apply import rewrite_links_for_vanished
 
     wiki = _seed_wiki(tmp_path)
     c = wiki / "concepts/c.md"

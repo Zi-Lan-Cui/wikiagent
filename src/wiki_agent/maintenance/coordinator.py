@@ -5,8 +5,7 @@ restructure 在途抛 RestructureInProgress，其余写在途抛 PipelineBusy，
 基线落后抛 SyncBaselineLag。整理分析不是写任务，但结论基于 wiki 现状，
 同样被写在途与基线挡住——基于执行中 wiki 的提议没有执行价值。
 
-单元校验与批尾补链目标要读 wiki 盘面与 restructure 声明模型（compiler），
-是本线知识；提议账本与提交同事务挂账，重复提交被 CAS 拒绝。
+单元校验与批尾补链目标要读 wiki 盘面与 restructure 声明模型，同在本包内；提议账本与提交同事务挂账，重复提交被 CAS 拒绝。
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from wiki_agent.compiler.content_pages import all_content_slugs
-from wiki_agent.compiler.restructure import Unit, UnitError, assert_units_valid, pages_linking_to
+from wiki_agent.maintenance.restructure import Unit, UnitError, assert_units_valid, pages_linking_to
 from wiki_agent.queue import Job, Kind, RestructureInProgress
 from wiki_agent.queue.queue import JobQueue
 

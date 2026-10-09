@@ -21,8 +21,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from wiki_agent.compiler.content_pages import all_content_slugs
-from wiki_agent.compiler.link import apply_link_fixes, plan_link_fixes
-from wiki_agent.compiler.restructure import (
+from wiki_agent.log import emit_event, get_logger
+from wiki_agent.maintenance.link import apply_link_fixes, plan_link_fixes
+from wiki_agent.maintenance.restructure import (
     RouteError,
     Unit,
     UnitMismatchError,
@@ -30,7 +31,6 @@ from wiki_agent.compiler.restructure import (
     prepare_unit,
     rewrite_unit_page,
 )
-from wiki_agent.log import emit_event, get_logger
 from wiki_agent.queue import Job, JobResult, Kind, Settlement
 from wiki_agent.queue.wiki_write import (
     Subject,

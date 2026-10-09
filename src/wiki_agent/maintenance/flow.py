@@ -9,11 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.compiler.restructure import UnitError
 from wiki_agent.maintenance.pipeline import (
     MaintenanceOutcome,
     propose_maintenance,
 )
+from wiki_agent.maintenance.restructure import UnitError
 from wiki_agent.queue import Job, PipelineBusy, SyncBaselineLag
 
 
