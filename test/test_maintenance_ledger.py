@@ -74,20 +74,40 @@ def test_dismiss_and_submit_cas(tmp_path: Path):
 
 
 def test_submit_restructure_marks_proposal_in_same_transaction(tmp_path: Path):
-    """带 proposal_id 的提交：入队与账本处置同一事务，disposition 记全部任务行。"""
+    """带 proposal_id 的提交：清单出自提议，入队与账本处置同一事务。"""
     wiki = _build_wiki(tmp_path)
     workspace = tmp_path / "workspace"
     service = make_job_service(workspace, wiki_dir=wiki)
-    proposal = service.proposals.record("job_seed", _PAYLOAD)
-
     unit = Unit(in_pages=["concepts/a", "concepts/b"], out=[], reason="整体清理")
+    proposal = service.proposals.record(
+        "job_seed", {"healthy": False, "effective": [unit.to_dict()]}
+    )
+
     jobs = service.submit_restructure([unit.to_dict()], proposal.id)
 
     assert jobs[0].kind == str(Kind.RESTRUCTURE)
     settled = service.proposals.require(proposal.id)
     assert settled.resolution is Resolution.SUBMITTED
     assert settled.disposition["job_ids"] == [job.id for job in jobs]
+    assert settled.disposition["accepted"] == [{"in_pages": ["concepts/a", "concepts/b"], "out": []}]
     assert service.proposals.list_pending() == []
+
+
+def test_submit_restructure_rejects_units_outside_proposal(tmp_path: Path):
+    """部分采纳合法，提议之外的单元拒绝——审计链不靠客户端自律。"""
+    wiki = _build_wiki(tmp_path)
+    service = make_job_service(tmp_path / "workspace", wiki_dir=wiki)
+    unit = Unit(in_pages=["concepts/a"], out=[], reason="删 a")
+    proposal = service.proposals.record(
+        "job_seed", {"healthy": False, "effective": [unit.to_dict()]}
+    )
+
+    with pytest.raises(ValueError, match="不在提议之内"):
+        service.submit_restructure(
+            [Unit(in_pages=["concepts/b"], out=[], reason="删 b").to_dict()], proposal.id
+        )
+    assert service.proposals.require(proposal.id).resolution is Resolution.PENDING
+    assert service.count_in_flight() == 0
 
 
 def test_legacy_preview_rows_migrate_into_ledger(tmp_path: Path):

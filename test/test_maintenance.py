@@ -10,6 +10,7 @@ import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from helpers import make_job_service
@@ -92,7 +93,7 @@ def _seed_wiki(tmp: Path) -> Path:
     return wiki
 
 
-def _env(tmp: Path) -> tuple[JobService, JobWorker, Path]:
+def _env(tmp: Path, llm: Any = None) -> tuple[JobService, JobWorker, Path]:
     wiki = _seed_wiki(tmp)
     materials = tmp / "materials"
     materials.mkdir(exist_ok=True)
@@ -102,7 +103,7 @@ def _env(tmp: Path) -> tuple[JobService, JobWorker, Path]:
         sync_state=SyncState(tmp / "ws" / "watch" / "state.json"),
         materials_dir=materials,
     )
-    handler = MaintenanceJobHandler(None, wiki_dir=wiki, source_records_dir=tmp / "prov", git=None)
+    handler = MaintenanceJobHandler(llm, wiki_dir=wiki, source_records_dir=tmp / "prov", git=None)
     worker = JobWorker(service.queue)
     handler.register_jobs(worker)
     return service, worker, wiki
@@ -459,3 +460,64 @@ def test_fill_frontmatter_backfills_skeleton_without_overwrite():
     assert fm["title"] == "甲" and str(fm["related"]) == "[]"  # 已有值不覆盖、其余 key 不动
     ok = _FM.format(type="concept", title="甲") + "# 甲\n\n正文\n"
     assert _fill_frontmatter(ok, {"summary": "不该出现"}) == ok
+
+
+def test_rewrite_body_fragment_synthetically_lands(tmp_path: Path, monkeypatch):
+    """成文只回正文片段（无 frontmatter）：check 放行，骨架合成整页落盘。"""
+
+    class _TextLLM:
+        retry_config = SimpleNamespace(llm_max_attempts=2, llm_base_delay_seconds=0.0)
+
+        async def async_invoke(self, messages, **kw):
+            return LLMResponse(content="# 甲乙合并页\n\n合并后的正文。")
+
+    service, worker, wiki = _env(tmp_path, llm=_TextLLM())
+    monkeypatch.setattr(plan_mod, "route_unit", _fake_route(_all_to_first))
+
+    async def empty_plan(llm, wiki_dir, slug):
+        return []
+
+    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", empty_plan)
+    jobs = service.submit_restructure([_merge_unit()])
+    asyncio.run(worker.run_once())
+    row = service.get(jobs[0].id)
+    assert row.status == "succeeded", row.error
+    fm, body = split_frontmatter((wiki / "concepts/a.md").read_text(encoding="utf-8"))
+    assert fm.get("title") and "合并后的正文" in body
+
+
+def test_propose_drops_unit_with_malformed_out(tmp_path: Path):
+    """out 含损坏条目整单元丢弃：静默过滤会把"合并"悄悄变成删除声明。"""
+    wiki = _seed_wiki(tmp_path)
+    payload = {
+        "units": [
+            {"in_pages": ["concepts/a", "concepts/b"], "out": [{"slug": "concepts/a"}, None]},
+            {"in_pages": ["concepts/b"], "out": ["裸字符串"]},
+            {"in_pages": ["concepts/a"], "out": []},
+        ]
+    }
+    units = asyncio.run(rs.propose_units(_LLM(payload), wiki))
+    assert len(units) == 1 and units[0].in_pages == ["concepts/a"] and units[0].out == []
+
+
+def test_validate_unit_rejects_overwriting_unconsumed_page():
+    u = rs.Unit(in_pages=["concepts/a"], out=[rs.OutPage(slug="concepts/b", intent="占位")])
+    assert "已存在但不在本单元输入" in rs.validate_unit(u, {"concepts/a", "concepts/b"})
+
+
+def test_link_fix_targets_only_body(tmp_path: Path, monkeypatch):
+    """替换只作用于正文：wikilink 不会经 find 撞进 frontmatter。"""
+    service, worker, wiki = _env(tmp_path)
+
+    async def one_fix(llm, wiki_dir, slug):
+        return [{"find": "甲主题", "replace": "[[concepts/b|乙]]"}]
+
+    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", one_fix)
+    jobs = service.submit_link_batch(["concepts/a"])
+    asyncio.run(worker.run_once())
+    row = service.get(jobs[0].id)
+    assert row.status == "succeeded", row.error
+    text = (wiki / "concepts/a.md").read_text(encoding="utf-8")
+    fm, body = split_frontmatter(text)
+    # normalize 会把出链自动收进 related——那是它的同步行为，不是 find 撞进元数据
+    assert fm.get("title") == "甲" and "[[concepts/b" in body
