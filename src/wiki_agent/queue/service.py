@@ -1,7 +1,4 @@
-"""持久化任务的统一提交口与生命周期入口。
-
-提交入口集中于此；终态只由 complete_with_outcome 写入，jobs 行与 issue 变更
-同事务、带 CAS。
+"""业务线提交入口的过渡壳：判闸与入队在这里，行生命周期委托 JobQueue。
 
 互斥：写 wiki 的任务（compile/delete/restructure/link，见 WIKI_WRITE_KINDS）有
 在途行时，写类提交抛 PipelineBusy；同族冲突用其子类 SyncInProgress（sync 遇在途
@@ -25,7 +22,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
-from wiki_agent.errors import ERROR_SUMMARY_LIMIT, summarize_error
 from wiki_agent.issues import (
     IssueActionConflict,
     IssueKind,
@@ -33,7 +29,7 @@ from wiki_agent.issues import (
     IssueStatus,
     IssueStore,
 )
-from wiki_agent.jobs import (
+from wiki_agent.queue import (
     WIKI_WRITE_KINDS,
     Job,
     JobResult,
@@ -44,26 +40,19 @@ from wiki_agent.jobs import (
     SyncBaselineLag,
     SyncInProgress,
 )
-from wiki_agent.jobs.outcomes import JobOutcomeHandler
-from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
+from wiki_agent.queue.outcomes import JobOutcomeHandler
+from wiki_agent.queue.queue import JobQueue
+from wiki_agent.queue.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.snapshots import SnapshotError, SnapshotStore
 
 if TYPE_CHECKING:
     from wiki_agent.maintenance import ProposalStore
 
-# detail 中的大字段：仅供 outcomes 同事务内消费（写完成记录、issue 记账、档案页
-# 落盘），不持久化进 jobs 行——否则 state.db 随每轮 sync 膨胀、list() 反复反序列化大对象
-_NON_PERSISTED_RESULT_KEYS = ("text", "source_page", "archive_ops", "raw")
-
-
-def _persistable_result(detail: dict) -> dict:
-    return {k: v for k, v in detail.items() if k not in _NON_PERSISTED_RESULT_KEYS}
-
 
 class Baseline(Protocol):
-    """jobs 提交口依赖的同步基线协议，由 sync 域实现（SyncBaseline）。
+    """提交口依赖的同步基线协议，由 sync 域实现（SyncBaseline）。
 
-    经装配根注入、方法体不 import sync，保持 jobs 与 sync 的单向依赖。
+    经装配根注入、方法体不 import sync，保持提交口与 sync 的单向依赖。
     """
 
     def lagging_sources(self) -> set[str]: ...
@@ -90,8 +79,8 @@ class MaintenancePlanner(Protocol):
     """维护线共用的规划面：重组批规划与独立补链目标判定。
 
     实现在 maintenance 包，按协议注入提交口（与 Baseline 同构，断
-    jobs→compiler 边）：校验单元声明、算批尾补链波及面要读 wiki 盘面与
-    restructure 声明模型，是领域知识；jobs 提交口只保留事务、幂等键与互斥。
+    提交口→compiler 边）：校验单元声明、算批尾补链波及面要读 wiki 盘面与
+    restructure 声明模型，是领域知识；提交口只保留事务、幂等键与互斥。
     """
 
     def plan_restructure(self, units: list[dict], wiki_dir: Path) -> RestructurePlan:
@@ -104,7 +93,7 @@ class MaintenancePlanner(Protocol):
 
 
 class JobService:
-    """一切可执行工作的提交口与生命周期入口。"""
+    """一切可执行工作的提交口；机制部分委托 JobQueue。"""
 
     def __init__(
         self,
@@ -118,6 +107,8 @@ class JobService:
         wiki_dir: str | Path | None = None,
         proposals: ProposalStore | None = None,
     ):
+        self.queue = JobQueue(store=store, snapshots=snapshots, outcomes=outcomes)
+        # 提交口与测试读模型共用同一份底层对象，壳只转发不另持引用
         self.store = store
         self.issues = issues
         self.snapshots = snapshots
@@ -129,37 +120,25 @@ class JobService:
         # 维护提议账本由装配根注入；带 proposal_id 的提交与 web 处置口需要
         self.proposals = proposals
         self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
-        self.recovered_jobs = 0
-        # 清扫崩溃遗留的无引用快照目录，保留非终态任务引用的批
-        self.snapshots.sweep_orphans(self.store.in_flight_batch_ids())
 
     def recover_stale(self) -> int:
-        """把超时残留的 running 行回队——仅执行锁持有者调用。
+        return self.queue.recover_stale()
 
-        不在构造期自动跑：构造 service 不代表持有执行锁，第二进程构造期回队
-        会与正在执行的 job 双写 wiki。装配根与脚本在持锁后显式调用。
-        """
-        self.recovered_jobs = self.store.recover_stale()
-        return self.recovered_jobs
+    @property
+    def recovered_jobs(self) -> int:
+        return self.queue.recovered_jobs
 
     def _in_flight_wiki_write_counts(
         self, _conn: sqlite3.Connection | None = None
     ) -> dict[str, int]:
-        """写 wiki 各 kind 的在途行数，互斥判定的依据。"""
-        counts = self.store.in_flight_kinds(_conn=_conn)
-        return {kind: n for kind, n in counts.items() if kind in WIKI_WRITE_KINDS}
-
-    @staticmethod
-    def _pipeline_busy(busy: dict[str, int]) -> PipelineBusy:
-        parts = "、".join(f"{kind} {n} 个" for kind, n in sorted(busy.items()))
-        return PipelineBusy(f"写 wiki 的任务在途（{parts}）：等当前批到达终态后再提交")
+        return self.queue.in_flight_wiki_write_counts(_conn=_conn)
 
     @staticmethod
     def _sync_blocked(busy: dict[str, int]) -> PipelineBusy:
         """sync 遇在途 compile/delete 抛 SyncInProgress，其余在途抛 PipelineBusy。"""
         if Kind.COMPILE in busy or Kind.DELETE in busy:
             return SyncInProgress()
-        return JobService._pipeline_busy(busy)
+        return JobQueue.pipeline_busy(busy)
 
     def sync_baseline_lag(self) -> set[str]:
         """基线落后集合；未注入基线面时返回空集。"""
@@ -187,7 +166,7 @@ class JobService:
         issue_id: str = "",
         _conn: sqlite3.Connection | None = None,
     ) -> Job:
-        return self.store.enqueue(
+        return self.queue.submit(
             kind=kind,
             resource=resource,
             mode=mode,
@@ -263,7 +242,7 @@ class JobService:
                         jobs.append(occupant)
                         continue
                     if external_busy:
-                        raise self._pipeline_busy(external_busy)
+                        raise JobQueue.pipeline_busy(external_busy)
                     used.add(batch)
                     jobs.append(
                         self.store.enqueue(
@@ -512,7 +491,7 @@ class JobService:
         return jobs
 
     def submit_restructure_preview(self) -> Job:
-        """整理结构分析入队（提议→复核→消解）：只产建议清单，不写 wiki。
+        """整理结构分析入队（提议→复核→冲突消解）：只产建议清单，不写 wiki。
 
         提交前互斥与基线判定同维护口：有写在途或基线落后即拒——基于执行中
         wiki 的提议没有执行价值。resource 与幂等键固定，重复发起收敛为同一在途分析。
@@ -521,7 +500,7 @@ class JobService:
         with self.store.transaction(immediate=True) as conn:
             busy = self._in_flight_wiki_write_counts(_conn=conn)
             if busy:
-                raise self._pipeline_busy(busy)
+                raise JobQueue.pipeline_busy(busy)
             self._raise_if_baseline_lagging()
             return self.store.enqueue(
                 kind=Kind.MAINTENANCE_PREVIEW,
@@ -538,71 +517,34 @@ class JobService:
         if Kind.RESTRUCTURE in busy:
             raise RestructureInProgress()
         if busy:
-            raise self._pipeline_busy(busy)
+            raise JobQueue.pipeline_busy(busy)
         self._raise_if_baseline_lagging()
 
-    # 执行生命周期（Worker 独占）
+    # 执行生命周期与只读视图：全部委托 JobQueue
 
     def claim_next(self, *, kinds: set[str] | None = None) -> Job | None:
-        return self.store.claim_next(kinds=kinds)
+        return self.queue.claim_next(kinds=kinds)
 
     def mark_stage(self, job_id: str, stage: str) -> Job:
-        # 刷新 updated_at：recover_stale 依据它判超时
-        return self.store.update(job_id, stage=stage)
+        return self.queue.mark_stage(job_id, stage)
 
     def complete_with_outcome(self, job: Job, result: JobResult) -> Job:
-        """唯一终态提交点：jobs 行与 issue 联动同事务。
-
-        带 CAS（仅 running 可翻转）：行已被取代或取消时迟到写静默跳过——不联动、
-        不改 issue，返回行的现状。SyncState 与溯源档案页的文件写在提交之后。失败
-        即终态，不产生后继 job。
-        """
-        with self.store.transaction(immediate=True) as conn:
-            won = self.store.try_finalize(
-                job.id,
-                status=result.status,
-                stage={"succeeded": "done", "cancelled": "cancelled"}.get(result.status),
-                error=(
-                    summarize_error(result.detail.get("error"), ERROR_SUMMARY_LIMIT)
-                    if result.status == "failed"
-                    else None
-                ),
-                result=_persistable_result(result.detail),
-                _conn=conn,
-            )
-            if not won:
-                return self.store.get(job.id, _conn=conn)
-            post_commit = self.outcomes.apply(job, result, conn)
-        for action in post_commit:
-            action()
-        # 批内最后一个任务进终态后删除该批快照目录
-        batch = str(job.payload.get("batch") or "")
-        if batch and self.store.count_in_flight_for_batch(batch) == 0:
-            self.snapshots.drop_batch(batch)
-        return self.store.get(job.id)
+        return self.queue.complete_with_outcome(job, result)
 
     def cancel_terminal(self, job: Job) -> None:
-        """进程取消路径：以 CAS 将行置为 cancelled。
-
-        提交时未改 issue 状态，取消无需回转任何关联记录。
-        """
-        self.store.try_finalize(job.id, status="cancelled", stage="cancelled")
+        self.queue.cancel_terminal(job)
 
     def list(self, *, limit: int = 100) -> list[Job]:
-        return self.store.list(limit=limit)
+        return self.queue.list(limit=limit)
 
     def get(self, job_id: str) -> Job:
-        """按 id 读一行；不存在时抛 LookupError。"""
-        return self.store.get(job_id)
+        return self.queue.get(job_id)
 
     def count_in_flight(self) -> int:
-        """在途（queued/running）行数——脚本驱动队列到空的判据。"""
-        return self.store.count_in_flight()
+        return self.queue.count_in_flight()
 
     def in_flight_issue_ids(self) -> set[str]:
-        """有关联 queued/running job 的 issue id 集合。"""
-        return set(self.store.open_issue_ids_with_in_flight_job())
+        return self.queue.in_flight_issue_ids()
 
     def wiki_write_in_flight(self) -> int:
-        """写 wiki 的在途 job 数，供 /wiki revert 前检查（WIKI_WRITE_KINDS）。"""
-        return self.store.in_flight_for_kinds(WIKI_WRITE_KINDS)
+        return self.queue.wiki_write_in_flight()

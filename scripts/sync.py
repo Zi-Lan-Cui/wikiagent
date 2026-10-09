@@ -15,8 +15,8 @@ from pathlib import Path
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.issues.producers import report_quality_findings
-from wiki_agent.jobs import PipelineBusy
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
+from wiki_agent.queue import PipelineBusy
 from wiki_agent.wiki.quality import scan_wiki
 
 logger = get_logger("SYNC")

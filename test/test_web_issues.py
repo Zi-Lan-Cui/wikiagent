@@ -19,8 +19,8 @@ from wiki_agent.application.wiki_browser import WikiBrowser
 from wiki_agent.conversation import SessionManager
 from wiki_agent.events import EventPublisher
 from wiki_agent.issues import IssueDraft, IssueKind, IssueService, IssueStatus
-from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.log import emit_event
+from wiki_agent.queue.worker import JobWorker
 from wiki_agent.sync.state import SyncState
 from wiki_agent.web import create_app
 

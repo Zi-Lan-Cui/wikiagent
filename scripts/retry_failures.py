@@ -14,9 +14,9 @@ import sys
 from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
-from wiki_agent.jobs import PipelineBusy
-from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import configure_logging, get_logger
+from wiki_agent.queue import PipelineBusy
+from wiki_agent.queue.retry_source import SourceUnavailableError
 
 logger = get_logger("RETRY_FAILURES")
 

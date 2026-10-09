@@ -37,8 +37,8 @@ from wiki_agent.issues import (
     IssueStore,
 )
 from wiki_agent.issues.models import JsonObject
-from wiki_agent.jobs import Job, JobResult, Kind, Settlement
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.queue import Job, JobResult, Kind, Settlement
 
 if TYPE_CHECKING:
     from wiki_agent.maintenance import ProposalStore

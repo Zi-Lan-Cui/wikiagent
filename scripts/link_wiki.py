@@ -21,8 +21,8 @@ from wiki_agent.application.queue_pump import drain_queue
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
-from wiki_agent.jobs import PipelineBusy, SyncBaselineLag
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
+from wiki_agent.queue import PipelineBusy, SyncBaselineLag
 
 logger = get_logger("LINK_WIKI")
 

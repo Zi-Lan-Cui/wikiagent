@@ -10,9 +10,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
-from wiki_agent.jobs import Job, JobResult
-from wiki_agent.jobs.service import JobService
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.queue import Job, JobResult
+from wiki_agent.queue.service import JobService
 
 JobHandler = Callable[[Job, Callable[[str], None]], Awaitable[JobResult]]
 

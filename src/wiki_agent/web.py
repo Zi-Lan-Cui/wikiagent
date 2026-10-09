@@ -25,11 +25,11 @@ from wiki_agent.issues import (
     IssueNotFoundError,
     IssueStatus,
 )
-from wiki_agent.jobs import DuplicateInFlightJob, PipelineBusy, SyncBaselineLag
-from wiki_agent.jobs.card_view import task_card
-from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import get_logger, setup_event_log
 from wiki_agent.maintenance import ProposalAlreadyResolvedError, ProposalNotFoundError
+from wiki_agent.queue import DuplicateInFlightJob, PipelineBusy, SyncBaselineLag
+from wiki_agent.queue.card_view import task_card
+from wiki_agent.queue.retry_source import SourceUnavailableError
 from wiki_agent.snapshots import SnapshotError
 from wiki_agent.wiki import WikiPageNotFound
 

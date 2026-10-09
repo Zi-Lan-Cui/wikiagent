@@ -21,17 +21,17 @@ from wiki_agent.compiler.restructure import plan as plan_mod
 from wiki_agent.compiler.restructure import prompts
 from wiki_agent.compiler.restructure import route as route_mod
 from wiki_agent.conversation import LLMResponse
-from wiki_agent.jobs import (
+from wiki_agent.maintenance import jobs as maintenance_jobs_mod
+from wiki_agent.maintenance.jobs import MaintenanceJobHandler
+from wiki_agent.queue import (
     Kind,
     PipelineBusy,
     RestructureInProgress,
     Settlement,
     SyncBaselineLag,
 )
-from wiki_agent.jobs.service import JobService
-from wiki_agent.jobs.worker import JobWorker
-from wiki_agent.maintenance import jobs as maintenance_jobs_mod
-from wiki_agent.maintenance.jobs import MaintenanceJobHandler
+from wiki_agent.queue.service import JobService
+from wiki_agent.queue.worker import JobWorker
 from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.rules import count_unclosed_fences

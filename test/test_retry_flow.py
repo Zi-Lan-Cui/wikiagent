@@ -13,9 +13,9 @@ from helpers import make_issue_store, make_job_service
 
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueActionConflict, IssueDraft, IssueKind, IssueStatus
-from wiki_agent.jobs import JobResult, PipelineBusy
-from wiki_agent.jobs.service import JobService
-from wiki_agent.jobs.worker import JobWorker
+from wiki_agent.queue import JobResult, PipelineBusy
+from wiki_agent.queue.service import JobService
+from wiki_agent.queue.worker import JobWorker
 from wiki_agent.snapshots import digest_file_text
 from wiki_agent.sync.source_jobs import SourceJobHandler
 from wiki_agent.sync.state import SyncState
@@ -260,7 +260,7 @@ def test_final_result_persists_bounded_facts_only(tmp_path: Path):
     """终态落账只留有界事实：正文级 detail 键供 outcomes 进程内消费，
     不进 jobs 行——否则 state.db 随每轮 sync 无界膨胀、list() 反复反序列化大 blob。
     """
-    from wiki_agent.jobs import JobResult, Kind
+    from wiki_agent.queue import JobResult, Kind
 
     service = make_job_service(tmp_path)
     service.submit(kind=Kind.COMPILE, resource="/doc.md", mode="sync")

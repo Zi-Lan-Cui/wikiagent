@@ -8,8 +8,8 @@
 
 from pathlib import Path
 
-from wiki_agent.jobs.models import Settlement
-from wiki_agent.jobs.outcomes import ISSUE_RULES
+from wiki_agent.queue.models import Settlement
+from wiki_agent.queue.outcomes import ISSUE_RULES
 
 # 不碰 issue 账本的显式名单：成功但不产生 issue 动作的类别
 NO_ISSUE_LEDGER: set[Settlement] = {

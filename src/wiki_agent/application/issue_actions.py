@@ -19,15 +19,15 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.issues.projectors import available_actions, to_card
-from wiki_agent.jobs import Job, JobResult, Kind, Settlement
-from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
+from wiki_agent.queue import Job, JobResult, Kind, Settlement
+from wiki_agent.queue.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
     from wiki_agent.application.runtime import AppRuntime
     from wiki_agent.issues.models import IssueCard
     from wiki_agent.issues.service import IssueService
-    from wiki_agent.jobs.worker import JobWorker
+    from wiki_agent.queue.worker import JobWorker
 
 
 def resolve_correction_issue(

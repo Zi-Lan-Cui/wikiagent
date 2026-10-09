@@ -12,13 +12,13 @@ import pytest
 from helpers import make_job_service
 
 from wiki_agent.issues import IssueDraft, IssueKind
-from wiki_agent.jobs import (
+from wiki_agent.queue import (
     Kind,
     PipelineBusy,
     SyncBaselineLag,
     SyncInProgress,
 )
-from wiki_agent.jobs.service import JobService
+from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import digest_file_text
 from wiki_agent.sync.state import SyncState
 

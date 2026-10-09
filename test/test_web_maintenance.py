@@ -23,9 +23,9 @@ from wiki_agent.compiler.restructure import Unit
 from wiki_agent.conversation import SessionManager
 from wiki_agent.events import EventPublisher
 from wiki_agent.issues import IssueService
-from wiki_agent.jobs import Kind
-from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.maintenance.pipeline import MaintenanceOutcome
+from wiki_agent.queue import Kind
+from wiki_agent.queue.worker import JobWorker
 from wiki_agent.sync.state import SyncState
 from wiki_agent.web import create_app
 
@@ -241,7 +241,7 @@ def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
 
 def test_maintenance_proposal_dismiss_flow(tmp_path: Path):
     """待处置提议可查、可否决；重复否决拒绝、未知 id 404、任务行 result 不被改写。"""
-    from wiki_agent.jobs import JobResult, Kind, Settlement
+    from wiki_agent.queue import JobResult, Kind, Settlement
 
     runtime = _Runtime(tmp_path)
 
@@ -290,7 +290,7 @@ def test_new_preview_supersedes_previous_pending(tmp_path: Path):
     发起新一轮不提前作废（分析失败旧提议仍在）；作废只发生在成功入账
     时刻，处置记录随各行留痕可审计；其他 kind 不受账本操作影响。
     """
-    from wiki_agent.jobs import JobResult, Kind, Settlement
+    from wiki_agent.queue import JobResult, Kind, Settlement
 
     runtime = _Runtime(tmp_path)
     first = runtime.job_service.submit_restructure_preview()

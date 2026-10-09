@@ -42,16 +42,16 @@ from typing import TYPE_CHECKING
 from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.compiler.workflows.ingest import CompilePipeline
 from wiki_agent.errors import IngestError, IngestStage
-from wiki_agent.jobs import Job, JobResult, Kind, Settlement
-from wiki_agent.jobs.wiki_write import (
+from wiki_agent.log import emit_event, get_logger
+from wiki_agent.materials.loader import DataLoader
+from wiki_agent.queue import Job, JobResult, Kind, Settlement
+from wiki_agent.queue.wiki_write import (
     Subject,
     WikiWrite,
     WikiWriteSession,
     commit_subject,
     debris_dir_for,
 )
-from wiki_agent.log import emit_event, get_logger
-from wiki_agent.materials.loader import DataLoader
 from wiki_agent.snapshots import SnapshotStore, digest_file_text
 from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
@@ -59,7 +59,7 @@ from wiki_agent.wiki.pages import CONTENT_DIRS
 from wiki_agent.wiki.quality import scan_source
 
 if TYPE_CHECKING:
-    from wiki_agent.jobs.worker import JobWorker
+    from wiki_agent.queue.worker import JobWorker
     from wiki_agent.versioning import WikiGitManager
 
 logger = get_logger("SOURCE_JOBS")

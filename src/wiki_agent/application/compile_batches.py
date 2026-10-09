@@ -135,11 +135,11 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
         from wiki_agent.compiler.workflows.ingest import CompilePipeline
         from wiki_agent.database import Database
         from wiki_agent.issues import IssueStore
-        from wiki_agent.jobs import JobStore
-        from wiki_agent.jobs.outcomes import JobOutcomeHandler
-        from wiki_agent.jobs.service import JobService
-        from wiki_agent.jobs.worker import JobWorker
         from wiki_agent.log import setup_event_log
+        from wiki_agent.queue import JobStore
+        from wiki_agent.queue.outcomes import JobOutcomeHandler
+        from wiki_agent.queue.service import JobService
+        from wiki_agent.queue.worker import JobWorker
         from wiki_agent.snapshots import SnapshotStore
         from wiki_agent.sync.source_jobs import SourceJobHandler
         from wiki_agent.sync.state import SyncState

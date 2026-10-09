@@ -20,12 +20,12 @@ from wiki_agent.compiler.restructure import (
     assert_units_valid,
     pages_linking_to,
 )
-from wiki_agent.jobs import Job, PipelineBusy, SyncBaselineLag
-from wiki_agent.jobs.service import RestructurePlan
 from wiki_agent.maintenance.pipeline import (
     MaintenanceOutcome,
     propose_maintenance,
 )
+from wiki_agent.queue import Job, PipelineBusy, SyncBaselineLag
+from wiki_agent.queue.service import RestructurePlan
 
 
 def gate_text(job_service: Any) -> str | None:

@@ -10,10 +10,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from wiki_agent.jobs.models import Kind
+from wiki_agent.queue.models import Kind
 
 if TYPE_CHECKING:
-    from wiki_agent.jobs.models import Job
+    from wiki_agent.queue.models import Job
 
 # Job.kind 是 str，判定处用 Kind 常量。
 _KIND_LABELS: dict[str, str] = {

@@ -8,11 +8,11 @@ from pathlib import Path
 from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
 from wiki_agent.database import Database
 from wiki_agent.issues import IssueService, IssueStore
-from wiki_agent.jobs import JobStore
-from wiki_agent.jobs.outcomes import JobOutcomeHandler
-from wiki_agent.jobs.service import JobService
 from wiki_agent.maintenance import ProposalStore
 from wiki_agent.maintenance.flow import MaintenancePlannerImpl
+from wiki_agent.queue import JobStore
+from wiki_agent.queue.outcomes import JobOutcomeHandler
+from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
 from wiki_agent.sync.state import SyncState

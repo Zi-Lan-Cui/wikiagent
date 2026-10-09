@@ -8,7 +8,7 @@ from pathlib import Path
 from helpers import make_job_service
 
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
-from wiki_agent.jobs import JobResult, SyncInProgress
+from wiki_agent.queue import JobResult, SyncInProgress
 from wiki_agent.snapshots import digest_file_text
 from wiki_agent.sync.state import SyncState
 

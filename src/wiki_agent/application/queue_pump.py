@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from wiki_agent.jobs.service import JobService
-    from wiki_agent.jobs.worker import JobWorker
+    from wiki_agent.queue.service import JobService
+    from wiki_agent.queue.worker import JobWorker
 
 
 async def drain_queue(service: JobService, worker: JobWorker) -> int:

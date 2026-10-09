@@ -28,14 +28,14 @@ from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
-from wiki_agent.jobs import JobStore
-from wiki_agent.jobs.outcomes import JobOutcomeHandler
-from wiki_agent.jobs.service import JobService
-from wiki_agent.jobs.worker import JobWorker
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.maintenance import ProposalStore
 from wiki_agent.maintenance.flow import MaintenancePlannerImpl
 from wiki_agent.maintenance.jobs import MaintenanceJobHandler
+from wiki_agent.queue import JobStore
+from wiki_agent.queue.outcomes import JobOutcomeHandler
+from wiki_agent.queue.service import JobService
+from wiki_agent.queue.worker import JobWorker
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
 from wiki_agent.sync.source_jobs import SourceJobHandler

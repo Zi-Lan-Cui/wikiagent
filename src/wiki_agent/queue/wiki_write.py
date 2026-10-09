@@ -28,8 +28,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from wiki_agent.jobs import Job
 from wiki_agent.log import emit_event
+from wiki_agent.queue import Job
 
 if TYPE_CHECKING:
     from wiki_agent.versioning import WikiGitManager

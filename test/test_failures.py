@@ -15,8 +15,8 @@ from helpers import make_issue_store, make_job_service
 from wiki_agent.compiler.workflows.failures import failure_diagnostics
 from wiki_agent.errors import IngestError, IngestStage, RetryableError
 from wiki_agent.issues import IssueDraft, IssueKind, IssueStatus
-from wiki_agent.jobs import JobResult
-from wiki_agent.jobs.retry_source import SourceUnavailableError, resolve_retry_source
+from wiki_agent.queue import JobResult
+from wiki_agent.queue.retry_source import SourceUnavailableError, resolve_retry_source
 
 
 def _reported_failure(tmp_path: Path, *, error: IngestError | None = None):

@@ -10,15 +10,15 @@ from helpers import make_job_service
 from wiki_agent.compiler.restructure import Unit
 from wiki_agent.database import Database
 from wiki_agent.issues import IssueStore
-from wiki_agent.jobs import JobStore, Kind
-from wiki_agent.jobs.outcomes import JobOutcomeHandler
-from wiki_agent.jobs.service import JobService
 from wiki_agent.maintenance import (
     ProposalAlreadyResolvedError,
     ProposalNotFoundError,
     ProposalStore,
     Resolution,
 )
+from wiki_agent.queue import JobStore, Kind
+from wiki_agent.queue.outcomes import JobOutcomeHandler
+from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import SnapshotStore
 
 _FM = (

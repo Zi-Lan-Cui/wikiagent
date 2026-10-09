@@ -84,7 +84,7 @@ def test_orphan_sweep_at_service_construction(tmp_path: Path):
 
 def test_last_terminal_job_drops_batch_snapshot(tmp_path: Path):
     """GC 主规则：批内最后一个任务进入终态 → 快照目录即删。"""
-    from wiki_agent.jobs import JobResult
+    from wiki_agent.queue import JobResult
     from wiki_agent.sync.state import SyncState
 
     root = _src(tmp_path)

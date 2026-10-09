@@ -22,7 +22,7 @@ from wiki_agent.issues import (
 )
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.issues.producers import report_correction, report_quality_findings
-from wiki_agent.jobs import JobResult
+from wiki_agent.queue import JobResult
 
 
 def _draft(**changes) -> IssueDraft:
@@ -178,7 +178,7 @@ def test_failed_retry_updates_issue_with_structured_page_reason(tmp_path: Path):
 
     from wiki_agent.compiler.workflows.failures import failure_diagnostics
     from wiki_agent.errors import IngestError, IngestStage
-    from wiki_agent.jobs import JobResult
+    from wiki_agent.queue import JobResult
 
     workspace = tmp_path / "workspace"
     wiki = tmp_path / "wiki"

@@ -4,8 +4,8 @@ import asyncio
 
 from helpers import make_issue_store, make_job_service
 
-from wiki_agent.jobs.models import JobResult
-from wiki_agent.jobs.worker import JobWorker
+from wiki_agent.queue.models import JobResult
+from wiki_agent.queue.worker import JobWorker
 
 
 def test_worker_claims_updates_stage_and_completes(tmp_path):
@@ -90,7 +90,7 @@ def test_succeeded_writes_sync_state_after_commit(tmp_path):
     worker = JobWorker(service)
 
     async def ok(current, progress):
-        from wiki_agent.jobs import JobResult
+        from wiki_agent.queue import JobResult
 
         return JobResult(status="succeeded", detail={"digest": "d1", "text": "content-a"})
 
@@ -146,7 +146,7 @@ def test_worker_claims_only_registered_kinds(tmp_path):
 
 def test_terminal_cas_supersede_race(tmp_path):
     """取代竞态：行已被 cancel → 迟到终态写静默跳过，不排链、不覆盖。"""
-    from wiki_agent.jobs import JobResult
+    from wiki_agent.queue import JobResult
 
     service = make_job_service(tmp_path)
     job = service.submit(kind="compile", resource="/abs/note.md", mode="sync")

@@ -7,7 +7,7 @@ from pathlib import Path
 from helpers import make_issue_store, make_job_store
 
 from wiki_agent.issues.models import IssueDraft, IssueKind
-from wiki_agent.jobs import DuplicateInFlightJob
+from wiki_agent.queue import DuplicateInFlightJob
 
 _LEGACY_JOBS_DDL = """
 CREATE TABLE jobs (

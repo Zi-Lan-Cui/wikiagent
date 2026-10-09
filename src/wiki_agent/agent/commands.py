@@ -16,9 +16,9 @@ from uuid import uuid4
 from wiki_agent.events import CommandProgress, RunContext
 from wiki_agent.issues import IssueActionConflict, IssueKind, IssueStatus
 from wiki_agent.issues.producers import report_quality_findings
-from wiki_agent.jobs import PipelineBusy
-from wiki_agent.jobs.retry_source import SourceUnavailableError
 from wiki_agent.log import emit_event, get_logger
+from wiki_agent.queue import PipelineBusy
+from wiki_agent.queue.retry_source import SourceUnavailableError
 from wiki_agent.versioning import WikiGitManager
 from wiki_agent.wiki import WikiPageNotFound, read_page, search_pages
 from wiki_agent.wiki.quality import (

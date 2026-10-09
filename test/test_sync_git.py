@@ -17,7 +17,7 @@ from helpers import make_job_service
 
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueKind
-from wiki_agent.jobs.worker import JobWorker
+from wiki_agent.queue.worker import JobWorker
 from wiki_agent.sync.source_jobs import SourceJobHandler
 from wiki_agent.sync.state import SyncState
 from wiki_agent.versioning import WikiGitManager
@@ -239,8 +239,8 @@ if __name__ == "__main__":
 
 def test_exit_invariant_converges_unsettled_changes(tmp_path: Path):
     """出口不变量：漏结算与异常通道离开上下文后，工作区都收敛回 HEAD。"""
-    from wiki_agent.jobs.models import Job
-    from wiki_agent.jobs.wiki_write import WikiWriteSession
+    from wiki_agent.queue.models import Job
+    from wiki_agent.queue.wiki_write import WikiWriteSession
 
     wiki = tmp_path / "wiki"
     wiki.mkdir()
