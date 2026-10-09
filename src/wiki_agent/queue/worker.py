@@ -1,4 +1,4 @@
-"""持久化 worker：jobs 引擎的认领循环。
+"""持久化 worker：队列的认领循环。
 
 claim（按注册 kinds）→ handler 返回 JobResult → complete_with_outcome 单事务
 落终态。handler 只表达业务结局；handler 抛出的异常在此归日志 + 事件，不记

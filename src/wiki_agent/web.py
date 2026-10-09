@@ -98,7 +98,7 @@ def create_app(
             return None
 
     def _task(job):
-        """把 job 转成前端任务卡片；投影规则见 jobs/card_view.py。"""
+        """把 job 转成前端任务卡片；投影规则见 queue/card_view.py。"""
         return task_card(job, _issue_or_none)
 
     @asynccontextmanager

@@ -1,4 +1,4 @@
-"""测试装配根：按 Database → store → JobQueue → 线 coordinator → 壳 的次序装配。
+"""测试装配根：按 Database → store → JobQueue → 线 coordinator → 命令门面 的次序装配。
 
 代码各层不自建依赖；测试里等价于装配根的构造集中在这里。
 """
@@ -13,7 +13,7 @@ from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.coordinator import IssueCoordinator
 from wiki_agent.maintenance import ProposalStore
 from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
-from wiki_agent.queue import JobStore
+from wiki_agent.queue import JobStore, Kind
 from wiki_agent.queue.outcomes import JobOutcomeHandler
 from wiki_agent.queue.queue import JobQueue
 from wiki_agent.snapshots import SnapshotStore
@@ -24,6 +24,22 @@ from wiki_agent.sync.state import SyncState
 
 def make_job_store(workspace: str | Path) -> JobStore:
     return JobStore(Database(workspace))
+
+
+def make_gate_service(tmp: Path) -> JobService:
+    """闸测试装配：备好 wiki/materials 目录并接入同步基线。"""
+    (tmp / "wiki").mkdir(exist_ok=True)
+    (tmp / "materials").mkdir(exist_ok=True)
+    return make_job_service(
+        tmp,
+        sync_state=SyncState(tmp / "watch" / "state.json"),
+        materials_dir=tmp / "materials",
+    )
+
+
+def put_in_flight(service: JobService, kind: Kind) -> None:
+    """直投一条在途行，作闸判定的探针素材。"""
+    service.submit(kind=kind, resource=f"/probe/{kind.value}", mode="test-fixture")
 
 
 def make_issue_store(workspace: str | Path) -> IssueStore:
