@@ -123,8 +123,12 @@ class Extractor:
         chunks: list[SourceChunk],
         budget: int,
     ) -> list[ChunkSummary]:
+        """滚动压缩只交回最终的全局摘要。
+
+        每步 digest 是对此前全部内容的一次重述；中间态进 synthesize 会让输入
+        随 chunk 数线性膨胀，恰是大文档最先撑爆输入窗口的路径。
+        """
         digest = ""
-        summaries: list[ChunkSummary] = []
 
         for chunk in chunks:
             response = await async_invoke_with_retry(
@@ -145,15 +149,16 @@ class Extractor:
                 extra_body=NO_THINKING,
             )
             digest = response.content
-            summaries.append(
-                ChunkSummary(
-                    chunk_index=chunk.index,
-                    heading_path=chunk.heading_path,
-                    text=digest,
-                )
-            )
 
-        return summaries
+        if not digest:
+            return []
+        return [
+            ChunkSummary(
+                chunk_index=chunks[-1].index,
+                heading_path="全局累计摘要",
+                text=digest,
+            )
+        ]
 
     async def _synthesize(
         self,
