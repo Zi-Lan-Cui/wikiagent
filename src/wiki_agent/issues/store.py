@@ -49,6 +49,10 @@ def issue_fingerprint(draft: IssueDraft) -> str:
         "error_code": draft.diagnostics.get("error_code", ""),
         "evidence_key": evidence_key,
     }
+    if draft.kind is IssueKind.INGESTION_FAILURE:
+        # 编译失败按来源文件全路径去重：resource.path 是显示名，
+        # 不同目录的同名文件同阶段同错误码必须分属两条记录
+        identity["source_path"] = str(draft.context.get("source_path") or "")
     encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
