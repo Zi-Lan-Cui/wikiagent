@@ -17,6 +17,7 @@ from wiki_agent.agent import ReActAgent
 from wiki_agent.agent.commands import create_command_router
 from wiki_agent.application.commands import create_application_commands
 from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
+from wiki_agent.application.outcome_registry import build_job_outcomes
 from wiki_agent.application.session_service import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
 from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
@@ -30,10 +31,9 @@ from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.maintenance import ProposalStore
-from wiki_agent.maintenance.flow import MaintenancePlannerImpl
+from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
 from wiki_agent.maintenance.jobs import MaintenanceJobHandler
 from wiki_agent.queue import JobStore
-from wiki_agent.queue.outcomes import JobOutcomeHandler
 from wiki_agent.queue.queue import JobQueue
 from wiki_agent.queue.service import JobService
 from wiki_agent.queue.worker import JobWorker
@@ -71,30 +71,33 @@ class AppRuntime:
         self.job_queue = JobQueue(
             store=JobStore(database),
             snapshots=self.snapshots,
-            outcomes=JobOutcomeHandler(
-                self.issue_store,
+            outcomes=build_job_outcomes(
+                issue_store=self.issue_store,
                 sync_state=self.sync_state,
                 source_records_dir=self.source_records_dir,
                 source_writer=ExtractionSourcePageWriter(),
                 proposals=self.proposal_store,
             ),
         )
-        # 同步基线与 sync 线提交入口同域装配；其它线经 raise_if_lagging 复用判定
+        # 线提交入口各自装配：闸与入队在同一 coordinator 事务内完成
         self.sync_coordinator = SyncCoordinator(
             queue=self.job_queue,
             issues=self.issue_store,
             snapshots=self.snapshots,
             baseline=self.baseline,
         )
+        self.maintenance_coordinator = MaintenanceCoordinator(
+            queue=self.job_queue,
+            baseline=self.baseline,
+            wiki_dir=self.wiki_dir,
+            proposals=self.proposal_store,
+        )
         self.job_service = JobService(
             queue=self.job_queue,
             issues=self.issue_store,
             sync=self.sync_coordinator,
+            maintenance=self.maintenance_coordinator,
             baseline=self.baseline,
-            # 维护规划注入提交入口：单元校验与批尾补链计算依赖 compiler，
-            # 由协议注入避免 jobs 直接 import compiler
-            maintenance=MaintenancePlannerImpl(),
-            wiki_dir=self.wiki_dir,
             proposals=self.proposal_store,
         )
         self.event_publisher = EventPublisher()

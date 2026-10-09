@@ -5,11 +5,12 @@
 
 from pathlib import Path
 
+from wiki_agent.application.outcome_registry import build_job_outcomes
 from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
 from wiki_agent.database import Database
 from wiki_agent.issues import IssueService, IssueStore
 from wiki_agent.maintenance import ProposalStore
-from wiki_agent.maintenance.flow import MaintenancePlannerImpl
+from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
 from wiki_agent.queue import JobStore
 from wiki_agent.queue.outcomes import JobOutcomeHandler
 from wiki_agent.queue.queue import JobQueue
@@ -50,8 +51,8 @@ def make_job_service(
         store=JobStore(database),
         snapshots=snapshots,
         outcomes=outcomes
-        or JobOutcomeHandler(
-            issues,
+        or build_job_outcomes(
+            issue_store=issues,
             sync_state=sync_state,
             source_records_dir=source_records_dir,
             source_writer=ExtractionSourcePageWriter(),
@@ -74,9 +75,10 @@ def make_job_service(
             if baseline is not None
             else None
         ),
+        # 维护线提交入口常驻装配：闸与校验在 coordinator 内，wiki_dir 缺用时提交口自拒
+        maintenance=MaintenanceCoordinator(
+            queue=queue, baseline=baseline, wiki_dir=wiki_dir, proposals=proposals
+        ),
         baseline=baseline,
-        # 维护规划面始终注入——提交口不再自带 compiler 校验
-        maintenance=MaintenancePlannerImpl(),
-        wiki_dir=wiki_dir,
         proposals=proposals,
     )

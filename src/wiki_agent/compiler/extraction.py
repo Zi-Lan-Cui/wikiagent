@@ -303,9 +303,9 @@ def write_source_page(source_records_dir: Path, page: SourcePage) -> Path:
 
 
 class ExtractionSourcePageWriter:
-    """jobs.SourcePageWriter 协议实现。
+    """compile 成功时写源档案页的落盘口。
 
-    结构满足协议（方法签名一致），无需 import jobs；由装配层注入调用方。
+    由装配根注入 sync 线的结算规则，sync 不直接 import compiler 的档案写入。
     """
 
     def write(self, records_dir: Path, slug: str, content: str) -> None:

@@ -131,13 +131,13 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
     """
 
     async def execute(batch_dir: Path) -> int:
+        from wiki_agent.application.outcome_registry import build_job_outcomes
         from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
         from wiki_agent.compiler.workflows.ingest import CompilePipeline
         from wiki_agent.database import Database
         from wiki_agent.issues import IssueStore
         from wiki_agent.log import setup_event_log
         from wiki_agent.queue import JobStore
-        from wiki_agent.queue.outcomes import JobOutcomeHandler
         from wiki_agent.queue.queue import JobQueue
         from wiki_agent.queue.service import JobService
         from wiki_agent.queue.worker import JobWorker
@@ -161,8 +161,8 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             queue = JobQueue(
                 store=JobStore(database),
                 snapshots=snapshots,
-                outcomes=JobOutcomeHandler(
-                    issue_store,
+                outcomes=build_job_outcomes(
+                    issue_store=issue_store,
                     sync_state=state,
                     source_records_dir=source_records_dir,
                     source_writer=ExtractionSourcePageWriter(),

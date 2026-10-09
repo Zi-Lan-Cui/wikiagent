@@ -36,8 +36,8 @@ class Settlement(StrEnum):
     """成功 job 的结算类别：说明完成的是哪种业务事实。
 
     status 表示任务是否完成；settlement 由 handler 申报在 detail["settlement"]，
-    表示完成的业务事实类型；issue 状态变更由 JobOutcomeHandler 依 ISSUE_RULES
-    决定，handler 不直接改 issue。未申报或表中无此类别时不改 issue，未知值记警告。
+    表示完成的业务事实类型；分发器按类别调用各线注册的规则，handler 不直接改
+    账本。未申报或无规则注册时不联动，未知值记警告。
     """
 
     INGESTED = "ingested"  # 源文件编译进 wiki
@@ -89,8 +89,9 @@ class JobResult:
     - "": 无 issue 联动的终态失败（如未注册 kind）。
 
     status="cancelled" 由取消路径直接置终态，handler 无需返回。
-    succeeded 时 detail 须申报 settlement，issue 联动据此在 outcomes.ISSUE_RULES
-    查表；compile 成功另带 digest/text 供写完成记录。
+    succeeded 时 detail 须申报 settlement，分发器据此调用各线注册的规则
+    （issue 动作表在 issues/outcomes.ISSUE_RULES）；compile 成功另带
+    digest/text 供写完成记录。
     """
 
     status: Literal["succeeded", "failed", "cancelled"]

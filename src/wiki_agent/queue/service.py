@@ -1,27 +1,17 @@
-"""业务线提交入口的过渡壳：尚未移入各线 coordinator 的提交口在这里。
+"""业务线提交入口的过渡壳：issue retry 提交口在这里，sync 与维护线委托各自 coordinator。
 
-壳只保留三类闸与入队：issue retry 的幂等收敛、维护线共闸、基线闸转发。
-行生命周期委托 JobQueue，sync 提交委托注入的 SyncCoordinator。
-
-互斥：写 wiki 的任务（compile/delete/restructure/link，见 WIKI_WRITE_KINDS）有
-在途行时，写类提交抛 PipelineBusy；同族冲突用其子类 RestructureInProgress
-（restructure 遇在途批）。issue retry 提交先做幂等收敛——该 issue 已有在途行、
-或资源已被在途行占用时返回既有行，收敛不到且队列非空才拒。issue_action（rescan）
-不受互斥约束、也不计入互斥：它不写 wiki、不产生快照批，可穿插在写批之间执行，
-结论基于执行中的 wiki，写批结束后再 rescan 即更新。在途判定只由 JobStore.in_flight_kinds
-从 jobs 表得出，无内存状态。
-
-基线闸：restructure 与 link 基于 wiki 现状判断，wiki 落后源材料时结论过期，
-落后即抛 SyncBaselineLag 提示先 sync。它与 PipelineBusy 各表一种原因与补救。
-提交口先查互斥、再查基线。
+issue retry 提交的幂等收敛：该 issue 已有在途行、或资源已被在途行占用时返回
+既有行，收敛不到且队列非空才拒（PipelineBusy）。issue_action（rescan）不受
+互斥约束、也不计入互斥：它不写 wiki、不产生快照批，可穿插在写批之间执行，
+结论基于执行中的 wiki，写批结束后再 rescan 即更新。在途判定只由
+JobStore.in_flight_kinds 从 jobs 表得出，无内存状态。
 """
 
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from wiki_agent.issues import (
@@ -31,57 +21,20 @@ from wiki_agent.issues import (
     IssueStatus,
     IssueStore,
 )
-from wiki_agent.queue import Job, JobResult, Kind, RestructureInProgress
+from wiki_agent.queue import Job, JobResult, Kind
 from wiki_agent.queue.queue import JobQueue
 from wiki_agent.queue.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.snapshots import SnapshotError
 
 if TYPE_CHECKING:
     from wiki_agent.maintenance import ProposalStore
+    from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
+    from wiki_agent.sync.baseline import SyncBaseline
     from wiki_agent.sync.coordinator import SyncCoordinator
 
 
-class Baseline(Protocol):
-    """提交口依赖的同步基线协议，由 sync 域实现（SyncBaseline）。
-
-    经装配根注入、方法体不 import sync，保持提交口与 sync 的单向依赖。
-    """
-
-    def lagging_sources(self) -> set[str]: ...
-
-    def raise_if_lagging(self) -> None: ...
-
-
-@dataclass(frozen=True, slots=True)
-class RestructurePlan:
-    """重组批的入队素材：校验后的单元声明（已序列化）与批尾补链目标。
-
-    units 顺序即入队顺序；link_slugs 为批尾补链页。
-    """
-
-    units: list[dict]
-    link_slugs: list[str]
-
-
-class MaintenancePlanner(Protocol):
-    """维护线共用的规划面：重组批规划与独立补链目标判定。
-
-    实现在 maintenance 包，按协议注入提交口：校验单元声明、算批尾补链波及面
-    要读 wiki 盘面与 restructure 声明模型，是领域知识；提交口只保留事务、
-    幂等键与互斥。
-    """
-
-    def plan_restructure(self, units: list[dict], wiki_dir: Path) -> RestructurePlan:
-        """消解规则对当前盘面重跑一遍，违例抛领域异常拒绝（UnitError 等）。"""
-        ...
-
-    def resolve_link_targets(self, slugs: list[str] | None, wiki_dir: Path) -> list[str]:
-        """发现型补链目标：None=全库内容页；给定 slug 不在内容页列表抛 ValueError。"""
-        ...
-
-
 class JobService:
-    """提交口壳：机制委托 JobQueue，sync 线委托 SyncCoordinator。"""
+    """提交口壳：机制委托 JobQueue，线提交委托 SyncCoordinator / MaintenanceCoordinator。"""
 
     def __init__(
         self,
@@ -89,9 +42,8 @@ class JobService:
         queue: JobQueue,
         issues: IssueStore,
         sync: SyncCoordinator | None = None,
-        baseline: Baseline | None = None,
-        maintenance: MaintenancePlanner | None = None,
-        wiki_dir: str | Path | None = None,
+        maintenance: MaintenanceCoordinator | None = None,
+        baseline: SyncBaseline | None = None,
         proposals: ProposalStore | None = None,
     ):
         self.queue = queue
@@ -101,13 +53,11 @@ class JobService:
         self.outcomes = queue.outcomes
         self.issues = issues
         self.sync = sync
-        # 同步基线面由装配根注入；维护线共闸在 coordinator 落位前经它判落后
-        self.baseline = baseline
-        # 维护规划面由装配根注入；离线/纯 sync 可为 None
         self.maintenance = maintenance
-        # 维护提议账本由装配根注入；带 proposal_id 的提交与 web 处置口需要
+        # 基线落后集合的只读入口，供维护流程预检与脚本消费
+        self.baseline = baseline
+        # 提议账本只读入口：web 处置端点经此查询与否决，入账在 coordinator 事务内
         self.proposals = proposals
-        self.wiki_dir = Path(wiki_dir) if wiki_dir is not None else None
 
     def recover_stale(self) -> int:
         return self.queue.recover_stale()
@@ -127,11 +77,6 @@ class JobService:
             return set()
         return self.baseline.lagging_sources()
 
-    def _raise_if_baseline_lagging(self) -> None:
-        if self.baseline is None:
-            return
-        self.baseline.raise_if_lagging()
-
     def submit_sync(self, source_dir: str | Path) -> list[Job]:
         """委托 sync 线提交口；未注入即拒——快照与入队规则在 SyncCoordinator。"""
         if self.sync is None:
@@ -142,6 +87,22 @@ class JobService:
         if self.sync is None:
             raise RuntimeError("sync_status 需要注入 sync coordinator")
         return self.sync.sync_status(source_dir)
+
+    def submit_restructure(self, units: list[dict], proposal_id: str = "") -> list[Job]:
+        """委托维护线提交口；闸、校验与账本挂账在 MaintenanceCoordinator。"""
+        if self.maintenance is None:
+            raise RuntimeError("submit_restructure 需要注入 maintenance coordinator")
+        return self.maintenance.submit_restructure(units, proposal_id)
+
+    def submit_link_batch(self, slugs: list[str] | None = None) -> list[Job]:
+        if self.maintenance is None:
+            raise RuntimeError("submit_link_batch 需要注入 maintenance coordinator")
+        return self.maintenance.submit_link_batch(slugs)
+
+    def submit_restructure_preview(self) -> Job:
+        if self.maintenance is None:
+            raise RuntimeError("submit_restructure_preview 需要注入 maintenance coordinator")
+        return self.maintenance.submit_restructure_preview()
 
     def submit(
         self,
@@ -282,116 +243,6 @@ class JobService:
             idempotency_key=f"issue-action:{issue_id}:{action}",
             issue_id=issue_id,
         )
-
-    def submit_restructure(self, units: list[dict], proposal_id: str = "") -> list[Job]:
-        """已确认的单元清单整批入队：一单元一 job，批尾自动跟受影响页补链。
-
-        单元声明经 MaintenancePlanner 校验与影响范围计算；一个事务内先入队全部
-        单元再入队 link 任务。互斥与基线检查：已有 restructure 在途抛
-        RestructureInProgress，其他写在途抛 PipelineBusy，未同步源抛
-        SyncBaselineLag。payload 只带声明，章节归属由执行时路由计算。
-
-        带 proposal_id 时同事务把该提议置 submitted 并记产生的任务行——
-        同一提议重复提交被 CAS 拒绝；单元清单为空时不入队也不处置账本。
-        """
-        if self.wiki_dir is None:
-            raise RuntimeError("submit_restructure 需要 wiki_dir")
-        if self.maintenance is None:
-            raise RuntimeError("submit_restructure 需要注入维护规划面")
-        plan = self.maintenance.plan_restructure(units, self.wiki_dir)
-        if not plan.units:
-            return []
-        batch = f"restructure_{uuid4().hex}"
-        jobs: list[Job] = []
-        with self.store.transaction(immediate=True) as conn:
-            self._raise_if_maintenance_blocked(conn)
-            for index, unit in enumerate(plan.units):
-                jobs.append(
-                    self.store.enqueue(
-                        kind=Kind.RESTRUCTURE,
-                        resource=f"restructure:{batch}:{index}",
-                        mode="manual",
-                        payload={"unit": unit, "batch": batch, "index": index},
-                        idempotency_key=f"restructure:{batch}:{index}",
-                        _conn=conn,
-                    )
-                )
-            for slug in plan.link_slugs:
-                jobs.append(
-                    self.store.enqueue(
-                        kind=Kind.LINK,
-                        resource=f"link:{slug}",
-                        mode="tail",
-                        payload={"slug": slug, "batch": batch},
-                        idempotency_key=f"link:{batch}:{slug}",
-                        _conn=conn,
-                    )
-                )
-            if proposal_id:
-                if self.proposals is None:
-                    raise RuntimeError("submit_restructure 带 proposal_id 需要账本注入")
-                self.proposals.mark_submitted(proposal_id, [job.id for job in jobs], _conn=conn)
-        return jobs
-
-    def submit_link_batch(self, slugs: list[str] | None = None) -> list[Job]:
-        """发现型补链：指定页（默认全库内容页）逐页入队，一页一 job 一提交。
-
-        slug 经 MaintenancePlanner 按内容页白名单校验（不存在即 ValueError）；
-        互斥与基线检查同重组提交口（维护线共闸）。
-        """
-        if self.wiki_dir is None:
-            raise RuntimeError("submit_link_batch 需要 wiki_dir")
-        if self.maintenance is None:
-            raise RuntimeError("submit_link_batch 需要注入维护规划面")
-        targets = self.maintenance.resolve_link_targets(slugs, self.wiki_dir)
-        if not targets:
-            return []
-        batch = f"link_{uuid4().hex}"
-        jobs: list[Job] = []
-        with self.store.transaction(immediate=True) as conn:
-            self._raise_if_maintenance_blocked(conn)
-            for slug in targets:
-                jobs.append(
-                    self.store.enqueue(
-                        kind=Kind.LINK,
-                        resource=f"link:{slug}",
-                        mode="manual",
-                        payload={"slug": slug, "batch": batch},
-                        idempotency_key=f"link:{batch}:{slug}",
-                        _conn=conn,
-                    )
-                )
-        return jobs
-
-    def submit_restructure_preview(self) -> Job:
-        """整理结构分析入队（提议→复核→冲突消解）：只产建议清单，不写 wiki。
-
-        提交前互斥与基线判定同维护口：有写在途或基线落后即拒——基于执行中
-        wiki 的提议没有执行价值。resource 与幂等键固定，重复发起收敛为同一在途分析。
-        上一轮提议在新一轮结果入账的 PREVIEWED 联动时作废，分析失败不动账本。
-        """
-        with self.store.transaction(immediate=True) as conn:
-            busy = self._in_flight_wiki_write_counts(_conn=conn)
-            if busy:
-                raise JobQueue.pipeline_busy(busy)
-            self._raise_if_baseline_lagging()
-            return self.store.enqueue(
-                kind=Kind.MAINTENANCE_PREVIEW,
-                resource="maintenance:preview",
-                mode="manual",
-                payload={},
-                idempotency_key="maintenance:preview",
-                _conn=conn,
-            )
-
-    def _raise_if_maintenance_blocked(self, _conn: sqlite3.Connection | None = None) -> None:
-        """维护类提交的共用闸：已有 restructure 在途抛专门异常，其余在途抛 PipelineBusy。"""
-        busy = self._in_flight_wiki_write_counts(_conn=_conn)
-        if Kind.RESTRUCTURE in busy:
-            raise RestructureInProgress()
-        if busy:
-            raise JobQueue.pipeline_busy(busy)
-        self._raise_if_baseline_lagging()
 
     # 执行生命周期与只读视图：全部委托 JobQueue
 

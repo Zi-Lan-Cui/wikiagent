@@ -144,4 +144,4 @@ def test_baseline_lag_formula_and_quarantine(tmp_path: Path):
 def test_baseline_gate_skipped_without_materials(tmp_path: Path):
     service = make_job_service(tmp_path, sync_state=SyncState(tmp_path / "s.json"))
     assert service.sync_baseline_lag() == set()
-    service._raise_if_baseline_lagging()  # 不抛即通过
+    service.baseline.raise_if_lagging()  # 不抛即通过

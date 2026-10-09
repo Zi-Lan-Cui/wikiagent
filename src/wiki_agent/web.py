@@ -222,23 +222,17 @@ def create_app(
         提交处判重：已有分析在途、写任务在途或基线落后时返回 409，
         基于已变化 wiki 的提议没有执行价值。
         """
-        return {"task": _task(job_service.submit_restructure_preview())}
+        return {"task": _task(app_runtime.maintenance_coordinator.submit_restructure_preview())}
 
     @app.get("/api/maintenance/proposals")
     async def maintenance_proposals() -> dict[str, Any]:
         """未处置的整理提议，账本保证至多一条；payload 为建议清单。"""
-        proposals = job_service.proposals
-        if proposals is None:
-            raise ServiceError("维护账本未装配")
-        return {"proposals": [asdict(p) for p in proposals.list_pending()]}
+        return {"proposals": [asdict(p) for p in app_runtime.proposal_store.list_pending()]}
 
     @app.post("/api/maintenance/proposals/{proposal_id}/dismiss")
     async def maintenance_proposal_dismiss(proposal_id: str) -> dict[str, Any]:
         """否决一条提议；已处置过的返回 409。"""
-        proposals = job_service.proposals
-        if proposals is None:
-            raise ServiceError("维护账本未装配")
-        return {"proposal": asdict(proposals.dismiss(proposal_id))}
+        return {"proposal": asdict(app_runtime.proposal_store.dismiss(proposal_id))}
 
     @app.post("/api/maintenance", status_code=202)
     async def maintenance_submit(request: MaintenanceSubmitRequest) -> dict[str, Any]:
@@ -246,7 +240,9 @@ def create_app(
 
         带 proposal_id 时同一事务把该提议置 submitted，重复提交被拒。
         """
-        jobs = job_service.submit_restructure(request.units, request.proposal_id)
+        jobs = app_runtime.maintenance_coordinator.submit_restructure(
+            request.units, request.proposal_id
+        )
         if not jobs:
             raise HTTPException(status_code=400, detail="单元清单为空")
         return {
@@ -258,7 +254,7 @@ def create_app(
     @app.post("/api/link", status_code=202)
     async def link_submit(request: LinkBatchRequest) -> dict[str, Any]:
         """提交链接关联扫描：指定页面（默认全部 wiki 内容页），每页一个任务。"""
-        jobs = job_service.submit_link_batch(slugs=request.slugs)
+        jobs = app_runtime.maintenance_coordinator.submit_link_batch(slugs=request.slugs)
         batch = str(jobs[0].payload.get("batch") or "") if jobs else ""
         return {"count": len(jobs), "batch": batch, "tasks": [_task(job) for job in jobs]}
 

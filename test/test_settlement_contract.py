@@ -8,15 +8,15 @@
 
 from pathlib import Path
 
+from wiki_agent.issues.outcomes import ISSUE_RULES
 from wiki_agent.queue.models import Settlement
-from wiki_agent.queue.outcomes import ISSUE_RULES
 
 # 不碰 issue 账本的显式名单：成功但不产生 issue 动作的类别
 NO_ISSUE_LEDGER: set[Settlement] = {
     Settlement.APPLIED,  # 批操作结果不是"源材料等人修"的待办
     Settlement.LINKED,
     Settlement.UNIT_MISSING,
-    Settlement.PREVIEWED,  # 动作是写维护提议账本，见 outcomes._record_proposal
+    Settlement.PREVIEWED,  # 动作是写维护提议账本，见 maintenance/outcomes 的注册
 }
 
 # 产生方所在的执行体目录（handlers 在这里申报 detail["settlement"]）

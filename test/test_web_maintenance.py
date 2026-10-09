@@ -58,6 +58,8 @@ class _Runtime:
             sync_state=SyncState(self.workspace / "watch" / "state.json"),
         )
         self.sync_coordinator = self.job_service.sync
+        self.maintenance_coordinator = self.job_service.maintenance
+        self.proposal_store = self.job_service.proposals
         self.job_worker = JobWorker(self.job_service)
         self.agent = SimpleNamespace(llm=None)
         self.issue_actions = IssueActionExecutor(cast(AppRuntime, self))

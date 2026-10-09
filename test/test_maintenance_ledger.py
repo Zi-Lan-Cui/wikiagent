@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from helpers import make_job_service
 
+from wiki_agent.application.outcome_registry import build_job_outcomes
 from wiki_agent.compiler.restructure import Unit
 from wiki_agent.database import Database
 from wiki_agent.issues import IssueStore
@@ -17,7 +18,6 @@ from wiki_agent.maintenance import (
     Resolution,
 )
 from wiki_agent.queue import JobStore, Kind
-from wiki_agent.queue.outcomes import JobOutcomeHandler
 from wiki_agent.queue.queue import JobQueue
 from wiki_agent.queue.service import JobService
 from wiki_agent.snapshots import SnapshotStore
@@ -99,7 +99,7 @@ def test_legacy_preview_rows_migrate_into_ledger(tmp_path: Path):
         queue=JobQueue(
             store=JobStore(database),
             snapshots=SnapshotStore(workspace),
-            outcomes=JobOutcomeHandler(issues),
+            outcomes=build_job_outcomes(issue_store=issues),
         ),
         issues=issues,
     )
