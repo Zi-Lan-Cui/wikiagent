@@ -34,7 +34,8 @@ def derive_title(payload: Payload) -> str:
     """按分析结果给提议行生成可读标题。"""
     if payload.get("healthy"):
         return "结构健康（无整理提议）"
-    count = len(payload.get("effective") or [])
+    raw = payload.get("effective")
+    count = len(raw) if isinstance(raw, list) else 0
     return f"{count} 条整理提议" if count else "无可执行提议"
 
 

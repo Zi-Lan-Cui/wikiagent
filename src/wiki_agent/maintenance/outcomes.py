@@ -27,9 +27,11 @@ class _ProposalOutcomeRule:
         self,
         job: Job,
         result: JobResult,
-        settlement: Settlement,
+        settlement: Settlement | None,
         conn: sqlite3.Connection,
     ) -> list[Callable[[], None]]:
+        if settlement is None:
+            return []
         payload = result.detail.get("preview")
         if not isinstance(payload, dict):
             logger.warning("job %s 申报 PREVIEWED 但无 preview 载荷，账本未记", job.id)

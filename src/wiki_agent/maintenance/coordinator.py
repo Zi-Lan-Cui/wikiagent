@@ -145,6 +145,7 @@ class MaintenanceCoordinator:
                 )
             if proposal_id:
                 assert accepted is not None
+                assert self.proposals is not None
                 self.proposals.mark_submitted(
                     proposal_id, [job.id for job in jobs], accepted=accepted, _conn=conn
                 )

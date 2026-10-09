@@ -70,9 +70,12 @@ class _IssueOutcomeRules:
         self,
         job: Job,
         result: JobResult,
-        settlement: Settlement,
+        settlement: Settlement | None,
         conn: sqlite3.Connection,
     ) -> list[Callable[[], None]]:
+        if settlement is None:
+            # 规则只按申报的结算注册，分发不会传 None；签名兜住协议
+            return []
         effect = ISSUE_RULES.get(settlement)
         if effect is None or effect.kind == "none":
             return []
