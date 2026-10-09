@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from wiki_agent.application import InvalidInputError, ServiceError, SessionNotFoundError
+from wiki_agent.application.card_view import task_card
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.issues import (
     InvalidIssueTransitionError,
@@ -29,7 +30,6 @@ from wiki_agent.log import get_logger, setup_event_log
 from wiki_agent.maintenance import ProposalAlreadyResolvedError, ProposalNotFoundError
 from wiki_agent.maintenance.restructure import UnitError
 from wiki_agent.queue import DuplicateInFlightJob, PipelineBusy, SyncBaselineLag
-from wiki_agent.queue.card_view import task_card
 from wiki_agent.snapshots import SnapshotError
 from wiki_agent.wiki import WikiPageNotFound
 
@@ -98,7 +98,7 @@ def create_app(
             return None
 
     def _task(job):
-        """把 job 转成前端任务卡片；投影规则见 queue/card_view.py。"""
+        """把 job 转成前端任务卡片；投影规则见 application/card_view.py。"""
         return task_card(job, _issue_or_none)
 
     @asynccontextmanager

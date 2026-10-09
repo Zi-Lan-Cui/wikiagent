@@ -44,11 +44,10 @@ class RestructureInProgress(PipelineBusy):
 
 
 class SyncBaselineLag(RuntimeError):
-    """同步基线落后：存在未同步且无关联失败记录的源，提交被拒。
+    """同步基线落后导致的提交拒绝。
 
     与 PipelineBusy 分列，原因与补救不同：PipelineBusy 是等批完成，本类需先 sync。
-    挂 open/blocked 编译失败记录的源不计入落后，失败保持脏属正常，
-    不应因此阻塞批操作。
+    落后集合的判定公式在 sync 线（SyncBaseline），机制层只承载拒绝语义。
     """
 
     def __init__(self, message: str) -> None:

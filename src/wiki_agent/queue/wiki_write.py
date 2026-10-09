@@ -14,10 +14,9 @@
 进入时 pre-reset、离开时回退由上下文保证，handler 只需选择 commit 或
 abort_export——commit 表示质量检查已通过、这批改动应成为 HEAD。
 
-SourceJobHandler（compile/delete）与 MaintenanceJobHandler（restructure/link）共用此
-协议。commit subject 带操作前缀（sync:/retry:/sync: delete/restructure:/link:），
-commit body 记 batch，按批撤销时据此定位。失败导出的 patch 与 commit 记录不随
-wiki 回退删除。
+写 wiki 的执行体共用本协议。commit subject 的操作前缀由各线执行体构造，
+commit body 记 batch，按批撤销时据此定位。失败导出的 patch 与 commit 记录
+不随 wiki 回退删除。
 """
 
 from __future__ import annotations

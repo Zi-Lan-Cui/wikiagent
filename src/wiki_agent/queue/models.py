@@ -23,7 +23,7 @@ class Kind(StrEnum):
     RESTRUCTURE_PREVIEW = "restructure_preview"  # 结构重组分析：提议→复核→冲突消解，不写 wiki
 
 
-# 提交互斥、sync_status 与 /wiki revert 前检查共用
+# 提交互斥、状态统计与 wiki revert 前检查共用
 WIKI_WRITE_KINDS: tuple[Kind, ...] = (
     Kind.COMPILE,
     Kind.DELETE,
@@ -69,7 +69,7 @@ class Job:
     payload: dict[str, object]
     created_at: str
     updated_at: str
-    # 关联的 issue；成功与失败都据此更新 issue；"" = 与 issue 无关
+    # 可选关联的 issue id；联动动作由各线按申报的结算注册规则决定；"" = 无关联
     issue_id: str = ""
     # handler 的执行结果明细（JobResult.detail）随终态落库；
     # 分析类 job 的产出（如整理建议清单）供 UI 事后回看

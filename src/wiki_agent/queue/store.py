@@ -92,7 +92,7 @@ class JobStore:
                 db.execute("ALTER TABLE jobs DROP COLUMN next_run_at")
             except sqlite3.OperationalError:
                 pass
-            # kind 更名迁移：结构分析归重组线，落库串随 Kind 值一起换
+            # 老库 kind 校正：落库串跟随 Kind 枚举当前值，否则旧行领不到 handler
             db.execute(
                 "UPDATE jobs SET kind = 'restructure_preview', resource = 'restructure:preview'"
                 " WHERE kind = 'maintenance_preview'"

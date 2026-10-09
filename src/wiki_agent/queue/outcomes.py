@@ -5,8 +5,8 @@
 后要执行的动作清单，由队列在 commit 后立即执行：先写库再写文件，崩溃时靠
 recover_stale 与 digest 幂等重做收敛。
 
-规则本体由各业务线在装配时注册：issues 提供账本流转与失败上报，sync 提供
-完成记录与档案页，maintenance 提供提议账本。分发只认 handler 申报的 settlement
+规则本体由各业务线在自己的包内提供，装配根按注入面接线
+（application/outcome_registry）。分发只认 handler 申报的 settlement
 与 error_type；未申报、未知值或无注册规则都不动作，未知申报记警告——申报了
 不存在的类别是错误，账本不能按它联动。
 """

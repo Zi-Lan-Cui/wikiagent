@@ -1,6 +1,7 @@
-"""任务队列卡片的展示投影，供 web 与 CLI 共用。
+"""任务卡片展示投影：应用层读模型，web 适配器消费。
 
-含 kind 与终态 stage 到界面文案的映射；issue 关联通过注入的 lookup 解析。
+kind 到界面文案的映射与 payload 解码属展示侧知识，住在应用层；
+queue 包不维护各线的卡片形状。issue 关联通过注入的 lookup 解析。
 """
 
 from __future__ import annotations
