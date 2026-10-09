@@ -11,8 +11,8 @@ agent+infra 的原生命令仍在 agent.commands；装配根把本模块的命�
 from __future__ import annotations
 
 from wiki_agent.agent.commands import Command, CommandContext, CommandResult, wiki_root
-from wiki_agent.application.issue_actions import resolve_correction_issue
 from wiki_agent.issues import IssueKind, IssueStatus
+from wiki_agent.issues.actions import resolve_correction_issue
 from wiki_agent.maintenance.flow import gate_text, run_maintain
 from wiki_agent.queue import Kind, PipelineBusy, SyncBaselineLag
 

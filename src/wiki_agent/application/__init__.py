@@ -1,7 +1,7 @@
 """应用层：组装与用例边界。
 
 只放应用服务（session_service.SessionService 会话用例、wiki_browser 只读查询）、
-用例（issue_actions/compile_*…）与装配根。issue 读由适配器直接使用 issue_service。
+用例编排（compile_*…）与装配根。issue 读由适配器直接使用 issue_service。
 执行引擎在 `wiki_agent.queue`，快照与 sync 在 `wiki_agent.sync`。
 
 装配根（runtime）经 ``__getattr__`` 在首次访问时才导入：子模块被单独

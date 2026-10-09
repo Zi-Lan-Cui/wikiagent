@@ -11,9 +11,9 @@ import asyncio
 import logging
 import sys
 
-from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
+from wiki_agent.issues.actions import IssueActionExecutor
 from wiki_agent.issues.retry_source import SourceUnavailableError
 from wiki_agent.log import configure_logging, get_logger
 from wiki_agent.queue import PipelineBusy
@@ -29,7 +29,12 @@ async def main(selected: str | None = None) -> None:
     # 本进程充当 worker 泵：执行锁保证与 web/批脚本不同时写 wiki
     acquire_execution_lock(runtime.workspace)
     try:
-        executor = IssueActionExecutor(runtime)
+        executor = IssueActionExecutor(
+            service=runtime.issue_service,
+            store=runtime.issue_store,
+            wiki_dir=runtime.wiki_dir,
+            issues_coordinator=runtime.issues_coordinator,
+        )
         issue_ids = [selected] if selected else executor.retry_batch_candidates()
         if not issue_ids:
             logger.info("没有可重试的问题。")

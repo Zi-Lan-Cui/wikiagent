@@ -1,4 +1,4 @@
-"""问题中心：领域模型、存储与服务。"""
+"""问题中心：领域模型、存储、服务、提交口与动作执行体。"""
 
 from wiki_agent.issues.models import (
     InvalidIssueTransitionError,

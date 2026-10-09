@@ -20,7 +20,7 @@ NO_ISSUE_LEDGER: set[Settlement] = {
 }
 
 # 产生方所在的执行体目录（handlers 在这里申报 detail["settlement"]）
-_PRODUCER_DIRS = ("sync", "application", "maintenance")
+_PRODUCER_DIRS = ("sync", "maintenance", "issues")
 
 
 def _package_root() -> Path:

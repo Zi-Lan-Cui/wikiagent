@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 from helpers import make_issue_service, make_issue_store, make_job_service
 
-from wiki_agent.application.issue_actions import resolve_correction_issue
 from wiki_agent.events import RunContext
 from wiki_agent.issues import (
     IssueAlreadyClaimedError,
@@ -20,6 +19,7 @@ from wiki_agent.issues import (
     IssueSeverity,
     IssueStatus,
 )
+from wiki_agent.issues.actions import resolve_correction_issue
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.issues.producers import report_correction, report_quality_findings
 from wiki_agent.queue import JobResult
@@ -278,9 +278,8 @@ def _dead_link_wiki(tmp_path: Path) -> Path:
 
 
 def _rescan_setup(tmp_path: Path):
-    from types import SimpleNamespace
 
-    from wiki_agent.application.issue_actions import IssueActionExecutor
+    from wiki_agent.issues.actions import IssueActionExecutor
     from wiki_agent.wiki.quality import scan_wiki
 
     wiki = _dead_link_wiki(tmp_path)
@@ -291,25 +290,25 @@ def _rescan_setup(tmp_path: Path):
         i for i in service.issues.list(kinds={IssueKind.QUALITY_ISSUE}) if "死链" in i.summary
     )
     executor = IssueActionExecutor(
-        SimpleNamespace(wiki_dir=wiki, issue_service=issue_service, issue_store=service.issues)
+        service=issue_service,
+        store=service.issues,
+        wiki_dir=wiki,
+        issues_coordinator=service.issues_coordinator,
     )
     return wiki, service, target, executor
 
 
 def test_execute_rejects_synchronous_rescan(tmp_path: Path):
     """rescan 的裁决在 job 终态事务内完成——同步门面直接拒绝，防止半截结果。"""
-    from types import SimpleNamespace
 
-    from wiki_agent.application.issue_actions import IssueActionExecutor
+    from wiki_agent.issues.actions import IssueActionExecutor
 
     store = make_issue_store(tmp_path)
     issue = store.report(_draft(kind=IssueKind.QUALITY_ISSUE, fingerprint="q-rescan"))
     executor = IssueActionExecutor(
-        SimpleNamespace(
-            wiki_dir=tmp_path / "wiki",
-            issue_service=IssueService(store),
-            issue_store=store,
-        )
+        service=IssueService(store),
+        store=store,
+        wiki_dir=tmp_path / "wiki",
     )
     with pytest.raises(ValueError, match="队列"):
         executor.execute(issue.id, "rescan")

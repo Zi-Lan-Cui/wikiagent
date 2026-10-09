@@ -16,7 +16,6 @@ from typing import Any
 from wiki_agent.agent import ReActAgent
 from wiki_agent.agent.commands import create_command_router
 from wiki_agent.application.commands import create_application_commands
-from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.application.job_service import JobService
 from wiki_agent.application.outcome_registry import build_job_outcomes
 from wiki_agent.application.session_service import SessionService
@@ -29,6 +28,7 @@ from wiki_agent.database import Database
 from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues.actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.issues.coordinator import IssueCoordinator
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.llm.factory import create_llm, create_vlm
@@ -172,7 +172,12 @@ class AppRuntime:
             git=self.git_manager,
         )
         # issue_action 用例：执行体与适配器解耦，web/脚本只映射入口
-        self.issue_actions = IssueActionExecutor(self)
+        self.issue_actions = IssueActionExecutor(
+            service=self.issue_service,
+            store=self.issue_store,
+            wiki_dir=self.wiki_dir,
+            issues_coordinator=self.issues_coordinator,
+        )
         # 认领哪些 kind 由各执行体自己声明，装配根只接线
         self.job_worker = JobWorker(self.job_queue)
         self.source_jobs.register_jobs(self.job_worker)

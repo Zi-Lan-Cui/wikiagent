@@ -1,8 +1,9 @@
-"""对持久化 Issue 记录执行操作的应用用例。"""
+"""issues 线的动作执行体：裁决、复扫编排与 job handler 注册。"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from wiki_agent.issues import (
@@ -24,9 +25,10 @@ from wiki_agent.queue import Job, JobResult, Kind, Settlement
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
-    from wiki_agent.application.runtime import AppRuntime
+    from wiki_agent.issues.coordinator import IssueCoordinator
     from wiki_agent.issues.models import IssueCard
     from wiki_agent.issues.service import IssueService
+    from wiki_agent.issues.store import IssueStore
     from wiki_agent.queue.worker import JobWorker
 
 
@@ -79,10 +81,19 @@ class IssueActionExecutor:
     本执行器只处理同步裁决与 rescan。
     """
 
-    def __init__(self, runtime: AppRuntime):
-        self.runtime = runtime
-        self.service = runtime.issue_service
-        self.store = runtime.issue_store
+    def __init__(
+        self,
+        *,
+        service: IssueService,
+        store: IssueStore,
+        wiki_dir: str | Path,
+        issues_coordinator: IssueCoordinator | None = None,
+    ):
+        self.service = service
+        self.store = store
+        self.wiki_dir = Path(wiki_dir)
+        # 启动核对标记 unavailable 走 issues 线提交口；离线组装可不注入
+        self.issues_coordinator = issues_coordinator
 
     def reconcile_retry_sources(self) -> int:
         """在适配器启动时标记已丢失的历史重试输入。"""
@@ -98,7 +109,8 @@ class IssueActionExecutor:
             try:
                 resolve_retry_source(record)
             except SourceUnavailableError as exc:
-                self.runtime.issues_coordinator.mark_retry_unavailable(record.id, str(exc))
+                assert self.issues_coordinator is not None
+                self.issues_coordinator.mark_retry_unavailable(record.id, str(exc))
                 changed += 1
         return changed
 
@@ -230,7 +242,7 @@ class IssueActionExecutor:
         before = self.store.require(issue_id)
         if progress is not None:
             progress("复扫问题")
-        findings = scan_wiki(self.runtime.wiki_dir)
+        findings = scan_wiki(self.wiki_dir)
         if progress is not None:
             progress("同步质量问题")
         report_quality_findings(

@@ -15,13 +15,13 @@ import httpx
 from helpers import make_issue_store, make_job_service
 
 from wiki_agent.agent import ReActAgent
-from wiki_agent.application.issue_actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.application.session_service import SessionService
 from wiki_agent.application.wiki_browser import WikiBrowser
 from wiki_agent.conversation import SessionManager
 from wiki_agent.events import EventPublisher
 from wiki_agent.issues import IssueService
+from wiki_agent.issues.actions import IssueActionExecutor, register_job_handlers
 from wiki_agent.maintenance.pipeline import MaintenanceOutcome
 from wiki_agent.maintenance.restructure import Unit
 from wiki_agent.queue import Kind
@@ -63,7 +63,12 @@ class _Runtime:
         self.issues_coordinator = self.job_service.issues_coordinator
         self.job_worker = JobWorker(self.job_service.queue)
         self.agent = SimpleNamespace(llm=None)
-        self.issue_actions = IssueActionExecutor(cast(AppRuntime, self))
+        self.issue_actions = IssueActionExecutor(
+            service=self.issue_service,
+            store=self.issue_store,
+            wiki_dir=self.wiki_dir,
+            issues_coordinator=self.issues_coordinator,
+        )
         register_job_handlers(self.job_worker, self.issue_actions)
         self.wiki_browser = WikiBrowser(
             wiki_dir=self.wiki_dir,
