@@ -67,6 +67,13 @@ class JobOutcomeHandler:
             raise ValueError("error_type 不能为空")
         self._errors.setdefault(error_type, []).append(rule)
 
+    def coverage(self) -> tuple[set[Settlement], set[str], bool]:
+        """只读注册面：已注册类别、error_type 与有无任意成功规则。
+
+        供契约测试断言装配注册完整；运行期分发不消费它。
+        """
+        return set(self._settlements), set(self._errors), bool(self._any_success)
+
     def apply(
         self, job: Job, result: JobResult, conn: sqlite3.Connection
     ) -> list[Callable[[], None]]:

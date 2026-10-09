@@ -48,6 +48,29 @@ def test_every_settlement_has_a_ledger_placement():
     assert not NO_ISSUE_LEDGER & set(ISSUE_RULES)
 
 
+def test_production_assembly_registers_all_ledgers():
+    """装配工厂的注册面必须盖住全部账本归宿——删掉任一 register 本测试即红。"""
+    import tempfile
+
+    from wiki_agent.application.outcome_registry import build_job_outcomes
+    from wiki_agent.database import Database
+    from wiki_agent.issues import IssueStore
+    from wiki_agent.maintenance import ProposalStore
+    from wiki_agent.sync.state import SyncState
+
+    with tempfile.TemporaryDirectory() as tmp:
+        handler = build_job_outcomes(
+            issue_store=IssueStore(Database(tmp)),
+            sync_state=SyncState(f"{tmp}/state.json"),
+            source_records_dir=f"{tmp}/records",
+            proposals=ProposalStore(Database(tmp)),
+        )
+    settlements, errors, any_success = handler.coverage()
+    assert ISSUE_RULES.keys() | {Settlement.PREVIEWED} <= settlements
+    assert any_success  # sync 的完成账按"任意成功"注册
+    assert "ingest_error" in errors
+
+
 if __name__ == "__main__":
     import traceback
 
