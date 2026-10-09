@@ -157,13 +157,20 @@ REWRITE_SYSTEM = (
 
 
 def check_rewrite_page(content: str) -> tuple[bool, str]:
-    """成文输出形状预检，口径与 wiki.rules 质量检查一致：
-    frontmatter 必填字段齐全、代码块闭合。校验失败进重试层，
-    避免一次形状错误导致整个单元失败。
+    """成文输出形状预检，口径与 wiki.rules 质量检查一致。
+
+    带 frontmatter 的输出检查必填字段；不带头的视为正文片段放行——
+    模型对拆分新页常只回正文，整页由 _fill_frontmatter 按骨架合成，
+    在重试层拒掉只会把可用的兜底变成整单元失败。两种形态都要求代码块
+    闭合；--- 开头但解析不了或缺必填字段的照旧拒。
     """
     body = content.strip()
+    if not body:
+        return False, "输出为空。"
     if not body.startswith("---"):
-        return False, "缺少 frontmatter——必须以 --- 开头。"
+        if count_unclosed_fences(body):
+            return False, "代码块未闭合——每个 ```python 开块都要有配对的裸 ```。"
+        return True, ""
     try:
         fm, _ = split_frontmatter(body)
     except Exception:
