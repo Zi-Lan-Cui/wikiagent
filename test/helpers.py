@@ -9,6 +9,7 @@ from wiki_agent.application.outcome_registry import build_job_outcomes
 from wiki_agent.compiler.extraction import ExtractionSourcePageWriter
 from wiki_agent.database import Database
 from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues.coordinator import IssueCoordinator
 from wiki_agent.maintenance import ProposalStore
 from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
 from wiki_agent.queue import JobStore
@@ -75,6 +76,7 @@ def make_job_service(
             if baseline is not None
             else None
         ),
+        issues_coordinator=IssueCoordinator(queue=queue, issues=issues, snapshots=snapshots),
         # 维护线提交入口常驻装配：闸与校验在 coordinator 内，wiki_dir 缺用时提交口自拒
         maintenance=MaintenanceCoordinator(
             queue=queue, baseline=baseline, wiki_dir=wiki_dir, proposals=proposals

@@ -173,7 +173,9 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             sync_coordinator = SyncCoordinator(
                 queue=queue, issues=issue_store, snapshots=snapshots, baseline=baseline
             )
-            service = JobService(queue=queue, issues=issue_store, sync=sync_coordinator)
+            service = JobService(
+                queue=queue, issues=issue_store, sync=sync_coordinator
+            )
             from wiki_agent.llm.factory import create_llm, create_vlm
 
             pipeline = CompilePipeline(

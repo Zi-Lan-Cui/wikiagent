@@ -14,9 +14,9 @@ import sys
 from wiki_agent.application.issue_actions import IssueActionExecutor
 from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
+from wiki_agent.issues.retry_source import SourceUnavailableError
 from wiki_agent.log import configure_logging, get_logger
 from wiki_agent.queue import PipelineBusy
-from wiki_agent.queue.retry_source import SourceUnavailableError
 
 logger = get_logger("RETRY_FAILURES")
 
@@ -37,7 +37,7 @@ async def main(selected: str | None = None) -> None:
 
         outcomes: dict[str, str] = {}
         try:
-            jobs = service.submit_issue_retry_batch(issue_ids)
+            jobs = runtime.issues_coordinator.submit_issue_retry_batch(issue_ids)
         except (PipelineBusy, SourceUnavailableError) as exc:
             logger.error("本批未提交（整批原子拒绝）：%s", exc)
             return

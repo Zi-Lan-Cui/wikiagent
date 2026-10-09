@@ -25,11 +25,11 @@ from wiki_agent.issues import (
     IssueNotFoundError,
     IssueStatus,
 )
+from wiki_agent.issues.retry_source import SourceUnavailableError
 from wiki_agent.log import get_logger, setup_event_log
 from wiki_agent.maintenance import ProposalAlreadyResolvedError, ProposalNotFoundError
 from wiki_agent.queue import DuplicateInFlightJob, PipelineBusy, SyncBaselineLag
 from wiki_agent.queue.card_view import task_card
-from wiki_agent.queue.retry_source import SourceUnavailableError
 from wiki_agent.snapshots import SnapshotError
 from wiki_agent.wiki import WikiPageNotFound
 
@@ -84,12 +84,12 @@ def create_app(
     def submit_issue_job(
         issue_id: str, action: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        job = job_service.submit_issue_action(issue_id, action, payload)
+        job = app_runtime.issues_coordinator.submit_issue_action(issue_id, action, payload)
         return _task(job)
 
     def submit_retry_job(issue_id: str) -> dict[str, Any]:
         # retry 提交 compile 任务；重复提交由提交处的在途判重拦截
-        return _task(job_service.submit_issue_retry(issue_id))
+        return _task(app_runtime.issues_coordinator.submit_issue_retry(issue_id))
 
     def _issue_or_none(issue_id: str):
         try:
@@ -199,7 +199,7 @@ def create_app(
     @app.post("/api/issues/actions/retry-eligible", status_code=202)
     async def retry_eligible_issues() -> dict[str, Any]:
         issue_ids = issue_actions.retry_batch_candidates(exclude_issue_ids=_in_flight_issue_ids())
-        jobs = job_service.submit_issue_retry_batch(issue_ids)
+        jobs = app_runtime.issues_coordinator.submit_issue_retry_batch(issue_ids)
         return {"count": len(jobs), "tasks": [_task(job) for job in jobs]}
 
     @app.post("/api/sync", status_code=202)

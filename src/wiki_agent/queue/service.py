@@ -1,32 +1,20 @@
-"""业务线提交入口的过渡壳：issue retry 提交口在这里，sync 与维护线委托各自 coordinator。
+"""业务线提交入口的过渡壳：所有线提交与机制都委托出去，壳只做同名转发。
 
-issue retry 提交的幂等收敛：该 issue 已有在途行、或资源已被在途行占用时返回
-既有行，收敛不到且队列非空才拒（PipelineBusy）。issue_action（rescan）不受
-互斥约束、也不计入互斥：它不写 wiki、不产生快照批，可穿插在写批之间执行，
-结论基于执行中的 wiki，写批结束后再 rescan 即更新。在途判定只由
-JobStore.in_flight_kinds 从 jobs 表得出，无内存状态。
+三条线的提交规则住在各自领域包：sync/coordinator、maintenance/coordinator、
+issues/coordinator；行生命周期在 queue/queue。壳的存在只为兼容尚未改接的调用方。
 """
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
-from wiki_agent.issues import (
-    IssueActionConflict,
-    IssueKind,
-    IssueRecord,
-    IssueStatus,
-    IssueStore,
-)
-from wiki_agent.queue import Job, JobResult, Kind
+from wiki_agent.issues import IssueStore
+from wiki_agent.queue import Job, JobResult
 from wiki_agent.queue.queue import JobQueue
-from wiki_agent.queue.retry_source import SourceUnavailableError, resolve_retry_source
-from wiki_agent.snapshots import SnapshotError
 
 if TYPE_CHECKING:
+    from wiki_agent.issues.coordinator import IssueCoordinator
     from wiki_agent.maintenance import ProposalStore
     from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
     from wiki_agent.sync.baseline import SyncBaseline
@@ -34,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class JobService:
-    """提交口壳：机制委托 JobQueue，线提交委托 SyncCoordinator / MaintenanceCoordinator。"""
+    """提交口壳：机制委托 JobQueue，线提交委托各线 coordinator。"""
 
     def __init__(
         self,
@@ -43,6 +31,7 @@ class JobService:
         issues: IssueStore,
         sync: SyncCoordinator | None = None,
         maintenance: MaintenanceCoordinator | None = None,
+        issues_coordinator: IssueCoordinator | None = None,
         baseline: SyncBaseline | None = None,
         proposals: ProposalStore | None = None,
     ):
@@ -54,6 +43,7 @@ class JobService:
         self.issues = issues
         self.sync = sync
         self.maintenance = maintenance
+        self.issues_coordinator = issues_coordinator
         # 基线落后集合的只读入口，供维护流程预检与脚本消费
         self.baseline = baseline
         # 提议账本只读入口：web 处置端点经此查询与否决，入账在 coordinator 事务内
@@ -65,11 +55,6 @@ class JobService:
     @property
     def recovered_jobs(self) -> int:
         return self.queue.recovered_jobs
-
-    def _in_flight_wiki_write_counts(
-        self, _conn: sqlite3.Connection | None = None
-    ) -> dict[str, int]:
-        return self.queue.in_flight_wiki_write_counts(_conn=_conn)
 
     def sync_baseline_lag(self) -> set[str]:
         """基线落后集合；未注入基线面时返回空集。"""
@@ -104,6 +89,29 @@ class JobService:
             raise RuntimeError("submit_restructure_preview 需要注入 maintenance coordinator")
         return self.maintenance.submit_restructure_preview()
 
+    def submit_issue_retry(self, issue_id: str) -> Job:
+        """委托 issues 线提交口；资格、收敛与入队规则在 IssueCoordinator。"""
+        if self.issues_coordinator is None:
+            raise RuntimeError("submit_issue_retry 需要注入 issues coordinator")
+        return self.issues_coordinator.submit_issue_retry(issue_id)
+
+    def submit_issue_retry_batch(self, issue_ids: list[str]) -> list[Job]:
+        if self.issues_coordinator is None:
+            raise RuntimeError("submit_issue_retry_batch 需要注入 issues coordinator")
+        return self.issues_coordinator.submit_issue_retry_batch(issue_ids)
+
+    def mark_retry_unavailable(self, issue_id: str, reason: str) -> None:
+        if self.issues_coordinator is None:
+            raise RuntimeError("mark_retry_unavailable 需要注入 issues coordinator")
+        self.issues_coordinator.mark_retry_unavailable(issue_id, reason)
+
+    def submit_issue_action(
+        self, issue_id: str, action: str, payload: dict[str, object] | None = None
+    ) -> Job:
+        if self.issues_coordinator is None:
+            raise RuntimeError("submit_issue_action 需要注入 issues coordinator")
+        return self.issues_coordinator.submit_issue_action(issue_id, action, payload)
+
     def submit(
         self,
         *,
@@ -113,7 +121,6 @@ class JobService:
         payload: dict[str, object] | None = None,
         idempotency_key: str | None = None,
         issue_id: str = "",
-        _conn: sqlite3.Connection | None = None,
     ) -> Job:
         return self.queue.submit(
             kind=kind,
@@ -121,126 +128,6 @@ class JobService:
             mode=mode,
             payload=payload,
             idempotency_key=idempotency_key,
-            issue_id=issue_id,
-            _conn=_conn,
-        )
-
-    @staticmethod
-    def _raise_if_retry_ineligible(issue: IssueRecord) -> None:
-        """重试资格在提交口统一判定：编译失败记录且未终态。
-
-        来源可读性在批内逐行判（resolve_retry_source）；标记 unavailable 的入账
-        由调用方处理，提交口只拒绝、不改 issue 状态。
-        """
-        if issue.kind != IssueKind.INGESTION_FAILURE:
-            raise IssueActionConflict(f"不是编译失败账，不能重试: {issue.kind}")
-        if issue.status in {IssueStatus.RESOLVED, IssueStatus.DISMISSED}:
-            raise IssueActionConflict("问题已终态，先重新打开再重试")
-
-    def submit_issue_retry(self, issue_id: str) -> Job:
-        """单发重试即一批——资格、收敛、互斥的语义见 submit_issue_retry_batch。"""
-        return self.submit_issue_retry_batch([issue_id])[0]
-
-    def submit_issue_retry_batch(self, issue_ids: list[str]) -> list[Job]:
-        """批量重试：资格与输入快照在事务前，收敛与入队在单事务内。
-
-        资格在提交口统一判定：编译失败记录、未终态、来源可读；来源不可读时
-        标记 unavailable（在事务外，避免批事务持写锁时嵌套写库）。逐行做执行
-        唯一性收敛：该 issue 已有在途行则返回既有行；资源被在途行占用（含本批
-        前序行）则收敛到该行、其无关联 issue 时补挂。两个收敛都不到且批外有写
-        wiki 在途时抛 PipelineBusy——在途计数在事务开始时取定，本批自产行不计入。
-
-        快照语义同 submit_sync：digest 取自点击时复制的副本。任一行资格不过、
-        输入不可读或遇互斥，整批回滚并删除已复制的快照目录。issue 终态由
-        compile job 的 outcome 落，提交不改 issue 状态。
-        """
-        prepared: list[tuple[str, str, str, str]] = []
-        fresh_batches: list[str] = []
-        try:
-            for issue_id in issue_ids:
-                issue = self.issues.require(issue_id)
-                self._raise_if_retry_ineligible(issue)
-                unavailable = str(issue.retry.get("unavailable_reason") or "")
-                if unavailable:
-                    raise SourceUnavailableError(unavailable)
-                try:
-                    resource = str(Path(resolve_retry_source(issue)).resolve())
-                    batch = f"retry_{uuid4().hex}"
-                    fresh_batches.append(batch)
-                    digest = self.snapshots.capture(batch, Path(resource).parent, [resource])[
-                        resource
-                    ]
-                except (SourceUnavailableError, SnapshotError) as exc:
-                    reason = str(exc)
-                    self.mark_retry_unavailable(issue_id, reason)
-                    raise SourceUnavailableError(reason) from exc
-                prepared.append((issue_id, resource, batch, digest))
-            jobs: list[Job] = []
-            used: set[str] = set()
-            with self.store.transaction(immediate=True) as conn:
-                external_busy = self._in_flight_wiki_write_counts(_conn=conn)
-                for issue_id, resource, batch, digest in prepared:
-                    existing = self.store.in_flight_job_by_issue(issue_id, _conn=conn)
-                    if existing is not None:
-                        jobs.append(existing)
-                        continue
-                    occupant = self.store.in_flight_by_resource(resource, _conn=conn)
-                    if occupant is not None:
-                        if not occupant.issue_id:
-                            occupant = self.store.attach_issue(occupant.id, issue_id, _conn=conn)
-                        jobs.append(occupant)
-                        continue
-                    if external_busy:
-                        raise JobQueue.pipeline_busy(external_busy)
-                    used.add(batch)
-                    jobs.append(
-                        self.store.enqueue(
-                            kind=Kind.COMPILE,
-                            resource=resource,
-                            mode="issue_retry",
-                            payload={
-                                "deleted": False,
-                                "digest": digest,
-                                "batch": batch,
-                                "rel_path": Path(resource).name,
-                            },
-                            idempotency_key=f"issue-retry:{issue_id}",
-                            issue_id=issue_id,
-                            _conn=conn,
-                        )
-                    )
-        except BaseException:
-            for batch in fresh_batches:
-                self.snapshots.drop_batch(batch)
-            raise
-        for batch in fresh_batches:
-            if batch not in used:
-                self.snapshots.drop_batch(batch)
-        return jobs
-
-    def mark_retry_unavailable(self, issue_id: str, reason: str) -> None:
-        """标记该 issue 输入不可读：写 retry.unavailable_reason，OPEN 转 BLOCKED。"""
-        record = self.issues.require(issue_id)
-        self.issues.update_payloads(
-            issue_id,
-            retry={**record.retry, "unavailable_reason": reason},
-            diagnostics={**record.diagnostics, "detail": reason},
-            event="retry_source_unavailable",
-        )
-        if record.status == IssueStatus.OPEN:
-            self.issues.transition(
-                issue_id, IssueStatus.BLOCKED, event="blocked_source_unavailable"
-            )
-
-    def submit_issue_action(
-        self, issue_id: str, action: str, payload: dict[str, object] | None = None
-    ) -> Job:
-        return self.submit(
-            kind=Kind.ISSUE_ACTION,
-            resource=issue_id,
-            mode=action,
-            payload=payload,
-            idempotency_key=f"issue-action:{issue_id}:{action}",
             issue_id=issue_id,
         )
 

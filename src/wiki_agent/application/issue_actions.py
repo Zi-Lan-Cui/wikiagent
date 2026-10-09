@@ -19,8 +19,8 @@ from wiki_agent.issues.models import (
 )
 from wiki_agent.issues.producers import report_quality_findings
 from wiki_agent.issues.projectors import available_actions, to_card
+from wiki_agent.issues.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.queue import Job, JobResult, Kind, Settlement
-from wiki_agent.queue.retry_source import SourceUnavailableError, resolve_retry_source
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ class IssueActionExecutor:
     """只执行当前 issue 投影中声明可用的操作。
 
     retry 不经过这里——三个入口（web 问题页、CLI /queue retry、
-    scripts/retry_failures.py）都直接调用 submit_issue_retry；
+    scripts/retry_failures.py）都调用 issues/coordinator 的 submit_issue_retry；
     本执行器只处理同步裁决与 rescan。
     """
 
@@ -98,7 +98,7 @@ class IssueActionExecutor:
             try:
                 resolve_retry_source(record)
             except SourceUnavailableError as exc:
-                self.runtime.job_service.mark_retry_unavailable(record.id, str(exc))
+                self.runtime.issues_coordinator.mark_retry_unavailable(record.id, str(exc))
                 changed += 1
         return changed
 
@@ -206,7 +206,7 @@ class IssueActionExecutor:
     def validate(self, issue_id: str, action: str) -> None:
         """在创建后台任务前验证操作对当前投影可用。
 
-        retry 的资格校验统一在提交入口做（JobService.submit_issue_retry_batch），
+        retry 的资格校验统一在提交入口做（issues/coordinator 的 submit_issue_retry_batch），
         本方法只校验其余动作——投影里的 retry 条目仍用于界面展示。
         """
         record = self.store.require(issue_id)

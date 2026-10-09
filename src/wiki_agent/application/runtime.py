@@ -28,6 +28,7 @@ from wiki_agent.database import Database
 from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
+from wiki_agent.issues.coordinator import IssueCoordinator
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.maintenance import ProposalStore
@@ -92,11 +93,15 @@ class AppRuntime:
             wiki_dir=self.wiki_dir,
             proposals=self.proposal_store,
         )
+        self.issues_coordinator = IssueCoordinator(
+            queue=self.job_queue, issues=self.issue_store, snapshots=self.snapshots
+        )
         self.job_service = JobService(
             queue=self.job_queue,
             issues=self.issue_store,
             sync=self.sync_coordinator,
             maintenance=self.maintenance_coordinator,
+            issues_coordinator=self.issues_coordinator,
             baseline=self.baseline,
             proposals=self.proposal_store,
         )
