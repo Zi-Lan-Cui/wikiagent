@@ -34,6 +34,8 @@ def validate_unit(unit: Unit, existing: set[str]) -> str:
             return f"输出页面路径含非法段: {p.slug}"
         if p.slug not in existing and p.slug in unit.in_pages:
             return f"输出页面 {p.slug} 被当作改写对象，但当前并不存在"
+        if p.slug in existing and p.slug not in unit.in_pages:
+            return f"输出页面 {p.slug} 已存在但不在本单元输入里——会覆盖未消费的页面"
         for t in p.take:
             if t.from_slug not in unit.in_pages:
                 return f"材料来源 {t.from_slug} 不在这条建议的输入页面里"
