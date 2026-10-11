@@ -1,0 +1,39 @@
+# wiki-agent 常驻自建部署。
+#
+# 单机单执行者：执行锁（flock）与"wiki 机器独占"约定决定本服务不可 scale，
+# 多副本会撕裂 git 结算协议。运维脚本请 docker exec 进本容器，与 web 共享
+# 同一把锁与同一份账本。
+services:
+  wiki-agent:
+    build: .
+    image: wiki-agent:0.1.0
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # LLM key 与 mcp.json 只在这里进容器，不进镜像层
+      - ./env:/app/env:ro
+      # 三个互不包含的数据根，与 README"数据目录"一一对应
+      - ./inputs:/data/inputs
+      - ./wiki:/data/wiki
+      - ./workspace:/data/workspace
+      # MinerU/tiktoken 等运行期缓存，跨容器重建复用（模型首次解析时下载）
+      - wiki-agent-home:/home/wiki
+    environment:
+      # 环境变量优先于 env/.env：数据根指到容器内挂载点
+      WIKI_INPUTS_DIR: /data/inputs
+      WIKI_WIKI_DIR: /data/wiki
+      WIKI_WORKSPACE_DIR: /data/workspace
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8000/", timeout=5).status == 200 else 1)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  wiki-agent-home:
