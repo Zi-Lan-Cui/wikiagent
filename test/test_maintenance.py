@@ -17,9 +17,9 @@ from helpers import make_job_service
 
 from wiki_agent.application.job_service import JobService
 from wiki_agent.conversation import LLMResponse
-from wiki_agent.maintenance import jobs as maintenance_jobs_mod
+from wiki_agent.maintenance import handlers as maintenance_handlers_mod
 from wiki_agent.maintenance import restructure as rs
-from wiki_agent.maintenance.jobs import MaintenanceJobHandler
+from wiki_agent.maintenance.handlers import MaintenanceJobHandler
 from wiki_agent.maintenance.link import apply_link_fixes
 from wiki_agent.maintenance.restructure import plan as plan_mod
 from wiki_agent.maintenance.restructure import prompts
@@ -223,12 +223,12 @@ def test_take_conservation_rejects_unplaceable_section(tmp_path: Path):
 def test_restructure_merge_end_to_end(tmp_path: Path, monkeypatch):
     service, worker, wiki = _env(tmp_path)
     monkeypatch.setattr(plan_mod, "route_unit", _fake_route(_all_to_first))
-    monkeypatch.setattr(maintenance_jobs_mod, "rewrite_unit_page", _fake_rewrite)
+    monkeypatch.setattr(maintenance_handlers_mod, "rewrite_unit_page", _fake_rewrite)
 
     async def empty_plan(llm, wiki_dir, slug):
         return []
 
-    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", empty_plan)
+    monkeypatch.setattr(maintenance_handlers_mod, "plan_link_fixes", empty_plan)
     jobs = service.submit_restructure([_merge_unit()])
 
     def pump(n: int):
@@ -291,7 +291,7 @@ def test_delete_unit_end_to_end(tmp_path: Path, monkeypatch):
     async def empty_plan(llm, wiki_dir, slug):
         return []
 
-    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", empty_plan)
+    monkeypatch.setattr(maintenance_handlers_mod, "plan_link_fixes", empty_plan)
     unit = {"in_pages": ["concepts/b"], "out": [], "reason": "空壳页删除"}
     jobs = service.submit_restructure([unit])
     while service.count_in_flight() > 0:
@@ -313,7 +313,7 @@ def test_handle_link_applies_valid_fixes(tmp_path: Path, monkeypatch):
     async def fake_plan(llm, wiki_dir, slug):
         return [{"find": "这一页的内容展开", "replace": "并参见 [[concepts/a|甲]] 的合并后内容"}]
 
-    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", fake_plan)
+    monkeypatch.setattr(maintenance_handlers_mod, "plan_link_fixes", fake_plan)
     jobs = service.submit_link_batch(slugs=["concepts/c"])
     asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)
@@ -327,7 +327,7 @@ def test_handle_link_noop_settles_linked(tmp_path: Path, monkeypatch):
     async def empty_plan(llm, wiki_dir, slug):
         return []
 
-    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", empty_plan)
+    monkeypatch.setattr(maintenance_handlers_mod, "plan_link_fixes", empty_plan)
     before = (wiki / "concepts/c.md").read_text(encoding="utf-8")
     jobs = service.submit_link_batch(slugs=["concepts/c"])
     asyncio.run(worker.run_once())
@@ -393,7 +393,7 @@ def test_fix_fence_closes_trailing_open_block():
 
 def test_fill_frontmatter_synthesizes_when_absent():
     """拆分新页模型常返回纯正文片段：整页 frontmatter 由骨架合成。"""
-    from wiki_agent.maintenance.jobs import _fill_frontmatter
+    from wiki_agent.maintenance.handlers import _fill_frontmatter
 
     body = "# 标题\n\n正文足够长可以过质量检查的要求，描述明确主题。\n"
     out = _fill_frontmatter(
@@ -451,7 +451,7 @@ def test_route_outline_degrades_beyond_threshold():
 
 
 def test_fill_frontmatter_backfills_skeleton_without_overwrite():
-    from wiki_agent.maintenance.jobs import _fill_frontmatter
+    from wiki_agent.maintenance.handlers import _fill_frontmatter
 
     text = '---\ntype: concept\ntitle: "甲"\nsummary: ""\nrelated: []\n---\n# 甲\n'
     out = _fill_frontmatter(text, {"summary": "骨架摘要", "goal": "骨架目标", "title": "不该用"})
@@ -477,7 +477,7 @@ def test_rewrite_body_fragment_synthetically_lands(tmp_path: Path, monkeypatch):
     async def empty_plan(llm, wiki_dir, slug):
         return []
 
-    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", empty_plan)
+    monkeypatch.setattr(maintenance_handlers_mod, "plan_link_fixes", empty_plan)
     jobs = service.submit_restructure([_merge_unit()])
     asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)
@@ -512,7 +512,7 @@ def test_link_fix_targets_only_body(tmp_path: Path, monkeypatch):
     async def one_fix(llm, wiki_dir, slug):
         return [{"find": "甲主题", "replace": "[[concepts/b|乙]]"}]
 
-    monkeypatch.setattr(maintenance_jobs_mod, "plan_link_fixes", one_fix)
+    monkeypatch.setattr(maintenance_handlers_mod, "plan_link_fixes", one_fix)
     jobs = service.submit_link_batch(["concepts/a"])
     asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)

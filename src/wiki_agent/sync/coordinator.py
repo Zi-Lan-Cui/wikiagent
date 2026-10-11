@@ -20,7 +20,7 @@ from wiki_agent.sync.baseline import SyncBaseline
 
 
 class SyncCoordinator:
-    """提交口判闸与入队；执行体在 source_jobs，状态在 state。"""
+    """提交口判闸与入队；执行体在 handlers，状态在 state。"""
 
     def __init__(
         self,

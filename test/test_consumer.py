@@ -16,7 +16,7 @@ from helpers import FakePipelineMixin
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.queue import Job
 from wiki_agent.snapshots import SnapshotStore, digest_file_text
-from wiki_agent.sync.source_jobs import SourceJobHandler, clean_body_links
+from wiki_agent.sync.handlers import SourceJobHandler, clean_body_links
 from wiki_agent.sync.state import SyncState
 
 BATCH = "b_test"

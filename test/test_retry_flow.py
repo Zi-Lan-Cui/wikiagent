@@ -17,7 +17,7 @@ from wiki_agent.issues import IssueActionConflict, IssueDraft, IssueKind, IssueS
 from wiki_agent.queue import JobResult, PipelineBusy
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.snapshots import digest_file_text
-from wiki_agent.sync.source_jobs import SourceJobHandler
+from wiki_agent.sync.handlers import SourceJobHandler
 from wiki_agent.sync.state import SyncState
 
 

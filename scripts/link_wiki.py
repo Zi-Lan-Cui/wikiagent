@@ -6,7 +6,7 @@
 
 每批维护（sync/重组）的 link 范围只覆盖波及面（产出页与消失页的入链
 页面）；老页该链新页这类发现型需求由本脚本的全库扫承接。一页一个
-job、一页一笔提交；执行体在 maintenance.jobs.handle_link。
+job、一页一笔提交；执行体在 maintenance.handlers.handle_link。
 本脚本持执行锁，驱动队列到空。
 """
 

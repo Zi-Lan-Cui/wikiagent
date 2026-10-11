@@ -18,7 +18,7 @@ from helpers import FakePipelineMixin, make_job_service
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueKind
 from wiki_agent.queue.worker import JobWorker
-from wiki_agent.sync.source_jobs import SourceJobHandler
+from wiki_agent.sync.handlers import SourceJobHandler
 from wiki_agent.sync.state import SyncState
 from wiki_agent.versioning import WikiGitManager
 

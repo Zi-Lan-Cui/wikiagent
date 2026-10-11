@@ -28,20 +28,21 @@ from wiki_agent.database import Database
 from wiki_agent.events import AgentHook, EventPublisher
 from wiki_agent.exec_lock import acquire_execution_lock, release_execution_lock
 from wiki_agent.issues import IssueService, IssueStore
-from wiki_agent.issues.actions import IssueActionExecutor, register_job_handlers
+from wiki_agent.issues.actions import IssueActionExecutor
 from wiki_agent.issues.coordinator import IssueCoordinator
+from wiki_agent.issues.handlers import register_job_handlers
 from wiki_agent.issues.hooks import IssueReporterHook
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.maintenance import ProposalStore
 from wiki_agent.maintenance.coordinator import MaintenanceCoordinator
-from wiki_agent.maintenance.jobs import MaintenanceJobHandler
+from wiki_agent.maintenance.handlers import MaintenanceJobHandler
 from wiki_agent.queue import JobStore
 from wiki_agent.queue.queue import JobQueue
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.snapshots import SnapshotStore
 from wiki_agent.sync.baseline import SyncBaseline
 from wiki_agent.sync.coordinator import SyncCoordinator
-from wiki_agent.sync.source_jobs import SourceJobHandler
+from wiki_agent.sync.handlers import SourceJobHandler
 from wiki_agent.sync.state import SyncState
 from wiki_agent.tools import Grep, ListDir, ReadFile, ToolRegistry
 from wiki_agent.versioning import WikiGitManager
@@ -157,13 +158,13 @@ class AppRuntime:
             source_records_dir=self.source_records_dir,
             compile_config=config.compile,
         )
-        self.maintenance_jobs = MaintenanceJobHandler(
+        self.maintenance_handlers = MaintenanceJobHandler(
             self.agent.llm,
             wiki_dir=self.wiki_dir,
             source_records_dir=self.source_records_dir,
             git=self.git_manager,
         )
-        self.source_jobs = SourceJobHandler(
+        self.source_handlers = SourceJobHandler(
             self.pipeline,
             self.sync_state,
             wiki_dir=self.wiki_dir,
@@ -181,8 +182,8 @@ class AppRuntime:
         # 认领哪些 kind 由各执行体自己声明，装配根只接线
         # （入队唤醒由 JobWorker 构造时自挂到 queue.on_submit）
         self.job_worker = JobWorker(self.job_queue)
-        self.source_jobs.register_jobs(self.job_worker)
-        self.maintenance_jobs.register_jobs(self.job_worker)
+        self.source_handlers.register_jobs(self.job_worker)
+        self.maintenance_handlers.register_jobs(self.job_worker)
         register_job_handlers(self.job_worker, self.issue_actions)
         # 启动核对（与 recover_stale、快照清扫同一类）：把重试输入
         # 已丢失的记录标记 unavailable，使 issue 记录与磁盘一致

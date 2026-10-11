@@ -144,7 +144,7 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
         from wiki_agent.snapshots import SnapshotStore
         from wiki_agent.sync.baseline import SyncBaseline
         from wiki_agent.sync.coordinator import SyncCoordinator
-        from wiki_agent.sync.source_jobs import SourceJobHandler
+        from wiki_agent.sync.handlers import SourceJobHandler
         from wiki_agent.sync.state import SyncState
         from wiki_agent.versioning import WikiGitManager
 
