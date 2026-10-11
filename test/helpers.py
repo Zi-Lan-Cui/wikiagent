@@ -3,6 +3,7 @@
 代码各层不自建依赖；测试里等价于装配根的构造集中在这里。
 """
 
+from contextlib import contextmanager
 from pathlib import Path
 
 from wiki_agent.application.job_service import JobService
@@ -48,6 +49,14 @@ def make_issue_store(workspace: str | Path) -> IssueStore:
 
 def make_issue_service(workspace: str | Path) -> IssueService:
     return IssueService(make_issue_store(workspace))
+
+
+class FakePipelineMixin:
+    """假管线补 progress_scope 空实现，对齐 CompilePipeline 协议。"""
+
+    @contextmanager
+    def progress_scope(self, _callback):
+        yield
 
 
 def make_job_service(

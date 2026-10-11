@@ -9,7 +9,7 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from helpers import make_issue_store, make_job_service
+from helpers import FakePipelineMixin, make_issue_store, make_job_service
 
 from wiki_agent.application.job_service import JobService
 from wiki_agent.errors import IngestError, IngestStage
@@ -162,7 +162,7 @@ def test_failed_job_does_not_mark_hash(tmp_path: Path):
     source.parent.mkdir(parents=True)
     source.write_text("失败输入" * 20, encoding="utf-8")
 
-    class _FailingPipeline:
+    class _FailingPipeline(FakePipelineMixin):
         async def ingest_one(self, raw_file):
             raise IngestError(IngestStage.PLAN, "校验失败", source=source.name)
 

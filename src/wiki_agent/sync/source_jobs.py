@@ -233,7 +233,9 @@ class SourceJobHandler:
 
         progress("编译成页")
         try:
-            outcome = await self._pipeline.ingest_one(summary.files[0])
+            # 流水线内部逐阶段回报（convert…execute），经 scope 转发进任务行
+            with self._pipeline.progress_scope(progress):
+                outcome = await self._pipeline.ingest_one(summary.files[0])
         except IngestError as exc:
             write.abort_export()
             return self._ingest_error_result(job, exc)

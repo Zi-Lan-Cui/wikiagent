@@ -7,7 +7,8 @@ execute → index。流水线不决定失败策略：阶段异常携带阶段信
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeVar
@@ -288,6 +289,19 @@ class CompilePipeline:
             raise IngestError(stage, str(e), source=source, cause=e) from e
         except Exception as e:
             raise IngestError(stage, f"未分类: {e}", source=source, cause=e) from e
+
+    @contextmanager
+    def progress_scope(self, callback: Callable[[str], None]) -> Generator[None]:
+        """临时绑定阶段回调，退出即还原。
+
+        串行 worker 下每任务一次绑定即可精确归属进度；不用构造参数是为避免
+        共享 pipeline 实例上的常驻闭包跨任务串台。"""
+        previous = self._on_progress
+        self._on_progress = callback
+        try:
+            yield
+        finally:
+            self._on_progress = previous
 
     def _notify_progress(self, stage: IngestStage) -> None:
         callback = getattr(self, "_on_progress", None)

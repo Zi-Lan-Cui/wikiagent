@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
+from helpers import FakePipelineMixin
+
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.queue import Job
 from wiki_agent.snapshots import SnapshotStore, digest_file_text
@@ -40,7 +42,7 @@ def _delete_payload() -> dict[str, object]:
     return {"deleted": True, "digest": "", "batch": BATCH}
 
 
-class _FakePipeline:
+class _FakePipeline(FakePipelineMixin):
     def __init__(self, raises=None):
         self.calls = 0
         self.seen_raw = []

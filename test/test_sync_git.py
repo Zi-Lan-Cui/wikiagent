@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from helpers import make_job_service
+from helpers import FakePipelineMixin, make_job_service
 
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.issues import IssueKind
@@ -23,7 +23,7 @@ from wiki_agent.sync.state import SyncState
 from wiki_agent.versioning import WikiGitManager
 
 
-class _FakePipeline:
+class _FakePipeline(FakePipelineMixin):
     """假 ingest：成功写一个概念页并构造档案页；失败先留半页未提交改动再抛；
     bad 名单写出缺 frontmatter 的坏页（触发执行体的单 source 质量闸门）。"""
 

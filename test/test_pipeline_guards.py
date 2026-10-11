@@ -80,6 +80,20 @@ def test_empty_extract_summary_fails_before_plan(tmp_path):
     assert caught.value.error_code == "empty_extract_summary"
 
 
+def test_progress_scope_forwards_then_restores():
+    seen_permanent: list[str] = []
+    pipeline = _pipeline(object(), object())
+    pipeline._on_progress = seen_permanent.append
+
+    seen_scope: list[str] = []
+    with pipeline.progress_scope(seen_scope.append):
+        pipeline._notify_progress(IngestStage.CONVERT)
+    pipeline._notify_progress(IngestStage.PLAN)
+
+    assert seen_scope == ["convert"]
+    assert seen_permanent == ["plan"]  # scope 退出后回调回到原绑定
+
+
 def test_pipeline_reports_current_stage_before_work_starts(tmp_path):
     stages: list[str] = []
 
