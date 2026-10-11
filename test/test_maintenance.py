@@ -16,7 +16,6 @@ import pytest
 from helpers import make_job_service
 
 from wiki_agent.application.job_service import JobService
-from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.conversation import LLMResponse
 from wiki_agent.maintenance import jobs as maintenance_jobs_mod
 from wiki_agent.maintenance import restructure as rs
@@ -35,6 +34,7 @@ from wiki_agent.queue import (
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.sync.state import SyncState
 from wiki_agent.wiki.frontmatter import split_frontmatter
+from wiki_agent.wiki.pages import all_content_slugs
 from wiki_agent.wiki.rules import count_unclosed_fences
 from wiki_agent.wiki.sections import Section, page_sections
 

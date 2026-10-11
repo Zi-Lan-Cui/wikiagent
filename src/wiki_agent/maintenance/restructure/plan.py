@@ -9,9 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.wiki.frontmatter import list_field, split_frontmatter
-from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR, path_for
+from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR, all_content_slugs, path_for
 from wiki_agent.wiki.sections import Section, page_sections
 
 from .models import OutPage, Unit, UnitMismatchError

@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.log import get_logger
 from wiki_agent.maintenance.restructure import (
     Unit,
@@ -20,6 +19,7 @@ from wiki_agent.maintenance.restructure import (
     recheck_units,
     resolve_unit_conflicts,
 )
+from wiki_agent.wiki.pages import all_content_slugs
 
 logger = get_logger("MAINTENANCE")
 

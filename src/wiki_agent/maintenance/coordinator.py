@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.maintenance.restructure import Unit, UnitError, assert_units_valid, pages_linking_to
 from wiki_agent.queue import Job, Kind, RestructureInProgress
 from wiki_agent.queue.queue import JobQueue
+from wiki_agent.wiki.pages import all_content_slugs
 
 if TYPE_CHECKING:
     from wiki_agent.maintenance.models import Proposal

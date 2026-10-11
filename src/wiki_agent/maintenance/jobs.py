@@ -20,7 +20,6 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from wiki_agent.compiler.content_pages import all_content_slugs
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.maintenance.link import apply_link_fixes, plan_link_fixes
 from wiki_agent.maintenance.restructure import (
@@ -40,7 +39,7 @@ from wiki_agent.queue.wiki_write import (
 )
 from wiki_agent.wiki.frontmatter import render_frontmatter, set_fields, split_frontmatter
 from wiki_agent.wiki.normalize import normalize_page
-from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR, path_for
+from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR, all_content_slugs, path_for
 from wiki_agent.wiki.quality import scan_wiki
 
 if TYPE_CHECKING:
