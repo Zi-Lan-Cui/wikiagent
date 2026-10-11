@@ -79,7 +79,7 @@ async def execute_restructure_unit(
     """执行一个重组单元：核对 → 路由 → 装配 → 逐页成文 → 落盘 → 质量扫描。"""
     progress("页面核对")
     try:
-        plan = await prepare_unit(wiki_dir, unit, llm)
+        prepared = await prepare_unit(wiki_dir, unit, llm)
     except UnitMismatchError as exc:
         # 单页改写（A→A）的目标页消失：排队期间被删，按正常结束处理
         if len(unit.in_pages) == 1 and unit.in_pages == unit.out_slugs:
@@ -103,21 +103,21 @@ async def execute_restructure_unit(
                 llm,
                 slug=page.slug,
                 intent=page.intent,
-                draft=plan.drafts[page.slug],
-                old=plan.old_content[page.slug],
-                siblings=plan.sibling_titles[page.slug],
+                draft=prepared.drafts[page.slug],
+                old=prepared.old_content[page.slug],
+                siblings=prepared.sibling_titles[page.slug],
             )
         except Exception as exc:
             failures.append(f"{page.slug}: rewrite {str(exc)[:120]}")
             continue
-        text = _fill_frontmatter(text, plan.old_meta[page.slug])
+        text = _fill_frontmatter(text, prepared.old_meta[page.slug])
         normalized, issues = normalize_page(
             text,
             path=f"{page.slug}.md",
-            valid_slugs=plan.final_slugs,
+            valid_slugs=prepared.final_slugs,
             source_identity="",
             today=date.today().isoformat(),
-            existing=plan.old_meta[page.slug],
+            existing=prepared.old_meta[page.slug],
             # 类型由目录派生强制覆盖——成文模型偶发把目录名写进 type
             page_type=PAGE_TYPE_BY_DIR[page.slug.split("/", 1)[0]],
         )
@@ -138,7 +138,7 @@ async def execute_restructure_unit(
         return RestructureExecution(kind="rewrite", error="; ".join(failures)[:500])
 
     progress("写入落盘")
-    apply_unit(wiki_dir, unit, plan, contents)
+    apply_unit(wiki_dir, unit, prepared, contents)
 
     progress("质量扫描")
     errors = [issue for issue in scan_wiki(Path(wiki_dir)) if issue.level == "error"]
@@ -151,5 +151,5 @@ async def execute_restructure_unit(
         return RestructureExecution(kind="scan", error=f"扫描闸门不过: {reason}"[:500])
 
     return RestructureExecution(
-        kind="applied", assignment=len(plan.assignment), fixed_by_take=len(plan.fixed)
+        kind="applied", assignment=prepared.assignment_count, fixed_by_take=prepared.fixed_by_take_count
     )

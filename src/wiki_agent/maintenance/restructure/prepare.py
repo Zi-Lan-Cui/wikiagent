@@ -19,16 +19,20 @@ from .route import route_unit
 
 
 @dataclass
-class UnitPlan:
-    unit: Unit
-    sections: list[Section]
-    assignment: dict[str, str] = field(default_factory=dict)
-    fixed: dict[str, str] = field(default_factory=dict)  # take 直接指定的归属（审计用）
+class PreparedUnit:
+    """prepare_unit 的产出：仅含后续成文/落盘所需资料。
+
+    sections 与完整 assignment 是构造草稿的中间态，不随结果带出；
+    审计进 job detail 的只有两个数量。
+    """
+
     drafts: dict[str, str] = field(default_factory=dict)  # out slug → 装配草稿全文
     old_content: dict[str, str] = field(default_factory=dict)
     old_meta: dict[str, dict] = field(default_factory=dict)
     sibling_titles: dict[str, list[str]] = field(default_factory=dict)
     final_slugs: set[str] = field(default_factory=set)
+    assignment_count: int = 0
+    fixed_by_take_count: int = 0  # take 直接指定的章节归属数（审计用）
 
 
 def _existing_slugs(wiki_dir: Path) -> set[str]:
@@ -66,7 +70,7 @@ def _draft(unit: Unit, sections: list[Section], assignment: dict[str, str]) -> d
     return drafts
 
 
-async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> UnitPlan:
+async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> PreparedUnit:
     """核对声明、切分章节、计算分配、装配草稿。全程只读。
 
     Raises:
@@ -85,10 +89,13 @@ async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> UnitPlan:
     sections: list[Section] = []
     for slug in unit.in_pages:
         sections.extend(page_sections(path_for(wiki_dir, slug), slug))
-    plan = UnitPlan(unit=unit, sections=sections)
-    plan.assignment, plan.fixed = await route_unit(llm, unit, sections)
-    plan.drafts = _draft(unit, sections, plan.assignment)
-    plan.final_slugs = (existing - set(unit.vanished)) | set(unit.out_slugs)
+    assignment, fixed = await route_unit(llm, unit, sections)
+    plan = PreparedUnit(
+        drafts=_draft(unit, sections, assignment),
+        final_slugs=(existing - set(unit.vanished)) | set(unit.out_slugs),
+        assignment_count=len(assignment),
+        fixed_by_take_count=len(fixed),
+    )
     # 溯源并集：out 页的 sources = 全部 in 页 sources 的并集，
     # 否则被消费页的源文件会从溯源链消失
     unit_sources: list[str] = []

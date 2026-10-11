@@ -17,7 +17,7 @@ from .models import (
     UnitError,
     UnitMismatchError,
 )
-from .prepare import UnitPlan, prepare_unit
+from .prepare import PreparedUnit, prepare_unit
 from .propose import propose_units
 from .resolve import assert_units_valid, resolve_unit_conflicts, validate_unit
 from .review import recheck_units
@@ -32,7 +32,7 @@ __all__ = [
     "Unit",
     "UnitError",
     "UnitMismatchError",
-    "UnitPlan",
+    "PreparedUnit",
     "apply_unit",
     "assert_units_valid",
     "pages_linking_to",

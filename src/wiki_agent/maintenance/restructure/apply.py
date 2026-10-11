@@ -14,7 +14,7 @@ from wiki_agent.wiki.frontmatter import list_field, set_fields, split_frontmatte
 from wiki_agent.wiki.pages import index_line, path_for, slug_from_path
 
 from .models import Unit
-from .prepare import UnitPlan
+from .prepare import PreparedUnit
 
 
 def _link_patterns(slug: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
@@ -122,7 +122,7 @@ def _index_append(wiki_dir: Path, slug: str) -> None:
 
 
 def apply_unit(
-    wiki_dir: str | Path, unit: Unit, plan: UnitPlan, contents: dict[str, str]
+    wiki_dir: str | Path, unit: Unit, prepared: PreparedUnit, contents: dict[str, str]
 ) -> None:
     """落盘一个单元：写产出页 → 删除消失页 → 链接与 index 收尾。
 
@@ -131,7 +131,7 @@ def apply_unit(
     """
     wiki_dir = Path(wiki_dir)
     for page in unit.out:
-        text = contents.get(page.slug) or plan.drafts.get(page.slug) or ""
+        text = contents.get(page.slug) or prepared.drafts.get(page.slug) or ""
         path_for(wiki_dir, page.slug).parent.mkdir(parents=True, exist_ok=True)
         path_for(wiki_dir, page.slug).write_text(text.rstrip() + "\n", encoding="utf-8")
     for slug in unit.vanished:
