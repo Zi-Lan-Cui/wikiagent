@@ -12,8 +12,6 @@ from wiki_agent.compiler.integration.checks import (
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import parse_plan
 from wiki_agent.compiler.models import (
-    JSON_MODE,
-    NO_THINKING,
     AnalysisResult,
     Disposition,
     ExtractResult,
@@ -23,6 +21,7 @@ from wiki_agent.compiler.models import (
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestStage
 from wiki_agent.llm.client import LLMClient
+from wiki_agent.llm.params import JSON_MODE, NO_THINKING
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.pages import slug_from_ref
 

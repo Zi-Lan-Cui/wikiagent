@@ -11,7 +11,6 @@ from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import normalize_wiki_path
 from wiki_agent.compiler.models import (
-    NO_THINKING,
     Disposition,
     ExtractResult,
     IntegrationPlan,
@@ -20,6 +19,7 @@ from wiki_agent.compiler.models import (
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestError, IngestStage
 from wiki_agent.llm.client import LLMClient
+from wiki_agent.llm.params import NO_THINKING
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.normalize import extract_related, fix_wikilinks, normalize_page

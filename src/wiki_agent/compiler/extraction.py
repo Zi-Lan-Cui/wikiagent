@@ -12,7 +12,6 @@ import re
 from pathlib import Path
 
 from wiki_agent.compiler.models import (
-    NO_THINKING,
     ChunkSummary,
     ExtractResult,
     SourceChunk,
@@ -22,6 +21,7 @@ from wiki_agent.compiler.models import (
 from wiki_agent.compiler.prompts import compile as _compile_prompts
 from wiki_agent.conversation import Message
 from wiki_agent.llm.client import LLMClient
+from wiki_agent.llm.params import NO_THINKING
 from wiki_agent.llm.retry import async_invoke_with_retry
 from wiki_agent.log import get_logger
 

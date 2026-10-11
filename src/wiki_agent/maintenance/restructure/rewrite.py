@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from wiki_agent.compiler.checked_call import invoke_checked
-from wiki_agent.compiler.models import NO_THINKING
 from wiki_agent.conversation import Message
+from wiki_agent.llm.params import NO_THINKING
 
 from . import prompts
 from .models import RewriteError

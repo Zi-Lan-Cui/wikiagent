@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from wiki_agent.compiler.integration.parse import strip_fence
-from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
+from wiki_agent.llm.params import JSON_MODE
 from wiki_agent.llm.retry import async_invoke_with_retry
 
 JUDGE_SYSTEM = """你是知识库编译过程的二元判定员。你的判定必须只依据给定的输入与产出——输入是编译该产出时唯一可用的素材，不允许用输入之外的任何信息（外部知识、训练记忆）补全或纠错。

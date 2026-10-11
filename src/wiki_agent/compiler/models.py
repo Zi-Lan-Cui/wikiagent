@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from openai.types.shared_params import ResponseFormatJSONObject
-
 
 class Disposition(StrEnum):
     """页面操作类型，只含要执行的决策。
@@ -16,15 +14,6 @@ class Disposition(StrEnum):
 
     NEW = "new"
     UPDATE = "update"
-
-
-# 编译调用关闭 thinking：reasoning 模型的思考段可能占满 max_tokens
-# 预算导致 content 为空。integration 各阶段共用此常量。
-NO_THINKING = {"thinking": {"type": "disabled"}}
-
-# API 级 JSON 模式，输出必为合法 JSON 对象。check/parse 层仍接受顶层数组，
-# 防兼容端点静默忽略该参数。各阶段共用此常量。
-JSON_MODE: ResponseFormatJSONObject = {"type": "json_object"}
 
 
 @dataclass

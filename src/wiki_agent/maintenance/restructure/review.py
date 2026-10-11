@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from wiki_agent.compiler.checked_call import invoke_checked
-from wiki_agent.compiler.models import JSON_MODE
 from wiki_agent.conversation import Message
+from wiki_agent.llm.params import JSON_MODE
 from wiki_agent.log import get_logger
 from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.pages import path_for
