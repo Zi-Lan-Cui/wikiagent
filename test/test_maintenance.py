@@ -21,7 +21,8 @@ from wiki_agent.maintenance import handlers as maintenance_handlers_mod
 from wiki_agent.maintenance import restructure as rs
 from wiki_agent.maintenance.handlers import MaintenanceJobHandler
 from wiki_agent.maintenance.link import apply_link_fixes
-from wiki_agent.maintenance.restructure import plan as plan_mod
+from wiki_agent.maintenance.restructure import execution as execution_mod
+from wiki_agent.maintenance.restructure import prepare as prepare_mod
 from wiki_agent.maintenance.restructure import prompts
 from wiki_agent.maintenance.restructure import route as route_mod
 from wiki_agent.queue import (
@@ -222,8 +223,8 @@ def test_take_conservation_rejects_unplaceable_section(tmp_path: Path):
 
 def test_restructure_merge_end_to_end(tmp_path: Path, monkeypatch):
     service, worker, wiki = _env(tmp_path)
-    monkeypatch.setattr(plan_mod, "route_unit", _fake_route(_all_to_first))
-    monkeypatch.setattr(maintenance_handlers_mod, "rewrite_unit_page", _fake_rewrite)
+    monkeypatch.setattr(prepare_mod, "route_unit", _fake_route(_all_to_first))
+    monkeypatch.setattr(execution_mod, "rewrite_unit_page", _fake_rewrite)
 
     async def empty_plan(llm, wiki_dir, slug):
         return []
@@ -261,7 +262,7 @@ def test_restructure_route_violation_fails_without_disk_change(tmp_path: Path, m
         payload = {"assign": [{"section": sections[0].id, "to": unit.out[0].slug}]}
         return await route_mod.route_unit(_LLM(payload), unit, sections)
 
-    monkeypatch.setattr(plan_mod, "route_unit", dropping_route)
+    monkeypatch.setattr(prepare_mod, "route_unit", dropping_route)
     jobs = service.submit_restructure([_merge_unit()])
     asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)
@@ -271,7 +272,7 @@ def test_restructure_route_violation_fails_without_disk_change(tmp_path: Path, m
 
 def test_single_page_rewrite_missing_settles_target_missing(tmp_path: Path, monkeypatch):
     service, worker, wiki = _env(tmp_path)
-    monkeypatch.setattr(plan_mod, "route_unit", _fake_route(_all_to_first))
+    monkeypatch.setattr(prepare_mod, "route_unit", _fake_route(_all_to_first))
     unit = {
         "in_pages": ["concepts/b"],
         "out": [{"slug": "concepts/b", "intent": "改写"}],
@@ -393,7 +394,7 @@ def test_fix_fence_closes_trailing_open_block():
 
 def test_fill_frontmatter_synthesizes_when_absent():
     """拆分新页模型常返回纯正文片段：整页 frontmatter 由骨架合成。"""
-    from wiki_agent.maintenance.handlers import _fill_frontmatter
+    from wiki_agent.maintenance.restructure.execution import _fill_frontmatter
 
     body = "# 标题\n\n正文足够长可以过质量检查的要求，描述明确主题。\n"
     out = _fill_frontmatter(
@@ -451,7 +452,7 @@ def test_route_outline_degrades_beyond_threshold():
 
 
 def test_fill_frontmatter_backfills_skeleton_without_overwrite():
-    from wiki_agent.maintenance.handlers import _fill_frontmatter
+    from wiki_agent.maintenance.restructure.execution import _fill_frontmatter
 
     text = '---\ntype: concept\ntitle: "甲"\nsummary: ""\nrelated: []\n---\n# 甲\n'
     out = _fill_frontmatter(text, {"summary": "骨架摘要", "goal": "骨架目标", "title": "不该用"})
@@ -472,7 +473,7 @@ def test_rewrite_body_fragment_synthetically_lands(tmp_path: Path, monkeypatch):
             return LLMResponse(content="# 甲乙合并页\n\n合并后的正文。")
 
     service, worker, wiki = _env(tmp_path, llm=_TextLLM())
-    monkeypatch.setattr(plan_mod, "route_unit", _fake_route(_all_to_first))
+    monkeypatch.setattr(prepare_mod, "route_unit", _fake_route(_all_to_first))
 
     async def empty_plan(llm, wiki_dir, slug):
         return []

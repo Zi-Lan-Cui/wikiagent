@@ -1,8 +1,8 @@
-"""维护线三类 job（restructure / link / 结构分析）的执行体。
+"""维护线三类 job（restructure / link / 结构分析）的执行体；重组的编排在 restructure.execution、提议的编排在 restructure.preview。
 
 重组与补链和 SourceJobHandler 使用同一 wiki 写协议：
 with session.open(job) as write: 执行，成功 write.commit()，
-业务失败 write.abort_export()（jobs.wiki_write 的出口不变量）。
+业务失败 write.abort_export()（queue.wiki_write 的出口不变量）。
 维护线 job 与 sync job 在同一队列串行执行；提交层的互斥与基线检查保证
 执行时 wiki 当前状态与提交时的声明依据一致。结构分析不写文件。
 
@@ -22,14 +22,8 @@ from typing import TYPE_CHECKING
 
 from wiki_agent.log import emit_event, get_logger
 from wiki_agent.maintenance.link import apply_link_fixes, plan_link_fixes
-from wiki_agent.maintenance.restructure import (
-    RouteError,
-    Unit,
-    UnitMismatchError,
-    apply_unit,
-    prepare_unit,
-    rewrite_unit_page,
-)
+from wiki_agent.maintenance.restructure import Unit
+from wiki_agent.maintenance.restructure.execution import execute_restructure_unit
 from wiki_agent.queue import Job, JobResult, Kind, Settlement
 from wiki_agent.queue.wiki_write import (
     Subject,
@@ -37,43 +31,15 @@ from wiki_agent.queue.wiki_write import (
     commit_subject,
     debris_dir_for,
 )
-from wiki_agent.wiki.frontmatter import render_frontmatter, set_fields, split_frontmatter
+from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.normalize import normalize_page
-from wiki_agent.wiki.pages import PAGE_TYPE_BY_DIR, all_content_slugs, path_for
-from wiki_agent.wiki.quality import scan_wiki
+from wiki_agent.wiki.pages import all_content_slugs, path_for
 
 if TYPE_CHECKING:
     from wiki_agent.queue.worker import JobWorker
     from wiki_agent.versioning import WikiGitManager
 
 logger = get_logger("WIKI_OPS")
-
-_FM_REQUIRED = ("type", "title", "summary", "goal")
-
-
-def _fill_frontmatter(text: str, skeleton: dict) -> str:
-    """成文输出缺必填字段时用代码骨架补齐，避免因丢字段使整单元失败。
-
-    只补缺失的必填 key，模型已给的值一律保留；骨架来自
-    _frontmatter_for（旧页=旧 frontmatter，新页=由 intent 派生），
-    与草稿同源。输出没有 frontmatter（模型对拆分新页常返回纯正文
-    片段）时整页由骨架合成，正文原样保留。
-    """
-    fm, _ = split_frontmatter(text)
-    missing = {
-        k: str(skeleton[k])
-        for k in _FM_REQUIRED
-        if not str(fm.get(k) or "").strip() and str(skeleton.get(k) or "").strip()
-    }
-    if not missing:
-        return text
-    dash = [ln for ln in text.splitlines() if ln.strip() == "---"]
-    if text.startswith("---") and len(dash) >= 2:
-        return set_fields(text, missing)
-    fields = {k: v for k, v in skeleton.items() if str(v).strip()}
-    fields.update(missing)
-    return render_frontmatter(fields) + text
-
 
 class MaintenanceJobHandler:
     """维护线三类 job（重组/补链/结构分析）的执行体，经 register_jobs 认领。"""
@@ -102,7 +68,7 @@ class MaintenanceJobHandler:
         申报 PREVIEWED 结算，建议清单由 JobOutcomeHandler 在终态事务内
         写入维护提议账本，任务行的 result 只作归档回看。
         """
-        from wiki_agent.maintenance.restructure.pipeline import preview_payload, propose_restructure
+        from wiki_agent.maintenance.restructure.preview import preview_payload, propose_restructure
 
         outcome = await propose_restructure(self._llm, self._wiki_dir, progress=progress)
         return JobResult(
@@ -111,111 +77,35 @@ class MaintenanceJobHandler:
         )
 
     async def handle_restructure(self, job: Job, progress) -> JobResult:
-        """执行一个重组单元：核对 → 路由 → 装配 → 逐页成文 → 落盘 → 质量扫描。
-
-        单元失败等于从未发生（落盘前失败无工作区改动；落盘后失败由
-        abort_export 撤销并留下 debris 证据）。
-        """
+        """Job 协议适配：payload 解析、git 会话与 commit/abort 决定；编排见 restructure.execution。"""
         try:
             unit = Unit.from_dict(job.payload.get("unit"))
         except (TypeError, ValueError) as exc:
             return JobResult(status="failed", detail={"error": f"单元声明损坏: {exc}"[:500]})
         with self._session.open(job) as write:
-            progress("页面核对")
-            try:
-                plan = await prepare_unit(self._wiki_dir, unit, self._llm)
-            except UnitMismatchError as exc:
-                # 单页改写（A→A）的目标页消失：排队期间被删，按正常结束处理
-                if len(unit.in_pages) == 1 and unit.in_pages == unit.out_slugs:
-                    emit_event(
-                        "restructure_skipped", unit=str(unit.in_pages), reason="target_missing"
-                    )
-                    return JobResult(
-                        status="succeeded", detail={"settlement": Settlement.TARGET_MISSING}
-                    )
-                emit_event("restructure_mismatch", job_id=job.id, detail=str(exc))
-                return JobResult(
-                    status="failed",
-                    detail={"error": f"核对不过（{exc}），声明与盘面不符，请重新分析"},
-                )
-            except RouteError as exc:
-                emit_event("restructure_reverted", job_id=job.id, reason="route", detail=str(exc))
-                return JobResult(status="failed", detail={"error": f"章节分配失败: {exc}"[:500]})
-
-            progress("逐页成文")
-            contents: dict[str, str] = {}
-            failures: list[str] = []
-            for page in unit.out:
-                try:
-                    text = await rewrite_unit_page(
-                        self._llm,
-                        slug=page.slug,
-                        intent=page.intent,
-                        draft=plan.drafts[page.slug],
-                        old=plan.old_content[page.slug],
-                        siblings=plan.sibling_titles[page.slug],
-                    )
-                except Exception as exc:
-                    failures.append(f"{page.slug}: rewrite {str(exc)[:120]}")
-                    continue
-                text = _fill_frontmatter(text, plan.old_meta[page.slug])
-                normalized, issues = normalize_page(
-                    text,
-                    path=f"{page.slug}.md",
-                    valid_slugs=plan.final_slugs,
-                    source_identity="",
-                    today=date.today().isoformat(),
-                    existing=plan.old_meta[page.slug],
-                    # 类型由目录派生强制覆盖——成文模型偶发把目录名写进 type
-                    page_type=PAGE_TYPE_BY_DIR[page.slug.split("/", 1)[0]],
-                )
-                errors = [issue for issue in issues if issue.level == "error"]
-                if errors:
-                    failures.append(
-                        f"{page.slug}: normalize {'; '.join(str(i) for i in errors[:2])[:200]}"
-                    )
-                    continue
-                contents[page.slug] = normalized
-            if failures:  # 落盘未开始，整单元直接失败
-                emit_event(
-                    "restructure_reverted",
-                    job_id=job.id,
-                    reason="rewrite",
-                    detail="; ".join(failures)[:300],
-                )
-                return JobResult(status="failed", detail={"error": "; ".join(failures)[:500]})
-
-            progress("写入落盘")
-            apply_unit(self._wiki_dir, unit, plan, contents)
-
-            progress("质量扫描")
-            errors = [issue for issue in scan_wiki(self._wiki_dir) if issue.level == "error"]
-            if errors:
+            result = await execute_restructure_unit(
+                self._llm, self._wiki_dir, unit, job_id=job.id, progress=progress
+            )
+            if result.kind == "target_missing":
+                return JobResult(status="succeeded", detail={"settlement": Settlement.TARGET_MISSING})
+            if result.kind == "applied":
+                progress("提交版本")
+                if unit.out:
+                    target = f"{'+'.join(unit.in_pages)} → {'+'.join(unit.out_slugs)}"
+                else:
+                    target = f"delete {'+'.join(unit.in_pages)}"
+                commit = write.commit(commit_subject(Subject.RESTRUCTURE, target))
+                detail: dict[str, object] = {
+                    "settlement": Settlement.APPLIED,
+                    "assignment": result.assignment,
+                    "fixed_by_take": result.fixed_by_take,
+                }
+                if commit:
+                    detail["commit"] = commit
+                return JobResult(status="succeeded", detail=detail)
+            if result.kind == "scan":
                 write.abort_export()
-                reason = "; ".join(str(issue) for issue in errors[:3])
-                emit_event(
-                    "restructure_reverted", job_id=job.id, reason="scan_gate", detail=reason[:300]
-                )
-                logger.error("  扫描闸门不过，单元撤销: %s", reason)
-                return JobResult(status="failed", detail={"error": f"扫描闸门不过: {reason}"[:500]})
-
-            progress("提交版本")
-            if unit.out:
-                subject = commit_subject(
-                    Subject.RESTRUCTURE,
-                    f"{'+'.join(unit.in_pages)} → {'+'.join(unit.out_slugs)}",
-                )
-            else:
-                subject = commit_subject(Subject.RESTRUCTURE, f"delete {'+'.join(unit.in_pages)}")
-            commit = write.commit(subject)
-            detail: dict[str, object] = {
-                "settlement": Settlement.APPLIED,
-                "assignment": len(plan.assignment),
-                "fixed_by_take": len(plan.fixed),
-            }
-            if commit:
-                detail["commit"] = commit
-            return JobResult(status="succeeded", detail=detail)
+            return JobResult(status="failed", detail={"error": result.error})
 
     async def handle_link(self, job: Job, progress) -> JobResult:
         """维护一页的出链：LLM 出替换清单，代码校验后应用；无可补即空操作。"""

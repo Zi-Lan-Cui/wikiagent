@@ -17,7 +17,7 @@ from .models import (
     UnitError,
     UnitMismatchError,
 )
-from .plan import UnitPlan, prepare_unit
+from .prepare import UnitPlan, prepare_unit
 from .propose import propose_units
 from .resolve import assert_units_valid, resolve_unit_conflicts, validate_unit
 from .review import recheck_units

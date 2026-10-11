@@ -24,7 +24,7 @@ from wiki_agent.issues import IssueService
 from wiki_agent.issues.actions import IssueActionExecutor
 from wiki_agent.issues.handlers import register_job_handlers
 from wiki_agent.maintenance.restructure import Unit
-from wiki_agent.maintenance.restructure.pipeline import RestructureOutcome
+from wiki_agent.maintenance.restructure.preview import RestructureOutcome
 from wiki_agent.queue import Kind
 from wiki_agent.queue.worker import JobWorker
 from wiki_agent.sync.state import SyncState
@@ -201,7 +201,7 @@ def test_maintenance_preview_enqueue_converge_and_gate(tmp_path: Path):
 
 def test_preview_handler_payload_stages_and_result(tmp_path: Path, monkeypatch):
     """handler 走三阶段 progress、建议清单进 JobResult；service 把结果落库。"""
-    import wiki_agent.maintenance.restructure.pipeline as svc_mod
+    import wiki_agent.maintenance.restructure.preview as svc_mod
     from wiki_agent.maintenance.handlers import MaintenanceJobHandler
 
     runtime = _Runtime(tmp_path)

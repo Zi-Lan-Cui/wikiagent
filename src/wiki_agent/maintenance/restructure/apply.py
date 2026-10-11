@@ -14,7 +14,7 @@ from wiki_agent.wiki.frontmatter import list_field, set_fields, split_frontmatte
 from wiki_agent.wiki.pages import index_line, path_for, slug_from_path
 
 from .models import Unit
-from .plan import UnitPlan
+from .prepare import UnitPlan
 
 
 def _link_patterns(slug: str) -> tuple[re.Pattern[str], re.Pattern[str]]:

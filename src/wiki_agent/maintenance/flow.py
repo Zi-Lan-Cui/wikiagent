@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from wiki_agent.maintenance.restructure import UnitError
-from wiki_agent.maintenance.restructure.pipeline import (
+from wiki_agent.maintenance.restructure.preview import (
     RestructureOutcome,
     propose_restructure,
 )
