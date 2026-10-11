@@ -179,6 +179,7 @@ class AppRuntime:
             issues_coordinator=self.issues_coordinator,
         )
         # 认领哪些 kind 由各执行体自己声明，装配根只接线
+        # （入队唤醒由 JobWorker 构造时自挂到 queue.on_submit）
         self.job_worker = JobWorker(self.job_queue)
         self.source_jobs.register_jobs(self.job_worker)
         self.maintenance_jobs.register_jobs(self.job_worker)

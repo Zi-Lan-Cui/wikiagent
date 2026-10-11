@@ -192,7 +192,8 @@ def test_maintenance_preview_enqueue_converge_and_gate(tmp_path: Path):
 
         runtime.job_service.submit(kind=Kind.DELETE, resource="/gone", mode="sync")
         r3 = await client.post("/api/maintenance/preview")
-        assert r3.status_code == 409 and "在途" in r3.json()["detail"]
+        # 互斥拒绝走书面用户文案（PipelineBusy），断言稳定词而非具体措辞
+        assert r3.status_code == 409 and "进行中的整理任务" in r3.json()["detail"]
 
     asyncio.run(_client(runtime, tmp_path)(fn))
 

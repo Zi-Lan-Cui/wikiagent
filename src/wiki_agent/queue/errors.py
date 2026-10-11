@@ -22,7 +22,7 @@ class PipelineBusy(RuntimeError):
     判定只发生在提交口，执行层不涉及。
     """
 
-    def __init__(self, message: str = "写 wiki 的任务未空闲：等当前批到达终态后再提交") -> None:
+    def __init__(self, message: str = "整理任务正在进行，请稍后重试") -> None:
         super().__init__(message)
 
 
@@ -30,7 +30,7 @@ class SyncInProgress(PipelineBusy):
     """上一次 sync 批还在执行：sync 互斥串行，不接受叠加快照。"""
 
     def __init__(self) -> None:
-        super().__init__("源执行队列未空闲：上一次 sync/重试尚未结束")
+        super().__init__("上一次同步尚未完成，请等待其结束")
 
 
 class RestructureInProgress(PipelineBusy):
@@ -40,7 +40,7 @@ class RestructureInProgress(PipelineBusy):
     """
 
     def __init__(self) -> None:
-        super().__init__("重组批次未空闲：等当前批全部到终态后再提交")
+        super().__init__("当前整理批次尚未完成，请等待全部任务结束后再提交")
 
 
 class SyncBaselineLag(RuntimeError):

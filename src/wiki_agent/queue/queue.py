@@ -16,6 +16,8 @@ from wiki_agent.queue import WIKI_WRITE_KINDS, Job, JobResult, JobStore, Pipelin
 from wiki_agent.snapshots import SnapshotStore
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from wiki_agent.queue.outcomes import JobOutcomeHandler
 
 logger = get_logger("JOB_QUEUE")
@@ -38,10 +40,13 @@ class JobQueue:
         store: JobStore,
         snapshots: SnapshotStore,
         outcomes: JobOutcomeHandler,
+        on_submit: Callable[[], None] | None = None,
     ):
         self.store = store
         self.snapshots = snapshots
         self.outcomes = outcomes
+        # 新任务入队后的回调，装配根接线为 worker 唤醒；不传则维持纯轮询
+        self.on_submit = on_submit
         self.recovered_jobs = 0
         # 清扫崩溃遗留的无引用快照目录，保留非终态任务引用的批
         self.snapshots.sweep_orphans(self.store.in_flight_batch_ids())
@@ -64,9 +69,10 @@ class JobQueue:
 
     @staticmethod
     def pipeline_busy(busy: dict[str, int]) -> PipelineBusy:
-        """在途集合非空时的拒绝对象；文案列出各 kind 计数。"""
-        parts = "、".join(f"{kind} {n} 个" for kind, n in sorted(busy.items()))
-        return PipelineBusy(f"写 wiki 的任务在途（{parts}）：等当前批到达终态后再提交")
+        """在途集合非空时的拒绝对象；kind 用中文标签计数，面向终端用户。"""
+        names = {"compile": "同步", "delete": "清理", "restructure": "整理", "link": "补全链接"}
+        parts = "、".join(f"{names.get(kind, kind)} {n} 个" for kind, n in sorted(busy.items()))
+        return PipelineBusy(f"存在进行中的整理任务（{parts}），请等待其完成")
 
     def submit(
         self,
@@ -79,7 +85,7 @@ class JobQueue:
         issue_id: str = "",
         _conn: sqlite3.Connection | None = None,
     ) -> Job:
-        return self.store.enqueue(
+        job = self.store.enqueue(
             kind=kind,
             resource=resource,
             mode=mode,
@@ -88,6 +94,11 @@ class JobQueue:
             issue_id=issue_id,
             _conn=_conn,
         )
+        # _conn 路径的提交在调用方线程内同步走完，worker 无从半路认领；
+        # 外层事务若回滚，多余唤醒只是空跑一趟
+        if self.on_submit is not None:
+            self.on_submit()
+        return job
 
     # 执行生命周期（Worker 独占）
 

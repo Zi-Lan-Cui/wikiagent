@@ -32,6 +32,10 @@ class JobWorker:
         self.poll_interval = poll_interval
         self._handlers: dict[str, JobHandler] = {}
         self._stopped = asyncio.Event()
+        self._wake = asyncio.Event()
+        # 认领循环与唤醒必须成对，装配处（含测试镜像）不该各记一遍；
+        # 同队列多 worker 时后来者接管唤醒，前者退回纯轮询，语义无损
+        queue.on_submit = self.wake
 
     def register(self, kind: str, handler: JobHandler) -> None:
         if not kind.strip():
@@ -96,11 +100,26 @@ class JobWorker:
     async def run(self) -> None:
         self._stopped.clear()
         while not self._stopped.is_set():
+            # clear 在认领之前：睡前任一入队的 wake 都留在事件上，不会丢
+            self._wake.clear()
             if await self.run_once() is None:
-                try:
-                    await asyncio.wait_for(self._stopped.wait(), timeout=self.poll_interval)
-                except TimeoutError:
-                    pass
+                await self._idle_wait()
+
+    async def _idle_wait(self) -> None:
+        """空转时最多睡 poll_interval；stop 或 wake 任一事件即提前醒来。"""
+        stop_waiter = asyncio.ensure_future(self._stopped.wait())
+        wake_waiter = asyncio.ensure_future(self._wake.wait())
+        try:
+            await asyncio.wait(
+                {stop_waiter, wake_waiter}, timeout=self.poll_interval, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            stop_waiter.cancel()
+            wake_waiter.cancel()
+
+    def wake(self) -> None:
+        """入队侧接线（JobQueue.on_submit）：新任务不再等下一拍轮询。"""
+        self._wake.set()
 
     def stop(self) -> None:
         self._stopped.set()
