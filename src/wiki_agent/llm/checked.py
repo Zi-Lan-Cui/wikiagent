@@ -1,6 +1,9 @@
 """LLM 调用与输出校验的统一入口：重试耗尽后显式抛错。
 
-各编译阶段经此函数调用模型并检查 check_ok，调用点不再各自手写校验。
+带 check 的调用必须经此函数：check_ok 为假时不静默降级，按调用方给的
+领域 error 或 IngestStage 抛错。自由文本、不带 check 的调用直接用
+retry.async_invoke_with_retry；需要"校验失败即抛"契约的调用用它，
+调用点不各自手写校验与错误元数据。编译与维护两线共用。
 """
 
 from __future__ import annotations

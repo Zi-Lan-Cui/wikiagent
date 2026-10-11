@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.conversation import Message
+from wiki_agent.llm.checked import invoke_checked
 from wiki_agent.llm.params import JSON_MODE, NO_THINKING
 from wiki_agent.wiki.sections import Section
 

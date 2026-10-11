@@ -1,9 +1,11 @@
-"""LLM 调用重试层，编译路径与 agent 路径共用。
+"""LLM 调用重试层。
 
-- 编译路径（async_invoke_with_retry）：校验输出并自动重试。校验失败时追加
-  修正消息让 LLM 重新输出，空响应重发；耗尽后包装成调用失败异常。
-- 通用路径（retry_llm_call）：重试一次任意 LLM 调用（非流式/流式），不判定
-  响应内容，耗尽原样抛出异常。
+- async_invoke_with_retry：带可选 check 的重试。校验失败时追加修正消息让
+  LLM 重新输出，空响应重发；耗尽后不抛错——返回最后响应，check_ok 挂在结果上。
+  "校验失败必须抛错"的契约由 checked.invoke_checked 执行，需要它的调用点
+  不应绕过。自由文本、不判内容的调用可直连本函数。
+- retry_llm_call：重试一次任意 LLM 调用（非流式/流式），不判定响应内容，
+  耗尽原样抛出异常；agent 会话路径使用。
 
 公共规则：瞬时失败指数退避，FatalError 立即失败，CancelledError 原样传播。
 """

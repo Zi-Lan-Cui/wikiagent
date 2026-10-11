@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wiki_agent.compiler.checked_call import invoke_checked
 from wiki_agent.compiler.integration.checks import check_paths_json
 from wiki_agent.compiler.integration.common import load_valid_slugs
 from wiki_agent.compiler.integration.parse import parse_search_result
 from wiki_agent.compiler.models import ExtractResult, SearchResult
 from wiki_agent.conversation import Message
 from wiki_agent.errors import IngestStage
+from wiki_agent.llm.checked import invoke_checked
 from wiki_agent.llm.client import LLMClient
 from wiki_agent.llm.params import JSON_MODE, NO_THINKING
 from wiki_agent.log import emit_event, get_logger

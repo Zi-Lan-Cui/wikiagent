@@ -1,3 +1,4 @@
+from wiki_agent.llm.checked import invoke_checked
 from wiki_agent.llm.client import LLMClient
 from wiki_agent.llm.factory import create_llm, create_vlm
 from wiki_agent.llm.params import JSON_MODE, NO_THINKING
