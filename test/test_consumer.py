@@ -93,7 +93,7 @@ def test_compile_success_reads_snapshot_and_keeps_original_identity():
         digest, text = digest_file_text(snapshots.staged_path(BATCH, f.name))
         pipeline = _FakePipeline()
         handler = _handler(state, wiki, records, pipeline, snapshots)
-        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        result = await handler.handle_compile(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail == {
             "settlement": "ingested",
@@ -117,7 +117,7 @@ def test_compile_idempotent_short_circuit():
         state.record(str(f.resolve()), digest, text)
         pipeline = _FakePipeline()
         handler = _handler(state, wiki, records, pipeline, snapshots)
-        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        result = await handler.handle_compile(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail == {"settlement": "already_ingested"}
         assert pipeline.calls == 0
@@ -134,7 +134,7 @@ def test_source_modified_after_submit_still_processes_snapshot():
         f.write_text("提交之后才写入的新内容" * 8, encoding="utf-8")
         pipeline = _FakePipeline()
         handler = _handler(state, wiki, records, pipeline, snapshots)
-        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        result = await handler.handle_compile(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail["digest"] == payload["digest"], "记的是快照件的内容"
         assert "新内容" not in result.detail["text"]
@@ -151,7 +151,7 @@ def test_source_deleted_after_submit_still_processes_snapshot():
         f.unlink()
         pipeline = _FakePipeline()
         handler = _handler(state, wiki, records, pipeline, snapshots)
-        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        result = await handler.handle_compile(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "succeeded"
         assert result.detail["digest"] == payload["digest"]
         assert pipeline.calls == 1
@@ -168,7 +168,7 @@ def test_snapshot_tampered_fails_without_business_accounting():
         snapshots.staged_path(BATCH, f.name).write_text("被外部篡改", encoding="utf-8")
         pipeline = _FakePipeline()
         handler = _handler(state, wiki, records, pipeline, snapshots)
-        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        result = await handler.handle_compile(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "failed" and result.error_type == ""
         assert "snapshot_error" in result.detail["error"]
         assert pipeline.calls == 0
@@ -185,7 +185,7 @@ def test_job_without_snapshot_coordinates_is_snapshot_error():
         f, wiki, records, state, snapshots, _payload = _compile_env(tmp)
         pipeline = _FakePipeline()
         handler = _handler(state, wiki, records, pipeline, snapshots)
-        result = await handler.handle_job(
+        result = await handler.handle_compile(
             _job(str(f.resolve()), {"deleted": False, "digest": "a" * 64}), lambda s: None
         )
         assert result.status == "failed" and "snapshot_error" in result.detail["error"]
@@ -203,7 +203,7 @@ def test_compile_ingest_error_becomes_result_detail():
         err = IngestError(IngestStage.PLAN, "plan 输出校验失败", source=f.name)
         pipeline = _FakePipeline(raises=err)
         handler = _handler(state, wiki, records, pipeline, snapshots)
-        result = await handler.handle_job(_job(str(f.resolve()), payload), lambda s: None)
+        result = await handler.handle_compile(_job(str(f.resolve()), payload), lambda s: None)
         assert result.status == "failed" and result.error_type == "ingest_error"
         assert result.detail["stage"] == "plan"
         assert result.detail["source_path"] == str(f.resolve())
@@ -221,7 +221,7 @@ def test_delete_applies_even_if_source_revived():
         f, wiki, records, state, snapshots, _payload = _compile_env(tmp)
         # f（note.md）仍在磁盘上——快照却判定它该删（removed 差集成立）
         handler = _handler(state, wiki, records, None, snapshots)
-        result = await handler.handle_job(
+        result = await handler.handle_delete(
             _job(str(f.resolve()), _delete_payload(), kind="delete"), lambda s: None
         )
         assert result.status == "succeeded"
@@ -240,7 +240,7 @@ def test_delete_job_cleans_provenance():
         ghost = tmp / "src" / "other.md"
         ghost.unlink(missing_ok=True)
         handler = _handler(state, wiki, records, None, snapshots)
-        result = await handler.handle_job(
+        result = await handler.handle_delete(
             _job(str(ghost.resolve()), _delete_payload(), kind="delete"), lambda s: None
         )
         assert result.status == "succeeded"

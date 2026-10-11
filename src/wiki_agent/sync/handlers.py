@@ -116,23 +116,25 @@ class SourceJobHandler:
         self._session = WikiWriteSession(git, debris_dir=debris_dir_for(self._source_records_dir))
 
     def register_jobs(self, worker: JobWorker) -> None:
-        """注册本 handler 处理的 kind，与 handle_job 的分发一致。"""
-        worker.register(Kind.COMPILE, self.handle_job)
-        worker.register(Kind.DELETE, self.handle_job)
+        """声明认领的 kind，注册表即分发表——与维护线同一约定。"""
+        worker.register(Kind.COMPILE, self.handle_compile)
+        worker.register(Kind.DELETE, self.handle_delete)
 
-    async def handle_job(self, job: Job, progress) -> JobResult:
-        """执行一个源文件 Job，返回业务结局；程序错误才抛。
+    async def handle_compile(self, job: Job, progress) -> JobResult:
+        """执行单源文件编译，返回业务结局；程序错误才抛。
 
-        git 协议由 session.open() 包住整个分发：进入时 reset，离开时工作区
-        回到 HEAD；分发内只管 write.commit() / write.abort_export()。
+        git 协议由 session.open() 包住整个执行体：进入时 reset、离开时工作区
+        回到 HEAD；执行体内只管 write.commit() / write.abort_export()。
         """
         with self._session.open(job) as write:
             progress("读取资料")
-            if job.kind == Kind.DELETE:
-                return self._handle_delete(job, write)
-            if job.kind != Kind.COMPILE:
-                raise ValueError(f"unsupported source job: {job.kind}")
             return await self._handle_compile(job, progress, write)
+
+    async def handle_delete(self, job: Job, progress) -> JobResult:
+        """执行单源删除，返回业务结局；协议包裹与 handle_compile 同理。"""
+        with self._session.open(job) as write:
+            progress("读取资料")
+            return self._handle_delete(job, write)
 
     def _handle_delete(self, job: Job, write: WikiWrite) -> JobResult:
         """删除任务：决定来自快照的 removed 差集，执行时不重新读磁盘。
