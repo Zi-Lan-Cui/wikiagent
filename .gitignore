@@ -55,3 +55,6 @@ htmlcov/
 # other
 first_wiki/
 docs/
+
+# LOGO 草案与联系表，不入版本库
+design/

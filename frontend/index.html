@@ -4,22 +4,22 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wiki-agent</title>
-    <link rel="stylesheet" href="/style.css?v=50" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="stylesheet" href="/style.css?v=120" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <h1>wiki-agent</h1>
+          <p class="brand-name"><img src="/logo.svg" alt="" width="22" height="22">wiki-agent</p>
           <button id="new-session" class="primary-button" type="button">新对话</button>
         </div>
         <p class="sidebar-heading">对话</p>
         <div id="session-list" class="session-list" aria-label="历史会话"></div>
-        <details class="sidebar-section">
-          <summary><span>Wiki 文件</span><span class="summary-action"><b id="wiki-count" class="section-count">0</b><b class="section-chevron" aria-hidden="true"></b></span></summary>
-          <p class="wiki-managed-note">Wiki 由同步生成并纳入 Git 管理，手工修改会在下次同步时被覆盖。</p>
-          <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
-        </details>
+        <button id="wiki-open" class="sidebar-destination" type="button">
+          <span><b>Wiki 库</b><small>浏览知识页与来源档案</small></span>
+          <span class="summary-action"><b id="wiki-count" class="section-count">0</b><b class="section-chevron" aria-hidden="true"></b></span>
+        </button>
         <button id="organize-open" class="sidebar-destination" type="button">
           <span><b>维护</b><small>同步笔记、整理结构、补链</small></span>
           <span class="summary-action"><b id="organize-running" class="section-count">0</b><b class="section-chevron" aria-hidden="true"></b></span>
@@ -32,32 +32,66 @@
 
       <main class="chat-panel">
         <header class="chat-header">
-          <div>
-            <p class="eyebrow">问答</p>
-            <h2 id="session-title">选择一个会话</h2>
-          </div>
+          <h2 id="session-title">选择一个会话</h2>
         </header>
 
-        <section id="messages" class="messages" aria-live="polite">
-          <div class="empty-state">创建或选择会话后开始提问。</div>
+        <section id="messages" class="messages" aria-live="polite"></section>
+
+        <!-- 草稿态：大 logo + 字标居中，composer 经 syncDraftView 挂载到这里 -->
+        <section id="draft-stage" class="draft-stage" hidden>
+          <img class="draft-mark" src="/logo.svg" alt="wiki-agent" width="144" height="144" />
+          <p class="draft-wordmark">wiki-agent</p>
+          <div id="onboarding" class="onboarding" hidden>
+            <h3>三步开始</h3>
+            <ol>
+              <li>
+                <span class="step-no">1</span>
+                <div><b>放资料</b><p>把笔记、pdf、docx 或图片放进 <code>inputs/</code> 文件夹。</p></div>
+              </li>
+              <li>
+                <span class="step-no">2</span>
+                <div><b>同步</b><p>提交后在后台编译成 Wiki 页面，进度在任务队列可见。</p>
+                  <button id="onboarding-sync" class="ghost-button" type="button">去同步</button></div>
+              </li>
+              <li>
+                <span class="step-no">3</span>
+                <div><b>提问</b><p>答案来自你的 Wiki，附引用位置。</p>
+                  <button id="onboarding-chat" class="ghost-button" type="button">新对话</button></div>
+              </li>
+            </ol>
+          </div>
         </section>
 
-        <section id="wiki-viewer" class="wiki-viewer" hidden aria-live="polite">
-          <div class="wiki-viewer-toolbar">
-            <div class="wiki-history-controls" role="group" aria-label="Wiki 浏览历史">
-              <button id="wiki-history-back" class="wiki-nav-button" type="button" aria-label="后退" title="后退 (Alt+←)" disabled>后退</button>
-              <button id="wiki-history-forward" class="wiki-nav-button" type="button" aria-label="前进" title="前进 (Alt+→)" disabled>前进</button>
-            </div>
-            <button id="wiki-close" class="wiki-close-button" type="button" title="直接返回当前会话 (Esc)">返回会话</button>
+        <section id="wiki-space" class="wiki-space" hidden>
+          <div class="wiki-stage" aria-live="polite">
+            <div id="wiki-stage-empty" class="empty-state">从左侧选择页面开始阅读。</div>
+            <section id="wiki-viewer" class="wiki-viewer" hidden>
+              <div class="wiki-viewer-toolbar">
+                <div class="wiki-history-controls" role="group" aria-label="Wiki 浏览历史">
+                  <button id="wiki-history-back" class="wiki-nav-button" type="button" aria-label="后退" title="后退 (Alt+←)" disabled>后退</button>
+                  <button id="wiki-history-forward" class="wiki-nav-button" type="button" aria-label="前进" title="前进 (Alt+→)" disabled>前进</button>
+                </div>
+                <button id="wiki-close" class="ghost-button" type="button" title="直接返回当前会话 (Esc)">返回会话</button>
+              </div>
+              <header class="wiki-page-header">
+                <span id="wiki-viewer-path" class="wiki-viewer-path"></span>
+                <h1 id="wiki-page-title"></h1>
+                <p id="wiki-summary" class="wiki-summary"></p>
+                <div id="wiki-basic" class="wiki-meta-basic" aria-label="页面基础信息"></div>
+                <div id="wiki-metadata" class="wiki-metadata" aria-label="页面元信息"></div>
+              </header>
+              <article id="wiki-content" class="wiki-content markdown"></article>
+            </section>
           </div>
-          <header class="wiki-page-header">
-            <span id="wiki-viewer-path" class="wiki-viewer-path"></span>
-            <h3 id="wiki-page-title"></h3>
-            <p id="wiki-summary" class="wiki-summary"></p>
-            <div id="wiki-basic" class="wiki-meta-basic" aria-label="页面基础信息"></div>
-            <div id="wiki-metadata" class="wiki-metadata" aria-label="页面元信息"></div>
-          </header>
-          <article id="wiki-content" class="wiki-content markdown"></article>
+          <aside id="wiki-drawer" class="wiki-drawer">
+            <div class="wiki-rail">
+              <header class="wiki-rail-header"><h3>Wiki 文件</h3></header>
+              <p class="wiki-managed-note">Wiki 由同步生成并纳入 Git 管理，手工修改会在下次同步时被覆盖。</p>
+              <div id="wiki-files" class="wiki-files" aria-label="当前 Wiki 文件"></div>
+            </div>
+            <button id="wiki-rail-resize" class="rail-resize" type="button" role="separator" aria-orientation="vertical" aria-label="拖动调节列表宽度" title="拖动调节宽度，双击复位"></button>
+            <button id="wiki-rail-toggle" class="rail-toggle" type="button" aria-expanded="true" aria-label="收起列表" title="收起/展开列表"></button>
+          </aside>
         </section>
 
         <section id="issue-center" class="issue-center" hidden aria-live="polite">
@@ -75,20 +109,20 @@
           <section id="organize-view" class="workbench-panel maintain-panel" hidden>
             <div class="maintain-cards">
               <section class="maintain-card">
-                <header><h3>同步笔记</h3><span id="sync-state" class="maintain-state"></span></header>
-                <p>将笔记文件夹的变更重新编译成 Wiki 页面。整理结构与补链以同步后的盘面为准。</p>
+                <header><h3>同步笔记</h3><button id="sync-state" type="button" class="maintain-state" aria-haspopup="dialog" hidden></button></header>
+                <p>把资料里的新增和修改编译成 Wiki 页面。整理结构、补全链接都要求先同步到最新。</p>
                 <button id="sync-now" class="primary-button" type="button">
                   立即同步 <span id="sync-badge">0</span>
                 </button>
               </section>
               <section class="maintain-card">
                 <header><h3>整理结构</h3></header>
-                <p>通读全库，合并重复、拆分杂烩、删除空页；建议经确认后入队执行，波及页面的链接自动随批核对修正。分析需数分钟。</p>
+                <p>通读整个 Wiki，给出合并重复页、拆分过长页、删除空页的建议；逐条确认后执行，受影响页面的链接会一并核对。分析约需几分钟。</p>
                 <button id="maintain-preview" class="primary-button" type="button">发起结构分析</button>
               </section>
               <section class="maintain-card">
                 <header><h3>补全链接</h3></header>
-                <p>全库出链体检：补相关却缺失的链接，修失效链接，按页提交可单独回退。整理结构已自带波及修正，此项为低频体检。</p>
+                <p>逐页检查正文链接：补上该有而没有的，修好失效的；一页一提交，可单独回退。整理结构时已顺带核对受影响页面，这里用于日常查漏补缺。</p>
                 <button id="link-scan" class="primary-button" type="button">补全缺失链接</button>
               </section>
             </div>
@@ -98,6 +132,8 @@
                 <span id="issue-task-count" class="issue-task-count">0 个活动任务</span>
               </header>
               <div id="issue-task-list" class="issue-task-list" aria-live="polite"></div>
+              <button id="queue-recent-toggle" class="queue-recent-toggle" type="button" aria-expanded="false" hidden>最近完成</button>
+              <div id="queue-recent" class="queue-recent" hidden></div>
             </section>
           </section>
           <section id="attention-view" class="workbench-panel issue-panel">
@@ -127,14 +163,14 @@
             <div class="issue-workspace">
               <div id="issue-list" class="issue-list" aria-label="问题列表"></div>
               <article id="issue-detail" class="issue-detail">
-                <div class="issue-detail-empty">选择一个问题查看证据与可用操作。</div>
+                <div class="issue-detail-empty">选择一个问题，查看原因与可执行的操作。</div>
               </article>
             </div>
           </section>
         </section>
 
         <form id="message-form" class="composer">
-          <textarea id="message-input" rows="2" placeholder="输入问题；回答附引用位置" disabled></textarea>
+          <textarea id="message-input" rows="2" placeholder="向你的知识库提问" disabled></textarea>
           <button id="send-button" class="primary-button" type="submit" disabled>发送</button>
         </form>
       </main>
@@ -148,10 +184,20 @@
       <div id="maintain-units" class="maintain-units" aria-label="可执行单元"></div>
       <footer>
         <button id="maintain-cancel" class="ghost-button" type="button">取消</button>
-        <button id="maintain-submit" class="primary-button" type="button" disabled>入队执行</button>
+        <button id="maintain-submit" class="primary-button" type="button" disabled>执行</button>
       </footer>
     </dialog>
 
-    <script src="/app.js?v=66" defer></script>
+    <dialog id="sync-diff-dialog" class="maintain-dialog" aria-labelledby="sync-diff-title">
+      <header>
+        <h3 id="sync-diff-title">待同步的变更</h3>
+      </header>
+      <div id="sync-diff-list" class="sync-diff-list" aria-label="变更清单"></div>
+      <footer>
+        <button id="sync-diff-close" class="ghost-button" type="button">关闭</button>
+      </footer>
+    </dialog>
+
+    <script src="/app.js?v=119" defer></script>
   </body>
 </html>

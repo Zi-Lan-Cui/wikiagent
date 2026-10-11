@@ -21,6 +21,8 @@ const messages = $("messages");
 const input = $("message-input");
 const sendButton = $("send-button");
 const wikiFiles = $("wiki-files");
+const wikiSpace = $("wiki-space");
+const wikiStageEmpty = $("wiki-stage-empty");
 const queueCount = $("queue-count");
 const issueCenter = $("issue-center");
 const issueList = $("issue-list");
@@ -41,6 +43,10 @@ const maintainSummary = $("maintain-summary");
 const maintainUnits = $("maintain-units");
 const maintainSubmitButton = $("maintain-submit");
 const syncState = $("sync-state");
+const queueRecentToggle = $("queue-recent-toggle");
+const queueRecentPanel = $("queue-recent");
+const syncDiffDialog = $("sync-diff-dialog");
+const syncDiffList = $("sync-diff-list");
 const centerStatus = $("center-status");
 const wikiViewer = $("wiki-viewer");
 const wikiContent = $("wiki-content");
@@ -64,7 +70,7 @@ function scrollToBottom(force = false) {
   if (!force && !stickToBottom) return;
   stickToBottom = true;
   messages.scrollTop = messages.scrollHeight;
-  jumpToBottom.hidden = true;
+  updateJumpVisibility();
 }
 const jumpToBottom = document.createElement("button");
 jumpToBottom.type = "button";
@@ -73,9 +79,14 @@ jumpToBottom.textContent = "回到底部";
 jumpToBottom.hidden = true;
 jumpToBottom.addEventListener("click", () => scrollToBottom(true));
 chatPanel.appendChild(jumpToBottom);
+// 按钮只在"真的滚得动且不贴底"时出现：短会话与空状态没有底部可回
+function updateJumpVisibility() {
+  const scrollable = messages.scrollHeight - messages.clientHeight > 60;
+  jumpToBottom.hidden = stickToBottom || !scrollable;
+}
 messages.addEventListener("scroll", () => {
   stickToBottom = isNearBottom();
-  jumpToBottom.hidden = stickToBottom;
+  updateJumpVisibility();
 });
 
 function setStatus(text) {
@@ -115,6 +126,111 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   })[character]);
+}
+
+/* 轻量代码高亮：字符串/注释/数字/关键词/装饰器五类 token，不引外部库；
+   着色只用现有纸-墨-砖红梯度，未知语言退化为 generic 规则 */
+const hlPython = [
+  ["com", /#.*/y],
+  ["str", /[rbfRBF]{0,3}"""[\s\S]*?"""/y],
+  ["str", /[rbfRBF]{0,3}'''[\s\S]*?'''/y],
+  ["str", /"(?:\\.|[^"\\\n])*"/y],
+  ["str", /'(?:\\.|[^'\\\n])*'/y],
+  ["dec", /@[A-Za-z_][\w.]*/y],
+  ["kw", /\b(?:def|class|return|if|elif|else|for|while|in|not|and|or|is|None|True|False|import|from|as|with|try|except|finally|raise|lambda|yield|global|nonlocal|assert|pass|break|continue|async|await)\b/y],
+  ["num", /\b\d[\d_]*(?:\.\d+)?\b/y],
+];
+const hlJs = [
+  ["com", /\/\/.*/y],
+  ["com", /\/\*[\s\S]*?\*\//y],
+  ["str", /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/y],
+  ["kw", /\b(?:const|let|var|function|return|if|else|for|while|in|of|new|class|extends|import|export|default|async|await|try|catch|finally|throw|typeof|instanceof|null|undefined|true|false|this)\b/y],
+  ["num", /\b\d[\d_]*(?:\.\d+)?\b/y],
+];
+const hlShell = [
+  ["com", /#.*/y],
+  ["str", /"(?:\\.|[^"\\\n])*"|'[^']*'/y],
+  ["var", /\$\{[^}]*\}|\$[A-Za-z_]\w*/y],
+  ["kw", /\b(?:if|then|else|elif|fi|for|in|do|done|while|case|esac|function|export|local|return)\b/y],
+];
+const hlJson = [
+  ["key", /"(?:\\.|[^"\\\n])*"(?=\s*:)/y],
+  ["str", /"(?:\\.|[^"\\\n])*"/y],
+  ["kw", /\b(?:true|false|null)\b/y],
+  ["num", /-?\d+(?:\.\d+)?/y],
+];
+const hlGeneric = [
+  ["com", /\/\/.*/y],
+  ["str", /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/y],
+  ["num", /\b\d[\d_]*(?:\.\d+)?\b/y],
+];
+const hlLanguages = {
+  python: hlPython, py: hlPython,
+  javascript: hlJs, js: hlJs, typescript: hlJs, ts: hlJs, jsx: hlJs, tsx: hlJs,
+  bash: hlShell, sh: hlShell, shell: hlShell, zsh: hlShell, console: hlShell,
+  json: hlJson,
+};
+/* 围栏不带语言标注时按内容特征猜一个；猜不出退 generic。
+   顺序即优先级：python 信号最强（def/self），shell 的命令词避开散文误伤 */
+function detectCodeLang(raw) {
+  if (/\bdef\s+\w+\s*\(|\bself\b|>>>|^from\s+\w/m.test(raw)) return "python";
+  if (/=>|\b(?:const|let)\s+\w+\s*=|console\.\w/.test(raw)) return "javascript";
+  if (/^\s*[{[]/m.test(raw) && /"\s*[\w.-]+"\s*:/.test(raw)) return "json";
+  if (/\b(?:sudo|apt|docker|git|pip|uv|curl|wget|mkdir)\b/.test(raw)) return "bash";
+  return "";
+}
+function highlightCode(raw, lang) {
+  const rules = (lang && hlLanguages[lang.toLowerCase()]) || hlGeneric;
+  let out = "";
+  let i = 0;
+  outer: while (i < raw.length) {
+    for (const [cls, re] of rules) {
+      re.lastIndex = i;
+      const match = re.exec(raw);
+      if (match && match[0]) {
+        out += `<span class="hl-${cls}">${escapeHtml(match[0])}</span>`;
+        i += match[0].length;
+        continue outer;
+      }
+    }
+    out += escapeHtml(raw[i]);
+    i += 1;
+  }
+  return out;
+}
+
+// 代码块右上角的悬停复制钮；clipboard 在非安全上下文失败时只改文案不抛错
+function mountCodeUI(root) {
+  for (const pre of root.querySelectorAll("pre")) {
+    const shell = document.createElement("div");
+    shell.className = "code-shell";
+    pre.replaceWith(shell);
+    shell.appendChild(pre);
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "code-copy";
+    copy.textContent = "复制";
+    copy.addEventListener("click", async () => {
+      let ok = true;
+      try {
+        await navigator.clipboard.writeText(pre.innerText);
+      } catch {
+        // async clipboard 在无头/失焦环境会拒绝，改用隐藏 textarea + execCommand
+        ok = false;
+        const ta = document.createElement("textarea");
+        ta.value = pre.innerText;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { ok = document.execCommand("copy"); } catch { /* 保持 false */ }
+        ta.remove();
+      }
+      copy.textContent = ok ? "已复制" : "复制失败";
+      window.setTimeout(() => { copy.textContent = "复制"; }, 1400);
+    });
+    shell.appendChild(copy);
+  }
 }
 
 // Small dependency-free renderer for the Markdown produced by the agent.
@@ -189,7 +305,9 @@ function renderMarkdown(source, basePath = "", pageTitle = "") {
     }
   };
   const flushCode = () => {
-    html.push(`<pre><code${codeLanguage ? ` class="language-${escapeHtml(codeLanguage)}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    const codeText = codeLines.join("\n");
+    const lang = codeLanguage || detectCodeLang(codeText);
+    html.push(`<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ""}>${highlightCode(codeText, lang)}</code></pre>`);
     codeLines = [];
     codeLanguage = "";
   };
@@ -231,7 +349,8 @@ function renderMarkdown(source, basePath = "", pageTitle = "") {
         else collected.push("");
         j += 1;
       }
-      html.push(`<pre><code>${escapeHtml(collected.join("\n"))}</code></pre>`);
+      const indented = collected.join("\n");
+      html.push(`<pre><code>${highlightCode(indented, detectCodeLang(indented))}</code></pre>`);
       i = j - 1;
       continue;
     }
@@ -250,6 +369,12 @@ function renderMarkdown(source, basePath = "", pageTitle = "") {
     }
     if (inCode) {
       codeLines.push(line);
+      continue;
+    }
+    // 分节符：独占一行的 --- / *** / ___ 渲染成 hairline 横线（代码块内的已在上面按字面量收集）
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      flushParagraph(); flushList(); flushOrderedList();
+      html.push("<hr>");
       continue;
     }
     const heading = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*\s*$/);
@@ -319,6 +444,16 @@ function rememberWikiScroll() {
   if (current) current.scrollTop = wikiViewer.scrollTop;
 }
 
+function setActiveDestination(view) {
+  for (const [key, id] of [["wiki", "wiki-open"], ["organize", "organize-open"], ["issues", "attention-open"]]) {
+    $(id).classList.toggle("active", view === key);
+  }
+}
+
+// initWikiRail 注入的抽屉开关：进库弹出选页，选完自动收拢让位阅读
+let wikiDrawerReveal = () => {};
+let wikiDrawerHide = () => {};
+
 function showWikiViewer() {
   state.view = "wiki";
   jumpToBottom.hidden = true;
@@ -326,7 +461,28 @@ function showWikiViewer() {
   messages.hidden = true;
   issueCenter.hidden = true;
   $("message-form").hidden = true;
+  wikiSpace.hidden = false;
+  wikiStageEmpty.hidden = true;
   wikiViewer.hidden = false;
+  wikiDrawerHide();
+  setActiveDestination("wiki");
+}
+
+// 从侧栏进入 Wiki 库：先弹列表，读完的页面不自动复开
+function showWikiSpace() {
+  state.view = "wiki";
+  jumpToBottom.hidden = true;
+  chatHeader.hidden = true;
+  messages.hidden = true;
+  draftStage.hidden = true;
+  issueCenter.hidden = true;
+  $("message-form").hidden = true;
+  wikiSpace.hidden = false;
+  wikiViewer.hidden = true;
+  wikiStageEmpty.hidden = false;
+  wikiDrawerReveal();
+  setActiveDestination("wiki");
+  persistNav();
 }
 
 function closeWikiPage(destination = state.wikiReturnView || "chat") {
@@ -339,16 +495,18 @@ function closeWikiPage(destination = state.wikiReturnView || "chat") {
   wikiSummary.textContent = "";
   const session = state.sessions.find((item) => item.id === state.activeSession);
   $("session-title").textContent = session?.title || state.activeSession || "选择一个会话";
+  persistNav();
 }
 
 function restoreChatView() {
   state.view = "chat";
-  jumpToBottom.hidden = stickToBottom;
+  updateJumpVisibility();
   wikiViewer.hidden = true;
+  wikiSpace.hidden = true;
   issueCenter.hidden = true;
-  chatHeader.hidden = false;
-  messages.hidden = false;
   $("message-form").hidden = false;
+  setActiveDestination(null);
+  syncDraftView();
 }
 
 const CENTER_COPY = {
@@ -369,8 +527,11 @@ function showCenterView(view) {
   jumpToBottom.hidden = true;
   chatHeader.hidden = true;
   messages.hidden = true;
+  draftStage.hidden = true;
   wikiViewer.hidden = true;
+  wikiSpace.hidden = true;
   $("message-form").hidden = true;
+  setActiveDestination(view);
   issueCenter.hidden = false;
   organizeView.hidden = view !== "organize";
   attentionView.hidden = view !== "issues";
@@ -378,6 +539,7 @@ function showCenterView(view) {
   $("center-eyebrow").textContent = copy.eyebrow;
   $("center-title").textContent = copy.title;
   $("center-sub").textContent = copy.sub;
+  persistNav();
 }
 
 function restoreCenterView(view, { refresh = false } = {}) {
@@ -411,6 +573,7 @@ function closeIssueCenter() {
 async function loadWikiEntry(entry) {
   showWikiViewer();
   updateWikiNavigation();
+  persistNav();
   const requestId = ++state.wikiRequestId;
   const { path, kind } = entry;
   wikiViewerPath.textContent = path;
@@ -435,6 +598,7 @@ async function loadWikiEntry(entry) {
     wikiPageTitle.textContent = title;
     renderWikiMetadata(payload.metadata || {}, payload);
     wikiContent.innerHTML = renderMarkdown(payload.content || "", payload.path || path, title);
+    mountCodeUI(wikiContent);
     wikiViewer.scrollTop = entry.scrollTop || 0;
     setStatus("就绪");
   } catch (error) {
@@ -483,12 +647,14 @@ function renderWikiMetadata(metadata, page) {
   wikiSummary.textContent = metadata.summary || "";
   const labels = { type: "类型", summary: "摘要", updated: "更新", updated_at: "更新时间", created: "创建", author: "作者", status: "状态", tags: "标签", sources: "来源", related: "引用", goal: "目标", gaps: "缺口", size: "大小" };
   const addField = (key, value, className = "", target = wikiMetadata) => {
+    // 空串、空集合都不渲染，避免只剩一个孤零零的标签
     if (value === undefined || value === "" || value === null) return;
+    if (Array.isArray(value) && !value.length) return;
     const item = document.createElement("div");
     item.className = `wiki-meta-field wiki-meta-${key} ${className}`;
     const label = document.createElement("span");
     label.className = "wiki-meta-label";
-    label.textContent = `${labels[key] || key}：`;
+    label.textContent = labels[key] || key;
     item.appendChild(label);
     const values = Array.isArray(value) ? value : [value];
     if (["sources", "related"].includes(key)) {
@@ -499,7 +665,7 @@ function renderWikiMetadata(metadata, page) {
         const match = raw.match(/^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]$/);
         const target = match ? match[1] : raw;
         const displayName = match?.[2] || target.split("/").pop().replace(/\.md$/i, "");
-        if (key === "related" && index > 0) {
+        if (index > 0) {
           const separator = document.createElement("span");
           separator.className = "wiki-meta-separator";
           separator.textContent = "·";
@@ -556,9 +722,47 @@ function renderWikiMetadata(metadata, page) {
   }
 }
 
+const draftStage = $("draft-stage");
+const onboardingNode = $("onboarding");
+const messageForm = $("message-form");
+
+/* 草稿态下整个对话区换成大 logo 落地页，composer 从底部移挂进页面。
+   只挪 DOM 节点不重建：事件绑定与输入内容跟着节点走 */
+function syncDraftView() {
+  const draft = state.activeSession === null && state.view === "chat";
+  draftStage.hidden = !draft;
+  messages.hidden = draft;
+  // 草稿页顶栏整条撤掉：大 logo 就是页头，不需要再挂"新对话"三个字
+  chatHeader.hidden = draft;
+  if (draft) {
+    if (messageForm.parentElement !== draftStage) draftStage.appendChild(messageForm);
+  } else if (messageForm.parentElement !== chatPanel) {
+    chatPanel.appendChild(messageForm);
+  }
+}
+
+function openNewChat() {
+  closeWikiPage("chat");
+  restoreChatView();
+  state.activeSession = null;
+  messages.replaceChildren();
+  stickToBottom = true;
+  jumpToBottom.hidden = true;
+  syncDraftView();
+  onboardingNode.hidden = state.sessions.length > 0;
+  renderSessions();
+  input.disabled = false;
+  sendButton.disabled = false;
+  // 移动端自动聚焦会顶起键盘挡住草稿页；只在有指针设备时聚焦
+  if (window.matchMedia("(pointer: fine)").matches) input.focus();
+  persistNav();
+}
+
 function renderSessions() {
   sessionList.replaceChildren();
   for (const session of state.sessions) {
+    // 旧流程点击即建会话，留下一批 0 消息存根；延迟创建后只保留正在使用的
+    if (session.message_count === 0 && session.id !== state.activeSession) continue;
     const button = document.createElement("button");
     button.type = "button";
     button.className = `session-item ${session.id === state.activeSession ? "active" : ""}`;
@@ -605,19 +809,50 @@ async function refreshWikiFiles() {
   if (!files.length) {
     const empty = document.createElement("div");
     empty.className = "wiki-file";
-    empty.textContent = "目录为空";
+    empty.textContent = "还没有页面，首次同步后生成";
     wikiFiles.appendChild(empty);
     return;
   }
+  // 按顶层目录分组：行内不再重复前缀，一屏的信息密度才降得下来；
+  // 目录行可点击折叠，折叠状态跨刷新记忆（纯外观，文件行为不变）
+  const groups = new Map();
   for (const file of files) {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "wiki-file";
-    item.title = file.path;
-    item.innerHTML = `<span></span><small>${formatBytes(file.size)}</small>`;
-    item.querySelector("span").textContent = file.path;
-    item.addEventListener("click", () => openWikiPage(file.path));
-    wikiFiles.appendChild(item);
+    const idx = file.path.lastIndexOf("/");
+    const dir = idx < 0 ? "根目录" : file.path.slice(0, idx);
+    if (!groups.has(dir)) groups.set(dir, []);
+    groups.get(dir).push(file);
+  }
+  let folded = new Set();
+  try { folded = new Set(JSON.parse(localStorage.getItem("wikiFoldedDirs") || "[]")); } catch { folded = new Set(); }
+  const saveFolded = () => { try { localStorage.setItem("wikiFoldedDirs", JSON.stringify([...folded])); } catch { /* 存不下就不记忆 */ } };
+  for (const [dir, items] of groups) {
+    const section = document.createElement("section");
+    section.className = `wiki-group${folded.has(dir) ? " collapsed" : ""}`;
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "wiki-group-label";
+    label.setAttribute("aria-expanded", String(!folded.has(dir)));
+    label.innerHTML = `<span class="group-name"></span><b class="group-count">${items.length}</b>`;
+    label.querySelector(".group-name").textContent = dir;
+    label.addEventListener("click", () => {
+      const collapsed = section.classList.toggle("collapsed");
+      label.setAttribute("aria-expanded", String(!collapsed));
+      if (collapsed) folded.add(dir); else folded.delete(dir);
+      saveFolded();
+    });
+    section.appendChild(label);
+    for (const file of items) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "wiki-file";
+      item.title = `${file.path} · ${formatBytes(file.size)}`;
+      item.innerHTML = `<span></span><small>${formatBytes(file.size)}</small>`;
+      const name = file.path.slice(file.path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+      item.querySelector("span").textContent = name;
+      item.addEventListener("click", () => openWikiPage(file.path));
+      section.appendChild(item);
+    }
+    wikiFiles.appendChild(section);
   }
 }
 
@@ -679,7 +914,7 @@ function renderIssueDetail(issue) {
   if (!issue) {
     const empty = document.createElement("div");
     empty.className = "issue-detail-empty";
-    empty.textContent = "选择一个问题查看证据与可用操作。";
+    empty.textContent = "选择一个问题，查看原因与可执行的操作。";
     issueDetail.appendChild(empty);
     return;
   }
@@ -752,7 +987,7 @@ function renderIssueDetail(issue) {
   if (issue.evidence?.length) {
     const evidence = document.createElement("section");
     evidence.className = "issue-detail-section";
-    evidence.innerHTML = "<h4>证据</h4>";
+    evidence.innerHTML = "<h4>相关记录</h4>";
     const list = document.createElement("ul");
     for (const item of issue.evidence) {
       const row = document.createElement("li");
@@ -818,7 +1053,7 @@ function renderIssueList() {
   if (!visible.length) {
     const empty = document.createElement("div");
     empty.className = "issue-list-empty";
-    empty.textContent = "当前筛选下没有问题。";
+    empty.textContent = "没有符合条件的问题，换个筛选试试。";
     issueList.appendChild(empty);
     return;
   }
@@ -859,6 +1094,120 @@ const taskStatusLabels = {
 };
 const taskActionLabels = { retry: "重试来源", issue_retry: "重试来源", rescan: "重新扫描" };
 
+/* 内部词表 → 用户话术：kind 前缀、阶段名、阶段完成度。
+   后端 progress() 用的阶段名在这里统一翻译，数据模型不迁就文案 */
+const taskKindTitleLabels = { 编译: "同步", 重组: "结构调整", 补链: "补全链接", 删除: "清理" };
+// 只翻译内部黑话（成文/落盘/出链/消解等），普通书面词原样保留；措辞用书面语域
+const taskStageLabels = {
+  等待执行: "排队等待",
+  编译成页: "编译为页面",
+  页面核对: "核对受影响页面",
+  逐页成文: "逐页改写内容",
+  写入落盘: "写入文件",
+  质量扫描: "质量检查",
+  核对出链: "核对页内链接",
+  复扫问题: "重新检查问题",
+  同步质量问题: "更新问题记录",
+  初步建议: "生成修改建议",
+  二次复核: "复核建议",
+  冲突消解: "处理冲突",
+  // 编译流水线细粒度阶段（progress_scope 转发，稳定英文码）
+  load: "读取文件",
+  convert: "转换格式",
+  extract: "提炼摘要",
+  search: "检索相关页面",
+  analyze: "分析页面关系",
+  plan: "规划页面改动",
+  execute: "生成页面内容",
+};
+// running 任务的完成度按阶段估算；未知阶段取 40，不做假精确
+const taskStageProgress = {
+  读取资料: 15, 编译成页: 55, 页面核对: 30, 逐页成文: 60, 写入落盘: 85,
+  质量扫描: 90, 提交版本: 96, 核对出链: 50, 复扫问题: 50, 同步质量问题: 90,
+  初步建议: 35, 二次复核: 70, 冲突消解: 90,
+  load: 12, convert: 20, extract: 32, search: 45, analyze: 58, plan: 68, execute: 82,
+};
+// 把带 slug 的内部标题翻成人话；认不出的 kind 回退原标题
+function taskTitleForUser(task) {
+  const fallback = String(task.title || task.resource || "未命名任务");
+  const pageName = (raw) => String(raw || "").split("/").pop().replace(/\.md$/, "");
+  if (task.kind === "restructure" && fallback.includes(" → ")) {
+    const [from, to] = fallback.replace(/^重组\s*/, "").split(" → ");
+    const src = (from || "").split("+").filter(Boolean).map(pageName);
+    if ((to || "").trim() === "（删除）") return `删除页面 ${src.join("、")}`;
+    if (src.length > 1) return `合并 ${src.join("、")} 为「${pageName(to)}」`;
+    return `重写页面「${pageName(to)}」`;
+  }
+  if (task.kind === "link") return `补全链接「${pageName(task.resource || fallback.replace(/^补链\s*/, ""))}」`;
+  if (task.kind === "compile") return `同步「${pageName(task.resource)}」`;
+  if (task.kind === "delete") return `清理「${pageName(task.resource)}」`;
+  return fallback.replace(/^(编译|重组|补链|删除)\s/, (_m, k) => `${taskKindTitleLabels[k]} `);
+}
+function taskStageForUser(task) {
+  const raw = task.current_stage || "";
+  const label = taskStageLabels[raw] || raw;
+  if (task.status === "queued") return "排队中";
+  if (task.status === "running") return label ? `正在${label}` : "正在执行";
+  return label || taskStatusLabels[task.status] || "";
+}
+function taskProgressPercent(task) {
+  if (task.status !== "running") return 6;
+  return taskStageProgress[task.current_stage || ""] ?? 40;
+}
+
+function timeAgo(iso) {
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "";
+  const mins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+  if (mins < 60) return `${mins} 分钟前`;
+  if (mins < 1440) return `${Math.floor(mins / 60)} 小时前`;
+  if (mins < 10080) return `${Math.floor(mins / 1440)} 天前`;
+  return new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+}
+
+/* 队尾"最近完成"：终态任务不再跑完即消失，回答"系统最近替我做了什么"；
+   折叠在队列底部，复用任务行语言，只保留标题/结果/相对时间 */
+let queueRecentOpen = false;
+
+function renderRecentDone() {
+  const done = state.issueTasks
+    .filter((task) => ["completed", "failed", "cancelled"].includes(task.status))
+    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+    .slice(0, 5);
+  queueRecentToggle.hidden = done.length === 0;
+  queueRecentToggle.textContent = `最近完成 ${done.length}`;
+  queueRecentToggle.setAttribute("aria-expanded", String(queueRecentOpen));
+  queueRecentPanel.hidden = !queueRecentOpen || done.length === 0;
+  if (!queueRecentOpen) {
+    queueRecentPanel.replaceChildren();
+    return;
+  }
+  const rows = done.map((task) => {
+    const row = document.createElement("div");
+    row.className = `issue-task done task-${task.status}`;
+    const marker = document.createElement("span");
+    marker.className = "issue-task-marker";
+    const main = document.createElement("div");
+    main.className = "issue-task-main";
+    const title = document.createElement("strong");
+    title.textContent = taskTitleForUser(task);
+    const when = document.createElement("span");
+    when.textContent = timeAgo(task.updated_at);
+    main.append(title, when);
+    const chip = document.createElement("span");
+    chip.className = `issue-task-status task-${task.status}`;
+    chip.textContent = taskStatusLabels[task.status] || task.status;
+    row.append(marker, main, document.createElement("span"), chip);
+    return row;
+  });
+  queueRecentPanel.replaceChildren(...rows);
+}
+
+queueRecentToggle.addEventListener("click", () => {
+  queueRecentOpen = !queueRecentOpen;
+  renderRecentDone();
+});
+
 function upsertIssueTask(task) {
   const index = state.issueTasks.findIndex((item) => item.id === task.id);
   if (index >= 0) state.issueTasks[index] = task;
@@ -883,8 +1232,9 @@ function renderIssueTasks() {
   if (lastTasksSignature && signature !== lastTasksSignature) setStatus("");
   lastTasksSignature = signature;
   issueTaskCount.textContent = `${active.length} 个活动任务`;
-  organizeRunning.textContent = String(active.length);
-  organizeRunning.classList.toggle("has-errors", active.length > 0);
+  state.runningTasks = active.length;
+  renderRecentDone();
+  updateOrganizeBadge();
   issueTaskCount.classList.toggle("active", active.length > 0);
   // 整理结构分析的任务态：在途禁用三个动作（基线动了提议就没意义），
   // 出终态后最近一次结果留在列表底部供回看
@@ -904,7 +1254,7 @@ function renderIssueTasks() {
   for (const partner of [syncButton, linkScanButton]) {
     if (previewActive) {
       partner.disabled = true;
-      partner.title = "整理结构分析进行中";
+      partner.title = "结构分析进行中";
     } else if (!partner.classList.contains("busy")) {
       partner.disabled = false;
       partner.title = "";
@@ -913,7 +1263,7 @@ function renderIssueTasks() {
   if (!active.length && !previewRow) {
     const empty = document.createElement("p");
     empty.className = "issue-task-empty";
-    empty.textContent = "当前没有后台任务。";
+    empty.textContent = "没有进行中的任务；同步、整理、补链提交后会出现在这里。";
     issueTaskList.appendChild(empty);
     return;
   }
@@ -953,21 +1303,18 @@ function renderIssueTasks() {
     const main = document.createElement("div");
     main.className = "issue-task-main";
     const title = document.createElement("strong");
-    // 主文案用可读标题（重组 A+B → C / 补链 xxx / 编译 文件名）；
-    // 原始 resource 只作悬停信息
-    title.textContent = task.title || task.resource || "未命名任务";
+    // 标题、阶段、进度都走用户话术映射（见 taskTitleForUser/taskStageForUser）；
+    // 内部 resource/原标题留在悬停里
+    title.textContent = taskTitleForUser(task);
     row.title = task.resource || "";
     const stage = document.createElement("span");
-    stage.textContent = ["queued", "running"].includes(task.status)
-      ? `当前阶段 · ${task.current_stage || "排队中"}`
-      : task.current_stage || "排队中";
+    stage.textContent = taskStageForUser(task);
     main.append(title, stage);
     if (["queued", "running"].includes(task.status)) {
-      // 阶段占比无数据源——在途条只做"进行中"的静态提示，呼吸动画在 css
       const progress = document.createElement("div");
       progress.className = "issue-task-progress";
       const fill = document.createElement("span");
-      fill.style.width = "3%";
+      fill.style.width = `${taskProgressPercent(task)}%`;
       progress.appendChild(fill);
       main.appendChild(progress);
     }
@@ -981,7 +1328,7 @@ function renderIssueTasks() {
     }
     if (task.source_stage) {
       const original = document.createElement("span");
-      original.textContent = `原失败阶段：${task.source_stage}`;
+      original.textContent = `原失败阶段：${taskStageLabels[task.source_stage] || task.source_stage}`;
       context.appendChild(original);
     }
     const badge = document.createElement("span");
@@ -1032,10 +1379,17 @@ async function refreshIssues() {
     syncBadge.classList.toggle("needs-sync", pending > 0);
     syncButton.disabled = (sync.in_flight || 0) > 0;
     syncButton.title = syncButton.disabled
-      ? "上一次快照还在执行，等队列排空"
+      ? "上一批同步还在执行，等它跑完"
       : `待同步变更 ${pending} 个，点击后重新编译成 Wiki`;
-    syncState.textContent = pending > 0 ? `${pending} 个源未同步` : "已同步";
-    syncState.classList.toggle("warn", pending > 0);
+    syncState.hidden = false;
+    syncState.textContent = pending > 0 ? "查看变更" : "已同步";
+    syncState.classList.toggle("pending", pending > 0);
+    syncState.disabled = pending === 0;
+    syncState.title = pending > 0 ? "点击查看变更文件清单" : "";
+    state.syncFiles = pending > 0 ? sync.files : null;
+    state.syncPending = pending;
+    updateOrganizeBadge();
+    renderSyncDiff();
   }
   state.issues = await response.json();
   const summary = await summaryResponse.json();
@@ -1060,7 +1414,7 @@ async function syncNow() {
     for (const task of payload.tasks || []) upsertIssueTask(task);
     renderIssueTasks();
     showTaskProgress();
-    setStatus(payload.count ? `快照入队 ${payload.count} 个任务，进度见下方队列` : "没有待同步变更");
+    setStatus(payload.count ? `已提交 ${payload.count} 个同步任务，进度见下方任务队列` : "没有待同步变更");
   } finally {
     setBusy(syncButton, false);
     await Promise.all([refreshIssues(), refreshIssueTasks()]).catch(() => {});
@@ -1089,11 +1443,11 @@ async function openMaintenancePreview() {
   try {
     const response = await fetch("/api/maintenance/preview", { method: "POST" });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || "无法发起整理结构分析");
+    if (!response.ok) throw new Error(payload.detail || "无法发起结构分析");
     upsertIssueTask(payload.task);
-    setStatus("结构分析已入队");
+    setStatus("结构分析已提交");
   } catch (error) {
-    setStatusError(error.message || "整理分析发起失败");
+    setStatusError(error.message || "结构分析发起失败");
   } finally {
     await refreshIssueTasks().catch(() => {});
     setBusy(maintainPreviewButton, false);
@@ -1106,16 +1460,18 @@ async function dismissProposal(proposal) {
     method: "POST",
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || "无法处置提议");
+  if (!response.ok) throw new Error(payload.detail || "操作失败");
   await refreshIssueTasks().catch(() => {});
 }
 
 // 待处置提议行（维护账本 pending 条目）：给入口（查看提议/否决）。
-// 与普通任务行同构：marker + main + 操作 + 状态徽章，顺序不能乱
+// 与普通任务行同构：marker + main + 状态 + 操作（动作收行尾，徽章族里它是唯一无框的提示）
 function proposalRow(proposal) {
   const payload = proposal.payload || {};
   const row = document.createElement("article");
-  row.className = "issue-task task-completed";
+  // 徽章族里 completed/failed 都是执行态；提议等人拍板不是执行完毕，
+  // 用 queued 的墨色活态，文案与侧栏「待处理」区隔
+  row.className = "issue-task task-queued";
   const marker = document.createElement("span");
   marker.className = "issue-task-marker";
   marker.setAttribute("aria-hidden", "true");
@@ -1128,6 +1484,8 @@ function proposalRow(proposal) {
     ? "结构健康"
     : `${(payload.effective || []).length} 条整理提议`;
   main.append(title, detail);
+  const actions = document.createElement("div");
+  actions.className = "issue-task-actions";
   if (!payload.healthy && (payload.effective || []).length) {
     const button = document.createElement("button");
     button.type = "button";
@@ -1139,26 +1497,27 @@ function proposalRow(proposal) {
       renderMaintainDialog(payload);
       maintainDialog.showModal();
     });
-    row.appendChild(button);
+    actions.appendChild(button);
     const dismiss = document.createElement("button");
     dismiss.type = "button";
     dismiss.className = "ghost-button danger";
-    dismiss.textContent = "否决";
+    dismiss.textContent = "不采纳";
     dismiss.addEventListener("click", async () => {
       try {
         await dismissProposal(proposal);
-        setStatus("提议已否决");
+        setStatus("提议已按不采纳处理");
       } catch (error) {
-        setStatusError(error.message || "否决失败");
+        setStatusError(error.message || "操作失败");
       }
     });
-    row.appendChild(dismiss);
+    actions.appendChild(dismiss);
   }
   const badge = document.createElement("span");
-  badge.className = "issue-task-status task-completed";
-  badge.textContent = "待处置";
+  // 提示不是按钮：无框无底的中列小字，靠行首墨点表达"在等人"
+  badge.className = "issue-task-note";
+  badge.textContent = "待确认";
   row.prepend(marker, main);
-  row.appendChild(badge);
+  row.append(badge, actions);
   return row;
 }
 
@@ -1172,7 +1531,7 @@ function previewFailedRow(task) {
   const main = document.createElement("div");
   main.className = "issue-task-main";
   const title = document.createElement("strong");
-  title.textContent = "整理结构分析";
+  title.textContent = "结构分析";
   const detail = document.createElement("span");
   detail.textContent = `失败：${task.error || "分析未完成"}`;
   main.append(title, detail);
@@ -1185,7 +1544,7 @@ function previewFailedRow(task) {
 }
 
 function renderMaintainDialog(payload) {
-  maintainSummary.textContent = `初提 ${payload.proposed} → 复核保留 ${payload.confirmed} → 消解后可执行 ${(payload.effective || []).length}`;
+  maintainSummary.textContent = `共产生 ${payload.proposed} 条建议，复核后剩 ${payload.confirmed} 条，其中可执行 ${(payload.effective || []).length} 条`;
   maintainUnits.innerHTML = "";
   (payload.effective || []).forEach((unit, index) => {
     const row = document.createElement("label");
@@ -1209,7 +1568,7 @@ function renderMaintainDialog(payload) {
 function updateMaintainSubmit() {
   const checked = maintainUnits.querySelectorAll("input:checked").length;
   maintainSubmitButton.disabled = checked === 0;
-  maintainSubmitButton.textContent = `入队执行（${checked}）`;
+  maintainSubmitButton.textContent = `执行（${checked}）`;
 }
 
 async function submitMaintenance() {
@@ -1226,7 +1585,7 @@ async function submitMaintenance() {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     setBusy(maintainSubmitButton, false);
-    throw new Error(payload.detail || "维护入队失败");
+    throw new Error(payload.detail || "提议提交失败");
   }
   maintainDialog.close();
   state.previewProposal = null;
@@ -1247,7 +1606,7 @@ async function linkScan() {
       body: "{}",
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || "关联扫入队失败");
+    if (!response.ok) throw new Error(payload.detail || "补链发起失败");
     for (const task of payload.tasks || []) upsertIssueTask(task);
     renderIssueTasks();
     showTaskProgress();
@@ -1302,12 +1661,15 @@ async function waitForIssueTask(taskId, label) {
 }
 
 function formatBytes(size) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  // 数字与单位用不间断空格，换行不拆散（5.5 / KB 分行是最常见的排版毛刺）
+  const nbsp = " ";
+  if (size < 1024) return `${size}${nbsp}B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)}${nbsp}KB`;
+  return `${(size / 1024 / 1024).toFixed(1)}${nbsp}MB`;
 }
 
-async function createSession() {
+// 第一条消息发出前会话不落库；发出时才创建并挂在列表最前
+async function materializeSession() {
   const response = await fetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1316,8 +1678,11 @@ async function createSession() {
   if (!response.ok) throw new Error("无法创建会话");
   const session = await response.json();
   state.sessions.unshift(session);
-  await selectSession(session.id);
+  state.activeSession = session.id;
+  $("session-title").textContent = session.title;
+  syncDraftView();
   renderSessions();
+  persistNav();
 }
 
 async function selectSession(id) {
@@ -1326,6 +1691,11 @@ async function selectSession(id) {
   const session = state.sessions.find((item) => item.id === id);
   $("session-title").textContent = session?.title || id;
   messages.replaceChildren();
+  syncDraftView();
+  persistNav();
+  // 切会话即换上下文：跟随状态重置，上一会话的翻阅位置不该带过来
+  stickToBottom = true;
+  jumpToBottom.hidden = true;
   try {
     const response = await fetch(`/api/sessions/${id}/messages`);
     if (!response.ok) throw new Error("无法读取会话历史");
@@ -1333,7 +1703,7 @@ async function selectSession(id) {
     if (!history.length) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "创建或选择会话后开始提问。";
+      empty.textContent = "这个会话还没有消息，在下方输入第一个问题。";
       messages.appendChild(empty);
     }
     for (const message of history) {
@@ -1341,6 +1711,7 @@ async function selectSession(id) {
         const { row, bubble } = assistantShell();
         bubble.innerHTML = renderMarkdown(message.content || "");
         bubble.classList.add("markdown");
+        mountCodeUI(bubble);
         if (message.thinking && message.thinking.length) {
           bubble.prepend(thinkingBlock(message.thinking));
         }
@@ -1377,8 +1748,72 @@ wikiContent.addEventListener("click", (event) => {
 wikiHistoryBack.addEventListener("click", () => navigateWikiHistory(-1));
 wikiHistoryForward.addEventListener("click", () => navigateWikiHistory(1));
 $("wiki-close").addEventListener("click", () => closeWikiPage("chat"));
+$("wiki-open").addEventListener("click", showWikiSpace);
+
+// Wiki 覆盖式抽屉：默认展开（首次进入自动弹出列表），把手随抽屉贴边可随时收起；
+// 拖拽调宽（双击复位、方向键微调），宽度与收起态记在 localStorage
+(function initWikiRail() {
+  const drawer = $("wiki-drawer");
+  const toggle = $("wiki-rail-toggle");
+  const handle = $("wiki-rail-resize");
+  const KEY_W = "wikiRailWidth";
+  const DEFAULT_W = 300;
+  const MIN_W = 200;
+  const MAX_W = 480;
+  let lastWidth = DEFAULT_W;
+  const setWidth = (px) => drawer.style.setProperty("--rail-w", `${px}px`);
+  const saved = Number(localStorage.getItem(KEY_W));
+  if (saved >= MIN_W && saved <= MAX_W) {
+    lastWidth = saved;
+    setWidth(saved);
+  }
+  // 收起只在本次访问内生效：进库总是重新弹出，不跨刷新记忆
+  function applyCollapsed(collapsed) {
+    drawer.classList.toggle("collapsed", collapsed);
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute("aria-label", collapsed ? "展开列表" : "收起列表");
+  }
+  wikiDrawerReveal = () => applyCollapsed(false);
+  wikiDrawerHide = () => applyCollapsed(true);
+  applyCollapsed(false);
+  toggle.addEventListener("click", () => applyCollapsed(!drawer.classList.contains("collapsed")));
+  const resizeTo = (px) => {
+    lastWidth = Math.min(MAX_W, Math.max(MIN_W, px));
+    setWidth(lastWidth);
+    localStorage.setItem(KEY_W, String(lastWidth));
+  };
+  let dragFrom = null;
+  handle.addEventListener("pointerdown", (event) => {
+    if (drawer.classList.contains("collapsed")) return;
+    dragFrom = { x: event.clientX, w: lastWidth };
+    handle.classList.add("dragging");
+    handle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (dragFrom) resizeTo(dragFrom.w + event.clientX - dragFrom.x);
+  });
+  const endDrag = () => {
+    dragFrom = null;
+    handle.classList.remove("dragging");
+  };
+  handle.addEventListener("pointerup", endDrag);
+  handle.addEventListener("pointercancel", endDrag);
+  handle.addEventListener("dblclick", () => resizeTo(DEFAULT_W));
+  handle.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") {
+      resizeTo(lastWidth - 16);
+      event.preventDefault();
+    } else if (event.key === "ArrowRight") {
+      resizeTo(lastWidth + 16);
+      event.preventDefault();
+    }
+  });
+})();
 $("organize-open").addEventListener("click", showOrganize);
 $("attention-open").addEventListener("click", showAttention);
+$("onboarding-sync")?.addEventListener("click", showOrganize);
+$("onboarding-chat")?.addEventListener("click", () => openNewChat());
 $("issue-center-close").addEventListener("click", closeIssueCenter);
 $("issue-status-filter").addEventListener("change", () => refreshIssues().catch((error) => setStatus(error.message)));
 $("issue-kind-filter").addEventListener("change", () => refreshIssues().catch((error) => setStatus(error.message)));
@@ -1398,6 +1833,51 @@ $("maintain-cancel").addEventListener("click", () => maintainDialog.close());
 maintainSubmitButton.addEventListener("click", () => {
   submitMaintenance().catch((error) => setStatusError(error.message));
 });
+/* 侧栏"维护"计数 = 活动任务 + 待同步变更：都进队列或同步前，这里是唯一入口提示 */
+function updateOrganizeBadge() {
+  const sum = (state.runningTasks || 0) + (state.syncPending || 0);
+  organizeRunning.textContent = String(sum);
+  organizeRunning.classList.toggle("has-errors", sum > 0);
+}
+
+/* 待同步明细对话框：复用维护提议的弹窗容器，列表限高滚动，数量不构成压力 */
+function renderSyncDiff() {
+  const files = state.syncFiles;
+  const groups = files
+    ? [
+        ["新增", files.added || []],
+        ["修改", files.modified || []],
+        ["删除", files.removed || []],
+      ].filter(([, names]) => names.length)
+    : [];
+  const total = groups.reduce((n, [, names]) => n + names.length, 0);
+  const blocks = groups.map(([label, names]) => {
+    const section = document.createElement("section");
+    const head = document.createElement("p");
+    head.className = "sync-diff-group";
+    head.textContent = `${label} ${names.length}`;
+    section.append(head, ...names.map((name) => {
+      const row = document.createElement("div");
+      row.className = "sync-diff-item";
+      const i = name.lastIndexOf("/");
+      if (i > 0) {
+        const dir = document.createElement("span");
+        dir.className = "dir";
+        dir.textContent = `${name.slice(0, i + 1)}`;
+        row.append(dir, document.createTextNode(name.slice(i + 1)));
+      } else {
+        row.textContent = name;
+      }
+      return row;
+    }));
+    return section;
+  });
+  syncDiffList.replaceChildren(...blocks);
+}
+
+syncState.addEventListener("click", () => syncDiffDialog.showModal());
+$("sync-diff-close").addEventListener("click", () => syncDiffDialog.close());
+
 syncButton.addEventListener("click", () => {
   syncNow().catch(async (error) => {
     setStatusError(error.message || "同步失败");
@@ -1421,11 +1901,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-const AGENT_AVATAR = `
-  <svg class="msg-avatar" viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="12" cy="12" r="12" fill="#e8754b"></circle>
-    <path d="M11.4 7.2H7.6a1.1 1.1 0 0 0-1.1 1.1v7.4c0 .6.5 1.1 1.1 1.1h3.8Zm1.2 0v9.6h3.8c.6 0 1.1-.5 1.1-1.1V8.3c0-.6-.5-1.1-1.1-1.1Z" fill="#fff"></path>
-  </svg>`;
+const AGENT_AVATAR = '<span class="msg-avatar" aria-hidden="true"></span>';
 
 // 流式渲染时给未闭合的代码围栏虚拟补闭合，避免半截 ``` 把后文吞成代码
 function renderLiveMarkdown(source) {
@@ -1465,7 +1941,7 @@ function thinkingBlock(segments) {
   for (const seg of segments) {
     if (seg.kind === "tool") {
       const row = document.createElement("div");
-      row.className = "think-step";
+      row.className = seg.error ? "think-step error" : "think-step done";
       row.textContent = `${toolAction(seg.name, seg.arguments)} · ${formatMs(seg.ms)}${seg.error ? " · 失败" : ""}`;
       flow.appendChild(row);
     } else if (seg.text) {
@@ -1529,6 +2005,12 @@ function createAssistantMessage() {
   };
   view.settleThink = () => {
     if (!view.think) return;
+    // 发送即挂的占位盒：最终既无思考也无检索，摘掉，不留空折叠框
+    if (!view.thinkText && view.steps.size === 0) {
+      view.think.details.remove();
+      view.think = null;
+      return;
+    }
     const label = view.think.summary.querySelector(".think-label");
     const n = view.steps.size;
     if (view.thinkText) {
@@ -1543,13 +2025,24 @@ function createAssistantMessage() {
 }
 
 async function sendMessage(text) {
-  if (!state.activeSession || state.busy) return;
+  if (state.busy) return;
+  if (!state.activeSession) {
+    try {
+      await materializeSession();
+    } catch (error) {
+      setStatusError(error.message || "无法创建会话");
+      return;
+    }
+  }
   state.busy = true;
   input.disabled = true;
   sendButton.disabled = true;
   messages.querySelector(".empty-state")?.remove();
   addMessage("user", text);
   const view = createAssistantMessage();
+  // 首包可能等数秒：发送即挂"正在思考"呼吸态，主气泡不再是死白块
+  view.ensureThink();
+  view.think.summary.classList.add("running");
   let answerText = "";
   let renderTimer = null;
   const scheduleRender = () => {
@@ -1557,6 +2050,7 @@ async function sendMessage(text) {
     renderTimer = window.setTimeout(() => {
       renderTimer = null;
       view.body.innerHTML = renderLiveMarkdown(answerText);
+      mountCodeUI(view.body);
     }, 180);
   };
   setStatus("正在回答");
@@ -1606,7 +2100,7 @@ async function sendMessage(text) {
           view.body.innerHTML = "";
         }
         const row = document.createElement("div");
-        row.className = "think-step";
+        row.className = "think-step run";
         row.dataset.base = toolAction(data.tool_name || "工具", data.arguments);
         row.dataset.startedAt = String(Date.now());
         row.textContent = `${row.dataset.base} …`;
@@ -1618,6 +2112,8 @@ async function sendMessage(text) {
         if (row) {
           const ms = Date.now() - Number(row.dataset.startedAt || Date.now());
           row.textContent = `${row.dataset.base} · ${formatMs(ms)}${event.type === "tool_error" ? " · 失败" : ""}`;
+          row.classList.remove("run");
+          row.classList.add(event.type === "tool_error" ? "error" : "done");
         }
       } else if (data.delta && event.type !== "reasoning_delta") {
         answerText += data.delta;
@@ -1640,6 +2136,7 @@ async function sendMessage(text) {
     if (buffer.trim()) handleEventBlock(buffer);
     if (renderTimer) { window.clearTimeout(renderTimer); renderTimer = null; }
     view.body.innerHTML = renderMarkdown(answerText);
+    mountCodeUI(view.body);
     view.settleThink();
     scrollToBottom();
     setStatus("就绪");
@@ -1659,22 +2156,79 @@ async function sendMessage(text) {
   }
 }
 
-$("new-session").addEventListener("click", () => createSession().catch((error) => setStatus(error.message)));
+$("new-session").addEventListener("click", () => openNewChat());
+/* 拼音/输入法组合态：候选未上屏时回车会顺带触发 submit，丢候选像"输入法挂了"。
+   compositionend 之前一律放行给输入法，不发消息 */
+let imeComposing = false;
+input.addEventListener("compositionstart", () => { imeComposing = true; });
+input.addEventListener("compositionend", () => { imeComposing = false; });
+// 输入框随内容长高，到 176px 内滚；发送后回落到基础高
+function autosizeComposer() {
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 176)}px`;
+}
+input.addEventListener("input", autosizeComposer);
 $("message-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  if (imeComposing || event.isComposing) return;
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
+  autosizeComposer();
   sendMessage(text);
 });
+
+/* 刷新回到刷新前的位置：导航快照存 sessionStorage——同标签刷新恢复，
+   新开标签没有快照、从新对话草稿开始；记录失效（会话被删、页面读不到）
+   时落回草稿。base 记录底层视图，wiki 记录覆盖层与其返回上下文。 */
+const NAV_KEY = "wa-nav";
+function persistNav() {
+  try {
+    const entry = state.wikiHistory[state.wikiHistoryIndex];
+    sessionStorage.setItem(NAV_KEY, JSON.stringify({
+      base: state.view,
+      session: state.activeSession,
+      wiki: state.view === "wiki"
+        ? { path: entry?.path || null, kind: entry?.kind || "page", issueId: entry?.issueId ?? null, from: state.wikiReturnView }
+        : null,
+    }));
+  } catch { /* 存储不可用只丢刷新恢复，不影响本会话 */ }
+}
+
+async function restoreNav() {
+  let nav = null;
+  try { nav = JSON.parse(sessionStorage.getItem(NAV_KEY) || "null"); } catch { nav = null; }
+  if (nav?.base === "chat" && state.sessions.some((item) => item.id === nav.session)) await selectSession(nav.session);
+  else if (nav?.base === "organize" || nav?.base === "issues") showCenterView(nav.base);
+  else openNewChat();
+  if (nav?.wiki) {
+    showWikiSpace();
+    if (nav.wiki.path) await openWikiPage(nav.wiki.path, nav.wiki.kind, nav.wiki.issueId);
+    // openWikiPage 按当前 view 重置了返回上下文，恢复场景以快照为准
+    state.wikiReturnView = nav.wiki.from;
+    updateWikiNavigation();
+  }
+  persistNav();
+}
+
+/* 消息区滚动条占布局宽度，同列的提问框行没有滚动条，右缘需补回这一档差值；
+   容器变宽或消息增减时实测写入 --sbw */
+{
+  const syncScrollbarGutter = () =>
+    document.documentElement.style.setProperty(
+      "--sbw",
+      `${messages.offsetWidth - messages.clientWidth}px`
+    );
+  new ResizeObserver(syncScrollbarGutter).observe(messages);
+  new MutationObserver(() => requestAnimationFrame(syncScrollbarGutter)).observe(messages, { childList: true });
+}
 
 (async function bootstrap() {
   try {
     await refreshSessions();
     await refreshWikiFiles();
     await Promise.all([refreshIssues(), refreshIssueTasks()]);
-    if (state.sessions.length) await selectSession(state.sessions[0].id);
-    else await createSession();
+    await restoreNav();
   } catch (error) {
     setStatus(error.message || "连接失败");
   }
@@ -1693,21 +2247,27 @@ function tailGroupRow(group) {
   const main = document.createElement("div");
   main.className = "issue-task-main";
   const title = document.createElement("strong");
-  title.textContent = "补链波及面（重组批尾）";
+  title.textContent = "自动补全链接";
   const stage = document.createElement("span");
-  stage.textContent = `剩余 ${group.inFlight.length}/${group.total} 页 · ${running ? `正在补链 ${running.resource}` : "等待执行"}`;
+  const done = group.total - group.inFlight.length;
+  const pageName = (raw) => String(raw || "").split("/").pop().replace(/\.md$/, "");
+  stage.textContent = `${done}/${group.total} 页已完成 · ${running ? `正在补全链接「${pageName(running.resource)}」` : "排队中"}`;
   main.append(title, stage);
   const progress = document.createElement("div");
   progress.className = "issue-task-progress";
   const fill = document.createElement("span");
   const ratio = group.total ? (group.total - group.inFlight.length) / group.total : 0;
-  fill.style.width = `${Math.max(3, Math.min(100, ratio * 100))}%`;
+  // 真实完成度，一页都没完成时也留 6% 起点头，避免误以为卡死
+  fill.style.width = `${Math.max(6, Math.min(100, ratio * 100))}%`;
   progress.appendChild(fill);
   main.appendChild(progress);
+  // 空 context 占第三列，徽章才落在 auto 第四列，不再被 1fr 列拉成整条
+  const context = document.createElement("div");
+  context.className = "issue-task-context";
   const badge = document.createElement("span");
   badge.className = `issue-task-status task-${rowStatus}`;
   badge.textContent = running ? "进行中" : "等待中";
-  row.append(marker, main, badge);
+  row.append(marker, main, context, badge);
   return row;
 }
 
