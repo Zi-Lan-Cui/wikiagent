@@ -25,7 +25,7 @@ from wiki_agent.application.runtime import AppRuntime
 from wiki_agent.config import load_config
 from wiki_agent.exec_lock import ExecutionBusy, acquire_execution_lock, release_execution_lock
 from wiki_agent.log import configure_logging, get_logger, setup_event_log
-from wiki_agent.maintenance.pipeline import propose_restructure
+from wiki_agent.maintenance.restructure.pipeline import propose_restructure
 from wiki_agent.queue import PipelineBusy, RestructureInProgress, SyncBaselineLag
 from wiki_agent.wiki.quality import format_scan_report, scan_wiki
 

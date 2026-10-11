@@ -102,7 +102,7 @@ class MaintenanceJobHandler:
         申报 PREVIEWED 结算，建议清单由 JobOutcomeHandler 在终态事务内
         写入维护提议账本，任务行的 result 只作归档回看。
         """
-        from wiki_agent.maintenance.pipeline import preview_payload, propose_restructure
+        from wiki_agent.maintenance.restructure.pipeline import preview_payload, propose_restructure
 
         outcome = await propose_restructure(self._llm, self._wiki_dir, progress=progress)
         return JobResult(
