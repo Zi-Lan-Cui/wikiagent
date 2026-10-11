@@ -118,12 +118,26 @@ class SyncCoordinator:
             raise
         return jobs
 
-    def sync_status(self, source_dir: str | Path) -> dict[str, int]:
-        """只读统计 dirty/removed 与在途数，不提交。"""
-        _disk, dirty, removed = self.baseline.inspect(source_dir)
+    def sync_status(self, source_dir: str | Path) -> dict[str, object]:
+        """只读统计 dirty/removed 与在途数，不提交。
+
+        附带按类型分组的变更文件名（相对 source_dir，供前端展开差异明细）：
+        无处理记录的是新增，有记录的是修改，快照里查无此文件的是删除。
+        """
+        root = Path(source_dir).resolve()
+        _disk, dirty, removed = self.baseline.inspect(root)
+
+        def rel(p: str) -> str:
+            path = Path(p)
+            # 快照可能残留迁出根目录的旧路径，status 轮询端点不因它抛错
+            return path.relative_to(root).as_posix() if path.is_relative_to(root) else p
+
+        added = sorted(rel(p) for p, _ in dirty if not self.baseline.state.get(p).hash)
+        modified = sorted(rel(p) for p, _ in dirty if self.baseline.state.get(p).hash)
         return {
             "dirty": len(dirty),
             "removed": len(removed),
             "in_flight": self.queue.store.in_flight_for_kinds(WIKI_WRITE_KINDS),
+            "files": {"added": added, "modified": modified, "removed": sorted(rel(p) for p in removed)},
         }
 

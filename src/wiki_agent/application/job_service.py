@@ -8,7 +8,7 @@ coordinator）与 queue/queue；本模块没有自己的判定逻辑。agent 命
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from wiki_agent.issues import IssueStore
 from wiki_agent.queue import Job, JobResult
@@ -69,7 +69,7 @@ class JobService:
             raise RuntimeError("submit_sync 需要注入 sync coordinator")
         return self.sync.submit_sync(source_dir)
 
-    def sync_status(self, source_dir: str | Path) -> dict[str, int]:
+    def sync_status(self, source_dir: str | Path) -> dict[str, Any]:
         if self.sync is None:
             raise RuntimeError("sync_status 需要注入 sync coordinator")
         return self.sync.sync_status(source_dir)

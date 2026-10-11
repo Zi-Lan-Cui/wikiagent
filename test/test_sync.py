@@ -223,7 +223,10 @@ def test_sync_status_readonly(tmp_path: Path):
     src, service, state = _svc(tmp_path)
     _write(src, "x.md", "内容" * 10)
     st = service.sync_status(src)
-    assert st == {"dirty": 1, "removed": 0, "in_flight": 0}
+    assert st == {
+        "dirty": 1, "removed": 0, "in_flight": 0,
+        "files": {"added": ["x.md"], "modified": [], "removed": []},
+    }
     service.submit_sync(src)
     st2 = service.sync_status(src)
     assert st2["dirty"] == 1  # 快照已入队但账未记——status 如实呈现

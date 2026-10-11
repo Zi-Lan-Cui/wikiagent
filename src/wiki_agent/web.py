@@ -113,6 +113,15 @@ def create_app(
 
     app = FastAPI(title="wiki-agent", version="0.1.0", lifespan=lifespan)
 
+    @app.middleware("http")
+    async def _revalidate_html(request: Request, call_next):
+        # 前端迭代期新旧脚本错位的根源是 HTML 被启发式缓存；每次回源校验，
+        # 静态资源本身靠 URL 版本号失效
+        response = await call_next(request)
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     # 异常到 HTTP 状态码的集中映射，端点内不再各自 try/except。
     # 注册要求具体类型在前（Starlette 按 MRO 匹配处理器）。
     _status_map: list[tuple[type[Exception], int]] = [
@@ -209,7 +218,7 @@ def create_app(
         return {"count": len(jobs), "tasks": [_task(job) for job in jobs]}
 
     @app.get("/api/sync/status")
-    async def sync_status() -> dict[str, int]:
+    async def sync_status() -> dict[str, Any]:
         return app_runtime.sync_coordinator.sync_status(app_runtime.inputs_dir)
 
     # 维护端点：结构重组预览/提交、关联扫描提交；执行走同一任务队列

@@ -304,7 +304,10 @@ def test_sync_endpoint_snapshots_and_mutex(tmp_path: Path):
             ) as client,
         ):
             status = (await client.get("/api/sync/status")).json()
-            assert status == {"dirty": 1, "removed": 0, "in_flight": 0}
+            assert status == {
+                "dirty": 1, "removed": 0, "in_flight": 0,
+                "files": {"added": ["a.md"], "modified": [], "removed": []},
+            }
 
             first = await client.post("/api/sync")
             assert first.status_code == 202
