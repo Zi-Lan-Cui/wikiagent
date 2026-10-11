@@ -312,14 +312,15 @@ def test_handle_link_applies_valid_fixes(tmp_path: Path, monkeypatch):
     service, worker, wiki = _env(tmp_path)
 
     async def fake_plan(llm, wiki_dir, slug):
-        return [{"find": "这一页的内容展开", "replace": "并参见 [[concepts/a|甲]] 的合并后内容"}]
+        # 骨架不变的加链替换（协议只允许这类操作）
+        return [{"find": "这一页的内容展开", "replace": "[[concepts/a|这一页的内容展开]]"}]
 
     monkeypatch.setattr(maintenance_handlers_mod, "plan_link_fixes", fake_plan)
     jobs = service.submit_link_batch(slugs=["concepts/c"])
     asyncio.run(worker.run_once())
     row = service.get(jobs[0].id)
     assert row.status == "succeeded", row.error
-    assert "[[concepts/a|甲]]" in (wiki / "concepts/c.md").read_text(encoding="utf-8")
+    assert "[[concepts/a|这一页的内容展开]]" in (wiki / "concepts/c.md").read_text(encoding="utf-8")
 
 
 def test_handle_link_noop_settles_linked(tmp_path: Path, monkeypatch):
@@ -349,6 +350,52 @@ def test_apply_link_fixes_rejects_bad_items():
         content, fixes, valid_slugs={"concepts/a"}, self_slug="self"
     )
     assert applied == [] and len(skipped) == 4 and new == content
+
+
+def test_apply_link_fixes_same_find_twice_skips_overlap():
+    """同处二改：第二条被区间重叠挡住，且不产出嵌套链接。"""
+    content = "只有 目标词 一处。"
+    fixes = [
+        {"find": "目标词", "replace": "[[concepts/a|目标词]]"},
+        {"find": "目标词", "replace": "[[concepts/b|目标词]]"},
+    ]
+    new, applied, skipped = apply_link_fixes(
+        content, fixes, valid_slugs={"concepts/a", "concepts/b"}, self_slug="s"
+    )
+    assert len(applied) == 1 and len(skipped) == 1 and "重叠" in skipped[0]["why"]
+    assert new == "只有 [[concepts/a|目标词]] 一处。"
+
+
+def test_apply_link_fixes_non_overlapping_applied_right_to_left():
+    content = "开头 甲 中间 乙 结尾。"
+    fixes = [
+        {"find": "开头 甲", "replace": "开头 [[concepts/a|甲]]"},
+        {"find": "中间 乙", "replace": "中间 [[concepts/b|乙]]"},
+    ]
+    new, applied, skipped = apply_link_fixes(
+        content, fixes, valid_slugs={"concepts/a", "concepts/b"}, self_slug="s"
+    )
+    assert len(applied) == 2 and not skipped
+    assert new == "开头 [[concepts/a|甲]] 中间 [[concepts/b|乙]] 结尾。"
+
+
+def test_apply_link_fixes_skeleton_guard():
+    """骨架不变量：夹带改写正文被拒；纯去链（壳没了文字还在）合法。"""
+    drift = apply_link_fixes(
+        "理解 Python 装饰器有助于掌握。",
+        [{"find": "Python 装饰器", "replace": "Python 修饰器 [[concepts/a|有助于]]"}],
+        valid_slugs={"concepts/a"},
+        self_slug="s",
+    )
+    assert not drift[1] and "正文文字" in drift[2][0]["why"] and drift[0] == "理解 Python 装饰器有助于掌握。"
+
+    unlink = apply_link_fixes(
+        "见 [[concepts/a|旧显示]] 处。",
+        [{"find": "[[concepts/a|旧显示]]", "replace": "旧显示"}],
+        valid_slugs={"concepts/a"},
+        self_slug="s",
+    )
+    assert len(unlink[1]) == 1 and unlink[0] == "见 旧显示 处。"
 
 
 def test_settlement_values_registered():
@@ -511,7 +558,8 @@ def test_link_fix_targets_only_body(tmp_path: Path, monkeypatch):
     service, worker, wiki = _env(tmp_path)
 
     async def one_fix(llm, wiki_dir, slug):
-        return [{"find": "甲主题", "replace": "[[concepts/b|乙]]"}]
+        # 与 frontmatter title 同字面串的唯一合法形态：原样文字包成链接
+        return [{"find": "甲主题", "replace": "[[concepts/b|甲主题]]"}]
 
     monkeypatch.setattr(maintenance_handlers_mod, "plan_link_fixes", one_fix)
     jobs = service.submit_link_batch(["concepts/a"])
