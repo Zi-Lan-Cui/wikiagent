@@ -12,54 +12,54 @@ _limiters_lock = Lock()
 _limiters: dict[str, tuple[tuple[int, int, int], RequestLimiter]] = {}
 
 
-def _process_limiter(scope: str, cfg: LLMConfig) -> RequestLimiter:
+def _process_limiter(scope: str, config: LLMConfig) -> RequestLimiter:
     """为同一进程内的 LLM/VLM 客户端复用各自的全局限流器。"""
-    signature = (cfg.max_concurrency, cfg.requests_per_minute, cfg.tokens_per_minute)
+    signature = (config.max_concurrency, config.requests_per_minute, config.tokens_per_minute)
     with _limiters_lock:
         current = _limiters.get(scope)
         if current is None or current[0] != signature:
             current = (
                 signature,
                 RequestLimiter(
-                    max_concurrency=cfg.max_concurrency,
-                    requests_per_minute=cfg.requests_per_minute,
-                    tokens_per_minute=cfg.tokens_per_minute,
+                    max_concurrency=config.max_concurrency,
+                    requests_per_minute=config.requests_per_minute,
+                    tokens_per_minute=config.tokens_per_minute,
                 ),
             )
             _limiters[scope] = current
         return current[1]
 
 
-def create_llm(cfg: LLMConfig, retry_config: RetryConfig | None = None) -> LLMClient:
+def create_llm(config: LLMConfig, retry_config: RetryConfig | None = None) -> LLMClient:
     """从 LLMConfig 创建纯文本 LLM 客户端。
 
     Args:
-        cfg: LLM 配置。
+        config: LLM 配置。
 
     Returns:
         LLMClient 实例。
     """
-    client = LLMClient(cfg, retry_config, _process_limiter("llm", cfg))
-    logger.info("LLM 客户端创建: model=%s, base_url=%s", cfg.model_id, cfg.base_url)
+    client = LLMClient(config, retry_config, _process_limiter("llm", config))
+    logger.info("LLM 客户端创建: model=%s, base_url=%s", config.model_id, config.base_url)
     return client
 
 
-def create_vlm(cfg: VLMConfig, retry_config: RetryConfig | None = None) -> LLMClient:
+def create_vlm(config: VLMConfig, retry_config: RetryConfig | None = None) -> LLMClient:
     """从 VLMConfig 创建多模态 VLM 客户端。
 
     返回同一个 LLMClient 类型，多模态能力由 Message(images=[...]) 驱动，
     客户端本身不区分。
 
     Args:
-        cfg: VLM 配置（继承 LLMConfig）。
+        config: VLM 配置（继承 LLMConfig）。
 
     Returns:
         LLMClient 实例。
     """
     client = LLMClient(
-        cfg,
+        config,
         retry_config,
-        _process_limiter("vlm", cfg),
+        _process_limiter("vlm", config),
     )
-    logger.info("VLM 客户端创建: model=%s, base_url=%s", cfg.model_id, cfg.base_url)
+    logger.info("VLM 客户端创建: model=%s, base_url=%s", config.model_id, config.base_url)
     return client

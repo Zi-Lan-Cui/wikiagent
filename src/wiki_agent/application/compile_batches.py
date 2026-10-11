@@ -92,7 +92,7 @@ async def run_manifest(
     batch_size: int,
     max_batches: int | None = None,
     execute: SyncExecute | None = None,
-    cfg: RootConfig | None = None,
+    config: RootConfig | None = None,
 ) -> dict[str, Any]:
     """逐批 materialize → sync；返回统计，不落任何编排状态。"""
     payload = load_manifest(manifest)
@@ -100,12 +100,12 @@ async def run_manifest(
     batches = split_sources(payload["sources"], batch_size)
     executor = execute
     if executor is None:
-        if cfg is None:
-            raise ValueError("未注入 execute 时必须提供 cfg（配置只在入口读一次）")
+        if config is None:
+            raise ValueError("未注入 execute 时必须提供 config（配置只在入口读一次）")
         executor = _make_sync_executor(
             workspace=workspace.expanduser().resolve(),
             wiki_dir=wiki_dir.expanduser().resolve(),
-            cfg=cfg,
+            config=config,
         )
     run_dir = work_dir.expanduser().resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -122,7 +122,7 @@ async def run_manifest(
     return {"batches_run": executed, "batches_total": len(batches), "enqueued": enqueued}
 
 
-def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> SyncExecute:
+def _make_sync_executor(*, workspace: Path, wiki_dir: Path, config: RootConfig) -> SyncExecute:
     """默认执行器：装配一个隔离于 AppRuntime 的小型 sync 执行环境。
 
     评测沙箱使用自己 workspace 的 jobs/sync 状态与目标 wiki；LLM 客户端按
@@ -179,11 +179,11 @@ def _make_sync_executor(*, workspace: Path, wiki_dir: Path, cfg: RootConfig) -> 
             from wiki_agent.llm.factory import create_llm, create_vlm
 
             pipeline = CompilePipeline(
-                llm=create_llm(cfg.llm, cfg.retry),
-                vlm=create_vlm(cfg.vlm, cfg.retry),
+                llm=create_llm(config.llm, config.retry),
+                vlm=create_vlm(config.vlm, config.retry),
                 wiki_dir=wiki_dir,
                 source_records_dir=source_records_dir,
-                compile_config=cfg.compile,
+                compile_config=config.compile,
             )
             source_handler = SourceJobHandler(
                 pipeline,
@@ -224,14 +224,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _main(args: argparse.Namespace) -> int:
-    cfg = load_config(project_root=default_project_root())
+    config = load_config(project_root=default_project_root())
     if args.root is None:
         raise SystemExit("--root 必填（manifest.path 相对它的根目录）")
     wiki_dir = args.wiki_dir.expanduser().resolve()
     workspace = (
         args.workspace.expanduser().resolve()
         if args.workspace is not None
-        else cfg.paths.resolved_workspace_dir()
+        else config.paths.resolved_workspace_dir()
     )
     work_dir = args.work_dir or (workspace / "staging" / wiki_dir.name)
     result = await run_manifest(
@@ -242,7 +242,7 @@ async def _main(args: argparse.Namespace) -> int:
         work_dir=work_dir,
         batch_size=args.batch_size,
         max_batches=args.max_batches,
-        cfg=cfg,
+        config=config,
     )
     print(json.dumps(result, ensure_ascii=False))
     return 0

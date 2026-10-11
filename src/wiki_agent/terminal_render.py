@@ -51,10 +51,10 @@ def _trunc(s: str, max_len: int = 80) -> str:
     """
     if cell_len(s) <= max_len:
         return s
-    acc = 0
+    width_used = 0
     for i, ch in enumerate(s):
-        acc += cell_len(ch)
-        if acc > max_len - 3:
+        width_used += cell_len(ch)
+        if width_used > max_len - 3:
             return s[:i] + "..."
     return s
 

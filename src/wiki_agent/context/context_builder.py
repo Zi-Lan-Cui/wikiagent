@@ -35,9 +35,9 @@ class ContextBuilder:
         self.memory_store = memory_store
         self.issue_service = issue_service
         self.wiki_dir = Path(wiki_dir) if wiki_dir else None
-        cfg = agent_config
-        self._index_chars = cfg.wiki_index_chars if cfg else 4_000
-        self._corrections_chars = cfg.corrections_chars if cfg else 2_000
+        config = agent_config
+        self._index_chars = config.wiki_index_chars if config else 4_000
+        self._corrections_chars = config.corrections_chars if config else 2_000
 
     def _load_user_description(self) -> str:
         """读用户画像块（memory.md，由 Dreamer 定期加工）。

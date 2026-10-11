@@ -392,7 +392,7 @@ def load_config(
     if mcp_file.exists():
         mcp_cfg = McpConfig.model_validate(json.loads(mcp_file.read_text(encoding="utf-8")))
 
-    cfg = RootConfig(
+    config = RootConfig(
         llm=llm,
         vlm=vlm,
         agent=agent,
@@ -405,8 +405,8 @@ def load_config(
     if overrides:
         # 转 dict 深合并 overrides 后整体重新校验；model_validate 会把
         # 嵌套 dict 转回子配置对象，必填项校验在合并后再次执行。
-        cfg = RootConfig.model_validate(_deep_merge(cfg.model_dump(), overrides))
-    return cfg
+        config = RootConfig.model_validate(_deep_merge(config.model_dump(), overrides))
+    return config
 
 
 def _deep_merge(base: dict, overrides: Mapping) -> dict:

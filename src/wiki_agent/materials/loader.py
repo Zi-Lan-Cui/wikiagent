@@ -58,7 +58,7 @@ class DataLoader:
         ".sql": FileModality.TEXT,
         ".sh": FileModality.TEXT,
         ".toml": FileModality.TEXT,
-        ".cfg": FileModality.TEXT,
+        ".config": FileModality.TEXT,
         ".ini": FileModality.TEXT,
         ".env": FileModality.TEXT,
         ".rst": FileModality.TEXT,

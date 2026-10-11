@@ -14,26 +14,26 @@ from wiki_agent.wiki.frontmatter import split_frontmatter
 
 
 def _prose_paragraphs(body: str) -> list[str]:
-    paras: list[str] = []
-    cur: list[str] = []
+    paragraphs: list[str] = []
+    current_lines: list[str] = []
     in_fence = False
     for line in body.splitlines():
-        s = line.strip()
-        if s.startswith("```"):
+        stripped = line.strip()
+        if stripped.startswith("```"):
             in_fence = not in_fence
-            if cur:
-                paras.append(" ".join(cur))
-                cur = []
+            if current_lines:
+                paragraphs.append(" ".join(current_lines))
+                current_lines = []
             continue
-        if in_fence or not s or s.startswith(("#", ">", "!")):
-            if cur:
-                paras.append(" ".join(cur))
-                cur = []
+        if in_fence or not stripped or stripped.startswith(("#", ">", "!")):
+            if current_lines:
+                paragraphs.append(" ".join(current_lines))
+                current_lines = []
             continue
-        cur.append(s)
-    if cur:
-        paras.append(" ".join(cur))
-    return paras
+        current_lines.append(stripped)
+    if current_lines:
+        paragraphs.append(" ".join(current_lines))
+    return paragraphs
 
 
 @dataclass(frozen=True, slots=True)

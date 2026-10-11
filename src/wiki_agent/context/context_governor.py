@@ -53,8 +53,8 @@ class ContextGovernor:
         """
         self.workspace = workspace
         self.tmp_dir = self.workspace / "tmp"
-        cfg = agent_config
-        ttl_seconds = (cfg.tool_result_ttl_minutes * 60) if cfg else 30 * 60
+        config = agent_config
+        ttl_seconds = (config.tool_result_ttl_minutes * 60) if config else 30 * 60
         self._tool_ttl = (
             tool_ttl
             if tool_ttl is not None
@@ -64,11 +64,11 @@ class ContextGovernor:
                 "ListDir": ttl_seconds,
             }
         )
-        self._persist_length = cfg.tool_persist_length if cfg else 8_000
-        self._safe_buffer = cfg.snip_safe_buffer if cfg else 1024
-        self._snip_ratio = cfg.snip_ratio if cfg else 0.5
-        self._inflight_target_ratio = cfg.inflight_target_ratio if cfg else 0.85
-        self._compact_min_chars = cfg.inflight_compact_min_chars if cfg else 500
+        self._persist_length = config.tool_persist_length if config else 8_000
+        self._safe_buffer = config.snip_safe_buffer if config else 1024
+        self._snip_ratio = config.snip_ratio if config else 0.5
+        self._inflight_target_ratio = config.inflight_target_ratio if config else 0.85
+        self._compact_min_chars = config.inflight_compact_min_chars if config else 500
 
     def _merge_consecutive(self, messages: list[Message]):
         """

@@ -64,7 +64,7 @@ async def connect_mcp_servers(
 
     Args:
         mcp_servers: server 名到 McpServerConfig 的映射，transport 在
-            cfg.transport，need_resources 与 need_prompts 是 server 级开关。
+            config.transport，need_resources 与 need_prompts 是 server 级开关。
         tool_registry: 工具注册表（工具注册进这里）。
 
     Returns:
@@ -72,8 +72,8 @@ async def connect_mcp_servers(
         记录日志后跳过，不影响其他 server。
     """
 
-    async def open_single_server(name, cfg):
-        transport = cfg.transport
+    async def open_single_server(name, config):
+        transport = config.transport
         server_stack = AsyncExitStack()
         await server_stack.__aenter__()
 
@@ -135,7 +135,7 @@ async def connect_mcp_servers(
                 tool_registry.register(wrapper)
                 registered.append(wrapper.name)
 
-            if cfg.need_resources:
+            if config.need_resources:
                 # Resources 支持未实现，只探测记录、不注册
                 resources = await session.list_resources()
                 logger.warning(
@@ -144,7 +144,7 @@ async def connect_mcp_servers(
                     len(resources.resources),
                 )
 
-            if cfg.need_prompts:
+            if config.need_prompts:
                 prompts = await session.list_prompts()
                 logger.warning(
                     "MCP server '%s' 暴露 %d 个 prompts——Prompts 支持未实现，跳过注册",
@@ -163,7 +163,7 @@ async def connect_mcp_servers(
                 pass
             raise
 
-    async def connect_single_server(name, cfg):
+    async def connect_single_server(name, config):
         # 用 get_running_loop：get_event_loop 无当前 loop 时行为不确定
         loop = asyncio.get_running_loop()
         ready = loop.create_future()
@@ -175,7 +175,7 @@ async def connect_mcp_servers(
             session = None
             registered: list[str] = []
             try:
-                _, session, stack, registered = await open_single_server(name, cfg)
+                _, session, stack, registered = await open_single_server(name, config)
                 if not ready.done():
                     ready.set_result(stack is not None)
                 if stack is None:
@@ -251,9 +251,9 @@ async def connect_mcp_servers(
 
     server_stacks: dict[str, MCPConnection] = {}
 
-    for name, cfg in mcp_servers.items():
+    for name, config in mcp_servers.items():
         try:
-            name, connection = await connect_single_server(name, cfg)
+            name, connection = await connect_single_server(name, config)
         except Exception:
             logger.exception(f"MCP server '{name}' connection failed")
             continue
