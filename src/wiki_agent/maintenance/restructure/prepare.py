@@ -29,14 +29,14 @@ class PreparedUnit:
     drafts: dict[str, str] = field(default_factory=dict)  # out slug → 装配草稿全文
     old_content: dict[str, str] = field(default_factory=dict)
     old_meta: dict[str, dict] = field(default_factory=dict)
-    sibling_titles: dict[str, list[str]] = field(default_factory=dict)
+    sibling_slugs: dict[str, list[str]] = field(default_factory=dict)
     final_slugs: set[str] = field(default_factory=set)
     assignment_count: int = 0
     fixed_by_take_count: int = 0  # take 直接指定的章节归属数（审计用）
 
 
 def _existing_slugs(wiki_dir: Path) -> set[str]:
-    # 页面列表统一由 content_pages 提供（含嵌套层级），不在本模块重复实现
+    # 页面列表统一由 wiki.pages 的 CONTENT_DIRS 提供（含嵌套层级），不在本模块重复实现
     return set(all_content_slugs(wiki_dir))
 
 
@@ -112,7 +112,7 @@ async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> PreparedUn
         plan.old_meta[page.slug] = _frontmatter_for(wiki_dir, page)
         if unit_sources:
             plan.old_meta[page.slug]["sources"] = unit_sources
-        plan.sibling_titles[page.slug] = [
+        plan.sibling_slugs[page.slug] = [
             p.slug for p in unit.out if p.slug != page.slug
         ]
     return plan

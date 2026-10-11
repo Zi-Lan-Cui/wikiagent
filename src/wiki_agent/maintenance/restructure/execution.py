@@ -37,7 +37,7 @@ def _fill_frontmatter(text: str, skeleton: dict) -> str:
     """成文输出缺必填字段时用代码骨架补齐，避免因丢字段使整单元失败。
 
     只补缺失的必填 key，模型已给的值一律保留；骨架来自
-    _frontmatter_for（旧页=旧 frontmatter，新页=由 intent 派生），
+    prepare._frontmatter_for（旧页=旧 frontmatter，新页=由 intent 派生），
     与草稿同源。输出没有 frontmatter（模型对拆分新页常返回纯正文
     片段）时整页由骨架合成，正文原样保留。
     """
@@ -105,7 +105,7 @@ async def execute_restructure_unit(
                 intent=page.intent,
                 draft=prepared.drafts[page.slug],
                 old=prepared.old_content[page.slug],
-                siblings=prepared.sibling_titles[page.slug],
+                siblings=prepared.sibling_slugs[page.slug],
             )
         except Exception as exc:
             failures.append(f"{page.slug}: rewrite {str(exc)[:120]}")
