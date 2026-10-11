@@ -160,15 +160,15 @@ class CompilePipeline:
         outcome = IngestOutcome(source=raw_file.name)
 
         # 1. Convert
-        cf = await self._stage(
+        converted = await self._stage(
             IngestStage.CONVERT, raw_file.name, self._converter.convert, raw_file
         )
-        outcome.converted_chars = len(cf.content)
-        logger.info("  [%s] → %d chars, %d 图片", cf.ext, len(cf.content), cf.content.count("!["))
+        outcome.converted_chars = len(converted.content)
+        logger.info("  [%s] → %d chars, %d 图片", converted.ext, len(converted.content), converted.content.count("!["))
 
         # 转换为空时 source 未进入编译链：必须在调用 LLM 前失败，
         # 不能让空内容经全文替补成 chunk 后产生标题驱动的页面
-        if not cf.content.strip():
+        if not converted.content.strip():
             raise IngestError(
                 IngestStage.CONVERT,
                 "转换后内容为空，禁止调用 LLM。",
@@ -177,20 +177,20 @@ class CompilePipeline:
             )
 
         # 2. Chunk（chunk 列表为空时以全文作为唯一 chunk）
-        ck_list = self._chunker.chunk(cf)
+        ck_list = self._chunker.chunk(converted)
         if not ck_list:
             logger.warning("  Chunk 为空，用全文兜底")
-            ck_list = [_FallbackChunk(content=cf.content)]
+            ck_list = [_FallbackChunk(content=converted.content)]
 
         # 3. Extract
-        sd = SourceDocument(
-            name=cf.name,
-            ext=cf.ext,
-            path=str(cf.path),
-            chunks=[_to_source_chunk(ck, len(ck_list), cf.name) for ck in ck_list],
+        source_doc = SourceDocument(
+            name=converted.name,
+            ext=converted.ext,
+            path=str(converted.path),
+            chunks=[_to_source_chunk(ck, len(ck_list), converted.name) for ck in ck_list],
         )
         outcome.extract = await self._stage(
-            IngestStage.EXTRACT, raw_file.name, self._extractor.extract, sd
+            IngestStage.EXTRACT, raw_file.name, self._extractor.extract, source_doc
         )
         logger.info("  摘要: %d chars", len(outcome.extract.document_summary))
 
@@ -352,11 +352,11 @@ class CompilePipeline:
                 continue
             from wiki_agent.wiki.frontmatter import parse_frontmatter
 
-            fm = parse_frontmatter(self._wiki_dir / _normalize(pt.wiki_path))
-            page_type = fm.get("type", "")
-            title = fm.get("title", pt.title)
-            summary = fm.get("summary", "")
-            goal = fm.get("goal", "")
+            frontmatter = parse_frontmatter(self._wiki_dir / _normalize(pt.wiki_path))
+            page_type = frontmatter.get("type", "")
+            title = frontmatter.get("title", pt.title)
+            summary = frontmatter.get("summary", "")
+            goal = frontmatter.get("goal", "")
             # summary 说明已有内容，goal 说明页面边界和职责；二者都给
             # search/analyze 看，正文仍不进入 index，避免索引膨胀。
             summary = " ".join(str(summary).splitlines())

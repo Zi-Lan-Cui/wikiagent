@@ -2212,11 +2212,11 @@ async function restoreNav() {
 }
 
 /* 消息区滚动条占布局宽度，同列的提问框行没有滚动条，右缘需补回这一档差值；
-   容器变宽或消息增减时实测写入 --sbw */
+   容器变宽或消息增减时实测写入 --scrollbar-gutter */
 {
   const syncScrollbarGutter = () =>
     document.documentElement.style.setProperty(
-      "--sbw",
+      "--scrollbar-gutter",
       `${messages.offsetWidth - messages.clientWidth}px`
     );
   new ResizeObserver(syncScrollbarGutter).observe(messages);

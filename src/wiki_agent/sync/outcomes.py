@@ -46,10 +46,10 @@ class _SyncOutcomeRules:
     ) -> list[Callable[[], None]]:
         if job.kind == Kind.DELETE:
             # 删除结算：应用运行期只规划的档案清理清单 + 移除 state 条目
-            ops = result.detail.get("archive_ops")
+            archive_ops = result.detail.get("archive_ops")
 
             def settle_delete() -> None:
-                for op in ops if isinstance(ops, list) else []:
+                for op in archive_ops if isinstance(archive_ops, list) else []:
                     self._apply_archive_op(op)
                 self._state.drop(job.resource)
                 self._state.save()

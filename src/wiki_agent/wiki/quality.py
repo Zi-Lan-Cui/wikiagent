@@ -80,13 +80,13 @@ def _semantic_frontmatter_issues(
     valid_slugs: set[str] | None = None,
 ) -> list[Issue]:
     """检查 frontmatter 语义；结构性错误与建议分开报告。"""
-    fm, body = split_frontmatter(content)
-    if not fm:
+    frontmatter, body = split_frontmatter(content)
+    if not frontmatter:
         return []  # 必填/格式错误由 check_page_output 统一报告
 
     issues: list[Issue] = []
     rel_dir = Path(path).parts[0] if Path(path).parts else ""
-    page_type = str(fm.get("type", "")).strip().lower()
+    page_type = str(frontmatter.get("type", "")).strip().lower()
     if page_type not in _TYPE_DIRS:
         issues.append(
             Issue(
@@ -102,8 +102,8 @@ def _semantic_frontmatter_issues(
             )
         )
 
-    created = str(fm.get("created", "")).strip()
-    updated = str(fm.get("updated", "")).strip()
+    created = str(frontmatter.get("created", "")).strip()
+    updated = str(frontmatter.get("updated", "")).strip()
     for field, value in (("created", created), ("updated", updated)):
         if value and not _DATE_RE.fullmatch(value):
             issues.append(Issue("error", path, f"{field} 日期格式非法: {value}（应为 YYYY-MM-DD）"))
@@ -111,9 +111,9 @@ def _semantic_frontmatter_issues(
         if updated < created:
             issues.append(Issue("error", path, "updated 早于 created"))
 
-    title = str(fm.get("title", "")).strip()
-    summary = str(fm.get("summary", "")).strip()
-    goal = str(fm.get("goal", "")).strip()
+    title = str(frontmatter.get("title", "")).strip()
+    summary = str(frontmatter.get("summary", "")).strip()
+    goal = str(frontmatter.get("goal", "")).strip()
     for field, value, minimum in (
         ("title", title, _MIN_TITLE_CHARS),
         ("summary", summary, _MIN_META_CHARS),
@@ -131,8 +131,8 @@ def _semantic_frontmatter_issues(
         )
 
     # sources 档案页按设计不参与 related 语义检查。
-    if page_type != "source" and "related" in fm:
-        raw_related = str(fm.get("related", "")).strip()
+    if page_type != "source" and "related" in frontmatter:
+        raw_related = str(frontmatter.get("related", "")).strip()
         try:
             related = json.loads(raw_related)
         except json.JSONDecodeError:
@@ -400,8 +400,8 @@ def scan_wiki(wiki_dir: str | Path) -> list[Issue]:
 
         # related 是 frontmatter 中的结构化关系，也应计入入链；解析失败
         # 已由语义校验报告，这里只提取其中形如 [[slug]] 的值。
-        fm, _ = split_frontmatter(content)
-        raw_related = str(fm.get("related", ""))
+        frontmatter, _ = split_frontmatter(content)
+        raw_related = str(frontmatter.get("related", ""))
         for match in WIKILINK_RE.finditer(raw_related):
             linked.add(slug_from_ref(match.group(1)))
         for target in linked & valid_slugs:

@@ -124,7 +124,7 @@ class MaintenanceJobHandler:
                     status="failed", detail={"error": f"link 清单生成失败: {str(exc)[:300]}"}
                 )
             content = page.read_text(encoding="utf-8")
-            fm, body = split_frontmatter(content)
+            frontmatter, body = split_frontmatter(content)
             valid_slugs = set(all_content_slugs(self._wiki_dir))
             new_body, applied, skipped = apply_link_fixes(
                 body, replacements, valid_slugs=valid_slugs, self_slug=slug
@@ -145,7 +145,7 @@ class MaintenanceJobHandler:
                 valid_slugs=valid_slugs,
                 source_identity="",
                 today=date.today().isoformat(),
-                existing=fm,
+                existing=frontmatter,
             )
             errors = [issue for issue in issues if issue.level == "error"]
             if errors:

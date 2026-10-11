@@ -172,10 +172,10 @@ def check_rewrite_page(content: str) -> tuple[bool, str]:
             return False, "代码块未闭合——每个 ```python 开块都要有配对的裸 ```。"
         return True, ""
     try:
-        fm, _ = split_frontmatter(body)
+        frontmatter, _ = split_frontmatter(body)
     except Exception:
         return False, "frontmatter 无法解析——检查 --- 成对。"
-    missing = [k for k in ("type", "title", "summary", "goal") if not str(fm.get(k) or "").strip()]
+    missing = [k for k in ("type", "title", "summary", "goal") if not str(frontmatter.get(k) or "").strip()]
     if missing:
         return False, f"frontmatter 缺少字段 {missing}——四个必填字段都要给出。"
     if count_unclosed_fences(body):

@@ -41,11 +41,11 @@ def fix_markdown_fence(content: str) -> str:
     content = content.strip()
     # 4. 不以 --- / ``` / # 开头 → 切到第一个 frontmatter 或 fence
     if content and content[0] not in {"-", "`", "#"}:
-        first_fm = content.find("\n---\n")
+        first_delimiter = content.find("\n---\n")
         first_fence = content.find("\n```")
         start = -1
-        if first_fm >= 0:
-            start = first_fm
+        if first_delimiter >= 0:
+            start = first_delimiter
         if first_fence >= 0 and (start < 0 or first_fence < start):
             start = first_fence + 1  # 跳过换行，从 ``` 起切
         if start > 0:

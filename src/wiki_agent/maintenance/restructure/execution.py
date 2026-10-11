@@ -30,7 +30,7 @@ from . import (
 
 logger = get_logger("WIKI_OPS")
 
-_FM_REQUIRED = ("type", "title", "summary", "goal")
+_FRONTMATTER_REQUIRED_KEYS = ("type", "title", "summary", "goal")
 
 
 def _fill_frontmatter(text: str, skeleton: dict) -> str:
@@ -41,15 +41,15 @@ def _fill_frontmatter(text: str, skeleton: dict) -> str:
     与草稿同源。输出没有 frontmatter（模型对拆分新页常返回纯正文
     片段）时整页由骨架合成，正文原样保留。
     """
-    fm, _ = split_frontmatter(text)
+    frontmatter, _ = split_frontmatter(text)
     missing = {
         k: str(skeleton[k])
-        for k in _FM_REQUIRED
-        if not str(fm.get(k) or "").strip() and str(skeleton.get(k) or "").strip()
+        for k in _FRONTMATTER_REQUIRED_KEYS
+        if not str(frontmatter.get(k) or "").strip() and str(skeleton.get(k) or "").strip()
     }
     if not missing:
         return text
-    dash = [ln for ln in text.splitlines() if ln.strip() == "---"]
+    dash = [line for line in text.splitlines() if line.strip() == "---"]
     if text.startswith("---") and len(dash) >= 2:
         return set_fields(text, missing)
     fields = {k: v for k, v in skeleton.items() if str(v).strip()}

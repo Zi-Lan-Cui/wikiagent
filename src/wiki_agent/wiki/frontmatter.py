@@ -23,7 +23,7 @@ def split_frontmatter(content: str) -> tuple[dict, str]:
         (字段 dict, 正文)。正文不 strip——调用方各自决定
         尾部处理（拼接场景要保留原文形态）。
     """
-    fm: dict = {}
+    frontmatter: dict = {}
     body = content
     if content.startswith("---"):
         try:
@@ -31,11 +31,11 @@ def split_frontmatter(content: str) -> tuple[dict, str]:
             for line in content[len("---\n") : end].split("\n"):
                 if ": " in line:
                     k, _, v = line.partition(": ")
-                    fm[k.strip()] = v.strip().strip("\"'")
+                    frontmatter[k.strip()] = v.strip().strip("\"'")
             body = content[end + 5 :]
         except ValueError:
             pass
-    return fm, body
+    return frontmatter, body
 
 
 def _render_value(value: object) -> str:
@@ -64,20 +64,20 @@ def set_fields(content: str, updates: Mapping[str, object]) -> str:
     if not content.startswith("---"):
         return content
     lines = content.splitlines(keepends=True)
-    dash = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    dash = [i for i, line in enumerate(lines) if line.strip() == "---"]
     if len(dash) < 2:
         return content
     start, end = dash[0] + 1, dash[1]
     remaining = dict(updates)
     out: list[str] = []
-    for i, ln in enumerate(lines):
+    for i, line in enumerate(lines):
         if start <= i < end:
-            key = ln.partition(":")[0].strip()
+            key = line.partition(":")[0].strip()
             if key in remaining:
                 out.append(f"{key}: {_render_value(remaining.pop(key))}\n")
                 continue
-        out.append(ln)
-    insert_at = next(i for i, ln in enumerate(out) if ln.strip() == "---" and i > 0)
+        out.append(line)
+    insert_at = next(i for i, line in enumerate(out) if line.strip() == "---" and i > 0)
     for k, v in remaining.items():
         out.insert(insert_at, f"{k}: {_render_value(v)}\n")
         insert_at += 1
@@ -114,5 +114,5 @@ def parse_frontmatter(path) -> dict:
         content = Path(path).read_text(encoding="utf-8")
     except OSError:
         return {}
-    fm, _ = split_frontmatter(content)
-    return fm
+    frontmatter, _ = split_frontmatter(content)
+    return frontmatter

@@ -142,7 +142,7 @@ class Executor:
         async def _execute_target(target: PageTarget) -> PageTarget | None:
             try:
                 existing = await self._read_page(target.wiki_path)
-                existing_fm = split_frontmatter(existing)[0] if existing else None
+                existing_frontmatter = split_frontmatter(existing)[0] if existing else None
                 raw_content = await self._generate_page(target, existing, extract)
 
                 content, issues = normalize_page(
@@ -151,7 +151,7 @@ class Executor:
                     valid_slugs=valid_slugs,
                     source_identity=source,
                     today=today,
-                    existing=existing_fm,
+                    existing=existing_frontmatter,
                     page_type=target.page_type,
                 )
                 for issue in issues:

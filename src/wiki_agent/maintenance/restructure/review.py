@@ -34,10 +34,10 @@ async def recheck_units(
             path = path_for(wiki_dir, slug)
             if not path.is_file():
                 continue
-            fm, _ = split_frontmatter(path.read_text(encoding="utf-8"))
+            frontmatter, _ = split_frontmatter(path.read_text(encoding="utf-8"))
             entries.append((
                 slug,
-                str(fm.get("title") or ""),
+                str(frontmatter.get("title") or ""),
                 [sec.heading for sec in page_sections(path, slug) if sec.heading],
             ))
         return entries

@@ -44,7 +44,7 @@
   --r-surface: 16px;
   /* 消息区滚动条占位宽，由 app.js 实测写入；提问框不在滚动容器内，
      不补这一笔右缘就会比气泡突出一截 */
-  --sbw: 0px;
+  --scrollbar-gutter: 0px;
   font-size: 15px;
 }
 
@@ -377,8 +377,8 @@ b, strong { font-weight: 700; }
 /* 提问卡：textarea 自动长高（JS autosize），发送键作为卡内悬浮件，
    四周留 10px 气口，不再顶角嵌死；输入文字右侧为按钮让位 */
 /* 与消息列同套留白公式居中；再左缩 34px（头像宽+间距）对齐回答气泡左缘，
-   右缘对齐用户气泡时需另加滚动条占位 --sbw（消息区有滚动条、这一行没有） */
-.composer { --col-pad: max(32px, calc((100% - var(--read-w)) / 2 + 32px)); position: relative; display: flex; margin: 10px calc(var(--col-pad) + var(--sbw)) 22px calc(var(--col-pad) + 34px); border: 1px solid var(--rule); border-radius: var(--r-surface); background: var(--paper); transition: border-color 0.15s var(--ease-out); }
+   右缘对齐用户气泡时需另加滚动条占位 --scrollbar-gutter（消息区有滚动条、这一行没有） */
+.composer { --col-pad: max(32px, calc((100% - var(--read-w)) / 2 + 32px)); position: relative; display: flex; margin: 10px calc(var(--col-pad) + var(--scrollbar-gutter)) 22px calc(var(--col-pad) + 34px); border: 1px solid var(--rule); border-radius: var(--r-surface); background: var(--paper); transition: border-color 0.15s var(--ease-out); }
 .composer textarea { flex: 1; resize: none; min-height: 50px; max-height: 176px; padding: 12px 96px 12px 15px; border: 0; border-radius: 0; color: var(--ink); background: transparent; font-size: 14px; line-height: 1.6; overflow-y: auto; }
 .composer textarea:focus { outline: none; }
 .composer:focus-within { border-color: var(--red); }

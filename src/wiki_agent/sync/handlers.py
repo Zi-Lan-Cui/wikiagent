@@ -165,13 +165,13 @@ class SourceJobHandler:
         """
         wiki = self._wiki_dir
         src_dir = self._source_records_dir
-        ops: list[dict[str, str]] = []
+        archive_ops: list[dict[str, str]] = []
         if not src_dir.is_dir():
-            return ops
+            return archive_ops
         for page in sorted(src_dir.glob("*.md")):
             content = page.read_text(encoding="utf-8")
-            fm, _ = split_frontmatter(content)
-            raw_sources = fm.get("sources", "")
+            frontmatter, _ = split_frontmatter(content)
+            raw_sources = frontmatter.get("sources", "")
             listed = [
                 s.strip().strip("\"'") for s in raw_sources.strip("[]").split(",") if s.strip()
             ]
@@ -188,16 +188,16 @@ class SourceJobHandler:
                     content,
                     count=1,
                 )
-                ops.append({"action": "rewrite", "path": str(page), "content": new_content})
+                archive_ops.append({"action": "rewrite", "path": str(page), "content": new_content})
                 action = f"keep {slug}（sources 移除 {name}）"
             else:
                 # 只剩被删文件：删除页面，正文引用换成别名
-                ops.append({"action": "unlink", "path": str(page)})
+                archive_ops.append({"action": "unlink", "path": str(page)})
                 cleaned = clean_body_links(wiki, slug)
                 action = f"delete {slug}（清理 {cleaned} 处正文引用）"
             logger.info("  %s", action)
             emit_event("sync_source_deleted", file=name, action=action)
-        return ops
+        return archive_ops
 
     async def _handle_compile(self, job: Job, progress, write: WikiWrite) -> JobResult:
         """ingest 一个源文件；输入只认提交时保存的快照副本。"""

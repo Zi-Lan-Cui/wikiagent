@@ -33,8 +33,8 @@ def _strip_related(text: str, vanished: set[str]) -> str:
     """
     if not vanished:
         return text
-    fm, _ = split_frontmatter(text)
-    items = list_field(fm.get("related"))
+    frontmatter, _ = split_frontmatter(text)
+    items = list_field(frontmatter.get("related"))
     if not items:
         return text
 
@@ -95,7 +95,7 @@ def _index_remove(wiki_dir: Path, slug: str) -> None:
     if not index.is_file():
         return
     lines = index.read_text(encoding="utf-8").splitlines()
-    kept = [ln for ln in lines if f"[[{slug}]]" not in ln]
+    kept = [line for line in lines if f"[[{slug}]]" not in line]
     if len(kept) != len(lines):
         index.write_text("\n".join(kept) + "\n", encoding="utf-8")
 
@@ -105,16 +105,16 @@ def _index_append(wiki_dir: Path, slug: str) -> None:
     existing = index.read_text(encoding="utf-8") if index.is_file() else ""
     if f"[[{slug}]]" in existing:
         return
-    fm, _ = split_frontmatter(path_for(wiki_dir, slug).read_text(encoding="utf-8"))
+    frontmatter, _ = split_frontmatter(path_for(wiki_dir, slug).read_text(encoding="utf-8"))
     index.write_text(
         existing.rstrip()
         + "\n"
         + index_line(
             slug,
-            str(fm.get("type", "")),
-            str(fm.get("title", slug.rsplit("/", 1)[-1])),
-            " ".join(str(fm.get("summary", "")).splitlines()),
-            " ".join(str(fm.get("goal", "")).splitlines()),
+            str(frontmatter.get("type", "")),
+            str(frontmatter.get("title", slug.rsplit("/", 1)[-1])),
+            " ".join(str(frontmatter.get("summary", "")).splitlines()),
+            " ".join(str(frontmatter.get("goal", "")).splitlines()),
         )
         + "\n",
         encoding="utf-8",

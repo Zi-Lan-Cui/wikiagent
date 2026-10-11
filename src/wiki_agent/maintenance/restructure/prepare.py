@@ -43,8 +43,8 @@ def _existing_slugs(wiki_dir: Path) -> set[str]:
 def _frontmatter_for(wiki_dir: Path, page: OutPage) -> dict:
     path = path_for(wiki_dir, page.slug)
     if path.is_file():
-        fm, _ = split_frontmatter(path.read_text(encoding="utf-8"))
-        return fm
+        frontmatter, _ = split_frontmatter(path.read_text(encoding="utf-8"))
+        return frontmatter
     directory = page.slug.split("/", 1)[0]
     title = page.slug.rsplit("/", 1)[-1]
     return {
@@ -100,8 +100,8 @@ async def prepare_unit(wiki_dir: str | Path, unit: Unit, llm: Any) -> PreparedUn
     # 否则被消费页的源文件会从溯源链消失
     unit_sources: list[str] = []
     for slug in unit.in_pages:
-        fm, _ = split_frontmatter(path_for(wiki_dir, slug).read_text(encoding="utf-8"))
-        for s in list_field(fm.get("sources")):
+        frontmatter, _ = split_frontmatter(path_for(wiki_dir, slug).read_text(encoding="utf-8"))
+        for s in list_field(frontmatter.get("sources")):
             if s not in unit_sources:
                 unit_sources.append(s)
     for page in unit.out:

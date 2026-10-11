@@ -196,10 +196,10 @@ def check_page_frontmatter(
     Returns:
         (是否通过, 可执行的错误消息)。
     """
-    fm, _ = split_frontmatter(content)
-    if not fm:
+    frontmatter, _ = split_frontmatter(content)
+    if not frontmatter:
         return False, "页面缺少 YAML frontmatter（--- 包裹的头部）。"
-    missing = [k for k in required if not fm.get(k, "").strip()]
+    missing = [k for k in required if not frontmatter.get(k, "").strip()]
     if missing:
         return False, f"frontmatter 缺少必填字段: {', '.join(missing)}。"
     return True, ""

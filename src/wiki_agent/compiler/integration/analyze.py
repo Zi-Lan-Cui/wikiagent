@@ -38,14 +38,14 @@ def render_candidates(parsed: list[tuple[str, dict, list]]) -> list[str]:
         total_secs, ANALYZE_GIST_CHARS, ANALYZE_GIST_SHORT_CHARS, ANALYZE_MAX_GIST_SECTIONS
     )
     outlines: list[str] = []
-    for path, fm, secs in parsed:
-        title = fm.get("title", "")
-        summary = fm.get("summary", "")
-        page_type = fm.get("type", "")
-        sources = fm.get("sources", "")
-        related = fm.get("related", "")
-        gaps = fm.get("gaps", "")
-        goal = fm.get("goal", "")
+    for path, frontmatter, secs in parsed:
+        title = frontmatter.get("title", "")
+        summary = frontmatter.get("summary", "")
+        page_type = frontmatter.get("type", "")
+        sources = frontmatter.get("sources", "")
+        related = frontmatter.get("related", "")
+        gaps = frontmatter.get("gaps", "")
+        goal = frontmatter.get("goal", "")
         slug = slug_from_ref(path)
         # 行首与 index 行同格式，格式调整只改 pages.index_line
         meta = index_line(slug, page_type, title, summary, goal)
@@ -109,9 +109,9 @@ class Analyzer:
         parsed: list[tuple[str, dict, list]] = []
         for path in result.rel_paths:
             content = await self._read_page(path)
-            fm = split_frontmatter(content)[0] if content else {}
+            frontmatter = split_frontmatter(content)[0] if content else {}
             slug = slug_from_ref(path)
-            parsed.append((path, fm, text_sections(content, slug) if content else []))
+            parsed.append((path, frontmatter, text_sections(content, slug) if content else []))
         outlines = render_candidates(parsed)
 
         response = await invoke_checked(
