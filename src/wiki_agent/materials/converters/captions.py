@@ -26,11 +26,15 @@ logger = get_logger("CAPTION")
 RE_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
 DESCRIBE_PROMPT = (
-    "用一句中文描述图片。规则:\n"
-    "- 图表类: 先判断类型（柱状图/折线图/流程图/架构图），再说「对比了什么」或「展示了什么」\n"
-    "- 公式/板书/截图: 描述主题和关键信息\n"
-    "- 自然图像: 描述场景和主体\n"
-    "- 15-30字，只输出描述，不要「这张图片」「图中」等前缀"
+    "Describe the image in one Chinese sentence. The description is injected"
+    " into a Chinese wiki page, so write it in Chinese regardless of these"
+    " English instructions. Rules:\n"
+    "- Charts: first name the type (bar/line/flow/architecture), then what it"
+    " compares or shows\n"
+    "- Formula/board/screenshot: state the topic and key information\n"
+    "- Natural photo: state the scene and subject\n"
+    "- 15-30 characters; output the description only, no '这张图片' / '图中'"
+    " style prefix"
 )
 
 

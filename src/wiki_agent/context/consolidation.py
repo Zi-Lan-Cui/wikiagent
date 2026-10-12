@@ -70,14 +70,17 @@ class Consolidator:
     _MAX_CONSOLIDATE_LOOP = 5
 
     _CONSOLIDATOR_PROMPT = """
-    你现在是一位出色的语言大师，擅长在不大量损失上下文信息的同时将复杂的语言压缩到极致。你现在要帮忙压缩的文本如下:
+    You are an expert at compressing dialogue into an extremely short summary
+    without losing the context needed for later processing. Text to compress:
     {text}
 
-    # 同对话的上一次压缩结果(可能为空)：
+    # Previous compression of this conversation (may be empty):
     {last_summary}
 
-    ## 重要事项：
-    在不影响主要语义表达的前提下，越短越好
+    ## Key point:
+    As short as possible, as long as the main meaning is fully preserved.
+    Keep concrete terms, numbers, paths and who stated what — a later memory
+    manager will read this summary instead of the original dialogue.
     """
 
     def __init__(self, consolidate_ratio: float = 0.5, trigger_ratio: float = 0.8):

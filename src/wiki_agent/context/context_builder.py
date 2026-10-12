@@ -1,6 +1,6 @@
 """上下文构建——system prompt 组装 + history 拼接。
 
-system prompt 四块:
+system prompt 五块:
 1. 用户画像（记忆加工产物）
 2. wiki 环境（使命 + 目录规范 + 页面地图）
 3. 工具描述
@@ -10,6 +10,9 @@ system prompt 四块:
 动态消息注入，避免改变稳定 system 前缀。
 """
 
+import os
+import platform
+from datetime import datetime
 from pathlib import Path
 
 from wiki_agent.conversation import Message, Session
@@ -148,8 +151,20 @@ class ContextBuilder:
             wiki_context=self._load_wiki_context(),
             # 外部模板可能保留 {corrections} 占位符，固定填空串
             corrections="",
+            environment=self._load_environment(),
             tools_description=tools_description,
             summary=last_summary,
+        )
+
+    def _load_environment(self) -> str:
+        """运行环境事实块：时间（含时区）、系统语言、操作系统，供模型对齐语境。"""
+        now = datetime.now().astimezone()
+        # locale 变量按 POSIX 覆盖优先级取值：LC_ALL 压过 LC_MESSAGES，再压过 LANG
+        lang = os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "unknown"
+        return (
+            f"- Current time: {now.strftime('%Y-%m-%d %H:%M %Z (UTC%z)')}, {now.strftime('%A')}\n"
+            f"- System locale: {lang}\n"
+            f"- OS: {platform.system()} {platform.release()}"
         )
 
     def build_messages(

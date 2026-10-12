@@ -14,10 +14,11 @@ logger = get_logger("CONVERTER")
 _IMAGE_EXTS = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
 
 _TRANSCRIBE_PROMPT = (
-    "把图片内容转写为 Markdown。规则:\n"
-    "- 保留标题层级、列表与表格结构；表格写成 Markdown 表格\n"
-    "- 公式抄写为 LaTeX；无法辨认的文字用 … 标注，不得编造\n"
-    "- 只输出转写正文"
+    "Transcribe the image content into Markdown, keeping the text in its"
+    " original language. Rules:\n"
+    "- Preserve heading levels, lists and tables (as Markdown tables)\n"
+    "- Copy formulas as LaTeX; mark unreadable text with … , never fabricate\n"
+    "- Output only the transcription body"
 )
 
 

@@ -489,7 +489,7 @@ def test_route_outline_degrades_beyond_threshold():
     assert not ok and "summary" in reason
     open_fence = _FM.format(type="concept", title="甲") + "# 甲\n\n```python\nx = 1\n"
     ok, reason = prompts.check_rewrite_page(open_fence)
-    assert not ok and "代码块未闭合" in reason
+    assert not ok and "unclosed code block" in reason
     # 双开零闭：奇偶计数判"已闭合"的假阴性形态，括号配对判据必须抓住
     two_opens = (
         _FM.format(type="concept", title="甲") + "# 甲\n\n```python\nx = 1\n```python\ny = 2\n"

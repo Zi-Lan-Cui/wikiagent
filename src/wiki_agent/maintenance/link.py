@@ -23,22 +23,27 @@ from wiki_agent.wiki.frontmatter import split_frontmatter
 from wiki_agent.wiki.pages import all_content_slugs, path_for
 
 LINK_PLAN_SYSTEM = (
-    "你是 wiki 出链维护者。给定一页正文与可链接页面名册，指出正文里哪里该加、该改、该去 wikilink："
-    "该加=文字实指名册某页却没有链接；该改=链接指向已不合适；该去=链接干扰阅读。"
-    "新写入的链接一律写成 [[slug|显示文本]]，禁止无竖线说明文字的裸 [[slug]]。"
-    "每个修改是对原文的一次字面替换：find 必须是正文中恰好出现一次的原文片段（概念名反复出现时，"
-    "带上文或下文扩成唯一片段），"
-    "replace 是替换后的文本，除增链、去链、换链接目标外与 find 逐字相同——改写文字会被校验拒绝。"
-    "不给修改就输出空数组。"
-    '只输出 JSON：{"fixes":[{"find":"...","replace":"..."}]}'
+    "You are the wiki's outbound-link maintainer. Given one page's body and the"
+    " roster of linkable pages, point out where [[wikilinks]] should be added,"
+    " changed or removed: add = the text names a roster page but carries no"
+    " link; change = an existing link no longer fits; remove = a link hurts"
+    " reading. Every link you write must be [[slug|display text]] — a bare"
+    " [[slug]] without | display text is forbidden. Each fix is one literal"
+    " replacement on the body: find must occur exactly once in the body (when"
+    " a term repeats, widen it with adjacent context until unique), and replace"
+    " must be character-identical to find except for adding/removing/repointing"
+    " links — reworded text is rejected by validation. Output an empty array"
+    ' when there is nothing to fix. Output JSON only: {"fixes":[{"find":"...",'
+    '"replace":"..."}]}. Keep all body text in the page\'s original language;'
+    " never translate."
 )
 
 
 def _plan_user(slug: str, body: str, slugs: list[str]) -> str:
     roster = "\n".join(f"- {s}" for s in slugs if s != slug)
     return (
-        f"## 页面\n{slug}\n\n## 可链接名册\n{roster}\n\n"
-        f"## 正文\n{body[:30000]}\n\n给出替换清单。"
+        f"## Page\n{slug}\n\n## Linkable roster\n{roster}\n\n"
+        f"## Body\n{body[:30000]}\n\nProduce the replacement list."
     )
 
 
@@ -46,13 +51,13 @@ def _check_plan_json(content: str) -> tuple[bool, str]:
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
-        return False, f"不是合法 JSON: {exc}"
+        return False, f"invalid JSON: {exc}"
     fixes = data.get("fixes") if isinstance(data, dict) else None
     if not isinstance(fixes, list):
-        return False, '缺少 fixes 数组。输出 {{"fixes": [...]}}。'
+        return False, 'missing fixes array — output {"fixes": [...]}.'
     for i, item in enumerate(fixes):
         if not isinstance(item, dict) or not item.get("find") or not isinstance(item.get("replace"), str):
-            return False, f"fixes[{i}] 需要 find 与非空 replace 字符串。"
+            return False, f"fixes[{i}] needs find and a non-empty replace string"
     return True, ""
 
 

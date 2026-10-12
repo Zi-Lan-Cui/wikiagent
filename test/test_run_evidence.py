@@ -76,14 +76,17 @@ def test_every_stage_prompt_is_present_in_transcript() -> None:
             if message.get("role") != "user":
                 continue
             # 独立计数——plan prompt 的关系分析文本里会引用
-            # "候选页面"字样，elif 链会误吞 plan 请求
+            # "候选页面"字样，elif 链会误吞 plan 请求。
+            # 中英文标记并存：历史 run 证据是旧中文 prompt，新证据是英文 prompt。
             if "## Wiki Index" in content:
                 stages["search"] += 1
-            if "## 候选页面" in content:
+            if "## 候选页面" in content or "## Candidate pages" in content:
                 stages["analyze"] += 1
-            if "已有页面 Index" in content:
+            if "已有页面 Index" in content or "## Existing pages index" in content:
                 stages["plan"] += 1
-            if "页面:" in content and "页面范围" in content:
+            if ("页面:" in content and "页面范围" in content) or (
+                "## Page:" in content and "Page scope" in content
+            ):
                 stages["execute"] += 1
     assert stages["search"] >= 6, "6 篇 source 每篇至少一次 search"
     assert stages["analyze"] >= 6

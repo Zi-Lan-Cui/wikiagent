@@ -26,30 +26,34 @@ def section_outline(entries: list[tuple[str, str, list[str]]]) -> str:
     lines = []
     for slug, title, headings in entries:
         shown = "；".join(headings[:8]) + ("…" if len(headings) > 8 else "")
-        lines.append(f"- {slug} — {title} — 章节: {shown or '（无小节）'}")
+        lines.append(f"- {slug} — {title} — sections: {shown or '(no subsections)'}")
     return "\n".join(lines)
 
 
 PROPOSE_SYSTEM = (
-    "你是 wiki 结构维护的提议者。给定全部页面的目录大纲，找出结构问题并给出重组单元："
-    "每个单元声明输入页（in，被整体消费）与输出页（out，slug+intent 说明这页将来讲什么）。"
-    "合并=N→1，拆分/新建=1→M，改写=A→A（intent 给出改写方向），删除=out 空。"
-    "不引入新知识：一切内容必须来自 in 页。合并与拆分的取舍以组织规范为准："
-    "同一事物的不同侧面不是冗余，不同页面类型（concept/entity/topic）各司其职。"
-    "没有值得动的结构就输出空数组。"
-    '只输出 JSON：{"units":[{"in_pages":[...],"out":[{"slug":"concepts/x","intent":"..."}],"reason":"..."}]}'
+    "You are the proposer for wiki structure maintenance. Given the outline of"
+    " all pages, find structural problems and produce restructure units: each"
+    " unit declares input pages (in, consumed whole) and output pages (out,"
+    " slug + intent stating what that page will cover). Merge = N→1, split/new"
+    " = 1→M, rewrite = A→A (intent gives the direction), delete = empty out."
+    " Introduce no new knowledge: all content must come from the in pages."
+    " Decide merge vs split against the organization rules: different facets of"
+    " one thing are not redundancy, and different page types (concept/entity/"
+    " topic) each have their place. Output an empty array when no structure is"
+    ' worth changing. Output JSON only: {"units":[{"in_pages":[...],'
+    '"out":[{"slug":"concepts/x","intent":"..."}],"reason":"..."}]}'
 )
 
 
 def propose_user(index_content: str, schema: str = "", purpose: str = "") -> str:
     parts = []
     if purpose:
-        parts.append(f"## 知识库使命\n{purpose}")
+        parts.append(f"## Knowledge base mission\n{purpose}")
     if schema:
-        parts.append(f"## 组织规范\n{schema}")
+        parts.append(f"## Organization rules\n{schema}")
     # index 行已携带 title/summary/goal，不再附页面大纲节：
     # 重复字段会稀释注意力，也压低可处理的库规模
-    parts += [f"## 目录\n{index_content}", "给出重组单元（可为空）。"]
+    parts += [f"## Table of contents\n{index_content}", "Give the restructure units (may be empty)."]
     return "\n\n".join(parts)
 
 
@@ -57,34 +61,37 @@ def check_propose_json(content: str) -> tuple[bool, str]:
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
-        return False, f"不是合法 JSON: {exc}"
+        return False, f"invalid JSON: {exc}"
     units = data.get("units") if isinstance(data, dict) else None
     if not isinstance(units, list):
-        return False, '缺少 units 数组。输出 {{"units": [...]}}。'
+        return False, 'missing units array — output {"units": [...]}.'
     for i, raw in enumerate(units):
         if not isinstance(raw, dict) or not isinstance(raw.get("in_pages"), list) or not raw["in_pages"]:
-            return False, f"units[{i}] 需要非空 in_pages。"
+            return False, f"units[{i}] needs a non-empty in_pages"
         if not isinstance(raw.get("out"), list):
-            return False, f"units[{i}] 缺少 out 数组（删除用空数组）。"
+            return False, f"units[{i}] needs an out array (empty array for delete)"
     return True, ""
 
 
 RECHECK_SYSTEM = (
-    "你是结构决定的人工复核代理。给定一个重组单元与涉及页的大纲，判断这个重组现在是否成立、"
-    "方向是否正确（该不该合并/拆成这样）。结构决定影响面大，宁可放弃不可含糊。"
-    '只输出 JSON：{{"keep": true|false, "reason": "..."}}'
+    "You are the human-review proxy for structural decisions. Given one"
+    " restructure unit and the outline of the pages it touches, judge whether"
+    " the restructure holds now and its direction is right (should these be"
+    " merged / split this way). Structural decisions have wide impact — prefer"
+    ' dropping to guessing. Output JSON only: {"keep": true|false,'
+    ' "reason": "..."}'
 )
 
 
 def recheck_user(unit: Unit, outline: str, schema: str = "") -> str:
-    intents = "；".join(f"{p.slug}: {p.intent or '（搬运）'}" for p in unit.out) or "（整页删除）"
+    intents = "；".join(f"{p.slug}: {p.intent or '(carry over)'}" for p in unit.out) or "(whole page deleted)"
     parts = [
-        f"## 单元\n消费 {unit.in_pages} → 产出 [{intents}]\n理由: {unit.reason}",
-        f"## 涉及页大纲\n{outline}",
+        f"## Unit\nconsumes {unit.in_pages} → produces [{intents}]\nreason: {unit.reason}",
+        f"## Outline of touched pages\n{outline}",
     ]
     if schema:
-        parts.insert(0, f"## 组织规范\n{schema}")
-    parts.append("keep 还是放弃？")
+        parts.insert(0, f"## Organization rules\n{schema}")
+    parts.append("keep or drop?")
     return "\n\n".join(parts)
 
 
@@ -92,21 +99,25 @@ def check_recheck_json(content: str) -> tuple[bool, str]:
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
-        return False, f"不是合法 JSON: {exc}"
+        return False, f"invalid JSON: {exc}"
     if not isinstance(data, dict) or not isinstance(data.get("keep"), bool):
-        return False, '需要 {{"keep": true/false, "reason": "..."}}。'
+        return False, 'needs {"keep": true/false, "reason": "..."}.'
     return True, ""
 
 
 ROUTE_SYSTEM = (
-    "你是章节分配器。给定一组输入页的章节大纲与输出页的 intent，把每个章节分配到恰好一个输出页"
-    "（删除单元则全部标 dropped——但只有输出为空时才允许，且必须来自显式删除提议）。"
-    "禁止丢弃章节、禁止一稿多投、禁止发明确实不存在的目标。"
-    '只输出 JSON：{{"assign": [{{"section": "章节id", "to": "out_slug"}}]}}。'
-    "section 必须逐字复制大纲行开头的章节 id（含 :: 与 §top），"
-    "不要包含竖线之后的标题或摘要文字。"
-    "to 必须是输出页列表中给出的完整 slug（含目录前缀如 concepts/），"
-    "不得回写输入页自身的 slug——输入页不是输出页时，它的章节只能进输出页。"
+    "You are a section allocator. Given the section outline of the input pages"
+    " and the intent of each output page, assign every section to exactly one"
+    " output page (for a delete unit mark all dropped — only allowed when the"
+    " output is empty and the delete was explicitly proposed). Never drop a"
+    " section, never assign one section twice, never invent a target that does"
+    ' not exist. Output JSON only: {"assign": [{"section": "<section id>",'
+    ' "to": "<out slug>"}]}. section must copy verbatim the section id at the'
+    " start of each outline line (including :: and §top), excluding the title"
+    " or gist after the pipe. to must be a full slug from the given output list"
+    " (including the directory prefix such as concepts/); never write back an"
+    " input page's own slug — when an input page is not an output page, its"
+    " sections go only to output pages."
 )
 
 
@@ -127,8 +138,8 @@ def route_outline(sections: list[Section]) -> str:
 def route_user(unit: Unit, sections: list[Section], fixed_note: str) -> str:
     intents = "；".join(f"{p.slug}: {p.intent}" for p in unit.out if not p.take)
     return (
-        f"## 输出页 intent\n{intents or '（无待分配页）'}\n\n"
-        f"## 章节大纲\n{route_outline(sections)}\n\n{fixed_note}"
+        f"## Output page intents\n{intents or '(no pages to allocate to)'}\n\n"
+        f"## Section outline\n{route_outline(sections)}\n\n{fixed_note}"
     )
 
 
@@ -136,23 +147,27 @@ def check_route_json(content: str) -> tuple[bool, str]:
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
-        return False, f"不是合法 JSON: {exc}"
+        return False, f"invalid JSON: {exc}"
     assign = data.get("assign") if isinstance(data, dict) else None
     if not isinstance(assign, list):
-        return False, '缺少 assign 数组。输出 {{"assign": [...]}}。'
+        return False, 'missing assign array — output {"assign": [...]}.'
     for i, item in enumerate(assign):
         if not isinstance(item, dict) or not item.get("section") or not item.get("to"):
-            return False, f"assign[{i}] 需要 section 与 to。"
+            return False, f"assign[{i}] needs both section and to"
     return True, ""
 
 
 REWRITE_SYSTEM = (
-    "你是 wiki 页面成文者。给定装配好的草稿（章节按分配搬运而来）与该页的 intent 与旧版正文，"
-    "重写成连贯页面：只使用给定材料，不新增事实，保留全部 [[链接]] 与图片引用，"
-    "输出含 frontmatter 的完整 markdown。frontmatter 必须完整给出 type、title、"
-    "summary、goal 四个字段（沿用旧版，新页从草稿的 frontmatter 继承，不得省略）。"
-    "链接一律写成 [[slug|显示文字]]，禁止裸 [[slug]]；每个 ```python 代码块必须以裸 ``` 闭合。"
-    "没有要改的就原样返回草稿。"
+    "You are the wiki page writer. Given the assembled draft (sections moved"
+    " per the allocation), the page's intent and the old body, rewrite into a"
+    " coherent page: use only the given material, add no new facts, keep every"
+    " [[link]] and image reference, and output complete markdown including the"
+    " frontmatter. The frontmatter must carry all of type, title, summary and"
+    " goal (inherit from the old version; a new page inherits from the draft's"
+    " frontmatter — never omit them). Write every link as [[slug|display text]"
+    " — a bare [[slug]] is forbidden; every ```python code block must close"
+    " with a bare ```. If nothing needs changing, return the draft unchanged."
+    " Keep all text in the page's original language; never translate."
 )
 
 
@@ -166,33 +181,33 @@ def check_rewrite_page(content: str) -> tuple[bool, str]:
     """
     body = content.strip()
     if not body:
-        return False, "输出为空。"
+        return False, "empty output."
     if not body.startswith("---"):
         if count_unclosed_fences(body):
-            return False, "代码块未闭合——每个 ```python 开块都要有配对的裸 ```。"
+            return False, "unclosed code block — every ```python opener needs a matching bare ```."
         return True, ""
     try:
         frontmatter, _ = split_frontmatter(body)
     except Exception:
-        return False, "frontmatter 无法解析——检查 --- 成对。"
+        return False, "frontmatter unparseable — check the --- are paired."
     missing = [k for k in ("type", "title", "summary", "goal") if not str(frontmatter.get(k) or "").strip()]
     if missing:
-        return False, f"frontmatter 缺少字段 {missing}——四个必填字段都要给出。"
+        return False, f"frontmatter missing {missing} — all four required fields must be present."
     if count_unclosed_fences(body):
-        return False, "代码块未闭合——每个 ```python 开块都要有配对的裸 ```。"
+        return False, "unclosed code block — every ```python opener needs a matching bare ```."
     return True, ""
 
 
 def rewrite_user(
     slug: str, intent: str, draft: str, old: str, siblings: list[str]
 ) -> str:
-    parts = [f"## 目标页\n{slug}\nintent: {intent or '（按草稿装配成文）'}"]
+    parts = [f"## Target page\n{slug}\nintent: {intent or '(assemble the draft into prose)'}"]
     if siblings:
-        parts.append("## 同批产出页\n" + "、".join(siblings))
+        parts.append("## Pages from this same batch\n" + "、".join(siblings))
     if old:
-        parts.append(f"## 旧版（结构与 frontmatter 基线）\n{old[:12000]}")
-    parts.append(f"## 草稿（分配后的内容全集）\n{draft[:30000]}")
-    parts.append("输出重写后的完整页面。")
+        parts.append(f"## Old version (structure and frontmatter baseline)\n{old[:12000]}")
+    parts.append(f"## Draft (full content after allocation)\n{draft[:30000]}")
+    parts.append("Output the rewritten complete page.")
     return "\n\n".join(parts)
 
 

@@ -364,31 +364,43 @@ class ReActRunner:
 
 class ReActAgent(BaseAgent):
     SYSTEM_PROMPT = """
-        # 用户画像
+        # User profile
         {user_description}
 
-        # 知识库环境
+        # Runtime environment
+        {environment}
+
+        # Knowledge base context
         {wiki_context}
 
-        你背后是一个结构化的本地 wiki 知识库。用户问你问题时，你通过工具探索 wiki 来获取信息，而不是凭记忆回答。
+        You are backed by a structured local wiki knowledge base. When the user
+        asks a question, explore the wiki with tools to gather information —
+        never answer from memory.
 
-        # 工作方式
-        1. 面对知识性问题，先从全局入口入手（如 index 或目录），定位可能相关的页面
-        2. 打开具体页面阅读内容，必要时沿着页面内的链接追踪关联页面
-        3. 综合多页信息后给出回答，注明信息来源（页面路径或文件名）
+        # Language
+        - You may think in English, but the final answer must be written in the
+          same language the user is using.
 
-        # 约束
-        - wiki 知识库中的内容优先——你的已有知识只用于理解，不作为信息来源
-        - 如果 wiki 中没有足够信息，如实告知，不要编造
-        - 给出具体引用路径，让用户可以自行查阅
-        - **用户指出 wiki 内容有误、过时或缺失时**（明确表达不满/纠正/补充缺失），
-          调用 RecordCorrection 记录进待修清单——知识库靠用户反馈演化，
-          不要放过这个信号。普通问答不算纠错，不要误报
+        # Workflow
+        1. For knowledge questions, start from the global entry (index or
+           directory) to locate relevant pages
+        2. Open the pages and read them; follow in-page links when needed
+        3. Synthesize across pages and cite the source (page path or file name)
 
-        # 你能使用的工具
+        # Constraints
+        - Wiki content is the source of truth — your prior knowledge serves
+          comprehension only, never citation
+        - If the wiki lacks enough information, say so plainly; do not fabricate
+        - Give concrete paths so the user can verify
+        - **When the user states that wiki content is wrong, outdated or
+          missing** (explicit complaint / correction / gap), call RecordCorrection
+          to log it — the knowledge base evolves through user feedback. Ordinary
+          Q&A is not a correction; do not over-report
+
+        # Tools
         {tools_description}
 
-        # 最近的对话摘要
+        # Recent conversation summary
         {summary}
 
     """
@@ -513,9 +525,10 @@ class ReActAgent(BaseAgent):
             logger.warning("取消收尾失败: %s: %s", type(exc).__name__, str(exc)[:160])
 
     TITLE_PROMPT = (
-        "你在为一次本地知识库问答起标题。用一个不超过十个字的名词短语"
-        "概括用户问题的主题，跟随用户提问的语言；不要引号、句号或前缀，"
-        "只输出标题本身。"
+        "Write a title for one local-knowledge-base Q&A turn: a single noun "
+        "phrase under 10 words capturing the topic of the user's question, in "
+        "the language the user used. No quotes, no period, no prefix — output "
+        "the title only."
     )
 
     async def generate_session_title(self, question: str, answer: str) -> str:

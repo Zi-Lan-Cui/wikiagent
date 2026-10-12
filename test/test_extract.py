@@ -13,12 +13,12 @@ def test_grounding_rules_are_present_in_all_extract_prompts():
     synthesis = prompts.synthesis_prompt()
 
     for text in (chunk, rolling, synthesis):
-        assert "外部知识" in text or "训练记忆" in text
-        assert "因果" in text
-        assert "不要" in text
+        assert "training memory" in text
+        assert "causal" in text
+        assert "never" in text.lower()
 
-    assert "逐句检查" in synthesis
-    assert "当前片段没有明确说明" in rolling
+    assert "sentence by sentence" in synthesis
+    assert "do not add anything the fragment does not state" in rolling
 
 
 def test_prompt_keeps_source_content_in_dynamic_user_part():
@@ -34,7 +34,7 @@ def test_prompt_keeps_source_content_in_dynamic_user_part():
 
 
 def test_ingest_fills_chunk_source_name():
-    """_to_source_chunk 必须带源文件名——否则 chunk 摘要 prompt 拼出"来自 "空标注。"""
+    """_to_source_chunk 必须带源文件名——否则 chunk 摘要 prompt 拼出"from "空标注。"""
     from types import SimpleNamespace
 
     from wiki_agent.compiler.workflows.ingest import _to_source_chunk
@@ -42,7 +42,7 @@ def test_ingest_fills_chunk_source_name():
     ck = SimpleNamespace(content="一段原文", chunk_index=0, metadata={"heading_path": "h"})
     sc = _to_source_chunk(ck, 1, "sample.md")
     assert sc.source_name == "sample.md"
-    assert "来自 sample.md" in prompts.chunk_user(sc)
+    assert "from sample.md" in prompts.chunk_user(sc)
 
 
 def test_candidate_outlines_include_section_gists():
@@ -71,19 +71,19 @@ def test_candidate_outlines_include_section_gists():
 def test_page_prompts_separate_existing_page_from_new_source():
     new_system = prompts.new_page_system()
     update_system = prompts.update_system()
-    assert "内容边界" in new_system
-    assert "本次新信息是唯一允许新增事实" in update_system
-    assert "已有页面是保留基线" in update_system
-    assert "不要根据常识" in update_system
+    assert "Content boundary" in new_system
+    assert "only allowed source of new facts" in update_system
+    assert "retention baseline" in update_system
+    assert "Never add new sections from common sense" in update_system
 
 
 def test_plan_prompt_prefers_updates_and_rejects_stub_pages():
     system = prompts.plan_system()
-    assert "默认优先 update 已有页面" in system
-    assert "两个独立事实" in system
-    assert "不能单独建页" in system
-    assert "source 覆盖检查" in system
-    assert "new、update 或 skip" in system
+    assert "Default to updating existing pages" in system
+    assert "two independent facts" in system
+    assert "cannot justify a page alone" in system
+    assert "Source-coverage check" in system
+    assert "new, update or skip" in system
 
 
 def test_update_prompt_labels_existing_content_as_non_evidence():
@@ -100,16 +100,16 @@ def test_update_prompt_labels_existing_content_as_non_evidence():
         "---\ntitle: 重试\n---\n# 重试\n\n已有内容",
         ExtractResult(source_identity="retry.md", document_summary="最多重试 3 次。"),
     )
-    assert "保留基线，不是新增证据" in prompt
-    assert "唯一新增事实来源" in prompt
+    assert "retention baseline, not new evidence" in prompt
+    assert "only source of new facts" in prompt
     assert "最多重试 3 次" in prompt
 
 
 def test_analyze_prompt_requires_evidence_and_conservative_relations():
     system = prompts.analyze_system()
-    assert "默认关系" in system
-    assert "证据不足" in system
-    assert "候选页输入中明确出现" in system
+    assert "this is the default" in system
+    assert "证据不足" in system  # 输出内嵌标记，随分析文本落盘，保持资料语言
+    assert "appears literally in the candidate input" in system
 
     from wiki_agent.compiler.models import ExtractResult
 
@@ -117,5 +117,5 @@ def test_analyze_prompt_requires_evidence_and_conservative_relations():
         ExtractResult(source_identity="note.md", document_summary="只说明 A。"),
         "- [[concepts/b|B]] — summary: B",
     )
-    assert "唯一的 source 事实来源" in user
-    assert "不是 source 事实来源" in user
+    assert "the only source of source facts" in user
+    assert "not a source of facts" in user
