@@ -6,18 +6,19 @@
 
 ## 环境要求
 
-1. **一个 OpenAI 兼容的模型服务**：本地部署或云端 API 均可。本地部署时资料不出本机；使用第三方 API 时资料将发送至该服务，请先评估数据外发风险。
-2. **Python ≥ 3.13 与 [uv](https://docs.astral.sh/uv/)**（本机安装时）。
-3. **磁盘**：不要求 GPU；依赖包含本地 PDF/图片解析器（torch/MinerU），虚拟环境约占 5 GB，Docker 镜像与首次解析 PDF 的模型下载另有数 GB。
+1. **操作系统**：源代码安装支持 Linux；不支持 Windows 直接安装，Windows 用户需通过 Docker 或 WSL2 运行。
+2. **OpenAI 兼容的模型服务**：文本编译与问答必需；图片资料另需多模态模型（VLM）转写与生成说明，不配置则这两类内容缺失。本地部署或云端 API 均可——本地部署时资料不出本机；使用第三方 API 时资料将发送至该服务，请先评估数据外发风险。
+3. **磁盘与 GPU**：不需要 GPU。默认安装约 100 MB；可选的 MinerU 版面解析连带 torch 约占 5 GB，首次解析另需下载数 GB 模型。
 
 ## 快速开始
 
-### 本机安装
+### 源代码安装（仅限 Linux）
 
 ```bash
 git clone https://github.com/Zi-Lan-Cui/wikiagent.git
 cd wikiagent
 uv sync
+uv sync --extra mineru   # 可选：PDF、Word、PPT 的 MinerU 版面解析
 mkdir -p inputs wiki workspace
 ```
 
@@ -27,6 +28,11 @@ mkdir -p inputs wiki workspace
 LLM_API_KEY=你的密钥
 LLM_BASE_URL=https://api.openai.com/v1 # 或自建 OpenAI 兼容接口
 LLM_MODEL_ID=gpt-4o-mini
+
+# 处理图片资料时再配一组多模态模型（可选）：
+# VLM_API_KEY=多模态模型密钥
+# VLM_BASE_URL=https://api.openai.com/v1
+# VLM_MODEL_ID=你的视觉模型名
 ```
 
 验证安装：
@@ -43,31 +49,46 @@ uv run uvicorn wiki_agent.web:create_app --factory --port 8000
 
 浏览器打开 http://localhost:8000 。把自己的笔记（md、pdf、docx、图片）放入 `inputs/`，在维护页点击同步，后台即开始编译知识页。命令行用法见[使用方法](#使用方法)。
 
-### Docker
+### Docker（Linux、Windows 均支持）
 
 ```bash
 git clone https://github.com/Zi-Lan-Cui/wikiagent.git
 cd wikiagent
-# 先在 env/.env 填好上面三个键
 mkdir -p inputs wiki workspace
-docker compose up -d --build   # 首次构建需下载全部依赖，预留磁盘与时间
+```
+
+将模型信息写入 `env/.env`（示例文件 `env/.env.example`）：
+
+```ini
+LLM_API_KEY=你的密钥
+LLM_BASE_URL=https://api.openai.com/v1 # 或自建 OpenAI 兼容接口
+LLM_MODEL_ID=gpt-4o-mini
+
+# 处理图片资料时再配一组多模态模型（可选）：
+# VLM_API_KEY=多模态模型密钥
+# VLM_BASE_URL=https://api.openai.com/v1
+# VLM_MODEL_ID=你的视觉模型名
+```
+
+```bash
+docker compose up -d --build   # 首次构建需下载依赖（默认轻量解析链）
 docker compose ps              # 结果为 healthy 即可用
 ```
 
-浏览器打开 http://localhost:8000 。wiki、运行数据与日志挂载在宿主机目录，重建容器不丢失数据。容器内的服务占用执行锁与 8000 端口，如需使用命令行，先 `docker compose stop`，用完 `docker compose up -d` 恢复 Web 服务。
+浏览器打开 http://localhost:8000 。wiki、运行数据与日志挂载在宿主机目录，重建容器不丢失数据。镜像默认走轻量解析链；如需在容器内解析 PDF、Word、PPT，在 Dockerfile 的两处 `uv sync` 加上 `--extra mineru` 后重新构建。容器内的服务占用执行锁与 8000 端口，如需使用命令行，先 `docker compose stop`，用完 `docker compose up -d` 恢复 Web 服务。
 
 ### 常见错误
 
-| 现象 | 处理 |
-|---|---|
-| `缺少 LLM API key——请在 env/.env 中设置 LLM_API_KEY` | 创建 `env/.env` 并填入密钥 |
-| `另一执行进程……正持有 exec.lock` | 命令行与 Web 工作台不可同时运行，先停止其中一个 |
-| `address already in use` | 8000 端口被占用；改用 `--port 8001` 或停掉占用进程 |
-| Docker 拉取基础镜像（ghcr.io）失败 | 换镜像站构建：`docker compose build --build-arg BASE_IMAGE=ghcr.m.daocloud.io/astral-sh/uv:python3.13-bookworm-slim && docker compose up -d` |
+| 现象                                                     | 处理                                                                                                                                           |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `缺少 LLM API key——请在 env/.env 中设置 LLM_API_KEY` | 创建`env/.env` 并填入密钥                                                                                                                    |
+| `另一执行进程……正持有 exec.lock`                     | 命令行与 Web 工作台不可同时运行，先停止其中一个                                                                                                |
+| `address already in use`                               | 8000 端口被占用；改用`--port 8001` 或停掉占用进程                                                                                            |
+| Docker 拉取基础镜像（ghcr.io）失败                       | 换镜像站构建：`docker compose build --build-arg BASE_IMAGE=ghcr.m.daocloud.io/astral-sh/uv:python3.13-bookworm-slim && docker compose up -d` |
 
 ## 它好在哪
 
-- **多格式整合**：Markdown、PDF、Word 文档与图片可一并放入，编译为同一套知识页。
+- **多格式整合**：Markdown、图片与表格开箱即用；PDF、Word、PPT 需装入可选的 MinerU 解析版面，质量更高；所有资料编译为同一套知识页。
 - **增量同步**：只处理新增与改动的文件；删除的文件自动清理对应页面与引用记录。
 - **结果可回退**：知识页改动存有 Git 历史，执行失败自动撤销，不满意可整批回退。
 - **结构可维护**：新增资料按页面自身使命比对归属，减少误合并；可随时分析全库并提出合并、拆分、清理建议，经确认后执行。
@@ -95,11 +116,9 @@ flowchart LR
 - **对话**：与知识库问答，回答附引用位置，支持多会话；
 
   ![问答：问题在上，回答基于知识库并附引用](screens/chat.png)
-
 - **Wiki 浏览**：目录、页面结构与交叉链接；
 
   ![Wiki 阅读页：标题、元信息、注记与正文](screens/wiki.png)
-
 - **维护**：发起同步、结构整理、补全链接任务并监视进度，失败任务在此重试。
 
   ![维护工作台：三张行动卡与任务队列](screens/organize.png)
@@ -136,15 +155,16 @@ uv run python scripts/link_wiki.py concepts/a         # 或只处理指定页
 
 配置集中在 `env/.env`，完整项与注释见 `env/.env.example`：
 
-| 键 | 说明 | 必填 | 默认 |
-|---|---|---|---|
-| `LLM_API_KEY` | 模型服务密钥 | 是 | 空 |
-| `LLM_BASE_URL` | OpenAI 兼容接口地址 | 是 | 空 |
-| `LLM_MODEL_ID` | 模型名 | 是 | 空 |
-| `VLM_*` | 多模态模型，为图片生成说明文字 | 否 | 不启用 |
-| `WIKI_INPUTS_DIR` 等 | 三个数据目录的位置 | 否 | 项目根下同名目录 |
-| `COMPILE_*` / `AGENT_*` | 编译并发、上下文窗口等预算参数 | 否 | 见示例文件 |
-| `env/mcp.json` | 接入外部工具服务（可选能力） | 否 | 无 |
+| 键                          | 说明                                                | 必填 | 默认             |
+| --------------------------- | --------------------------------------------------- | ---- | ---------------- |
+| `LLM_API_KEY`             | 模型服务密钥                                        | 是   | 空               |
+| `LLM_BASE_URL`            | OpenAI 兼容接口地址                                 | 是   | 空               |
+| `LLM_MODEL_ID`            | 模型名                                              | 是   | 空               |
+| `VLM_*`                   | 多模态模型，为图片生成说明文字                      | 否   | 不启用           |
+| `WIKI_INPUTS_DIR` 等      | 三个数据目录的位置                                  | 否   | 项目根下同名目录 |
+| `COMPILE_PARSE_BACKEND`   | 解析后端：auto 优先内置、装有 MinerU 则兜底版面格式 | 否   | auto             |
+| `COMPILE_*` / `AGENT_*` | 编译并发、上下文窗口等预算参数                      | 否   | 见示例文件       |
+| `env/mcp.json`            | 接入外部工具服务（可选能力）                        | 否   | 无               |
 
 ## 开发检查
 
