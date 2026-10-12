@@ -11,7 +11,7 @@ from uuid import uuid4
 from wiki_agent.agent.base import BaseAgent
 from wiki_agent.agent.commands import CommandRouter, create_command_router
 from wiki_agent.config import AgentConfig as AgentCfg
-from wiki_agent.config import CompileConfig, RetryConfig
+from wiki_agent.config import CompileConfig, MemoryConfig, RetryConfig
 from wiki_agent.context import Consolidator, ContextBuilder, ContextGovernor
 from wiki_agent.conversation import Message, Session, SessionManager, ThinkingSegment
 from wiki_agent.errors import RetryableError
@@ -420,6 +420,7 @@ class ReActAgent(BaseAgent):
         agent_config=None,
         compile_config: CompileConfig | None = None,
         retry_config: RetryConfig | None = None,
+        memory_config: MemoryConfig | None = None,
         job_service: JobService | None = None,
         commands: CommandRouter | None = None,
     ):
@@ -459,7 +460,9 @@ class ReActAgent(BaseAgent):
         )
         # 命令 router 由调用方注入（内置命令 + application 层命令）；缺席用内置 router
         self.commands = commands or create_command_router()
-        self.dreamer = Dreamer(workspace=workspace, memory_store=self.memory_store)
+        self.dreamer = Dreamer(
+            workspace=workspace, memory_store=self.memory_store, config=memory_config
+        )
         self._dream_task: asyncio.Task | None = None
         self.max_loop = self.agent_config.max_loop
 
@@ -776,7 +779,10 @@ class ReActAgent(BaseAgent):
         return changed
 
     async def dream_loop(self, interval: int = 60):
-        """定期结束 idle session，并处理待整理的 Dream 输入。
+        """定期结束 idle session、做记忆 TTL 清理，并处理待整理的 Dream 输入。
+
+        sweep 每轮无条件执行——只有条目过期、没有新 history 时也要清理；
+        dream 仅在有未处理记录时调用。
 
         Args:
             interval: 检查间隔（秒）。
@@ -785,6 +791,8 @@ class ReActAgent(BaseAgent):
             await asyncio.sleep(interval)
             try:
                 await self._finalize_idle_sessions()
+                # sweep 无条件执行：只有 TTL 到期、没有新 history 时也要清理
+                await self.dreamer.sweep()
                 if self.memory_store.get_unprocessed_history():
                     await self.dreamer.dream(llm=self.llm)
             except asyncio.CancelledError:

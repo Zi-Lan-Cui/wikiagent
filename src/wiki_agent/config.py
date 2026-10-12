@@ -181,6 +181,30 @@ class CompileConfig(BaseSettings):
         return self
 
 
+class MemoryConfig(BaseSettings):
+    """记忆事件流参数（env 前缀 MEMORY_）。
+
+    ``ttl_days`` 从 invalid_at 起算——失效后的复活观察期，0 表示不清理。
+    """
+
+    model_config = SettingsConfigDict(env_prefix="MEMORY_", frozen=True, extra="ignore")
+
+    ttl_days: dict[str, int] = Field(
+        default_factory=lambda: {"ephemeral": 14, "durable": 90, "permanent": 0}
+    )
+    max_attempts: int = 3
+    render_debug_md: bool = False
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> MemoryConfig:
+        if self.max_attempts < 1:
+            raise ValueError("MEMORY_MAX_ATTEMPTS 必须至少为 1")
+        for persistence, days in self.ttl_days.items():
+            if days < 0:
+                raise ValueError(f"MEMORY_TTL_DAYS[{persistence}] 不能为负数")
+        return self
+
+
 class LoggingConfig(BaseSettings):
     """日志策略（env 前缀 LOG_）。"""
 
@@ -324,6 +348,7 @@ class RootConfig(BaseSettings):
     vlm: VLMConfig = Field(default_factory=VLMConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
@@ -388,6 +413,7 @@ def load_config(
     compile_cfg = CompileConfig(**env_source)
     logging_cfg = LoggingConfig(**env_source)
     retry_cfg = RetryConfig(**env_source)
+    memory_cfg = MemoryConfig(**env_source)
 
     mcp_cfg = McpConfig()
     mcp_file = root / "env" / "mcp.json"
@@ -400,6 +426,7 @@ def load_config(
         agent=agent,
         compile=compile_cfg,
         logging=logging_cfg,
+        memory=memory_cfg,
         paths=paths,
         retry=retry_cfg,
         mcp=mcp_cfg,

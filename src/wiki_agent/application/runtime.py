@@ -131,6 +131,7 @@ class AppRuntime:
             agent_config=config.agent,
             compile_config=config.compile,
             retry_config=config.retry,
+            memory_config=config.memory,
             job_service=self.job_service,
             commands=command_router,
             hooks=[self.event_publisher, self.issue_reporter, *(hooks or [])],

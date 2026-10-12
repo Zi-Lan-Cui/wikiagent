@@ -3,13 +3,18 @@ import os
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from wiki_agent.conversation import Session
+from wiki_agent.log import get_logger
+from wiki_agent.memory.items import MemoryEvent
 from wiki_agent.utils import ensure_dir
+
+logger = get_logger("MEMORY")
 
 
 class MemoryStore:
-    """会话记忆的文件存储：history.jsonl、游标文件与 memory.md 的读写。"""
+    """会话记忆的文件存储：history.jsonl、事件流 memory.jsonl、游标文件与 memory.md 的读写。"""
 
     def __init__(self, workspace: Path):
         self.workspace = workspace
@@ -43,6 +48,18 @@ class MemoryStore:
     @property
     def memory_file(self) -> Path:
         return self.memory_dir / "memory.md"
+
+    @property
+    def events_file(self) -> Path:
+        return self.memory_dir / "memory.jsonl"
+
+    @property
+    def rejected_file(self) -> Path:
+        return self.memory_dir / "rejected.jsonl"
+
+    @property
+    def debug_file(self) -> Path:
+        return self.memory_dir / "memory.debug.md"
 
     def get_cursor(self) -> int:
         """获取 history 游标（已处理的行数）。
@@ -100,6 +117,49 @@ class MemoryStore:
 
     def update_cursor(self, new_cursor: int, fsync: bool = False):
         self._atomic_write(self.cursor_file, str(new_cursor), fsync=fsync)
+
+    def read_events(self) -> list[MemoryEvent]:
+        """逐行读 memory.jsonl 事件流；坏行跳过并告警——事件行是既成历史，不因一行损坏放弃整个 fold。"""
+        try:
+            raw = self.events_file.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return []
+        events: list[MemoryEvent] = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+            except ValueError:
+                logger.warning("事件流坏行，跳过: %s", line[:120])
+                continue
+            if not isinstance(parsed, dict) or not parsed.get("event") or not parsed.get("id"):
+                logger.warning("事件流缺 event/id，跳过: %s", line[:120])
+                continue
+            events.append(MemoryEvent.from_dict(parsed))
+        return events
+
+    def append_event(self, event: MemoryEvent, fsync: bool = False) -> None:
+        """追加一条事件。O_APPEND 单行写短于一内核缓冲，读者不会读到半行。"""
+        with open(self.events_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+            if fsync:
+                f.flush()
+                os.fsync(f.fileno())
+
+    def append_rejected(self, record: dict[str, Any]) -> None:
+        """记录被校验拒绝的 op（含原始输出与原因），供人工审计幻觉处置。"""
+        with open(self.rejected_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def write_projection(self, content: str, fsync: bool = False) -> None:
+        """写 memory.md 投影——可删除可重建，不是真相源。"""
+        self._atomic_write(self.memory_file, content, fsync=fsync)
+
+    def write_debug_projection(self, content: str) -> None:
+        """写 memory.debug.md 调试视图；仅 MEMORY_RENDER_DEBUG_MD 开启时调用。"""
+        self._atomic_write(self.debug_file, content)
 
     def update_dream_cursor(self, new_cursor: int, fsync: bool = False):
         self._atomic_write(self.dream_cursor_file, str(new_cursor), fsync=fsync)
