@@ -2482,13 +2482,18 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "mcp" },
-    { name = "mineru", extra = ["pipeline"] },
     { name = "openai" },
+    { name = "openpyxl" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "rich" },
     { name = "tiktoken" },
     { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+mineru = [
+    { name = "mineru", extra = ["pipeline"] },
 ]
 
 [package.dev-dependencies]
@@ -2505,14 +2510,16 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "mcp", specifier = ">=1.0.0,<2" },
-    { name = "mineru", extras = ["pipeline"], specifier = ">=3.4.5" },
+    { name = "mineru", extras = ["pipeline"], marker = "extra == 'mineru'", specifier = ">=3.4.5" },
     { name = "openai", specifier = ">=1.0.0" },
+    { name = "openpyxl", specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "tiktoken", specifier = ">=0.5.0" },
     { name = "uvicorn", specifier = ">=0.34.0" },
 ]
+provides-extras = ["mineru"]
 
 [package.metadata.requires-dev]
 dev = [

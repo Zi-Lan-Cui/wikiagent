@@ -158,6 +158,8 @@ class CompileConfig(BaseSettings):
     extract_system_tokens: int = 4_000
     extract_output_tokens: int = 6_000
     context_safety_buffer: int = 1_024
+    parse_backend: Literal["auto", "mineru", "builtin"] = "auto"
+    """文档解析后端：auto=builtin 优先、mineru 兜底版面格式；显式 mineru 缺依赖即报错。"""
 
     @model_validator(mode="after")
     def _check_bounds(self) -> CompileConfig:

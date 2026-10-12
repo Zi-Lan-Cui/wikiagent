@@ -5,12 +5,7 @@ from wiki_agent.materials.chunkers import (
     ChunkedFileProperties,
     TextChunker,
 )
-from wiki_agent.materials.converters import (
-    BaseConverter,
-    ConvertedFile,
-    Converter,
-    MinerUConverter,
-)
+from wiki_agent.materials.converters import BaseConverter, ConvertedFile, Converter
 from wiki_agent.materials.loader import (
     DataLoader,
     FileModality,
@@ -27,7 +22,6 @@ __all__ = [
     "DataLoader",
     "FileModality",
     "LoadSummary",
-    "MinerUConverter",
     "RawFileProperties",
     "TextChunker",
 ]

@@ -17,8 +17,11 @@ dependencies = [
     # 跨 task 退出 → "generator didn't stop after athrow()" 噪音）。
     # 钉在 1.x——SSE 独立实现无此问题；升级 2.x 需先验证关闭路径
     "mcp>=1.0.0,<2",
-    "mineru[pipeline]>=3.4.5",
+    "openpyxl>=3.1",
 ]
+
+[project.optional-dependencies]
+mineru = ["mineru[pipeline]>=3.4.5"]  # PDF/DOCX 版面解析重后端，含 torch；core 安装不含
 
 [project.scripts]
 wiki-agent = "wiki_agent.cli:main"

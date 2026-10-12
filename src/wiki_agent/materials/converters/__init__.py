@@ -1,3 +1,4 @@
-from wiki_agent.materials.converters.base import BaseConverter, ConvertedFile
-from wiki_agent.materials.converters.dispatcher import Converter
-from wiki_agent.materials.converters.mineru_converter import MinerUConverter
+from .base import BaseConverter, ConvertedFile
+from .dispatcher import Converter
+
+__all__ = ["BaseConverter", "ConvertedFile", "Converter"]

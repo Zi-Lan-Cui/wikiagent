@@ -28,7 +28,7 @@ from wiki_agent.errors import IngestError, IngestStage, WikiAgentError
 from wiki_agent.llm.client import LLMClient
 from wiki_agent.log import get_logger, span
 from wiki_agent.materials.chunkers import Chunker, StructuredChunker, TextChunker
-from wiki_agent.materials.converters import Converter, MinerUConverter
+from wiki_agent.materials.converters import Converter
 from wiki_agent.materials.loader import RawFileProperties
 from wiki_agent.wiki.pages import index_line, slug_from_ref
 
@@ -110,14 +110,9 @@ class CompilePipeline:
         self._prompts = prompts_pkg.compile
 
         self._converter = Converter(
-            converters=[
-                MinerUConverter(
-                    backend="pipeline",
-                    llm=vlm,
-                    caption_images=True,
-                    assets_dir=self._wiki_dir / "assets",
-                ),
-            ]
+            backend=budget.parse_backend,
+            vlm=vlm,
+            assets_dir=self._wiki_dir / "assets",
         )
         self._chunker = Chunker(
             [
