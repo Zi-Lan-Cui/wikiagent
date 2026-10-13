@@ -2,7 +2,7 @@
 
 基于 LLM 的本地知识库编译与问答工具：把零散的笔记与文档编译成结构化 Wiki，支持一键同步、增量更新、组织整理与基于引用的问答。
 
-![首页：向自己的知识库提问](screens/home.png)
+![首页：向自己的知识库提问](screenshots/home.png)
 
 ## 环境要求
 
@@ -115,13 +115,13 @@ flowchart LR
 
 - **对话**：与知识库问答，回答附引用位置，支持多会话；
 
-  ![问答：问题在上，回答基于知识库并附引用](screens/chat.png)
+  ![问答：问题在上，回答基于知识库并附引用](screenshots/chat.png)
 - **Wiki 浏览**：目录、页面结构与交叉链接；
 
-  ![Wiki 阅读页：标题、元信息、注记与正文](screens/wiki.png)
+  ![Wiki 阅读页：标题、元信息、注记与正文](screenshots/wiki.png)
 - **维护**：发起同步、结构整理、补全链接任务并监视进度，失败任务在此重试。
 
-  ![维护工作台：三张行动卡与任务队列](screens/organize.png)
+  ![维护工作台：三张行动卡与任务队列](screenshots/organize.png)
 
 ### 命令行
 
