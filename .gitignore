@@ -58,3 +58,8 @@ docs/
 
 # LOGO 草案与联系表，不入版本库
 design/
+
+# 语料数据（源文件、seeded wiki、run-evidence、评测记录）全部由 recompile 现生成，
+# 不入库；dev=校准基线集，test=留出评分集。evals 只入库 rubric（尺子）。
+evals/corpora/dev/
+evals/corpora/test/

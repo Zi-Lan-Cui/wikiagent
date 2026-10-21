@@ -1,6 +1,6 @@
 RUN = uv run
 
-.PHONY: test lint typecheck build eval-corpus eval-judge check
+.PHONY: test lint typecheck build eval-corpus eval-source eval-rubric eval-ci check
 
 check: test lint typecheck
 
@@ -20,6 +20,14 @@ build:
 eval-corpus:
 	$(RUN) python evals/run.py corpus
 
-# 运行 Judge 校准（需 LLM API；repeats=3 多数票）
-eval-judge:
-	$(RUN) python -m evals.commands.judge_pilot --repeats 3
+# 评分器定义自检（离线）
+eval-rubric:
+	$(RUN) python evals/run.py rubric-check
+
+# 按 source 生成评测记录（需 LLM）
+eval-source:
+	$(RUN) python evals/run.py source-eval
+
+# 全 source 评测；确定性拦截或判 fail 即非零退出，可作 CI gate（需 LLM）
+eval-ci:
+	$(RUN) python evals/run.py ci

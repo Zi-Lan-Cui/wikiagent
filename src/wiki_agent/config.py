@@ -58,6 +58,22 @@ class VLMConfig(LLMConfig):
     model_config = SettingsConfigDict(env_prefix="VLM_", frozen=True, extra="ignore")
 
 
+class JudgeConfig(LLMConfig):
+    """评测评判模型配置（env 前缀 JUDGE_），用于 evals 的 LLM 评判链路。
+
+    字段与 LLMConfig 一致，只覆盖 env 前缀。整组生效语义：api_key 与
+    model_id 都给出才算已配置，否则回退用 LLM_*——跨模型族
+    交叉验证时应当配置（同族模型共享盲区，一致率会虚高）。
+    """
+
+    model_config = SettingsConfigDict(env_prefix="JUDGE_", frozen=True, extra="ignore")
+
+    @property
+    def configured(self) -> bool:
+        """是否值得替代主 LLM——只配半套视为未配置，避免静默用错端点。"""
+        return bool(self.api_key.strip()) and bool(self.model_id.strip())
+
+
 class AgentConfig(BaseSettings):
     """Agent 生成与上下文治理参数（env 前缀 AGENT_）。
 
@@ -346,6 +362,7 @@ class RootConfig(BaseSettings):
 
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vlm: VLMConfig = Field(default_factory=VLMConfig)
+    judge: JudgeConfig = Field(default_factory=JudgeConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
@@ -409,6 +426,7 @@ def load_config(
     paths = PathsConfig(**env_source, project_root=root, env_file=env)
     llm = LLMConfig(**env_source)
     vlm = VLMConfig(**env_source)
+    judge = JudgeConfig(**env_source)
     agent = AgentConfig(**env_source)
     compile_cfg = CompileConfig(**env_source)
     logging_cfg = LoggingConfig(**env_source)
@@ -423,6 +441,7 @@ def load_config(
     config = RootConfig(
         llm=llm,
         vlm=vlm,
+        judge=judge,
         agent=agent,
         compile=compile_cfg,
         logging=logging_cfg,

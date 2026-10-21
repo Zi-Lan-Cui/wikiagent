@@ -8,7 +8,9 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from evals.core.reference_models import CorpusManifest, JudgementSet
+from evals.core.reference_models import CorpusManifest, load_grader
+
+_GRADER_PATH = Path(__file__).resolve().parents[1] / "rubrics" / "stage-rubrics-v1.json"
 
 
 def _sha256(path: Path) -> str:
@@ -73,32 +75,13 @@ def validate_corpus(manifest_path: Path) -> tuple[CorpusManifest | None, list[st
     return manifest, errors
 
 
-def validate_judgements(manifest_path: Path) -> list[str]:
-    """校验判词题集——schema、四维度覆盖、页面引用真实存在。"""
-    root = manifest_path.parent.resolve()
-    errors: list[str] = []
+def validate_grader() -> list[str]:
+    """校验评分器定义——定义损坏会使整条评测链路失真，须与语料校验并列报错。"""
     try:
-        gold = JudgementSet.model_validate_json(
-            (root / "verdicts" / "judgements-v2.json").read_text(encoding="utf-8")
-        )
-    except (OSError, ValidationError, ValueError) as exc:
-        return [f"judgements-v2.json 无法解析: {exc}"]
-
-    dimensions: dict[str, list] = {}
-    for case in gold.cases:
-        dimensions.setdefault(case.dimension, []).append(case)
-        # 页面引用存在性
-        for page in case.target.get("pages", []):
-            if not (root / "baselines" / "seeded" / "wiki" / page).is_file():
-                errors.append(f"{case.id}: 页面不存在 {page}")
-        # source 存在性
-        if not (root / "baselines" / "seeded" / "source" / case.source).is_file():
-            errors.append(f"{case.id}: source 不存在 {case.source}")
-    for dim in ("grounding", "coverage", "organization", "uncertainty"):
-        count = len(dimensions.get(dim, []))
-        if count < 3:
-            errors.append(f"维度 {dim} 题量不足: {count} < 3")
-    return errors
+        load_grader(_GRADER_PATH)
+    except (OSError, ValueError) as exc:  # ValidationError 是 ValueError 子类
+        return [f"stage-rubrics-v1.json 无法解析: {exc}"]
+    return []
 
 
 def main() -> int:
@@ -107,7 +90,7 @@ def main() -> int:
         "manifest",
         type=Path,
         nargs="?",
-        default=Path("evals/corpora/reference-v1/manifest.json"),
+        default=Path("evals/corpora/dev/manifest.json"),
     )
     args = parser.parse_args()
     manifest, errors = validate_corpus(args.manifest)
@@ -115,7 +98,7 @@ def main() -> int:
         print("manifest 无法解析:")
         print("\n".join(f"- {error}" for error in errors))
         return 1
-    errors.extend(validate_judgements(args.manifest))
+    errors.extend(validate_grader())
     print(f"corpus: {manifest.corpus_id} ({len(manifest.baselines)} baselines)")
     for baseline in manifest.baselines:
         print(f"  - {baseline.id}: {baseline.description[:60]}")
