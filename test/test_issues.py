@@ -372,3 +372,33 @@ def test_rescan_settlement_yields_to_manual_decision(tmp_path: Path):
     )
     assert final.status == "succeeded"
     assert service.issues.get(target.id).status == IssueStatus.DISMISSED, "不被 rescan 复活"
+
+
+def test_reconcile_retry_sources_marks_lost_and_clears_recovered(tmp_path: Path):
+    """启动核对双向：源丢失→标记不可用，标记遗留但源已恢复→清除并转回 OPEN。"""
+    from wiki_agent.issues.actions import IssueActionExecutor
+
+    service = make_job_service(tmp_path)
+    store = service.issues
+    coordinator = service.issues_coordinator
+
+    # A：源不存在 → reconcile 应标记
+    issue_lost = store.report(
+        _draft(fingerprint="reconcile-lost", context={"source_path": str(tmp_path / "gone.md")})
+    )
+    # B：已标记但源其实在原位 → reconcile 应清除
+    present = tmp_path / "present.md"
+    present.write_text("内容" * 10, encoding="utf-8")
+    issue_recovered = store.report(
+        _draft(fingerprint="reconcile-recovered", context={"source_path": str(present)})
+    )
+    coordinator.mark_retry_unavailable(issue_recovered.id, "原始来源已不存在")
+
+    executor = IssueActionExecutor(
+        service=IssueService(store), store=store, wiki_dir=tmp_path / "wiki", issues_coordinator=coordinator
+    )
+    executor.reconcile_retry_sources()
+
+    assert store.get(issue_lost.id).retry.get("unavailable_reason"), "丢失应被标记"
+    assert not store.get(issue_recovered.id).retry.get("unavailable_reason"), "恢复应被清除"
+    assert store.get(issue_recovered.id).status == IssueStatus.OPEN

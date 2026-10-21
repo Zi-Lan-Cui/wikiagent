@@ -38,8 +38,8 @@ class IssueCoordinator:
     def _raise_if_retry_ineligible(issue: IssueRecord) -> None:
         """重试资格在提交口统一判定：编译失败记录且未终态。
 
-        来源可读性在批内逐行判（resolve_retry_source）；标记 unavailable 的入账
-        由调用方处理，提交口只拒绝、不改 issue 状态。
+        来源可读性在批内逐行判（resolve_retry_source）；本判定只作资格不合格即拒，
+        不写状态——不可用标记的增删与 BLOCKED/OPEN 互转在 submit_issue_retry_batch 内做。
         """
         if issue.kind != IssueKind.INGESTION_FAILURE:
             raise IssueActionConflict(f"不是编译失败账，不能重试: {issue.kind}")
@@ -53,15 +53,16 @@ class IssueCoordinator:
     def submit_issue_retry_batch(self, issue_ids: list[str]) -> list[Job]:
         """批量重试：资格与输入快照在事务前，收敛与入队在单事务内。
 
-        来源不可读时标记 unavailable（在事务外，避免批事务持写锁时嵌套写库）。
+        来源不可读时标记 unavailable、已恢复时清除标记（均在事务外，避免批事务持写锁时嵌套写库）。
         逐行做执行唯一性收敛：该 issue 已有在途行则返回既有行；资源被在途行占用
         （含本批前序行）则收敛到该行、其无关联 issue 时补挂。两个收敛都不到且
         批外有写 wiki 在途时抛 PipelineBusy——在途计数在事务开始时取定，本批
         自产行不计入。
 
         快照语义同 submit_sync：digest 取自点击时复制的副本。任一行资格不过、
-        输入不可读或遇互斥，整批回滚并删除已复制的快照目录。issue 终态由
-        compile job 的 outcome 落，提交不改 issue 状态。
+        输入不可读或遇互斥，整批回滚并删除已复制的快照目录。提交口只维护不可用标记
+        与 BLOCKED/OPEN 互转（探测失败→标记并 BLOCKED、成功且此前被标记→清除并 OPEN），
+        不下 RESOLVED——issue 的销账终态仍由 compile job 的 outcome 落。
         """
         prepared: list[tuple[str, str, str, str]] = []
         fresh_batches: list[str] = []
@@ -69,9 +70,7 @@ class IssueCoordinator:
             for issue_id in issue_ids:
                 issue = self.issues.require(issue_id)
                 self._raise_if_retry_ineligible(issue)
-                unavailable = str(issue.retry.get("unavailable_reason") or "")
-                if unavailable:
-                    raise SourceUnavailableError(unavailable)
+                # 以实时探测为准，不拿缓存的 unavailable_reason 当准入判据：源可能已被放回原位
                 try:
                     resource = str(Path(resolve_retry_source(issue)).resolve())
                     batch = f"retry_{uuid4().hex}"
@@ -83,6 +82,8 @@ class IssueCoordinator:
                     reason = str(exc)
                     self.mark_retry_unavailable(issue_id, reason)
                     raise SourceUnavailableError(reason) from exc
+                if issue.retry.get("unavailable_reason"):
+                    self.clear_retry_unavailable(issue_id)
                 prepared.append((issue_id, resource, batch, digest))
             jobs: list[Job] = []
             used: set[str] = set()
@@ -142,6 +143,17 @@ class IssueCoordinator:
             self.issues.transition(
                 issue_id, IssueStatus.BLOCKED, event="blocked_source_unavailable"
             )
+
+    def clear_retry_unavailable(self, issue_id: str) -> None:
+        """移除 retry.unavailable_reason、BLOCKED 转回 OPEN；由调用方在实时探测
+        确认源已可读后调用，账未标记则原样返回。"""
+        record = self.issues.require(issue_id)
+        if not record.retry.get("unavailable_reason"):
+            return
+        retry = {k: v for k, v in record.retry.items() if k != "unavailable_reason"}
+        self.issues.update_payloads(issue_id, retry=retry, event="retry_source_available")
+        if record.status == IssueStatus.BLOCKED:
+            self.issues.transition(issue_id, IssueStatus.OPEN, event="unblocked_source_available")
 
     def submit_issue_action(
         self, issue_id: str, action: str, payload: dict[str, object] | None = None

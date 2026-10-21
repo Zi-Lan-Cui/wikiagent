@@ -93,22 +93,26 @@ class IssueActionExecutor:
         self.issues_coordinator = issues_coordinator
 
     def reconcile_retry_sources(self) -> int:
-        """在适配器启动时标记已丢失的历史重试输入。"""
+        """启动时双向核对历史重试输入：丢失→标记，恢复→清除。"""
         changed = 0
         records = self.store.list(
             statuses={IssueStatus.OPEN, IssueStatus.BLOCKED},
             kinds={IssueKind.INGESTION_FAILURE},
             limit=1000,
         )
+        assert self.issues_coordinator is not None
         for record in records:
-            if record.retry.get("unavailable_reason"):
-                continue
+            flagged = bool(record.retry.get("unavailable_reason"))
             try:
                 resolve_retry_source(record)
             except SourceUnavailableError as exc:
-                assert self.issues_coordinator is not None
-                self.issues_coordinator.mark_retry_unavailable(record.id, str(exc))
-                changed += 1
+                if not flagged:
+                    self.issues_coordinator.mark_retry_unavailable(record.id, str(exc))
+                    changed += 1
+            else:
+                if flagged:
+                    self.issues_coordinator.clear_retry_unavailable(record.id)
+                    changed += 1
         return changed
 
     def retry_batch_candidates(self, *, exclude_issue_ids: set[str] | None = None) -> list[str]:

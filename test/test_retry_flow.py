@@ -281,6 +281,24 @@ def test_final_result_persists_bounded_facts_only(tmp_path: Path):
     assert done.result == {"settlement": "ingested", "digest": "abc123"}
 
 
+def test_retry_after_source_restored_clears_unavailable(tmp_path: Path):
+    """源恢复后重试入口回活：submit 以实时探测为准并清除缓存的 unavailable 标记，
+    不再被旧的单向标记永久拒绝。"""
+    service = make_job_service(tmp_path)
+    source = tmp_path / "note.md"
+    source.write_text("重试内容" * 10, encoding="utf-8")
+    issue = _failure_issue(service, source)
+    # 遗留态：曾判源不可用、标记已置、账转 BLOCKED，但文件此刻其实已在原位
+    service.issues_coordinator.mark_retry_unavailable(issue.id, "原始来源已不存在")
+    assert service.issues.get(issue.id).status == IssueStatus.BLOCKED
+
+    job = service.submit_issue_retry(issue.id)
+    assert job.kind == "compile" and job.mode == "issue_retry"
+    recovered = service.issues.get(issue.id)
+    assert "unavailable_reason" not in recovered.retry, "探测成功应清除标记"
+    assert recovered.status == IssueStatus.OPEN
+
+
 if __name__ == "__main__":
     import traceback
 
