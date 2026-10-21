@@ -10,6 +10,7 @@ from wiki_agent.conversation import Session
 from wiki_agent.events import AgentHook
 from wiki_agent.wiki.normalize import inject_title_from_h1
 from wiki_agent.wiki.quality import cleanup_exact_duplicates, scan_wiki
+from wiki_agent.wiki.rules import check_page_output
 
 
 def _page(
@@ -223,3 +224,56 @@ def test_command_progress_uses_shared_hook_protocol():
     assert hooks.events[0] == ("start", "compile", "compile_1")
     assert hooks.events[1] == ("progress", "extract", "提取中")
     assert hooks.events[2] == ("end", "compile", "compile_1")
+
+
+# ── tags/gaps 只在生成期要求非空，不进写入闸门与存量扫描 ────────────────────
+
+
+def _gen_page(tags: str | None = None, gaps: str | None = None) -> str:
+    lines = [
+        "---",
+        "type: concept",
+        'title: "甲"',
+        "summary: 一个正常摘要",
+        "goal: 说明这个页面",
+    ]
+    if tags is not None:
+        lines.append(f"tags: {tags}")
+    if gaps is not None:
+        lines.append(f"gaps: {gaps}")
+    lines += ["related: []", "---", "# 甲", "", "这是足够长的页面正文内容。"]
+    return "\n".join(lines) + "\n"
+
+
+def test_generation_check_rejects_missing_tags_and_gaps():
+    ok, reason = check_page_output(_gen_page(), extra_required=("tags", "gaps"))
+    assert ok is False and "tags" in reason and "gaps" in reason
+
+
+def test_generation_check_rejects_blank_gap_or_empty_tag_list():
+    # gaps 是覆盖状态声明、tags 至少一个：空串与空列表都算未填，须重试补写
+    assert check_page_output(_gen_page(tags="[]", gaps="已覆盖"), extra_required=("tags", "gaps"))[0] is False
+    assert check_page_output(_gen_page(tags="[共识]", gaps=""), extra_required=("tags", "gaps"))[0] is False
+
+
+def test_generation_check_passes_when_tags_and_gaps_filled():
+    ok, _ = check_page_output(
+        _gen_page(tags="[共识]", gaps="来源已覆盖 goal，暂无待补缺口"),
+        extra_required=("tags", "gaps"),
+    )
+    assert ok is True
+
+
+def test_write_gate_and_scan_do_not_require_tags_or_gaps(tmp_path: Path):
+    # 老页缺 tags/gaps：写入闸门与存量扫描仍按四字段放行，不得整体判不合格
+    page = _gen_page()
+    assert check_page_output(page)[0] is True
+    wiki = tmp_path / "wiki"
+    (wiki / "concepts").mkdir(parents=True)
+    (wiki / "concepts" / "old.md").write_text(page, encoding="utf-8")
+    issues = scan_wiki(wiki)
+    assert not [
+        issue
+        for issue in issues
+        if issue.level == "error" and ("tags" in issue.message or "gaps" in issue.message)
+    ]

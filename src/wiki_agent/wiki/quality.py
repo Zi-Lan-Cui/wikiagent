@@ -216,6 +216,7 @@ def check_source_output(content: str, *, path: str) -> list[Issue]:
     issues: list[Issue] = []
     if not content or not content.strip():
         return [Issue("error", path, "内容为空")]
+    # source 档案页走默认骨架四字段——tags/gaps 是知识页生成期才追加的应有字段，档案页按原文保真、不带这两项
     ok, reason = check_page_frontmatter(content)
     if not ok:
         return [Issue("error", path, reason)]

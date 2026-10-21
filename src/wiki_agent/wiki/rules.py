@@ -160,7 +160,9 @@ def check_page_body(content: str) -> tuple[bool, str]:
     return True, ""
 
 
-def check_page_output(content: str) -> tuple[bool, str]:
+def check_page_output(
+    content: str, *, extra_required: tuple[str, ...] = ()
+) -> tuple[bool, str]:
     """页面输出总检查：frontmatter 必填 + 正文存在 + 格式，任一不过即重试。
 
     组合顺序：先 frontmatter（结构性），再正文存在，最后 wikilink/fence
@@ -168,11 +170,12 @@ def check_page_output(content: str) -> tuple[bool, str]:
 
     Args:
         content: LLM 生成的页面内容。
+        extra_required: 转交 check_page_frontmatter 的额外非空必填字段。
 
     Returns:
         (是否通过, 可执行的错误消息)。
     """
-    ok, err = check_page_frontmatter(content)
+    ok, err = check_page_frontmatter(content, extra_required=extra_required)
     if not ok:
         return ok, err
     ok, err = check_page_body(content)
@@ -185,13 +188,18 @@ def check_page_frontmatter(
     content: str,
     *,
     required: tuple[str, ...] = ("type", "title", "summary", "goal"),
+    extra_required: tuple[str, ...] = (),
 ) -> tuple[bool, str]:
-    """校验页面输出的 frontmatter 必填字段。
+    """校验页面输出的 frontmatter 必填字段，全部要求非空。
 
     Args:
         content: 页面内容。
-        required: 必填字段集——goal 是页面使命字段，缺失时 LLM
-            重试补写。
+        required: 页面骨架字段，恒非空——写入闸门、存量扫描、维护路径都按此判定。
+        extra_required: 仅新页生成校验追加的非空字段，不进入上述路径。tags 与
+            gaps 属此列：提示词规定二者必恒填——tags 至少一个，gaps 是本页相对
+            goal 的覆盖状态声明、供后续编译判断该不该插入，无缺口也须写明状态、
+            不得留空。缺了它们会一路漏到评测侧才被 X-FM 拦下，故在生成期就要求
+            补齐、缺失即重试。
 
     Returns:
         (是否通过, 可执行的错误消息)。
@@ -199,10 +207,20 @@ def check_page_frontmatter(
     frontmatter, _ = split_frontmatter(content)
     if not frontmatter:
         return False, "页面缺少 YAML frontmatter（--- 包裹的头部）。"
-    missing = [k for k in required if not frontmatter.get(k, "").strip()]
+    missing = [k for k in (*required, *extra_required) if _is_blank(frontmatter.get(k, ""))]
     if missing:
         return False, f"frontmatter 缺少必填字段: {', '.join(missing)}。"
     return True, ""
+
+
+def _is_blank(value: object) -> bool:
+    """字段是否视为空：空串，或 split_frontmatter 保留成字符串的空容器 [] / {}。
+
+    split_frontmatter 不解析 YAML、按原始字符串取值，故 `tags: []` 会留成 '[]'、
+    `gaps: ""` 剥引号后留成 ''——两者都算没填，须重试补写。
+    """
+    text = str(value).strip()
+    return text in ("", "[]", "{}", "[ ]", "{ }")
 
 
 def _check_wikilink_has_text(content: str) -> tuple[bool, str]:

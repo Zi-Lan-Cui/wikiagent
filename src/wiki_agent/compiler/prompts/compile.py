@@ -244,8 +244,8 @@ def search_system() -> str:
             "3. Single passing citation: a reference/footnote mention does not count",
             '4. Too generic: super-concepts every document touches ("Python",'
             ' "programming")',
-            "5. Volume control: pick the 3-8 most important; better miss one than"
-            " pad the list. Zero is fine too",
+            "5. Volume control: at most 8, and only pages that pass the inclusion"
+            " rules above; better miss one than pad the list. Zero is fine too",
         ]
     )
 
@@ -577,7 +577,7 @@ def new_page_system() -> str:
             "type: concept          # concept / entity / topic / source\n"
             'title: "标题"           # standard technical name\n'
             'summary: "≤50字概述"     # for the index\n'
-            "tags: [tag1, tag2]\n"
+            "tags: [tag1, tag2]      # 至少一个，不留空\n"
             'goal: "本页使命"         # see the goal notes below\n'
             'gaps: "一句话说明本页尚未覆盖的内容——后续文档可据此补缺"\n'
             "# created/updated/sources are maintained by the system — do not write them\n"
@@ -588,12 +588,15 @@ def new_page_system() -> str:
             " range, e.g. '系统覆盖 Python 闭包的机制、应用场景与内存管理，服务初学者的完整参考'.\n"
             "It is not a content inventory (that is gaps' job). Too broad"
             " ('讲好 Python') or too narrow ('覆盖 print 用法') both fail.\n"
-            "## gaps (important)\n"
-            "gaps may only record gaps the current source explicitly names but"
-            " does not expand; never invent related topics from training memory"
-            " or common sense. With no explicit gap, write an empty string.\n"
-            "Later compilations read these declarations to judge whether new"
-            " documents can supplement this page.\n"
+            "## gaps (important — always filled)\n"
+            "gaps declares this page's coverage status against its goal. Later"
+            " compilations read it to decide whether new documents should be"
+            " inserted into this page — so it is never left blank.\n"
+            "Record only gaps the current source explicitly names but does not"
+            " expand; never invent related topics from training memory or"
+            " common sense. When the source names no gap, state that status"
+            " instead of leaving it empty, e.g."
+            " '来源已覆盖本页 goal 所列主题，暂无待补缺口'.\n"
             "## Body: # 标题 → overview → ## sections\n"
             "[[wikilink]] always carries | display text: [[slug|显示文本]].\n"
             "- ✓ [[entities/wraps|wraps]]\n"
@@ -680,7 +683,9 @@ def update_system() -> str:
             " checkable topic range, not a content inventory).",
             "## gaps update\nRemove only the old gaps this run's new information"
             " explicitly covers; keep the rest. Never invent new gaps from"
-            " outside knowledge; a page without gaps may carry an empty string.",
+            " outside knowledge. If nothing remains uncovered, state the no-gap"
+            " status rather than blanking it, e.g."
+            " '来源已覆盖 goal 所列主题，暂无待补缺口' — gaps is never left empty.",
             "## Conflicts: when disputed, mark:",
             "> **Status: Disputed**",
             "> - 版本A (已有): ...",

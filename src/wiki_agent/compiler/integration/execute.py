@@ -104,7 +104,9 @@ class Executor:
                 Message(role="user", content=user_prompt),
             ],
             max_tokens=_UPDATE_TOKENS,
-            check=check_page_output,
+            # 生成期要求 tags/gaps 非空（gaps 是覆盖状态声明、无缺口也要写明），缺失即重试补写；
+            # 此判据只在这里生效，不进入写入闸门与存量扫描，以免波及缺字段的老页
+            check=lambda content: check_page_output(content, extra_required=("tags", "gaps")),
             extra_body=NO_THINKING,
             max_attempts=_PAGE_GEN_RETRIES,
         )
