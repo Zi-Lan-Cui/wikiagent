@@ -7,13 +7,14 @@ execute → index。流水线不决定失败策略：阶段异常携带阶段信
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Generator
+from collections.abc import Awaitable, Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeVar
 
 from wiki_agent.compiler.extraction import Extractor
+from wiki_agent.compiler.hooks import CompileEvent, CompileHook, CompileStage, emit_compile_event
 from wiki_agent.compiler.integration import compile_integrator
 from wiki_agent.compiler.models import (
     AnalysisResult,
@@ -67,6 +68,9 @@ class CompilePipeline:
     构造一次，跨文件复用。
     """
 
+    # 类级空元组兜底：__new__ 直接构造、未走 __init__ 的实例，_emit 仍读到合法值
+    _hooks: tuple[CompileHook, ...] = ()
+
     def __init__(
         self,
         *,
@@ -79,6 +83,7 @@ class CompilePipeline:
         extract_concurrency: int | None = None,
         compile_config: CompileConfig | None = None,
         on_progress: Callable[[str], None] | None = None,
+        hooks: Sequence[CompileHook] = (),
     ):
         """初始化流水线：convert→chunk→extract→search→analyze→plan→execute。
 
@@ -92,7 +97,9 @@ class CompilePipeline:
             extract_concurrency: extract 并发数。
             compile_config: 编译预算配置。
             on_progress: 阶段切换回调，接收稳定的英文阶段代码。
+            hooks: 阶段边界观测钩子，按 hooks 模块协议派发，默认无。
         """
+        self._hooks = tuple(hooks)
         self._wiki_dir = Path(wiki_dir)
         self._source_records_dir = (
             Path(source_records_dir) if source_records_dir is not None else None
@@ -149,11 +156,32 @@ class CompilePipeline:
             IngestError: 阶段失败，stage 指明失败发生在哪一段。
         """
         async with span("ingest_file", file=raw_file.name):
-            return await self._ingest_one(raw_file)
+            outcome = IngestOutcome(source=raw_file.name)
+            try:
+                result = await self._ingest_one(raw_file, outcome)
+            except Exception as exc:
+                # 失败批也发 batch_end：钩子据此落盘已产生的部分证据
+                self._emit("batch_end", outcome, error=exc)
+                raise
+            self._emit("batch_end", outcome)
+            return result
 
-    async def _ingest_one(self, raw_file: RawFileProperties) -> IngestOutcome:
-        outcome = IngestOutcome(source=raw_file.name)
+    def _emit(
+        self, stage: CompileStage, outcome: IngestOutcome,
+        index_content: str | None = None, error: Exception | None = None,
+    ) -> None:
+        emit_compile_event(
+            self._hooks,
+            CompileEvent(
+                source=outcome.source, stage=stage, wiki_dir=self._wiki_dir,
+                outcome=outcome, index_content=index_content, error=error,
+            ),
+        )
 
+    async def _ingest_one(
+        self, raw_file: RawFileProperties, outcome: IngestOutcome | None = None
+    ) -> IngestOutcome:
+        outcome = outcome or IngestOutcome(source=raw_file.name)
         # 1. Convert
         converted = await self._stage(
             IngestStage.CONVERT, raw_file.name, self._converter.convert, raw_file
@@ -198,6 +226,7 @@ class CompilePipeline:
                 source=raw_file.name,
                 error_code="empty_extract_summary",
             )
+        self._emit("extract", outcome)
 
         # 4. Search → Analyze → Plan（analyze/plan 内部已 raise IngestError）
         # index 存在性只在入口保证一次，后续环节读到的总是真实或新建的空 index
@@ -205,6 +234,7 @@ class CompilePipeline:
         index_content = (self._wiki_dir / "index.md").read_text(encoding="utf-8")
         schema = self._read_optional("schema.md")
         purpose = self._read_optional("purpose.md")
+        self._emit("batch_start", outcome, index_content=index_content)
 
         # 契约: ingest_one 只抛 IngestError。search/analyze/plan 的未预期
         # 异常经 _stage 包装，IngestError 原样透传（保留 stage）
@@ -217,6 +247,7 @@ class CompilePipeline:
         )
         logger.info("  search: %d 个候选", len(search_result.rel_paths))
         outcome.search = search_result
+        self._emit("search", outcome)
         outcome.analysis = await self._stage(
             IngestStage.ANALYZE,
             raw_file.name,
@@ -224,6 +255,7 @@ class CompilePipeline:
             outcome.extract,
             search_result,
         )
+        self._emit("analyze", outcome)
         outcome.plan = await self._stage(
             IngestStage.PLAN,
             raw_file.name,
@@ -234,6 +266,7 @@ class CompilePipeline:
             purpose=purpose,
             index_content=index_content,
         )
+        self._emit("plan", outcome)
 
         # 5. Execute + index 更新（execute 失败隔离在页级，这里失败是批级问题）
         n = len(outcome.plan.page_targets)
@@ -241,6 +274,8 @@ class CompilePipeline:
             outcome.noop = True
             logger.info("  plan: 无页面操作")
             return outcome
+        # pre_execute 是 update 前像的最后读取窗口：随后 execute 覆盖同路径页面
+        self._emit("pre_execute", outcome)
         try:
             executed = await self._stage(
                 IngestStage.EXECUTE,
