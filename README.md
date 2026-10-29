@@ -13,7 +13,7 @@
 
 ## 快速开始
 
-### Docker
+### 通过 Docker 部署
 
 ```bash
 git clone https://github.com/Zi-Lan-Cui/wikiagent.git

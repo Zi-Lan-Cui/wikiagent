@@ -1,4 +1,12 @@
-"""评测统一入口。"""
+"""评测统一入口。
+
+子命令：
+  corpus       校验评测语料、评分器定义与题集数据（离线，不调 LLM）
+  rubric-check 评分器定义自检（离线）
+  source-eval  按 source 生成评测记录（需 LLM）
+  ci           全 source 评测，确定性拦截或判 fail 即退出码 1（需 LLM）
+  recompile    源文件逐篇编译进新 wiki 并落 run-evidence（需 LLM）
+"""
 
 from __future__ import annotations
 
