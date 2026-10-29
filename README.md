@@ -103,8 +103,6 @@ flowchart LR
 
 ### Web 工作台
 
-一个界面三块功能，交互便捷，为推荐使用的主入口：
-
 - **对话**：与知识库问答，回答附带具体引用位置；
 
   ![问答：问题在上，回答基于知识库并附引用](screenshots/chat.png)
@@ -117,11 +115,11 @@ flowchart LR
 
 ## 数据目录与配置
 
-- `inputs/`：你自己的资料（md、pdf、docx、图片），系统只读取；
+- `inputs/`：需要被编译的资料；
 - `wiki/`：生成的知识页，由系统维护，不建议直接编辑；
 - `workspace/`：运行状态、日志与会话数据。
 
-三个目录默认在项目根下，互不嵌套即可用 `WIKI_INPUTS_DIR`、`WIKI_WIKI_DIR`、`WIKI_WORKSPACE_DIR` 移至别处；备份与迁移打包这三个目录即可。
+三个目录默认在项目根，可用 `WIKI_INPUTS_DIR`、`WIKI_WIKI_DIR`、`WIKI_WORKSPACE_DIR` 移至别处.
 
 配置集中在 `env/.env`，完整项与注释见 `env/.env.example`：
 
