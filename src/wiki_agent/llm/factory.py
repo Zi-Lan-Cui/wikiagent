@@ -44,18 +44,22 @@ def create_llm(config: LLMConfig, retry_config: RetryConfig | None = None) -> LL
     return client
 
 
-def create_vlm(config: VLMConfig, retry_config: RetryConfig | None = None) -> LLMClient:
+def create_vlm(config: VLMConfig, retry_config: RetryConfig | None = None) -> LLMClient | None:
     """从 VLMConfig 创建多模态 VLM 客户端。
 
     返回同一个 LLMClient 类型，多模态能力由 Message(images=[...]) 驱动，
-    客户端本身不区分。
+    客户端本身不区分。VLM 为可选项，未配置时返回 None，下游据
+    ``vlm is not None`` 关闭图片 caption 链路。
 
     Args:
         config: VLM 配置（继承 LLMConfig）。
 
     Returns:
-        LLMClient 实例。
+        LLMClient 实例；VLM 未配置时为 None。
     """
+    if not config.configured:
+        logger.info("VLM 未配置，图片 caption 链路关闭")
+        return None
     client = LLMClient(
         config,
         retry_config,

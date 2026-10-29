@@ -409,7 +409,7 @@ class ReActAgent(BaseAgent):
         self,
         name: str,
         llm: LLMClient,
-        vlm: LLMClient,
+        vlm: LLMClient | None,
         tool_registry: ToolRegistry,
         workspace: Path,
         issue_service: IssueService,

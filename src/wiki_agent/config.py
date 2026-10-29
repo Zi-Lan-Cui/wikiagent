@@ -47,6 +47,10 @@ class LLMConfig(BaseSettings):
             )
         return self
 
+    @property
+    def configured(self) -> bool:
+        return bool(self.api_key.strip()) and bool(self.model_id.strip())
+
 
 class VLMConfig(LLMConfig):
     """多模态 VLM 配置（env 前缀 VLM_），用于图片 caption。
@@ -67,11 +71,6 @@ class JudgeConfig(LLMConfig):
     """
 
     model_config = SettingsConfigDict(env_prefix="JUDGE_", frozen=True, extra="ignore")
-
-    @property
-    def configured(self) -> bool:
-        """是否值得替代主 LLM——只配半套视为未配置，避免静默用错端点。"""
-        return bool(self.api_key.strip()) and bool(self.model_id.strip())
 
 
 class AgentConfig(BaseSettings):
