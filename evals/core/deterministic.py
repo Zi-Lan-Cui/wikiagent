@@ -1,10 +1,4 @@
-"""确定性校验执行器——按 kind 分派到具名函数，禁止 eval 任意字符串。
-
-产物两种形态：dict（JSON 产物）、str（文本产物——仅支持 kind="range"
-且路径 chars）。formula 规则可引用派生量（如 index_pages），由调用方经
-context 注入。未知 kind、文本产物遇到非 range 规则都直接抛错——静默跳过
-等于悄悄放宽 gate，比误拦更难发现。
-"""
+"""确定性校验执行器——按 kind 分派到具名函数，禁止 eval 任意字符串。"""
 
 from __future__ import annotations
 
@@ -18,12 +12,7 @@ _RELATION_PATTERN = re.compile(r"^\s*(\w+|len\(\w+\))\s*(==|!=|in)\s*(.+?)\s*$")
 
 
 def _leaf_values(artifact: dict, pointer: str) -> tuple[bool, list]:
-    """按 pointer 取叶子值：`page_targets[].wiki_path` 展开列表逐元素再取字段。
-
-    Returns:
-        (首段字段是否存在, 叶子值列表)。存在但展开为空（如 page_targets 为空
-        数组）与字段根本缺失必须可区分——前者合法通过，后者说明产物结构坏了。
-    """
+    """按 pointer 取叶子值：`page_targets[].wiki_path` 展开列表逐元素再取字段。"""
     if not pointer:
         return True, [artifact]
     segments = pointer.split(".")

@@ -25,8 +25,7 @@ _DIMENSION_ID = re.compile(r"^[A-Z]\d")
 
 
 def _normalize_dimension_id(raw: str) -> str:
-    """评判模型常见偏差：把「P1 决策正确性 权重 0.55」整段抄进 dimension_id。
-    前缀能对上唯一标识就取标识；对不上原样返回，交给集合校验判自创。"""
+    """标准化维度 ID：提取符合格式的前缀，如 P1、E2 等。"""
     match = _DIMENSION_ID.match(raw.strip())
     return match.group(0) if match else raw.strip()
 
@@ -91,9 +90,7 @@ def build_rubric_messages(
 
 
 def _check_rubric_json(content: str, expected_ids: set[str]) -> tuple[bool, str]:
-    """形状校验：维度 id 集合与期望严格相等，且每维带非空 rationale。分数越界不在此拦——
-    那是单条内容错误，交给 _dimension_scores 记 None，其余维度照收。缺理由视为无效：
-    只有分数没有依据的记录无法核验 judge 是否读对了输入。"""
+    """形状校验：维度 id 集合与期望严格相等"""
     try:
         data = json.loads(strip_fence(content))
     except Exception as exc:
@@ -117,7 +114,7 @@ def _check_rubric_json(content: str, expected_ids: set[str]) -> tuple[bool, str]
 
 
 def _dimension_scores(data: dict[str, Any]) -> list[DimensionScore]:
-    """越界/非整数分数记 None（内容错误单条丢弃），其余照收。"""
+    """越界/非整数分数记 None,不参与聚合"""
     scores: list[DimensionScore] = []
     for item in data["dimensions"]:
         score = item.get("score")
