@@ -4,7 +4,7 @@
 
 ![首页：向自己的知识库提问](screenshots/home.png)
 
-## 它好在哪
+## 特性
 
 - **多格式整合**：Markdown、Excel、PDF开箱即用；按文档结构化程度针对解析方式，提取结果更优质。可选 MinerU 解析版面，质量更高。
 - **增量同步**：只处理新增与改动的文件；删除的文件自动清理对应页面与引用记录。
@@ -85,6 +85,7 @@ uv run uvicorn wiki_agent.web:create_app --factory --port 8000
 | `缺少 LLM API key——请在 env/.env 中设置 LLM_API_KEY` | 创建`env/.env` 并填入密钥                                                                                                                    |
 | `address already in use`                               | 8000 端口被占用；改用`--port 8001` 或停掉占用进程                                                                                            |
 | Docker 拉取基础镜像（ghcr.io）失败                       | 换镜像站构建：`docker compose build --build-arg BASE_IMAGE=ghcr.m.daocloud.io/astral-sh/uv:python3.13-bookworm-slim && docker compose up -d` |
+| Docker 构建长时间停在 `apt-get install`（deb.debian.org 下载慢） | 换 apt 源构建：`docker compose build --build-arg APT_MIRROR=mirrors.cloud.tencent.com && docker compose up -d` |
 
 ## 使用方法
 
