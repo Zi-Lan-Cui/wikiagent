@@ -2,8 +2,14 @@
 ARG BASE_IMAGE=ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 FROM ${BASE_IMAGE}
 
+# apt 源默认官方；国内可 --build-arg APT_MIRROR=mirrors.cloud.tencent.com
+ARG APT_MIRROR=""
+
 # git：wiki 结算经 git 子进程；libgomp：torch；libgl/libglib：MinerU 的 OpenCV 路径
-RUN apt-get update \
+RUN if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update \
     && apt-get install -y --no-install-recommends git libgomp1 libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,6 +45,9 @@ RUN mkdir -p "$TIKTOKEN_CACHE_DIR" \
 RUN useradd -m -u 1000 wiki
 ENV HOME=/home/wiki
 USER wiki
+
+# Windows bind mount 的挂载点属主映射为 root，git 属主保护会拒绝操作
+RUN git config --global --add safe.directory '*'
 
 COPY --chown=wiki:wiki frontend ./frontend
 COPY --chown=wiki:wiki scripts ./scripts
